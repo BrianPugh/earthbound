@@ -1,0 +1,3 @@
+
+WINDOW_MASK_LOOKUP:
+	.BYTE $00, $0F, $F0, $FF

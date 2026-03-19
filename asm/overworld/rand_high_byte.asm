@@ -1,0 +1,5 @@
+
+RAND_HIGH_BYTE:
+	JSL RAND
+	XBA
+	RTL

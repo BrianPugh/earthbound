@@ -1,0 +1,6 @@
+
+SCRIPT_READ_BYTE:
+	LDA [$80],Y
+	INY
+	AND #$00FF
+	RTS

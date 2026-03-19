@@ -40,12 +40,12 @@
 	items .byte 14 ;35
 	equipment .byte 4 ;49
 	unknown53 .word ;53
-	unknown55 .word ;55
+	previous_walking_style .word ;55
 	unknown57 .word ;57
 	unknown59 .word ;59
 	position_index .word ;61
 	unknown63 .word ;63
-	unknown65 .word ;65
+	buffer_walking_style .word ;65
 	current_hp_fraction .word ;67
 	current_hp .word ;69
 	current_hp_target .word ;71
@@ -101,26 +101,26 @@
 	wallet_backup .dword ;82
 	escargo_express_items .byte 36 ;86
 	party_members .byte 6 ;122
-	unknown80 .word ;128
+	leader_x_frac .word ;128
 	leader_x_coord .word ;130
-	unknown84 .word ;132
+	leader_y_frac .word ;132
 	leader_y_coord .word ;134
 	unknown88 .word ;136
 	leader_direction .word ;138
 	trodden_tile_type .word ;140
 	walking_style .word ;142
-	unknown90 .word ;144
-	unknown92 .word ;146
+	leader_moved .word ;144
+	character_mode .word ;146
 	current_party_members .word ;148
-	unknown96 .byte 6 ;150
+	party_order .byte 6 ;150
 	player_controlled_party_members .byte ;156
 	unknown9D .byte 5 ;157
-	unknownA2 .byte 12 ;162
+	party_entity_slots .byte 12 ;162
 	party_count .byte ;174
 	player_controlled_party_count .byte ;175
-	unknownB0 .word ;176
-	unknownB2 .word ; 178
-	unknownB4 .byte 2 ;180
+	camera_mode .word ;176
+	auto_move_frames_left .word ; 178
+	auto_move_saved_walking_style .byte 2 ;180
 	unknownB6 .byte 3 ;182
 	unknownB8 .byte 3 ;185
 	auto_fight_enable .byte ;188
@@ -237,11 +237,11 @@
 	sprite_y .byte ;69
 	initiative .byte ;70
 	unknown71 .byte ;71
-	unknown72 .byte ;72
-	unknown73 .byte ;73
-	unknown74 .byte ;74
+	blink_timer .byte ;72
+	shake_timer .byte ;73
+	is_flash_target .byte ;74
 	use_alt_spritemap .byte ;75
-	unknown76 .byte ;76
+	enemy_type_id .byte ;76
 	id2 .byte ;77
 .ENDSTRUCT
 
@@ -783,9 +783,9 @@
 
 .STRUCT floating_sprite
 	sprite .word ;0
-	unknown2 .byte ;2
-	unknown3 .byte ;3
-	unknown4 .byte ;4
+	position_mode .byte ;2 - placement relative to parent collision box (1-6)
+	x_offset .byte ;3 - signed X offset from calculated position
+	y_offset .byte ;4 - signed Y offset from calculated position
 .ENDSTRUCT
 
 .STRUCT map_tile_event

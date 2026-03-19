@@ -1,0 +1,57 @@
+
+CLEAR_WINDOW_MENU_OPTIONS:
+.IF .DEFINED(JPN)
+	BEGIN_C_FUNCTION
+.ELSE
+	BEGIN_C_FUNCTION_FAR
+.ENDIF
+	STACK_RESERVE_VARS
+.IF .DEFINED(USA)
+	STACK_RESERVE_INT16
+.ENDIF
+	STACK_RESERVE_PARAM_INT16
+	END_STACK_VARS
+	CMP #.LOWORD(-1)
+	BEQ @RETURN
+	ASL
+	TAX
+	LDA OPEN_WINDOW_TABLE,X
+	LDY #.SIZEOF(window_stats)
+	JSL MULT168
+	CLC
+	ADC #.LOWORD(WINDOW_STATS)
+	TAY
+.IF .DEFINED(USA)
+	STY @LOCAL00
+.ENDIF
+	LDA a:window_stats::current_option,Y
+	CMP #.LOWORD(-1)
+	BEQ @RETURN
+	OPTIMIZED_MULT @VIRTUAL04, .SIZEOF(menu_option)
+	CLC
+	ADC #.LOWORD(MENU_OPTIONS)
+	TAX
+@CLEAR_LOOP:
+	LDA #0
+	STA a:menu_option::unknown0,X
+	LDA a:menu_option::next,X
+	CMP #.LOWORD(-1)
+	BEQ @DONE_CLEARING
+	OPTIMIZED_MULT @VIRTUAL04, .SIZEOF(menu_option)
+	CLC
+	ADC #.LOWORD(MENU_OPTIONS)
+	TAX
+	BRA @CLEAR_LOOP
+@DONE_CLEARING:
+	LDA #.LOWORD(-1)
+.IF .DEFINED(USA)
+	LDY @LOCAL00
+.ENDIF
+	STA a:window_stats::selected_option,Y
+	STA a:window_stats::option_count,Y
+	STA a:window_stats::current_option,Y
+	LDA #1
+	STA a:window_stats::unknown49,Y
+	STA a:window_stats::menu_page_number,Y
+@RETURN:
+	END_C_FUNCTION

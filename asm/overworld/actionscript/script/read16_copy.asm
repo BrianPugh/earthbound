@@ -1,0 +1,6 @@
+
+SCRIPT_READ_WORD:
+	LDA [$80],Y
+	INY
+	INY
+	RTS

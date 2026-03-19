@@ -1,0 +1,5 @@
+
+SAVE_SLOT_BIT_FLAGS:
+	.BYTE $01
+	.BYTE $02
+	.BYTE $04

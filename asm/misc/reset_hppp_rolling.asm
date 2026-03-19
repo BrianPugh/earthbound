@@ -1,0 +1,79 @@
+
+RESET_HPPP_ROLLING:
+	BEGIN_C_FUNCTION_FAR
+	STACK_RESERVE_VARS
+	STACK_RESERVE_INT16
+	END_STACK_VARS
+	LDA #0
+	STA @VIRTUAL02
+	BRA @CHECK_LOOP_CONDITION
+@LOOP_BODY:
+.IF .DEFINED(JPN)
+	LDA @VIRTUAL02
+	CLC
+	ADC #.LOWORD(GAME_STATE)
+	TAX
+	LDA a:game_state::party_members,X
+.ELSE
+	LDX @VIRTUAL02
+	LDA GAME_STATE + game_state::party_members,X
+.ENDIF
+	AND #$00FF
+	DEC
+	LDY #.SIZEOF(char_struct)
+	JSL MULT168
+	CLC
+	ADC #.LOWORD(PARTY_CHARACTERS)
+	TAY
+	LDA a:char_struct::afflictions,Y
+	AND #$00FF
+	CMP #1
+	BEQ @CHECK_HP_ROLLING
+	LDA a:char_struct::current_hp,Y
+	BNE @CHECK_HP_ROLLING
+	LDA #1
+	STA a:char_struct::current_hp_target,Y
+@CHECK_HP_ROLLING:
+	LDA a:char_struct::current_hp_fraction,Y
+	BEQ @CHECK_PP_ROLLING
+	LDA a:char_struct::current_hp,Y
+	STA @LOCAL00
+	TYA
+	CLC
+	ADC #char_struct::current_hp_target
+	TAX
+	LDA __BSS_START__,X
+	STA @VIRTUAL04
+	LDA @LOCAL00
+	CMP @VIRTUAL04
+	BLTEQ @CHECK_PP_ROLLING
+	STA __BSS_START__,X
+@CHECK_PP_ROLLING:
+	LDA a:char_struct::current_pp_fraction,Y
+	BEQ @NEXT_MEMBER
+	LDA a:char_struct::current_pp,Y
+	STA @LOCAL00
+	TYA
+	CLC
+	ADC #char_struct::current_pp_target
+	TAX
+	LDA __BSS_START__,X
+	STA @VIRTUAL04
+	LDA @LOCAL00
+	CMP @VIRTUAL04
+	BLTEQ @NEXT_MEMBER
+	STA __BSS_START__,X
+@NEXT_MEMBER:
+	INC @VIRTUAL02
+@CHECK_LOOP_CONDITION:
+	LDA GAME_STATE+game_state::player_controlled_party_count
+	AND #$00FF
+	STA @VIRTUAL04
+	LDA @VIRTUAL02
+	CMP @VIRTUAL04
+	BCCL @LOOP_BODY
+	SEP #PROC_FLAGS::ACCUM8
+	LDA #1
+	STA FASTEST_HPPP_METER_SPEED
+	REP #PROC_FLAGS::ACCUM8
+	END_C_FUNCTION

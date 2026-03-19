@@ -1,0 +1,57 @@
+
+HIDE_HPPP_WINDOWS:
+	BEGIN_C_FUNCTION
+	STACK_RESERVE_VARS
+	STACK_RESERVE_INT16
+	END_STACK_VARS
+	JSR CLEAR_BATTLE_MENU_CHARACTER_INDICATOR
+	SEP #PROC_FLAGS::ACCUM8
+	STZ RENDER_HPPP_WINDOWS
+	REP #PROC_FLAGS::ACCUM8
+	LDA BATTLE_MODE_FLAG
+	BNE @SKIP_HP_PP_SNAP
+	LDY #0
+	STY @LOCAL00
+	BRA @LOOP_TEST
+@LOOP_BODY:
+	TYA
+	JSL UNDRAW_HP_PP_WINDOW
+	LDY @LOCAL00
+.IF .DEFINED(JPN)
+	TYA
+	CLC
+	ADC #.LOWORD(GAME_STATE)
+	TAX
+	LDA a:game_state::party_members,X
+.ELSE
+	LDA GAME_STATE + game_state::party_members,Y
+.ENDIF
+	AND #$00FF
+	DEC
+	LDY #.SIZEOF(char_struct)
+	JSL MULT168
+	CLC
+	ADC #.LOWORD(PARTY_CHARACTERS)
+	TAX
+	LDA __BSS_START__ + char_struct::current_hp_target,X
+	STA __BSS_START__ + char_struct::current_hp,X
+	LDA __BSS_START__ + char_struct::current_pp_target,X
+	STA __BSS_START__ + char_struct::current_pp,X
+	STZ __BSS_START__ + char_struct::current_pp_fraction,X
+	STZ __BSS_START__ + char_struct::current_hp_fraction,X
+	LDY @LOCAL00
+	INY
+	STY @LOCAL00
+@LOOP_TEST:
+	LDA GAME_STATE+game_state::player_controlled_party_count
+	AND #$00FF
+	STA @VIRTUAL02
+	TYA
+	CMP @VIRTUAL02
+	BNE @LOOP_BODY
+@SKIP_HP_PP_SNAP:
+	SEP #PROC_FLAGS::ACCUM8
+	LDA #1
+	STA REDRAW_ALL_WINDOWS
+	REP #PROC_FLAGS::ACCUM8
+	END_C_FUNCTION

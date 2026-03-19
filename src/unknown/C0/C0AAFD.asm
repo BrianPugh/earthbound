@@ -1,6 +1,0 @@
-
-UNKNOWN_C0AAFD:
-	LDA #$0000
-	LDY #$000C
-	STA ($84),Y
-	RTL

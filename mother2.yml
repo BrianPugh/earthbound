@@ -301,7 +301,7 @@ dumpEntries:
   extension: ebtxt
   compressed: false
 - subdir: JP/text_data
-  name: UNKNOWN_C9992F
+  name: DOOR_SCRIPTS
   offset: 0x98000
   size: 5895
   extension: ebtxt
@@ -337,7 +337,7 @@ dumpEntries:
   extension: ebtxt
   compressed: false
 - subdir: JP/text_data
-  name: UNKNOWN7
+  name: DEBUG_TEXT
   offset: 0x9E27C
   size: 37
   extension: ebtxt
@@ -19749,10 +19749,10 @@ renameLabels:
     0x17B9: _SUB_Q_NESSJEFF
     0x17CE: _NESSJEFF_NESS
     0x17D3: MSG_SYS_MGKT_NES_POWER_UP
-  UNKNOWN7:
+  DEBUG_TEXT:
     0x0000: TEXT_UNKNOWN_5_000000
     0x0001: TEXT_DEBUG_UNKNOWN_MENU_2
-  UNKNOWN_C9992F:
+  DOOR_SCRIPTS:
     0x0000: MSG_END
     0x0001: TEXT_DOOR_085
     0x0016: TEXT_UNKNOWN_4_008016
@@ -19955,7 +19955,7 @@ renameLabels:
     0x273: NAME_INPUT_WINDOW_SELECTION_LAYOUT_3
     0x336: NAME_INPUT_WINDOW_SELECTION_LAYOUT_4
     0x3F9: NAME_INPUT_WINDOW_SELECTION_LAYOUT_5
-defaultDumpPath: src/bin/
+defaultDumpPath: asm/bin/
 romIdentifier: 'MOTHER-2             '
 dontUseTextTable: true
 multibyteFlyovers: true

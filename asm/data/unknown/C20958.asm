@@ -1,0 +1,37 @@
+
+; Initial bitmask values for BG2 tile map usage tracking.
+; Copied into USED_BG2_TILE_MAP by INIT_USED_BG2_TILE_MAP.
+; 32 x 16-bit entries representing which tiles are in use.
+USED_BG2_TILE_MAP_DEFAULTS:
+	.WORD $FFFF
+	.WORD $FFFF
+	.WORD $FFFF
+	.WORD $FFFF
+	.WORD $8FFF
+	.WORD $801F
+	.WORD $03FF
+	.WORD $03FF
+	.WORD $0001
+	.WORD $0001
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000
+	.WORD $0000

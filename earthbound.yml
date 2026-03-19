@@ -1014,6 +1014,48 @@ dumpEntries:
   size: 308
   extension: ebm
   compressed: false
+- subdir: music
+  name: dataset_table
+  offset: 0x04F70A
+  size: 573
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: door_data
+  offset: 0x0F0000
+  size: 9807
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: door_config_table
+  offset: 0x0F264F
+  size: 12960
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: door_pointer_table
+  offset: 0x100000
+  size: 5120
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: screen_transition_config
+  offset: 0x101400
+  size: 408
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: event_control_ptr_table
+  offset: 0x101598
+  size: 40
+  extension: bin
+  compressed: false
+- subdir: maps
+  name: tile_event_control_table
+  offset: 0x1015C0
+  size: 704
+  extension: bin
+  compressed: false
 - subdir: maps/anim_gfx
   name: '15'
   offset: 0x1EF0E7
@@ -1134,6 +1176,183 @@ dumpEntries:
   size: 25
   extension: gfx
   compressed: true
+# Palette animation compressed data (MAP_DATA_PALETTE_ANIM_ENTRY_1 through _8)
+- subdir: maps/anim_pal
+  name: '1'
+  offset: 0x1FE61B
+  size: 151
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '2'
+  offset: 0x1FE6B2
+  size: 139
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '3'
+  offset: 0x1FE73D
+  size: 419
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '4'
+  offset: 0x1FE8E0
+  size: 140
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '5'
+  offset: 0x1FE96C
+  size: 234
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '6'
+  offset: 0x1FEA56
+  size: 219
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '7'
+  offset: 0x1FEB31
+  size: 123
+  extension: pal
+  compressed: true
+- subdir: maps/anim_pal
+  name: '8'
+  offset: 0x1FEBAC
+  size: 154
+  extension: pal
+  compressed: true
+# Palette animation secondary table (metadata: ptr + count + delays per entry)
+- subdir: maps/anim_pal
+  name: meta_table
+  offset: 0x1FE55D
+  size: 190
+  extension: bin
+  compressed: false
+# Tileset animation properties (TILESET_ANIMATION_PROPERTIES_0 through _19)
+- subdir: maps/anim_props
+  name: '0'
+  offset: 0x2F126B
+  size: 41
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '1'
+  offset: 0x2F1294
+  size: 17
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '2'
+  offset: 0x2F12A5
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '3'
+  offset: 0x2F12A6
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '4'
+  offset: 0x2F12A7
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '5'
+  offset: 0x2F12A8
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '6'
+  offset: 0x2F12B1
+  size: 17
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '7'
+  offset: 0x2F12C2
+  size: 17
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '8'
+  offset: 0x2F12D3
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '9'
+  offset: 0x2F12DC
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '10'
+  offset: 0x2F12DD
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '11'
+  offset: 0x2F12DE
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '12'
+  offset: 0x2F12DF
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '13'
+  offset: 0x2F12E8
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '14'
+  offset: 0x2F12F1
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '15'
+  offset: 0x2F12F2
+  size: 1
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '16'
+  offset: 0x2F12F3
+  size: 49
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '17'
+  offset: 0x2F1324
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '18'
+  offset: 0x2F132D
+  size: 9
+  extension: bin
+  compressed: false
+- subdir: maps/anim_props
+  name: '19'
+  offset: 0x2F1336
+  size: 9
+  extension: bin
+  compressed: false
 - subdir: maps/arrangements
   name: '0'
   offset: 0x17C600
@@ -1909,13 +2128,13 @@ dumpEntries:
   extension: ebtxt
   compressed: false
 - subdir: US/text_data
-  name: 'UNKNOWN7'
+  name: 'DEBUG_TEXT'
   offset: 0x2FA6EB
   size: 36
   extension: ebtxt
   compressed: false
 - subdir: US/text_data
-  name: 'UNKNOWN_C9992F'
+  name: 'DOOR_SCRIPTS'
   offset: 0x9992F
   size: 6391
   extension: ebtxt
@@ -1931,6 +2150,848 @@ dumpEntries:
   offset: 0x2FA2FA
   size: 128
   extension: ebtxt
+  compressed: false
+# --- C port data tables (raw binary extractions) ---
+# EEVENT0 raw binary bytecodes (same data as text_data/EEVENT0.ebtxt but undecompiled)
+- subdir: data
+  name: 'EEVENT0'
+  offset: 0x5E5BC
+  size: 6704
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEVENT1'
+  offset: 0x78000
+  size: 8951
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEVENT2'
+  offset: 0x88000
+  size: 7707
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEVENT3'
+  offset: 0x91C3A
+  size: 7193
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEVENT4'
+  offset: 0x7A2F7
+  size: 8849
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEVENT5'
+  offset: 0x9B226
+  size: 5995
+  extension: bin
+  compressed: false
+# Location-specific event text
+- subdir: data
+  name: 'E01ONET0'
+  offset: 0x74BA9
+  size: 9079
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E01ONET1'
+  offset: 0x72709
+  size: 9376
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E01ONET2'
+  offset: 0x659C9
+  size: 9507
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E02TWSN0'
+  offset: 0x80000
+  size: 8453
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E02TWSN1'
+  offset: 0x953BF
+  size: 6481
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E02TWSN2'
+  offset: 0x93853
+  size: 7020
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E03HAPPY'
+  offset: 0x98000
+  size: 6447
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E04GRFD'
+  offset: 0x2F952E
+  size: 1305
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E05THRK'
+  offset: 0x8D9ED
+  size: 7568
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E06WINS'
+  offset: 0x6A9F9
+  size: 10147
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E07GPFT'
+  offset: 0x2F617B
+  size: 2086
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E08DOSEI'
+  offset: 0x7E797
+  size: 6057
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E09DSRT'
+  offset: 0x60000
+  size: 11568
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E10FOUR0'
+  offset: 0x6D19C
+  size: 10045
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E10FOUR1'
+  offset: 0x82105
+  size: 8409
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E11SUMS'
+  offset: 0x89E1B
+  size: 7698
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E12RAMA'
+  offset: 0x9C991
+  size: 3431
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E13SKRB'
+  offset: 0x56DF3
+  size: 4137
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E14MAKYO'
+  offset: 0x9E37E
+  size: 2737
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E15GUMI'
+  offset: 0x9D6F8
+  size: 3206
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E16DKFD'
+  offset: 0x2F57EB
+  size: 2448
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E17PAST'
+  offset: 0x57E1C
+  size: 421
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E18MGKT'
+  offset: 0x76F20
+  size: 3758
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'E19MOON'
+  offset: 0x96D10
+  size: 3675
+  extension: bin
+  compressed: false
+# UI/menu text
+- subdir: data
+  name: 'EGLOBAL'
+  offset: 0x68000
+  size: 10745
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EHINT'
+  offset: 0x70000
+  size: 9993
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'ENEWS'
+  offset: 0x841DE
+  size: 8347
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'ESHOP0'
+  offset: 0x50000
+  size: 14097
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'ESHOP1'
+  offset: 0x5B3BA
+  size: 12802
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'ESHOP2'
+  offset: 0x90000
+  size: 7226
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'ESHOP3'
+  offset: 0x62D30
+  size: 11417
+  extension: bin
+  compressed: false
+# Help/reference text
+- subdir: data
+  name: 'EEXPLGDS'
+  offset: 0x53711
+  size: 14050
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EEXPLPSI'
+  offset: 0x2F4E20
+  size: 2507
+  extension: bin
+  compressed: false
+# Special/misc text
+- subdir: data
+  name: 'EBGMESS'
+  offset: 0x86279
+  size: 7338
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EDEBUG'
+  offset: 0x58000
+  size: 13242
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'KEYBOARD'
+  offset: 0x2FA460
+  size: 627
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'DEBUG_TEXT'
+  offset: 0x2FA6EB
+  size: 36
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'DOOR_SCRIPTS'
+  offset: 0x9992F
+  size: 6391
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'UNKNOWN_EFA2FA'
+  offset: 0x2FA2FA
+  size: 128
+  extension: bin
+  compressed: false
+# EBATTLE0-9 raw binary bytecodes (same data as text_data/EBATTLEn.ebtxt but undecompiled)
+- subdir: data
+  name: 'EBATTLE0'
+  offset: 0x2F843F
+  size: 1471
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE1'
+  offset: 0x2F9A47
+  size: 1197
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE2'
+  offset: 0x2F7E25
+  size: 1562
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE3'
+  offset: 0x2F89FE
+  size: 1455
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE4'
+  offset: 0x2F7186
+  size: 1655
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE5'
+  offset: 0x2F69A1
+  size: 2021
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE6'
+  offset: 0x8F77D
+  size: 2166
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE7'
+  offset: 0x9EE2F
+  size: 2664
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE8'
+  offset: 0x2F77FD
+  size: 1576
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EBATTLE9'
+  offset: 0x2F8FAD
+  size: 1409
+  extension: bin
+  compressed: false
+# EGOODS0-4 raw binary bytecodes (item usage text)
+- subdir: data
+  name: 'EGOODS0'
+  offset: 0x97B6B
+  size: 1096
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EGOODS1'
+  offset: 0x9F897
+  size: 1688
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EGOODS2'
+  offset: 0x2F9EF4
+  size: 1030
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EGOODS3'
+  offset: 0x6F8D9
+  size: 1802
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'EGOODS4'
+  offset: 0x77DCE
+  size: 306
+  extension: bin
+  compressed: false
+# ESYSTEM raw binary bytecodes (system text: talk fail, check fail, item messages)
+- subdir: data
+  name: 'ESYSTEM'
+  offset: 0x7C588
+  size: 8719
+  extension: bin
+  compressed: false
+# COMPRESSED_TEXT_DATA — 767 null-terminated EB-encoded dictionary fragments
+# used by CC 0x15/0x16/0x17 text substitution system
+- subdir: data
+  name: 'compressed_text_data'
+  offset: 0x8BC2D
+  size: 4544
+  extension: bin
+  compressed: false
+# COMPRESSED_TEXT_PTRS — 767 x 4-byte SNES address pointers into compressed_text_data
+- subdir: data
+  name: 'compressed_text_ptrs'
+  offset: 0x8CDED
+  size: 3068
+  extension: bin
+  compressed: false
+# ATTRACT_MODE_TXT — 10 x 4-byte far pointers to MSG_MD_* scripts within EEVENT0
+- subdir: data
+  name: 'attract_mode_txt'
+  offset: 0x3FD8D
+  size: 40
+  extension: bin
+  compressed: false
+# GLOBAL_MAP_TILESETPALETTE_DATA — 32x80 sector grid, each byte = (tileset_combo<<3)|palette_index
+- subdir: data
+  name: 'global_map_tilesetpalette_data'
+  offset: 0x17A800
+  size: 2560
+  extension: bin
+  compressed: false
+# MAP_DATA_PER_SECTOR_ATTRIBUTES_TABLE — 2560 entries x 2 bytes (sector terrain/config + rideable item)
+- subdir: data
+  name: 'per_sector_attributes'
+  offset: 0x17B200
+  size: 5120
+  extension: bin
+  compressed: false
+# TELEPORT_DESTINATION_TABLE — 234 entries x 8 bytes (word x, word y, byte dir, byte transition, word pad)
+- subdir: data
+  name: 'teleport_destination_table'
+  offset: 0x15EBAB
+  size: 1872
+  extension: bin
+  compressed: false
+# EXP_TABLE — 4 characters x 100 levels x 4 bytes (cumulative EXP for each level)
+- subdir: data
+  name: 'exp_table'
+  offset: 0x158F49
+  size: 1600
+  extension: bin
+  compressed: false
+# ITEM_CONFIGURATION_TABLE — 254 entries x 39 bytes (item struct: name[25], type, cost, flags, effect, params[4], help_text[4])
+- subdir: data
+  name: 'item_configuration_table'
+  offset: 0x155000
+  size: 9906
+  extension: bin
+  compressed: false
+# TILESET_TABLE — 31 entries x 2 bytes (word tileset_id per tileset_combo)
+- subdir: data
+  name: 'tileset_table'
+  offset: 0x2F101B
+  size: 64
+  extension: bin
+  compressed: false
+# PSI_TELEPORT_DEST_TABLE — 17 entries x 31 bytes (name[25], event_flag[2], x[2], y[2])
+- subdir: data
+  name: 'psi_teleport_dest_table'
+  offset: 0x157880
+  size: 527
+  extension: bin
+  compressed: false
+# TELEPHONE_CONTACTS_TABLE — 7 entries x 31 bytes (label[25], event_flag[2], text[4])
+- subdir: data
+  name: 'telephone_contacts_table'
+  offset: 0x157A8F
+  size: 217
+  extension: bin
+  compressed: false
+# PHONE_CALL_TEXT — EB-encoded "Call:" (5 bytes)
+- subdir: data
+  name: 'phone_call_text'
+  offset: 0x045995
+  size: 5
+  extension: bin
+  compressed: false
+# WINDOW_BORDER_ANIM_TILES — border animation tile indices (ROW1 + ROW2)
+# ROW1: 10 words (9 tiles + null terminator), ROW2: 9 words (9 tiles)
+# Used by ANIMATE_WINDOW_BORDER / ANIMATE_WINDOW_BORDER_WITH_HPPP
+- subdir: data
+  name: 'window_border_anim_tiles'
+  offset: 0x03E84E
+  size: 38
+  extension: bin
+  compressed: false
+# STATUS_EQUIP_WINDOW_TEXT tile lookup tables (TEXT_1 + TEXT_2 + TEXT_3)
+# Used by GET_EQUIP_WINDOW_TEXT / _ALT to map affliction (slot, value) → tile/palette.
+# 3 tables × 7 rows × 7 words = 294 bytes total.
+#   TEXT_1 (offset 0): mode=1 tile index (used for status icon in HP/PP window)
+#   TEXT_2 (offset 98): mode=0 tile index (used for status icon in other contexts)
+#   TEXT_3 (offset 196): palette multiplier (for name palette in HP/PP window)
+- subdir: data
+  name: 'status_equip_tile_tables'
+  offset: 0x045A27
+  size: 294
+  extension: bin
+  compressed: false
+# STATUS_EQUIP_WINDOW_TEXT_7 — EB-encoded "Stored Goods" (12 bytes)
+- subdir: data
+  name: 'status_equip_window_text_7'
+  offset: 0x045C10
+  size: 12
+  extension: bin
+  compressed: false
+# STATUS_EQUIP_WINDOW_TEXT_8 through _13 — equipment menu strings (107 bytes total)
+# TEXT_8 (off 0): "Offense:" (8 bytes)
+# TEXT_9 (off 8): "Defense:" (8 bytes)
+# TEXT_10 (off 16): slot display labels, 4 × 11 bytes ("  Weapon", "      Body", "     Arms", "     Other")
+# TEXT_11 (off 60): slot title names, 4 × 8 bytes ("Weapons", "Body", "Arms", "Others")
+# TEXT_12 (off 92): "(Nothing) " (10 bytes)
+# TEXT_13 (off 102): "None" (5 bytes)
+- subdir: data
+  name: 'status_equip_window_text_8_13'
+  offset: 0x045C1C
+  size: 107
+  extension: bin
+  compressed: false
+# STATUS_EQUIP_WINDOW_TEXT_14 — EB-encoded "To:" (3 bytes)
+- subdir: data
+  name: 'status_equip_window_text_14'
+  offset: 0x045C87
+  size: 3
+  extension: bin
+  compressed: false
+# STORE_TABLE — 66 shop inventories x 7 item IDs each (462 bytes)
+- subdir: data
+  name: 'store_table'
+  offset: 0x1576B2
+  size: 462
+  extension: bin
+  compressed: false
+# PSI_ABILITY_TABLE — 54 entries x 15 bytes (sizeof psi_ability)
+- subdir: data
+  name: 'psi_ability_table'
+  offset: 0x158A50
+  size: 810
+  extension: bin
+  compressed: false
+# STATS_GROWTH_VARS — 4 characters x 7 stats (offense, defense, speed, guts, vitality, IQ, luck)
+- subdir: data
+  name: 'stats_growth_vars'
+  offset: 0x15EA5B
+  size: 28
+  extension: bin
+  compressed: false
+# CONDIMENT_TABLE — 43 entries x 7 bytes + 7-byte zero terminator = 308 bytes
+# Each entry: [food_id, condiment1_id, condiment2_id, strength, epi, ep, special]
+# Used by APPLY_CONDIMENT (asm/battle/apply_condiment.asm) to look up enhanced
+# item parameters when a compatible condiment is used together with a food item.
+- subdir: data
+  name: 'condiment_table'
+  offset: 0x15EA77
+  size: 308
+  extension: bin
+  compressed: false
+# STAT_GAIN_MODIFIER_TABLE — 4-byte lookup table used by CALCULATE_STAT_GAIN
+- subdir: data
+  name: 'stat_gain_modifier_table'
+  offset: 0x03F2B1
+  size: 4
+  extension: bin
+  compressed: false
+# GIYGAS_DEATH_STATIC_TRANSITION_DELAYS — 22 uint16 entries (21 delays + null terminator)
+- subdir: data
+  name: 'giygas_death_static_transition_delays'
+  offset: 0x04A331
+  size: 44
+  extension: bin
+  compressed: false
+# VERTICAL_SHAKE_AMPLITUDE_TABLE — 61 signed bytes, indexed by (60 - shake_duration)
+- subdir: data
+  name: 'vertical_shake_amplitude_table'
+  offset: 0x04A591
+  size: 61
+  extension: bin
+  compressed: false
+# ATTACK_TYPE_PALETTES — 3 attack types x 16 colors x 2 bytes = 96 bytes
+- subdir: data
+  name: 'attack_type_palettes'
+  offset: 0x03F8E9
+  size: 96
+  extension: bin
+  compressed: false
+# ENEMY_PSI_COLOURS — 11 entries x 3 bytes (R, G, B 5-bit components for COLDATA)
+- subdir: data
+  name: 'enemy_psi_colours'
+  offset: 0x03F949
+  size: 33
+  extension: bin
+  compressed: false
+# MISC_SWIRL_COLOURS — 5 entries x 3 bytes (R, G, B 5-bit components for COLDATA)
+- subdir: data
+  name: 'misc_swirl_colours'
+  offset: 0x03F96A
+  size: 15
+  extension: bin
+  compressed: false
+# FINAL_GIYGAS_PRAYER_NOISE_TABLE — 13 pairs of (sfx_id, delay) bytes (last has delay=0)
+- subdir: data
+  name: 'final_giygas_prayer_noise_table'
+  offset: 0x04A35D
+  size: 26
+  extension: bin
+  compressed: false
+# FOOTSTEP_SOUND_TABLE — 10 entries x 2 bytes (SFX IDs indexed by terrain type * 2)
+- subdir: data
+  name: 'footstep_sound_table'
+  offset: 0x040BD4
+  size: 20
+  extension: bin
+  compressed: false
+# STATUS_WINDOW_TEXT — text template for the Status window labels
+# (EBTEXT_FORCE_TEXT_ALIGNMENT + label strings + END_BLOCK)
+- subdir: data
+  name: 'status_window_text'
+  offset: 0x2FA3B6
+  size: 174
+  extension: bin
+  compressed: false
+# STATUS_EQUIP_WINDOW_TEXT_4/5/6 — affliction names + PSI info text
+# TEXT_4 = 35 bytes ("@Press the -A- Button for PSI info.")
+# TEXT_5 = 9 × 16 bytes (affliction name strings)
+# TEXT_6 = 16 bytes ("Homesick")
+- subdir: data
+  name: 'status_equip_text'
+  offset: 0x045B4D
+  size: 195
+  extension: bin
+  compressed: false
+# BG_DATA_TABLE — 327 entries x 17 bytes (bg_layer_config_entry: graphics, palette, bitdepth, etc.)
+- subdir: data
+  name: 'bg_data_table'
+  offset: 0x0ADCA1
+  size: 5559
+  extension: bin
+  compressed: false
+# BTL_ENTRY_BG_TABLE — 484 entries x 4 bytes (layer1_id, layer2_id as WORDs)
+- subdir: data
+  name: 'btl_entry_bg_table'
+  offset: 0x0BD89A
+  size: 1936
+  extension: bin
+  compressed: false
+# BG_SCROLLING_TABLE — 120 entries x 10 bytes (bg_scrolling_entry: duration, h_vel, v_vel, h_accel, v_accel)
+- subdir: data
+  name: 'bg_scrolling_table'
+  offset: 0x0AF258
+  size: 1200
+  extension: bin
+  compressed: false
+# BG_DISTORTION_TABLE — 135 entries x 17 bytes (distortion_entry)
+- subdir: data
+  name: 'bg_distortion_table'
+  offset: 0x0AF708
+  size: 2295
+  extension: bin
+  compressed: false
+# BTL_ENTRY_PTR_TABLE — 484 entries x 8 bytes (pointer, bg_id, flags, letterbox)
+# Used by INIT_BATTLE_SCRIPTED to look up enemy group data pointers.
+- subdir: data
+  name: 'btl_entry_ptr_table'
+  offset: 0x10C60D
+  size: 3872
+  extension: bin
+  compressed: false
+# NPC_AI_TABLE — 19 entries x 2 bytes (targetability, replacement_enemy_id)
+# Used for NPC party follower targeting behavior in battle.
+- subdir: data
+  name: 'npc_ai_table'
+  offset: 0x158F23
+  size: 38
+  extension: bin
+  compressed: false
+# CONSOLATION_ITEM_TABLE — 2 entries x 9 bytes (enemy_id + 8 item slots)
+# Consolation item drops for Cute Lil' UFO and Beautiful UFO.
+- subdir: data
+  name: 'consolation_item_table'
+  offset: 0x023109
+  size: 18
+  extension: bin
+  compressed: false
+# ENEMY_BATTLE_GROUPS_TABLE — variable-length entries (count, enemy_id pairs, terminated by 0xFF)
+# Referenced by pointers in BTL_ENTRY_PTR_TABLE.
+- subdir: data
+  name: 'enemy_battle_groups_table'
+  offset: 0x10D52D
+  size: 2695
+  extension: bin
+  compressed: false
+# MAP_ENEMY_PLACEMENT — 128 columns x 160 rows x 2 bytes (enemy encounter IDs per map tile)
+# Used by GET_MAP_ENEMY_PLACEMENT / ATTEMPT_ENEMY_SPAWN for random encounters.
+- subdir: data
+  name: 'map_enemy_placement'
+  offset: 0x101880
+  size: 40960
+  extension: bin
+  compressed: false
+# ENEMY_PLACEMENT_GROUPS_PTR_TABLE — 203 entries x 4 bytes (ROM pointers into groups data)
+# Maps encounter_id to enemy_placement group definitions.
+- subdir: data
+  name: 'enemy_placement_groups_ptr_table'
+  offset: 0x10B880
+  size: 812
+  extension: bin
+  compressed: false
+# ENEMY_PLACEMENT_GROUPS — variable-length enemy_placement records (event_flag, spawn_chance, enemy_group list)
+# Referenced by pointers in ENEMY_PLACEMENT_GROUPS_PTR_TABLE.
+- subdir: data
+  name: 'enemy_placement_groups'
+  offset: 0x10BBAC
+  size: 2657
+  extension: bin
+  compressed: false
+# BATTLE_ACTION_TABLE — 319 entries x 12 bytes (direction, target, type, pp_cost, desc_ptr, func_ptr)
+# Used by battle system for action dispatch, targeting, and PP cost lookups.
+- subdir: data
+  name: 'battle_action_table'
+  offset: 0x157B68
+  size: 3828
+  extension: bin
+  compressed: false
+# ENEMY_CONFIGURATION_TABLE — 231 entries x 94 bytes (enemy stats, sprites, AI, etc.)
+# Used by ATTEMPT_ENEMY_SPAWN for overworld enemy spawning and by battle system.
+- subdir: data
+  name: 'enemy_configuration_table'
+  offset: 0x159589
+  size: 21714
+  extension: bin
+  compressed: false
+# TIMED_ITEM_TRANSFORMATION_TABLE — 4 entries x 5 bytes (item, sfx, sfx_frequency, target_item, transformation_time)
+- subdir: data
+  name: 'timed_item_transformation_table'
+  offset: 0x15F4BB
+  size: 20
+  extension: bin
+  compressed: false
+# PSI_NAME_TABLE — 17 entries x 25 bytes (PSI_NAME_SIZE, EB-encoded padded strings)
+- subdir: data
+  name: 'psi_name_table'
+  offset: 0x158D7A
+  size: 425
+  extension: bin
+  compressed: false
+# PSI_SUFFIXES — 5 x 2-byte null-terminated EB-encoded suffix strings (α β γ Σ Ω)
+- subdir: data
+  name: 'psi_suffixes'
+  offset: 0x03F112
+  size: 10
+  extension: bin
+  compressed: false
+# TIMED_DELIVERY_TABLE — 10 entries x 20 bytes (sprite, flag, config, time, ptrs)
+- subdir: data
+  name: 'timed_delivery_table'
+  offset: 0x15F645
+  size: 200
+  extension: bin
+  compressed: false
+# FOR_SALE_SIGN_SPRITE_TABLE — 4 sprite IDs for random delivery NPC appearances
+- subdir: data
+  name: 'for_sale_sign_sprite_table'
+  offset: 0x03FDBD
+  size: 8
+  extension: bin
+  compressed: false
+# MAP_DATA_PER_SECTOR_MUSIC — 80x32 grid of music IDs (index by y_sector*32+x_sector)
+- subdir: data
+  name: 'per_sector_music'
+  offset: 0x1CD637
+  size: 2560
+  extension: bin
+  compressed: false
+# OVERWORLD_EVENT_MUSIC_PTR_TABLE — 165 x 16-bit within-bank pointers to event music entries
+- subdir: data
+  name: 'overworld_event_music_ptr_table'
+  offset: 0x0F58EF
+  size: 330
+  extension: bin
+  compressed: false
+# OVERWORLD_EVENT_MUSIC_TABLE — variable-length event flag/music track entries (4 bytes each)
+- subdir: data
+  name: 'overworld_event_music_table'
+  offset: 0x0F5A39
+  size: 1956
+  extension: bin
+  compressed: false
+# MAP_HOTSPOTS — predefined hotspot coordinate pairs (56 entries x 8 bytes)
+- subdir: data
+  name: 'hotspot_coordinates'
+  offset: 0x15F2FB
+  size: 448
+  extension: bin
+  compressed: false
+# SPRITE_PLACEMENT_PTR_TABLE — 40x32 column-major grid of 16-bit within-bank pointers
+- subdir: data
+  name: 'sprite_placement_ptr_table'
+  offset: 0x0F61E7
+  size: 2560
+  extension: bin
+  compressed: false
+# SPRITE_PLACEMENT_TABLE — per-sector NPC placement entries (count + id/x/y records)
+- subdir: data
+  name: 'sprite_placement_table'
+  offset: 0x0F6BE7
+  size: 7582
+  extension: bin
+  compressed: false
+# NPC_CONFIG_TABLE — 1584 entries x 17 bytes (type, sprite, direction, script, flag, etc.)
+- subdir: data
+  name: 'npc_config_table'
+  offset: 0x0F8985
+  size: 26928
+  extension: bin
+  compressed: false
+# MAP_DATA_TILE_COLLISION_ARRANGEMENT_TABLE — 2293 entries x 16 bytes of collision flags
+- subdir: data/map
+  name: 'collision_arrangement_table'
+  offset: 0x180000
+  size: 36688
+  extension: bin
+  compressed: false
+# Collision pointer arrays for all 20 tilesets (contiguous blob)
+- subdir: data/map
+  name: 'collision_pointers_blob'
+  offset: 0x188F50
+  size: 24846
+  extension: bin
+  compressed: false
+# Entity collision geometry tables (5 tables, 17 entries x 2 bytes each)
+- subdir: data
+  name: 'entity_collision_left_x'
+  offset: 0x042A1F
+  size: 34
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'entity_collision_top_y'
+  offset: 0x042A41
+  size: 34
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'entity_collision_width'
+  offset: 0x042AA7
+  size: 34
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'entity_collision_tile_count'
+  offset: 0x042AC9
+  size: 34
+  extension: bin
+  compressed: false
+- subdir: data
+  name: 'entity_collision_height_offset'
+  offset: 0x042AEB
+  size: 34
+  extension: bin
   compressed: false
 - subdir: battle_bgs/arrangements
   name: '0'
@@ -3851,6 +4912,13 @@ dumpEntries:
   offset: 0xBCBF4
   size: 32
   extension: pal
+  compressed: false
+# PSI_ANIM_CFG — 34 entries x 12 bytes (gfx_offset, frame timing, palette anim, target type, etc.)
+- subdir: data
+  name: 'psi_anim_cfg'
+  offset: 0x0CF04D
+  size: 408
+  extension: bin
   compressed: false
 - subdir: psianims/gfx
   name: '0'
@@ -12822,6 +13890,108 @@ dumpEntries:
   size: 39
   extension: pal
   compressed: true
+- subdir: US/intro
+  name: title_screen_spritemaps
+  offset: 0x21CE08
+  size: 423
+  extension: bin
+  compressed: false
+- subdir: US/intro
+  name: title_screen_scripts
+  offset: 0x042172
+  size: 618
+  extension: bin
+  compressed: false
+- subdir: US/intro
+  name: title_screen_script_pointers
+  offset: 0x040A0D
+  size: 36
+  extension: bin
+  compressed: false
+- subdir: US/text
+  name: floating_sprite_table
+  offset: 0x040DE8
+  size: 60
+  extension: bin
+  compressed: false
+- subdir: US/events
+  name: event_script_pointers
+  offset: 0x0400D4
+  size: 2685
+  extension: bin
+  compressed: false
+- subdir: US/events
+  name: bank_c4_scripts
+  offset: 0x040E24
+  size: 3194
+  extension: bin
+  compressed: false
+- subdir: US/events
+  name: bank_c3_scripts_combined
+  offset: 0x030000
+  size: 0xE012
+  extension: bin
+  compressed: false
+- subdir: US/events
+  name: naming_screen_entities
+  offset: 0x03FC49
+  size: 284
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites
+  name: sprite_grouping_ptr_table
+  offset: 0x2F133F
+  size: 1856
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites
+  name: sprite_grouping_data
+  offset: 0x2F1A7F
+  size: 12225
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites
+  name: spritemap_config
+  offset: 0x042AEB
+  size: 1537
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites
+  name: entity_overlay_data
+  offset: 0x040E31
+  size: 231
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites/banks
+  name: '11'
+  offset: 0x110000
+  size: 65536
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites/banks
+  name: '12'
+  offset: 0x120000
+  size: 65536
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites/banks
+  name: '13'
+  offset: 0x130000
+  size: 65536
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites/banks
+  name: '14'
+  offset: 0x140000
+  size: 65536
+  extension: bin
+  compressed: false
+- subdir: overworld_sprites/banks
+  name: '15'
+  offset: 0x150000
+  size: 63808
+  extension: bin
+  compressed: false
 - subdir: overworld_sprites/palettes
   name: '0'
   offset: 0x30000
@@ -13122,6 +14292,133 @@ dumpEntries:
   size: 6825
   extension: gfx
   compressed: true
+- subdir: data
+  name: sound_stone_config
+  offset: 0x4AC57
+  size: 119
+  extension: bin
+  compressed: false
+- subdir: data
+  name: sound_stone_melodies
+  offset: 0x2F4A40
+  size: 992
+  extension: bin
+  compressed: false
+- subdir: data
+  name: movement_text_string_palette
+  offset: 0x202188
+  size: 8
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_intro1
+  offset: 0x210B86
+  size: 22
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_intro2
+  offset: 0x210B9C
+  size: 38
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_intro3
+  offset: 0x210BC2
+  size: 16
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_winters_intro1
+  offset: 0x210BD2
+  size: 43
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_winters_intro2
+  offset: 0x210BFD
+  size: 30
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_dalaam_intro1
+  offset: 0x210C1B
+  size: 29
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_dalaam_intro2
+  offset: 0x210C38
+  size: 41
+  extension: flyover
+  compressed: false
+- subdir: 'US'
+  name: flyover_ending
+  offset: 0x210C61
+  size: 25
+  extension: flyover
+  compressed: false
+# Raw binary flyover scripts for C port (ebtools decodes .flyover into asm source)
+- subdir: 'US'
+  name: flyover_intro1
+  offset: 0x210B86
+  size: 22
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_intro2
+  offset: 0x210B9C
+  size: 38
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_intro3
+  offset: 0x210BC2
+  size: 16
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_winters_intro1
+  offset: 0x210BD2
+  size: 43
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_winters_intro2
+  offset: 0x210BFD
+  size: 30
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_dalaam_intro1
+  offset: 0x210C1B
+  size: 29
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_dalaam_intro2
+  offset: 0x210C38
+  size: 41
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: flyover_ending
+  offset: 0x210C61
+  size: 25
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: coffee
+  offset: 0x210000
+  size: 1618
+  extension: bin
+  compressed: false
+- subdir: 'US'
+  name: tea
+  offset: 0x210652
+  size: 1332
+  extension: bin
+  compressed: false
 - subdir: maps/tiles
   name: chunk_01
   offset: 0x160000
@@ -13260,6 +14557,55 @@ dumpEntries:
   size: 64
   extension: pal
   compressed: false
+# Town map icon spritemaps — UNKNOWN_E1F203, 585 bytes (22 spritemap entries)
+- subdir: town_maps
+  name: icon_spritemaps
+  offset: 0x21F203
+  size: 585
+  extension: bin
+  compressed: false
+# Town map icon spritemap pointer table — UNKNOWN_E1F44C, 23 x 2 byte pointers
+- subdir: town_maps
+  name: icon_spritemap_ptrs
+  offset: 0x21F44C
+  size: 46
+  extension: bin
+  compressed: false
+# Town map icon animation flags — UNKNOWN_E1F47A, 23 bytes
+- subdir: town_maps
+  name: icon_animation_flags
+  offset: 0x21F47A
+  size: 23
+  extension: bin
+  compressed: false
+# Town map icon placement data — 6 entries (one per map), 0xFF terminated
+- subdir: town_maps
+  name: icon_placement
+  offset: 0x21F4A9
+  size: 216
+  extension: bin
+  compressed: false
+# MAP_DATA_PER_SECTOR_TOWN_MAP_DATA — sector lookup table, 7680 bytes
+- subdir: data
+  name: per_sector_town_map
+  offset: 0x2FA70F
+  size: 7680
+  extension: bin
+  compressed: false
+# BATTLE_SPRITES_POINTERS — 110 entries × 5 bytes (DWORD addr + BYTE size_enum)
+- subdir: data
+  name: battle_sprites_pointers
+  offset: 0x0E62EE
+  size: 550
+  extension: bin
+  compressed: false
+# TOWN_MAP_MAPPING — 6 words for player icon sprite indices
+- subdir: town_maps
+  name: mapping
+  offset: 0x2FC50F
+  size: 12
+  extension: bin
+  compressed: false
 - subdir: US/intro
   name: title_screen_letters
   offset: 0x21C6E5
@@ -13320,6 +14666,181 @@ dumpEntries:
   size: 3249
   extension: gfx
   compressed: true
+# CAST_SEQUENCE_FORMATTING — 17 entries × 3 bytes (position, width) for cast name layout
+- subdir: US/ending
+  name: cast_sequence_formatting
+  offset: 0x212EFA
+  size: 144
+  extension: bin
+  compressed: false
+# PHOTOGRAPHER_CFG_TABLE — 32 entries of photographer_config_entry for photo positions/config
+- subdir: ending
+  name: photographer_cfg
+  offset: 0x212F8A
+  size: 1984
+  extension: bin
+  compressed: false
+# STAFF_TEXT — credits scroll script bytecode (commands + text)
+- subdir: US/ending
+  name: staff_text
+  offset: 0x21413F
+  size: 3241
+  extension: bin
+  compressed: false
+# UNKNOWN_E1D815 — BG palette data for cast scene (32 bytes)
+- subdir: US/ending
+  name: cast_bg_palette
+  offset: 0x21D815
+  size: 32
+  extension: pal
+  compressed: false
+# UNKNOWN_E1E924 — palette/config data (38 bytes)
+- subdir: ending
+  name: E1E924
+  offset: 0x21E924
+  size: 38
+  extension: bin
+  compressed: false
+# UNKNOWN_E1E94A — tilemap data (compressed)
+- subdir: ending
+  name: E1E94A
+  offset: 0x21E94A
+  size: 262
+  extension: bin
+  compressed: true
+# SPRITE_GROUP_PALETTES — 8 × 32 bytes = 256 bytes OBJ palettes
+- subdir: ''
+  name: sprite_group_palettes
+  offset: 0x30000
+  size: 256
+  extension: pal
+  compressed: false
+# LUMINE_HALL_TEXT — EB-encoded Lumine Hall scrolling text (215 bytes, US)
+- subdir: US/data/text
+  name: lumine_hall_text
+  offset: 0x048037
+  size: 215
+  extension: bin
+  compressed: false
+# CHARACTER_GUARDIAN_TEXT — EB-encoded "'s dad", "'s mom", "'s Master" (24 bytes)
+- subdir: US/ending
+  name: guardian_text
+  offset: 0x04E796
+  size: 24
+  extension: bin
+  compressed: false
+# PARTY_MEMBER_CAST_TILE_IDS — 4 × 2 byte VRAM tile offsets for party cast names
+- subdir: ending
+  name: party_cast_tile_ids
+  offset: 0x3FDAD
+  size: 8
+  extension: bin
+  compressed: false
+- subdir: US/graphics
+  name: text_window_flavour_palettes
+  offset: 0x201FC8
+  size: 448
+  extension: pal
+  compressed: false
+# DONT_CARE_NAMES — 49 default character names (7 per category x 7 categories)
+# 6 bytes each, EB-encoded and null-padded (PADDEDEBTEXT)
+- subdir: US/data
+  name: 'dont_care_names'
+  offset: 0x15F4CF
+  size: 294
+  extension: bin
+  compressed: false
+# INITIAL_STATS — 4 characters x 20 bytes (x/y coords, money, level, EXP, 10 items)
+- subdir: data
+  name: 'initial_stats'
+  offset: 0x15F5F5
+  size: 80
+  extension: bin
+  compressed: false
+# PLAYABLE_CHAR_GFX_TABLE — 17 rows x 8 columns x 2 bytes (sprite ID per char/mode)
+- subdir: data
+  name: 'playable_character_graphics_table'
+  offset: 0x03F2B5
+  size: 272
+  extension: bin
+  compressed: false
+# CHARACTER_SIZES — 17 entries x 2 bytes (word, hitbox size per playable char_id)
+- subdir: data
+  name: 'character_sizes'
+  offset: 0x03E09A
+  size: 34
+  extension: bin
+  compressed: false
+# PSI_TARGET_TEXT — 10 entries x 20 bytes EB-encoded padded targeting descriptions
+- subdir: US/data
+  name: 'psi_target_text'
+  offset: 0x03F124
+  size: 200
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_PLEASE_NAME_THEM_STRINGS — 7 naming prompts x 40 bytes EB-encoded padded
+- subdir: US/data
+  name: 'naming_prompts'
+  offset: 0x04C194
+  size: 280
+  extension: bin
+  compressed: false
+# PSI_CATEGORIES — 4 category names x 8 bytes EB-encoded padded
+- subdir: US/data
+  name: 'psi_categories'
+  offset: 0x03F090
+  size: 32
+  extension: bin
+  compressed: false
+# CMD_WINDOW_TEXT — 6 command labels x 10 bytes EB-encoded padded
+- subdir: US/data
+  name: 'command_window_text'
+  offset: 0x2FA37A
+  size: 60
+  extension: bin
+  compressed: false
+# MISC_TARGET_TEXT — 5 targeting prompts x 10 bytes EB-encoded padded
+- subdir: US/data
+  name: 'misc_target_text'
+  offset: 0x045963
+  size: 50
+  extension: bin
+  compressed: false
+# PP_COST_TEXT — "PP Cost:" EB-encoded (8 bytes)
+- subdir: US/data
+  name: 'pp_cost_text'
+  offset: 0x03F11C
+  size: 8
+  extension: bin
+  compressed: false
+# BATTLE_FRONT_ROW_TEXT — "the Front Row" EB-encoded padded (13 bytes)
+- subdir: US/data
+  name: 'battle_front_row_text'
+  offset: 0x0454F5
+  size: 13
+  extension: bin
+  compressed: false
+# BATTLE_BACK_ROW_TEXT — "the Back Row" EB-encoded padded (13 bytes)
+- subdir: US/data
+  name: 'battle_back_row_text'
+  offset: 0x045502
+  size: 13
+  extension: bin
+  compressed: false
+# NAME_REGISTRY_REQUEST_STRING — "Register your name, please" EB-encoded (26 bytes)
+- subdir: US/data
+  name: 'name_registry_request_string'
+  offset: 0x03FB2B
+  size: 26
+  extension: bin
+  compressed: false
+# HP_METER_SPEEDS — 3 x 4-byte fixed-point rolling speed values
+- subdir: data
+  name: 'hp_meter_speeds'
+  offset: 0x03FB1F
+  size: 12
+  extension: bin
+  compressed: false
 textTable:
   0x50: ' '
   0x51: '!'
@@ -19573,99 +21094,99 @@ renameLabels:
     0x21F5: MSG_ESUB_PARTY_LIST
     0x21F7: _PARTY_LIST_LOOP
     0x220E: _PARTY_LIST_END
-  UNKNOWN7:
-    0x0000: TEXT_UNKNOWN_UNKNOWN7_000000
+  DEBUG_TEXT:
+    0x0000: TEXT_UNKNOWN_DEBUG_TEXT_000000
     0x0001: TEXT_DEBUG_UNKNOWN_MENU_2
-  UNKNOWN_C9992F:
+  DOOR_SCRIPTS:
     0x0000: MSG_END
     0x0001: TEXT_DOOR_085
-    0x0016: TEXT_UNKNOWN_UNKNOWN_C9992F_000016
+    0x0016: TEXT_UNKNOWN_DOOR_SCRIPTS_000016
     0x002E: TEXT_DOOR_069
-    0x0052: TEXT_UNKNOWN_UNKNOWN_C9992F_000052
-    0x0062: TEXT_UNKNOWN_UNKNOWN_C9992F_000062
+    0x0052: TEXT_UNKNOWN_DOOR_SCRIPTS_000052
+    0x0062: TEXT_UNKNOWN_DOOR_SCRIPTS_000062
     0x0072: TEXT_DOOR_021
-    0x010D: TEXT_UNKNOWN_UNKNOWN_C9992F_00010D
+    0x010D: TEXT_UNKNOWN_DOOR_SCRIPTS_00010D
     0x013C: TEXT_DOOR_063
-    0x014C: TEXT_UNKNOWN_UNKNOWN_C9992F_00014C
+    0x014C: TEXT_UNKNOWN_DOOR_SCRIPTS_00014C
     0x0160: TEXT_DOOR_048
     0x0164: TEXT_DOOR_019
-    0x018C: TEXT_UNKNOWN_UNKNOWN_C9992F_00018C
+    0x018C: TEXT_UNKNOWN_DOOR_SCRIPTS_00018C
     0x019D: TEXT_DOOR_170
-    0x01B4: TEXT_UNKNOWN_UNKNOWN_C9992F_0001B4
+    0x01B4: TEXT_UNKNOWN_DOOR_SCRIPTS_0001B4
     0x0210: TEXT_DOOR_401
     0x022D: TEXT_DOOR_408
     0x0231: TEXT_DOOR_373
     0x0237: TEXT_DOOR_035
     0x023B: TEXT_DOOR_015
     0x0246: TEXT_DOOR_043
-    0x0283: TEXT_UNKNOWN_UNKNOWN_C9992F_000283
-    0x0287: TEXT_UNKNOWN_UNKNOWN_C9992F_000287
-    0x02E6: TEXT_UNKNOWN_UNKNOWN_C9992F_0002E6
-    0x02F5: TEXT_UNKNOWN_UNKNOWN_C9992F_0002F5
+    0x0283: TEXT_UNKNOWN_DOOR_SCRIPTS_000283
+    0x0287: TEXT_UNKNOWN_DOOR_SCRIPTS_000287
+    0x02E6: TEXT_UNKNOWN_DOOR_SCRIPTS_0002E6
+    0x02F5: TEXT_UNKNOWN_DOOR_SCRIPTS_0002F5
     0x0302: TEXT_DOOR_030
     0x031C: TEXT_DOOR_238
     0x0320: TEXT_DOOR_460
     0x0324: MSG_WARP_STEP_FOUR
-    0x0332: TEXT_UNKNOWN_UNKNOWN_C9992F_000332
+    0x0332: TEXT_UNKNOWN_DOOR_SCRIPTS_000332
     0x0339: TEXT_DOOR_548
     0x0347: TEXT_DOOR_561
     0x0354: TEXT_DOOR_884
     0x0369: TEXT_DOOR_904
-    0x037A: TEXT_UNKNOWN_UNKNOWN_C9992F_00037A
+    0x037A: TEXT_UNKNOWN_DOOR_SCRIPTS_00037A
     0x038D: TEXT_DOOR_907
-    0x039A: TEXT_UNKNOWN_UNKNOWN_C9992F_00039A
+    0x039A: TEXT_UNKNOWN_DOOR_SCRIPTS_00039A
     0x039E: TEXT_DOOR_903
-    0x03A9: TEXT_UNKNOWN_UNKNOWN_C9992F_0003A9
+    0x03A9: TEXT_UNKNOWN_DOOR_SCRIPTS_0003A9
     0x03C7: TEXT_DOOR_109
-    0x03CF: TEXT_UNKNOWN_UNKNOWN_C9992F_0003CF
+    0x03CF: TEXT_UNKNOWN_DOOR_SCRIPTS_0003CF
     0x03D6: TEXT_DOOR_183
-    0x03ED: TEXT_UNKNOWN_UNKNOWN_C9992F_0003ED
+    0x03ED: TEXT_UNKNOWN_DOOR_SCRIPTS_0003ED
     0x03F5: TEXT_DOOR_232
-    0x0404: TEXT_UNKNOWN_UNKNOWN_C9992F_000404
+    0x0404: TEXT_UNKNOWN_DOOR_SCRIPTS_000404
     0x040D: TEXT_DOOR_638
     0x040E: TEXT_DOOR_636
-    0x0416: TEXT_UNKNOWN_UNKNOWN_C9992F_000416
-    0x042A: TEXT_UNKNOWN_UNKNOWN_C9992F_00042A
+    0x0416: TEXT_UNKNOWN_DOOR_SCRIPTS_000416
+    0x042A: TEXT_UNKNOWN_DOOR_SCRIPTS_00042A
     0x043B: TEXT_DOOR_642
-    0x0449: TEXT_UNKNOWN_UNKNOWN_C9992F_000449
+    0x0449: TEXT_UNKNOWN_DOOR_SCRIPTS_000449
     0x045C: TEXT_DOOR_640
     0x0463: TEXT_DOOR_194
     0x0477: TEXT_DOOR_189
-    0x048A: TEXT_UNKNOWN_UNKNOWN_C9992F_00048A
+    0x048A: TEXT_UNKNOWN_DOOR_SCRIPTS_00048A
     0x049F: TEXT_DOOR_196
-    0x04B2: TEXT_UNKNOWN_UNKNOWN_C9992F_0004B2
-    0x04EC: TEXT_UNKNOWN_UNKNOWN_C9992F_0004EC
-    0x0519: TEXT_UNKNOWN_UNKNOWN_C9992F_000519
+    0x04B2: TEXT_UNKNOWN_DOOR_SCRIPTS_0004B2
+    0x04EC: TEXT_UNKNOWN_DOOR_SCRIPTS_0004EC
+    0x0519: TEXT_UNKNOWN_DOOR_SCRIPTS_000519
     0x055C: TEXT_DOOR_389
     0x056C: TEXT_DOOR_346
-    0x0582: TEXT_UNKNOWN_UNKNOWN_C9992F_000582
+    0x0582: TEXT_UNKNOWN_DOOR_SCRIPTS_000582
     0x0589: TEXT_DOOR_342
     0x058A: TEXT_DOOR_182
     0x059A: TEXT_DOOR_290
     0x05AA: TEXT_DOOR_237
-    0x05AE: TEXT_UNKNOWN_UNKNOWN_C9992F_0005AE
-    0x05FE: TEXT_UNKNOWN_UNKNOWN_C9992F_0005FE
-    0x0611: TEXT_UNKNOWN_UNKNOWN_C9992F_000611
-    0x0612: TEXT_UNKNOWN_UNKNOWN_C9992F_000612
+    0x05AE: TEXT_UNKNOWN_DOOR_SCRIPTS_0005AE
+    0x05FE: TEXT_UNKNOWN_DOOR_SCRIPTS_0005FE
+    0x0611: TEXT_UNKNOWN_DOOR_SCRIPTS_000611
+    0x0612: TEXT_UNKNOWN_DOOR_SCRIPTS_000612
     0x0662: TEXT_DOOR_235
-    0x0698: TEXT_UNKNOWN_UNKNOWN_C9992F_000698
+    0x0698: TEXT_UNKNOWN_DOOR_SCRIPTS_000698
     0x06B1: TEXT_DOOR_234
-    0x06C5: TEXT_UNKNOWN_UNKNOWN_C9992F_0006C5
+    0x06C5: TEXT_UNKNOWN_DOOR_SCRIPTS_0006C5
     0x06CB: TEXT_DOOR_556
     0x06EB: TEXT_DOOR_630
     0x0701: TEXT_DOOR_573
-    0x071A: TEXT_UNKNOWN_UNKNOWN_C9992F_00071A
-    0x0733: TEXT_UNKNOWN_UNKNOWN_C9992F_000733
+    0x071A: TEXT_UNKNOWN_DOOR_SCRIPTS_00071A
+    0x0733: TEXT_UNKNOWN_DOOR_SCRIPTS_000733
     0x075C: TEXT_DOOR_633
     0x076E: TEXT_DOOR_641
-    0x077E: TEXT_UNKNOWN_UNKNOWN_C9992F_00077E
+    0x077E: TEXT_UNKNOWN_DOOR_SCRIPTS_00077E
     0x0787: TEXT_DOOR_190
     0x0788: TEXT_DOOR_255
-    0x07DD: TEXT_UNKNOWN_UNKNOWN_C9992F_0007DD
+    0x07DD: TEXT_UNKNOWN_DOOR_SCRIPTS_0007DD
     0x07F4: TEXT_DOOR_269
     0x080A: TEXT_DOOR_253
-    0x0813: TEXT_UNKNOWN_UNKNOWN_C9992F_000813
-    0x0864: TEXT_UNKNOWN_UNKNOWN_C9992F_000864
+    0x0813: TEXT_UNKNOWN_DOOR_SCRIPTS_000813
+    0x0864: TEXT_UNKNOWN_DOOR_SCRIPTS_000864
     0x0874: TEXT_DOOR_268
     0x0878: TEXT_DOOR_266
     0x0883: TEXT_DOOR_271
@@ -19677,57 +21198,57 @@ renameLabels:
     0x0A52: TEXT_DOOR_140
     0x0A96: TEXT_DOOR_141
     0x0B03: TEXT_DOOR_142
-    0x0B6D: TEXT_UNKNOWN_UNKNOWN_C9992F_000B6D
-    0x0B9F: TEXT_UNKNOWN_UNKNOWN_C9992F_000B9F
-    0x0BB7: TEXT_UNKNOWN_UNKNOWN_C9992F_000BB7
+    0x0B6D: TEXT_UNKNOWN_DOOR_SCRIPTS_000B6D
+    0x0B9F: TEXT_UNKNOWN_DOOR_SCRIPTS_000B9F
+    0x0BB7: TEXT_UNKNOWN_DOOR_SCRIPTS_000BB7
     0x0C3B: TEXT_DOOR_239
-    0x0C64: TEXT_UNKNOWN_UNKNOWN_C9992F_000C64
+    0x0C64: TEXT_UNKNOWN_DOOR_SCRIPTS_000C64
     0x0CD5: TEXT_DOOR_240
-    0x0D70: TEXT_UNKNOWN_UNKNOWN_C9992F_000D70
-    0x0E37: TEXT_UNKNOWN_UNKNOWN_C9992F_000E37
+    0x0D70: TEXT_UNKNOWN_DOOR_SCRIPTS_000D70
+    0x0E37: TEXT_UNKNOWN_DOOR_SCRIPTS_000E37
     0x0E54: TEXT_DOOR_349
-    0x0E99: TEXT_UNKNOWN_UNKNOWN_C9992F_000E99
+    0x0E99: TEXT_UNKNOWN_DOOR_SCRIPTS_000E99
     0x0EB5: TEXT_DOOR_350
     0x0F0E: TEXT_DOOR_351
-    0x0F51: TEXT_UNKNOWN_UNKNOWN_C9992F_000F51
+    0x0F51: TEXT_UNKNOWN_DOOR_SCRIPTS_000F51
     0x0F6C: TEXT_DOOR_352
     0x0F83: TEXT_DOOR_353
-    0x0FA0: TEXT_UNKNOWN_UNKNOWN_C9992F_000FA0
+    0x0FA0: TEXT_UNKNOWN_DOOR_SCRIPTS_000FA0
     0x0FB1: TEXT_DOOR_354
     0x1001: TEXT_NPC_0564
-    0x1069: TEXT_UNKNOWN_UNKNOWN_C9992F_001069
-    0x10AD: TEXT_UNKNOWN_UNKNOWN_C9992F_0010AD
+    0x1069: TEXT_UNKNOWN_DOOR_SCRIPTS_001069
+    0x10AD: TEXT_UNKNOWN_DOOR_SCRIPTS_0010AD
     0x10ED: TEXT_DOOR_355
-    0x113C: TEXT_UNKNOWN_UNKNOWN_C9992F_00113C
+    0x113C: TEXT_UNKNOWN_DOOR_SCRIPTS_00113C
     0x1150: TEXT_DOOR_461
-    0x1162: TEXT_UNKNOWN_UNKNOWN_C9992F_001162
+    0x1162: TEXT_UNKNOWN_DOOR_SCRIPTS_001162
     0x11C1: TEXT_DOOR_447
-    0x11CB: TEXT_UNKNOWN_UNKNOWN_C9992F_0011CB
+    0x11CB: TEXT_UNKNOWN_DOOR_SCRIPTS_0011CB
     0x11D2: TEXT_DOOR_738
-    0x1224: TEXT_UNKNOWN_UNKNOWN_C9992F_001224
+    0x1224: TEXT_UNKNOWN_DOOR_SCRIPTS_001224
     0x128E: TEXT_DOOR_739
     0x12A0: TEXT_DOOR_675
-    0x12B6: TEXT_UNKNOWN_UNKNOWN_C9992F_0012B6
+    0x12B6: TEXT_UNKNOWN_DOOR_SCRIPTS_0012B6
     0x12B7: TEXT_DOOR_151
     0x12F3: TEXT_DOOR_152
     0x131E: TEXT_DOOR_153
     0x1340: TEXT_DOOR_154
     0x137F: TEXT_DOOR_839
     0x13F7: TEXT_DOOR_628
-    0x1448: TEXT_UNKNOWN_UNKNOWN_C9992F_001448
+    0x1448: TEXT_UNKNOWN_DOOR_SCRIPTS_001448
     0x144C: TEXT_DOOR_604
     0x1473: TEXT_DOOR_588
-    0x1489: TEXT_UNKNOWN_UNKNOWN_C9992F_001489
+    0x1489: TEXT_UNKNOWN_DOOR_SCRIPTS_001489
     0x1498: TEXT_DOOR_555
     0x14A8: TEXT_DOOR_554
-    0x14B6: TEXT_UNKNOWN_UNKNOWN_C9992F_0014B6
+    0x14B6: TEXT_UNKNOWN_DOOR_SCRIPTS_0014B6
     0x14BF: TEXT_DOOR_647
     0x14C3: TEXT_DOOR_307
-    0x14CB: TEXT_UNKNOWN_UNKNOWN_C9992F_0014CB
+    0x14CB: TEXT_UNKNOWN_DOOR_SCRIPTS_0014CB
     0x14D2: TEXT_DOOR_071
-    0x14E0: TEXT_UNKNOWN_UNKNOWN_C9992F_0014E0
+    0x14E0: TEXT_UNKNOWN_DOOR_SCRIPTS_0014E0
     0x14E7: TEXT_DOOR_395
-    0x14FD: TEXT_UNKNOWN_UNKNOWN_C9992F_0014FD
+    0x14FD: TEXT_UNKNOWN_DOOR_SCRIPTS_0014FD
     0x1529: TEXT_DOOR_402
     0x152A: TEXT_DOOR_780
     0x1544: TEXT_DOOR_814
@@ -19735,8 +21256,8 @@ renameLabels:
     0x15E7: TEXT_DOOR_807
     0x160B: TEXT_DOOR_943
     0x161B: TEXT_DOOR_824
-    0x1646: TEXT_UNKNOWN_UNKNOWN_C9992F_001646
-    0x164A: TEXT_UNKNOWN_UNKNOWN_C9992F_00164A
+    0x1646: TEXT_UNKNOWN_DOOR_SCRIPTS_001646
+    0x164A: TEXT_UNKNOWN_DOOR_SCRIPTS_00164A
     0x1653: TEXT_DOOR_001
     0x165C: TEXT_DOOR_115
     0x1687: TEXT_DOOR_281
@@ -19747,27 +21268,27 @@ renameLabels:
     0x175E: TEXT_DOOR_885
     0x1783: TEXT_DOOR_915
     0x17A8: TEXT_DOOR_566
-    0x17B0: TEXT_UNKNOWN_UNKNOWN_C9992F_0017B0
+    0x17B0: TEXT_UNKNOWN_DOOR_SCRIPTS_0017B0
     0x17B4: TEXT_DOOR_577
-    0x17BC: TEXT_UNKNOWN_UNKNOWN_C9992F_0017BC
+    0x17BC: TEXT_UNKNOWN_DOOR_SCRIPTS_0017BC
     0x17C0: TEXT_DOOR_586
-    0x17C8: TEXT_UNKNOWN_UNKNOWN_C9992F_0017C8
+    0x17C8: TEXT_UNKNOWN_DOOR_SCRIPTS_0017C8
     0x17CC: TEXT_DOOR_594
-    0x17D4: TEXT_UNKNOWN_UNKNOWN_C9992F_0017D4
+    0x17D4: TEXT_UNKNOWN_DOOR_SCRIPTS_0017D4
     0x17D8: TEXT_DOOR_587
     0x17DC: TEXT_DOOR_004
     0x17E3: MSG_SAVE_MOUSE
-    0x17E9: TEXT_UNKNOWN_UNKNOWN_C9992F_0017E9
+    0x17E9: TEXT_UNKNOWN_DOOR_SCRIPTS_0017E9
     0x17EF: TEXT_DOOR_101
     0x17FB: TEXT_DOOR_716
     0x17FF: TEXT_DOOR_725
     0x1810: TEXT_DOOR_686
-    0x1829: TEXT_UNKNOWN_UNKNOWN_C9992F_001829
+    0x1829: TEXT_UNKNOWN_DOOR_SCRIPTS_001829
     0x1830: TEXT_DOOR_704
-    0x1840: TEXT_UNKNOWN_UNKNOWN_C9992F_001840
+    0x1840: TEXT_UNKNOWN_DOOR_SCRIPTS_001840
     0x1847: MSG_EVT_SUMS_RING_STOP
     0x184E: TEXT_DOOR_685
-    0x1882: TEXT_UNKNOWN_UNKNOWN_C9992F_001882
+    0x1882: TEXT_UNKNOWN_DOOR_SCRIPTS_001882
     0x18DF: TEXT_DOOR_000
     0x18EE: TEXT_DOOR_367
     0x18F2: TEXT_DOOR_711
@@ -20550,7 +22071,7 @@ compressedTextStrings:
 - '@Ky'
 - '@Ye'
 - spi
-defaultDumpPath: src/bin/
+defaultDumpPath: asm/bin/
 romIdentifier: 'EARTH BOUND          '
 dontUseTextTable: false
 multibyteFlyovers: false

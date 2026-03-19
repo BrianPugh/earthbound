@@ -1,0 +1,13 @@
+
+RESTORE_TEXT_STATE_ATTRIBUTES:
+	REP #PROC_FLAGS::ACCUM8 | PROC_FLAGS::INDEX8 | PROC_FLAGS::CARRY
+	TAX
+	BEQ @RETURN
+	LDA a:display_text_state::unknown4,X
+	BEQ @RETURN
+	TXA
+	CLC
+	ADC #display_text_state::saved_text_attributes
+	JSL RESTORE_WINDOW_TEXT_ATTRIBUTES
+@RETURN:
+	RTS

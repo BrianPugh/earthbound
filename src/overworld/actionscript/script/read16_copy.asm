@@ -1,6 +1,0 @@
-
-UNKNOWN_C09D99:
-	LDA [$80],Y
-	INY
-	INY
-	RTS

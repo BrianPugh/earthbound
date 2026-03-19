@@ -1,0 +1,11 @@
+
+;Bit flags for something (See RENDER_VWF_GLYPH)
+VWF_GLYPH_MASK_LEFT:
+	.WORD $FFFF
+	.WORD $7F7F
+	.WORD $3F3F
+	.WORD $1F1F
+	.WORD $0F0F
+	.WORD $0707
+	.WORD $0303
+	.WORD $0101

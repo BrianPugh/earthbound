@@ -67,7 +67,7 @@
 .DEFINE SMAAAASH_FLASH_DURATION 1*SECOND ;Duration (in frames) for the screen flashes that come with SMAAAASH attacks
 
 .DEFINE DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR 1*SECOND ;Duration in frames for the screen shaking that occurs when taking damage
-.DEFINE DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR_UNKNOWN 7*MILLISECONDS ;Ditto, but conditions for triggering are unknown
+.DEFINE DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL 7*MILLISECONDS ;Duration in frames for the screen shaking that occurs when taking normal (non-SMAAAASH, non-mortal) damage
 .DEFINE DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL 1*SECOND ;Duration in frames for the screen shaking that occurs when taking mortal damage
 .DEFINE DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD 1*FIFTH_OF_A_SECOND ;Ditto, but for the hold periods of each shake - for intensifying
 

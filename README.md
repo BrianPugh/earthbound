@@ -1,39 +1,199 @@
 # ebsrc
 
-This is currently a disassembly of the game known as Earthbound in the west and Mother 2 in the east. Hopefully, in the future, it will be able to evolve into a proper decompilation. Contributions are welcome.
+An open-source reimplementation of **EarthBound** (US) / **Mother 2** (Japan) for the Super Nintendo — written in C, playable on modern platforms.
 
-## Requirements
+Play EarthBound natively on your PC, a Raspberry Pi Pico, or build a byte-perfect SNES ROM from the fully disassembled 65816 assembly. All game data is extracted from your own legally-obtained ROM — no copyrighted content is included in this repository.
 
-- [ebbinex](https://github.com/Herringway/ebbinex)
-- [ca65 v2.19](https://github.com/cc65/cc65)
-- [spcasm v1.1.0](https://github.com/kleinesfilmroellchen/spcasm/) (or later)
-- git (or some other way to acquire this source code)
-- GNU make or compatible
+## Platforms
 
-## How to build
+| Port | Directory | Status | Notes |
+|------|-----------|--------|-------|
+| **Desktop** (Windows, macOS, Linux) | `port/unix/` | Fully playable | SDL2, 60 FPS, audio, fast-forward |
+| **RP2040** (Pico LCD 1.3) | `port/waveshare/pico-lcd-1.3/` | Playable (no audio) | 240x240 ST7789 display, 9 inputs |
+| **SNES ROM** (assembly) | `asm/` | Complete | Reassembles a byte-perfect ROM |
+| **SNES ROM** (C back-port) | `port/snes/` | Scaffolding only | Goal: compile C back to 65816 |
 
-1. Clone the repository - `git clone https://github.com/Herringway/ebsrc.git`
-2. From the source directory, enter the following commands for the ROM you wish to produce:
+The C port is structured as a platform-agnostic game library (`src/`) that any port links against. Adding a new platform means implementing a thin `platform.h` interface — see [docs/porting-guide.md](docs/porting-guide.md).
 
-#### US Retail
+---
 
-	ebbinex earthbound.yml "path to retail ROM"
-	make
+## Quick Start: Desktop (Recommended)
 
-#### US Localization Prototype (1995-03-27)
+### 1. Install Prerequisites
 
-	ebbinex earthbound-1995-03-27.yml "path to prototype ROM"
-	make proto19950327
+**macOS** (using [Homebrew](https://brew.sh)):
+```bash
+brew install cmake sdl2 uv git
+```
 
-#### Mother 2
+**Ubuntu / Debian Linux**:
+```bash
+sudo apt update
+sudo apt install cmake libsdl2-dev build-essential git
+# Install uv (Python package manager):
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-	ebbinex mother2.yml "path to mother 2 ROM"
-	make mother2
+**Windows** (using [Scoop](https://scoop.sh)):
+```powershell
+scoop install cmake git uv
+```
+You will also need [SDL2 development libraries](https://github.com/libsdl-org/SDL/releases) and a C compiler (Visual Studio with "Desktop development with C++" workload, or MinGW).
 
-## TODO
+### 2. Clone and Set Up
 
-- [ ] Extract and build assets with a better format.
-- [ ] Document all the things!
-- [ ] Determine and locate a copy of the version of VUCC used for the original game.
-	- [ ] Alternatively, attempt to recreate that version using the version of VUCC released with the Virtual Boy SDK
-- [ ] Decompile C code.
+```bash
+git clone https://github.com/Herringfield/earthbound.git
+cd earthbound
+uv sync          # creates a venv and installs ebtools
+```
+
+### 3. Extract Assets from Your ROM
+
+```bash
+uv run ebtools extract earthbound.yml "path/to/your/earthbound.sfc"
+```
+
+Replace the path with your actual ROM location (e.g. `~/Desktop/earthbound.sfc`).
+
+### 4. Build and Run
+
+```bash
+cd port/unix
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/earthbound_port
+```
+
+---
+
+## Controls
+
+EarthBound was designed for comfortable one-handed play — many buttons are intentionally redundant.
+
+| Button | Function |
+|--------|----------|
+| **D-Pad** | Move character; navigate menus |
+| **A** | Confirm / interact / open command window |
+| **B** | Cancel / back; show HP/PP window on overworld |
+| **X** | Toggle town map (when obtained) |
+| **L** | "Check" / talk (like A, but prioritizes dialogue). Also confirms in menus |
+| **Select** | Same as B (one-handed play) |
+| **Start** | Start game from title screen |
+| **R** | Ring bicycle bell (cosmetic) |
+
+**Minimum for hardware ports:** D-Pad + A + B is fully playable. Add X for the town map and Start for the title screen.
+
+### Default Keyboard Mapping
+
+| Key | SNES Button |
+|-----|-------------|
+| Arrow keys | D-Pad |
+| X | A |
+| Z | B |
+| S | X |
+| A | Y |
+| Q | L |
+| W | R |
+| Enter | Start |
+| Right Shift | Select |
+| Tab | Fast-forward (4x speed) |
+
+---
+
+## Building the Assembly ROM
+
+If you want a reassembled SNES ROM for use with an emulator or flash cart, you'll need additional tools.
+
+### Additional Prerequisites
+
+- [ca65 v2.19+](https://github.com/cc65/cc65) — 65816 assembler (part of the cc65 suite)
+- [spcasm v1.1.0+](https://github.com/kleinesfilmroellchen/spcasm/) — SPC700 audio assembler
+- GNU make
+
+### Build
+
+Make sure you've cloned the repo, installed ebtools, and extracted assets (steps 2–3 above), then from the repository root:
+
+**EarthBound (US Retail)**:
+```bash
+make
+```
+
+**Mother 2 (Japan)** — requires a Mother 2 ROM:
+```bash
+uv run ebtools extract mother2.yml "path/to/mother2.sfc"
+make mother2
+```
+
+**US Localization Prototype (1995-03-27)** — requires the prototype ROM:
+```bash
+uv run ebtools extract earthbound-1995-03-27.yml "path/to/prototype.sfc"
+make proto19950327
+```
+
+Output goes to `build/` (e.g. `build/earthbound.sfc`).
+
+---
+
+## Modding & Asset Editing
+
+Game data lives in human-editable JSON files under `src/assets/` — items, enemies, NPCs, PSI, and more. Edit the JSON, rebuild, and your changes are packed into the game automatically.
+
+Overworld sprites are extracted as indexed PNGs with JSON metadata. Custom sprites go in `src/custom_assets/overworld_sprites/png/` and override originals at build time. See [docs/editing-sprites.md](docs/editing-sprites.md) for the full guide.
+
+---
+
+## Project Structure
+
+```
+src/                    Game library (platform-agnostic C)
+  core/                   Math, memory, decompression
+  entity/                 Entity system, scripts, sprites
+  game/                   Battle, text, overworld, inventory, audio
+  intro/                  Title screen, file select, naming
+  snes/                   Software PPU renderer, DMA, SPC700 emulator
+  platform/platform.h     Interface that ports implement
+
+port/
+  unix/                   Desktop port (SDL2) — Windows, macOS, Linux
+  waveshare/pico-lcd-1.3/ RP2040 embedded port
+  snes/                   SNES native port (scaffolding)
+
+asm/                    Complete 65816 disassembly, organized by subsystem
+  battle/  overworld/  text/  system/  audio/  ...
+
+docs/                   Guides: porting, assembly-to-C, sprites, assets
+```
+
+---
+
+## Documentation
+
+- [Porting Guide](docs/porting-guide.md) — how to add a new platform port
+- [Assembly-to-C Guide](docs/assembly-to-c.md) — porting conventions, VUCC calling convention, worked examples
+- [Editing Overworld Sprites](docs/editing-sprites.md) — viewing, editing, and repacking sprites
+- [Asset Documentation](docs/assets.md) — game asset formats
+
+---
+
+## Troubleshooting
+
+**"ebtools: command not found"** — Use `uv run ebtools` instead of bare `ebtools`, or activate the venv first: `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows).
+
+**"SDL2 not found" during cmake** — Install SDL2 dev libraries. macOS: `brew install sdl2`. Linux: `sudo apt install libsdl2-dev`.
+
+**"ca65: command not found"** — Install the cc65 suite. macOS: `brew install cc65`. Linux: [build from source](https://github.com/cc65/cc65).
+
+**Missing files in `asm/bin/`** — Run `ebtools extract` first. Assets must be extracted from your ROM before building.
+
+---
+
+## Contributing
+
+Contributions are welcome! Current focus areas:
+
+- Bug fixes and visual glitches in the C port
+- Performance optimization (especially for embedded targets)
+- New platform ports
+- Better asset editing tools and formats

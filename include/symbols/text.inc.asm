@@ -59,8 +59,8 @@ LOCALEINCLUDE "text_data/ESHOP2.symbols.asm"
 	LOCALEINCLUDE "text_data/ESHOP3.symbols.asm"
 .ENDIF
 LOCALEINCLUDE "text_data/ESYSTEM.symbols.asm"
-LOCALEINCLUDE "text_data/UNKNOWN7.symbols.asm"
-LOCALEINCLUDE "text_data/UNKNOWN_C9992F.symbols.asm"
+LOCALEINCLUDE "text_data/DEBUG_TEXT.symbols.asm"
+LOCALEINCLUDE "text_data/DOOR_SCRIPTS.symbols.asm"
 
 .GLOBAL COMPRESSED_TEXT_PTRS: far
 .GLOBAL COMPRESSED_TEXT_DATA: far

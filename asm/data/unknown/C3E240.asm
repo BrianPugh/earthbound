@@ -1,0 +1,3 @@
+
+DIRECTION_Y_OFFSET_TABLE:
+	.BYTE $FF, $FF, $FF, $FF, $00, $00, $01, $00, $01, $00, $01, $00, $00, $00, $FF, $FF

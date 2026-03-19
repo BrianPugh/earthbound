@@ -1,0 +1,51 @@
+
+DARKEN_BG_PALETTES:
+	BEGIN_C_FUNCTION_FAR
+	STACK_RESERVE_VARS
+	STACK_RESERVE_INT32
+	STACK_RESERVE_INT16
+	END_STACK_VARS
+	LDX #0
+	BRA @LOOP_CHECK
+@DARKEN_ENTRY:
+	TXA
+	ASL
+	CLC
+	ADC #.LOWORD(LOADED_BG_DATA_LAYER1)
+	STA @LOCAL01
+	CLC
+	ADC #0 * .SIZEOF(loaded_bg_data) + loaded_bg_data::palette
+	TAY
+	LDA __BSS_START__,Y
+	LSR
+	AND #$3DEF ;lower 4 bits of each colour channel
+	STA __BSS_START__,Y
+	LDA @LOCAL01
+	CLC
+	ADC #1 * .SIZEOF(loaded_bg_data) + loaded_bg_data::palette
+	TAY
+	LDA __BSS_START__,Y
+	LSR
+	AND #$3DEF ;lower 4 bits of each colour channel
+	STA __BSS_START__,Y
+	INX
+@LOOP_CHECK:
+	CPX #16
+	BCC @DARKEN_ENTRY
+	PROMOTENEARPTR LOADED_BG_DATA_LAYER1 + loaded_bg_data::palette, @VIRTUAL06
+	REP #PROC_FLAGS::ACCUM8
+	MOVE_INT @VIRTUAL06, @LOCAL00
+	LDX #.SIZEOF(loaded_bg_data::palette)
+	LDA LOADED_BG_DATA_LAYER1 + loaded_bg_data::palette_pointer
+	JSL MEMCPY16
+	LDA LOADED_BG_DATA_LAYER2
+	AND #$00FF
+	BEQ @SKIP_LAYER2
+	PROMOTENEARPTR LOADED_BG_DATA_LAYER2 + loaded_bg_data::palette, @VIRTUAL06
+	REP #PROC_FLAGS::ACCUM8
+	MOVE_INT @VIRTUAL06, @LOCAL00
+	LDX #.SIZEOF(loaded_bg_data::palette)
+	LDA LOADED_BG_DATA_LAYER2 + loaded_bg_data::palette_pointer
+	JSL MEMCPY16
+@SKIP_LAYER2:
+	END_C_FUNCTION

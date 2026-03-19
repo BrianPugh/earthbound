@@ -1,0 +1,5 @@
+; [ENEMY] Static enemy — renders sprite and waits for battle encounter flash
+EVENT_5:
+	EVENT_RENDER_ENTITY_SPRITE_ME2
+	EVENT_SET_ANIMATION $00
+	EVENT_SHORTJUMP .LOWORD(WAIT_FOR_BATTLE_AND_FLASH)

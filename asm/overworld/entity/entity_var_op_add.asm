@@ -1,0 +1,7 @@
+
+ENTITY_VAR_OP_ADD:
+	LDA ($8C)
+	CLC
+	ADC $90
+	STA ($8C)
+	RTS

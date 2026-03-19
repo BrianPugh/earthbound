@@ -1,0 +1,3 @@
+
+MENU_OVERFLOW_TEXT:
+	.BYTE $A4, $A8, $66, $00

@@ -1,0 +1,5 @@
+; [NPC] Conditional phone NPC — checks phone-ring flag; if set becomes static NPC, else ringing phone
+EVENT_40:
+	EVENT_TEST_EVENT_FLAG EVENT_FLAG::FLG_MYHOME_PHONE_RING
+	EVENT_SHORTCALL_CONDITIONAL_NOT .LOWORD(EVENT_41)
+	EVENT_SHORTJUMP .LOWORD(EVENT_8)

@@ -1,0 +1,6 @@
+
+ENTITY_VAR_OP_XOR:
+	LDA ($8C)
+	EOR $90
+	STA ($8C)
+	RTS

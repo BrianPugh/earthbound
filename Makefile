@@ -7,10 +7,10 @@ all: earthbound
 %: s.%
 %: SCCS/s.%
 
-SRCDIR = src/bankconfig
+SRCDIR = asm/bankconfig
 BUILDDIR = build
 
-CA65FLAGS = -t none --cpu 65816 --bin-include-dir src --include-dir src --include-dir include --bin-include-dir $(BUILDDIR)
+CA65FLAGS = -t none --cpu 65816 --bin-include-dir asm --include-dir asm --include-dir include --bin-include-dir $(BUILDDIR)
 LD65FLAGS = -C snes.cfg
 
 JPID = JP
@@ -79,19 +79,20 @@ depsusa: $(BUILDDIR)/main.spc700.bin $(subst $(SRCDIR), $(BUILDDIR), $(USSRCS:.a
 depsusaproto: $(BUILDDIR)/main.spc700.bin $(subst $(SRCDIR), $(BUILDDIR), $(USPROTOSRCS:.asm=.dep))
 
 extract:
-	ebbinex "earthbound.yml" "donor.sfc"
+	ebtools extract "earthbound.yml" "donor.sfc"
 
 extractproto:
-	ebbinex "earthbound-1995-03-27.yml" "donor-1995-03-27.sfc"
+	ebtools extract "earthbound-1995-03-27.yml" "donor-1995-03-27.sfc"
 
 extractjp:
-	ebbinex "mother2.yml" "donorm2.sfc"
+	ebtools extract "mother2.yml" "donorm2.sfc"
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.asm
 	@$(call mkdir, $(@D))
 	ca65 $(CA65FLAGS) --listing "$(strip $(subst $(SRCDIR), $(BUILDDIR), $(patsubst %.o,%.lst,$@)))" -o "$@" "$<"
 
-$(BUILDDIR)/%.spc700.bin: src/spc700/%.spc700.s
+$(BUILDDIR)/%.spc700.bin: asm/spc700/%.spc700.s
+	@$(call mkdir, $(@D))
 	spcasm -f plain "$<" "$@"
 
 %.bin: %.uncompressed
