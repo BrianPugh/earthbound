@@ -6,8 +6,12 @@ include(pico_sdk_import.cmake)
 project(earthbound_pico C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 
-# 16 MB flash chip
-set(PICO_FLASH_SIZE_BYTES "16777216")
+# 16 MB flash chip, minus 8 KB reserved for save data at the end.
+# This limits the linker's FLASH region so firmware can't silently overlap saves.
+# The full 16 MB value is passed as a C macro (below) so the SDK's flash_range_*
+# hard_assert accepts offsets into the save area.
+math(EXPR PICO_FLASH_SIZE_BYTES "16 * 1024 * 1024 - 2 * 4096")
+set(PICO_FLASH_SIZE_BYTES "${PICO_FLASH_SIZE_BYTES}")
 
 # Disable heap — game doesn't use malloc. Saves 2048 bytes for USB stdio BSS.
 add_compile_definitions(PICO_HEAP_SIZE=0)
@@ -74,6 +78,8 @@ target_link_libraries(earthbound_pico
     hardware_gpio
     hardware_pwm
     hardware_dma
+    hardware_flash
+    hardware_sync
 )
 
 if(ENABLE_AUDIO)
@@ -83,6 +89,10 @@ if(ENABLE_AUDIO)
         hardware_sync
     )
 endif()
+
+# The C macro must reflect the full 16 MB so the SDK's flash_range_erase/program
+# hard_assert accepts offsets into the save area (beyond the linker region).
+target_compile_definitions(earthbound_pico PRIVATE PICO_FLASH_SIZE_BYTES=16777216)
 
 target_compile_options(earthbound_pico PRIVATE -Wall -Wextra -Wno-unused-parameter)
 

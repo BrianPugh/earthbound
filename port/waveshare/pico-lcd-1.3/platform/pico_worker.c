@@ -60,6 +60,9 @@ static void __not_in_flash_func(core1_send)(int y, const pixel_t *pixels) {
 
 /* Core 1 entry point — renders odd scanlines */
 static void core1_entry(void) {
+    /* Enable multicore lockout so flash writes can pause this core. */
+    multicore_lockout_victim_init();
+
     for (;;) {
         multicore_fifo_pop_blocking();
 
