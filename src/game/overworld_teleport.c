@@ -130,11 +130,10 @@ static void run_teleport_failure_sequence(void) {
     /* Set party_status = 1 (charred appearance) */
     game_state.party_status = 1;
 
-    /* Wait 180 frames */
+    /* Wait 180 frames.
+     * Assembly: OAM_CLEAR + RUN_ACTIONSCRIPT_FRAME + UPDATE_SCREEN +
+     * WAIT_UNTIL_NEXT_FRAME. render_frame_tick() does all four. */
     for (int i = 0; i < 180; i++) {
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
         render_frame_tick();
     }
 

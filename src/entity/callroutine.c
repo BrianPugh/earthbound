@@ -2104,7 +2104,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t slot = scripts.tempvar[script_offset];
 
         /* Set pathfinding state to -1 (request pathfinding) */
-        entities.pathfinding_states[ent] = 0xFF;
+        entities.pathfinding_states[ent] = -1;
 
         /* Find path from offscreen TO the current entity */
         if (pathfind_to_current_entity() != 0)
@@ -2169,7 +2169,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t slot = scripts.tempvar[script_offset];
 
         /* Set pathfinding state to -1 (request pathfinding) */
-        entities.pathfinding_states[ent] = 0xFF;
+        entities.pathfinding_states[ent] = -1;
 
         /* Find path from offscreen TO the party leader.
          * pathfind_to_party_leader() also snaps the entity position to the

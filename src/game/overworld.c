@@ -22,6 +22,7 @@
  */
 
 #include "game/overworld_internal.h"
+#include "game/ending.h"
 #include "game/battle.h"
 #include "game/position_buffer.h"
 #include "game/map_loader.h"
@@ -1841,9 +1842,8 @@ void initialize_overworld_state(void) {
     /* Assembly line 29-30: DAD_PHONE_TIMER = 1687 */
     ow.dad_phone_timer = 1687;
 
-    /* Assembly line 31-32: SET_IRQ_CALLBACK(PROCESS_OVERWORLD_TASKS)
-     * The C port doesn't have an IRQ callback system — overworld tasks
-     * are handled inline in the main game loop. */
+    /* Assembly line 31-32: SET_IRQ_CALLBACK(PROCESS_OVERWORLD_TASKS) */
+    frame_callback = process_overworld_tasks;
 
     /* Assembly lines 33-36: clear teleport state and entity fade */
     ow.psi_teleport_style = 0;

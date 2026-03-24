@@ -752,7 +752,7 @@ static int16_t initialize_pathfinding_for_entities(
             continue;
 
         /* Only process entities participating in battle (pathfinding_state == -1) */
-        if (entities.pathfinding_states[ent] != 0xFF)
+        if (entities.pathfinding_states[ent] != -1)
             continue;
 
         if (pathfinder_count >= MAX_PATHFINDERS)

@@ -264,7 +264,7 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
         int16_t ent = entity_offset;
 
         /* Only proceed if pathfinding state == -1 (active) */
-        if ((int16_t)entities.pathfinding_states[ent] != -1)
+        if (entities.pathfinding_states[ent] != -1)
             break;
 
         int16_t size = entities.sizes[ent];

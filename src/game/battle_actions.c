@@ -1000,10 +1000,14 @@ void bomb_common(uint16_t base_damage) {
         }
 
         /* Right neighbor: party member at slot + 1.
-         * Assembly: only skips when next_member > 5 (LDA; CMP #6; BCS). */
-        uint8_t next_member = game_state.party_members[slot + 1];
-        if (next_member <= 5) {
-            adjacent_right = (uint16_t)((slot + 1) * sizeof(Battler));
+         * Assembly reads the byte after the last party_members entry (which
+         * is leader_x_frac in WRAM, always >= 6) and skips if >= 6. We
+         * guard with a bounds check instead to avoid OOB access. */
+        if (slot + 1 < 6) {
+            uint8_t next_member = game_state.party_members[slot + 1];
+            if (next_member <= 5) {
+                adjacent_right = (uint16_t)((slot + 1) * sizeof(Battler));
+            }
         }
     } else {
         /* Enemy target: scan for enemies in same row within blast range */

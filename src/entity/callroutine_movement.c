@@ -344,9 +344,9 @@ int16_t cr_set_direction8(int16_t entity_offset, int16_t script_offset,
      * additionally stores to ENTITY_MOVING_DIRECTIONS. */
     uint8_t dir = sb(pc);
     *out_pc = pc + 1;
-    if (!(entities.pathfinding_states[entity_offset] & 0x8000))
-        entities.directions[entity_offset] = (int16_t)dir;
-    entities.moving_directions[entity_offset] = (int16_t)dir;
+    if (entities.pathfinding_states[entity_offset] >= 0)
+        entities.directions[entity_offset] = (int8_t)dir;
+    entities.moving_directions[entity_offset] = (int8_t)dir;
     return 0;
 }
 
@@ -356,8 +356,8 @@ int16_t cr_set_direction(int16_t entity_offset, int16_t script_offset,
     /* Uses tempvar as direction. Assembly (set_direction.asm) preserves
      * the direction in A via TAY/TYA, so return value = input direction.
      * If pathfinding_states bit 15 is set, skip storing direction. */
-    if (!(entities.pathfinding_states[entity_offset] & 0x8000)) {
-        entities.directions[entity_offset] = scripts.tempvar[script_offset];
+    if (entities.pathfinding_states[entity_offset] >= 0) {
+        entities.directions[entity_offset] = (int8_t)scripts.tempvar[script_offset];
     }
     return scripts.tempvar[script_offset];
 }
@@ -409,7 +409,7 @@ int16_t cr_get_entity_pathfinding_state(int16_t entity_offset, int16_t script_of
      * Returns pathfinding state word for this entity.
      * Bit 15 = locked direction flag. */
     *out_pc = pc;
-    return (int16_t)entities.pathfinding_states[entity_offset];
+    return entities.pathfinding_states[entity_offset];
 }
 
 int16_t cr_set_surface_flags(int16_t entity_offset, int16_t script_offset,

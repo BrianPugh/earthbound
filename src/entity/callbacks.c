@@ -231,7 +231,7 @@ void call_move_callback(int16_t entity_offset) {
          * If obstacle flags & 0xD0 (bits 4,6,7), zero all velocity.
          * If collided with entity (bit 15 set), force move.
          * Otherwise do nothing (entity is blocked). */
-        if ((int16_t)entities.pathfinding_states[entity_offset] < 0) {
+        if (entities.pathfinding_states[entity_offset] < 0) {
             entity_physics_force_move(entity_offset);
         } else if (entities.obstacle_flags[entity_offset] & 0x00D0) {
             /* Zero all velocity components (MOVEMENT_CODE_39) */
@@ -249,7 +249,7 @@ void call_move_callback(int16_t entity_offset) {
         /* ENTITY_PHYSICS_SIMPLE_COLLISION (C0A384):
          * Same obstacle/collision checks as WITH_COLLISION, but
          * calls APPLY_DELTA directly (no surface flags update). */
-        if ((int16_t)entities.pathfinding_states[entity_offset] < 0) {
+        if (entities.pathfinding_states[entity_offset] < 0) {
             apply_entity_delta_position(entity_offset);
         } else if (entities.obstacle_flags[entity_offset] & 0x00D0) {
             entities.delta_frac_x[entity_offset] = 0;

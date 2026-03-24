@@ -577,10 +577,13 @@ static const uint8_t color_math_register_table[] = {
  * index: layer configuration mode (0-10).
  */
 void set_color_math_from_table(uint16_t index) {
+    /* TM has 11 entries (0-10), TD/CGWSEL/CGADSUB have 10 entries (0-9).
+     * Callers use index 0-7 in practice; clamp to prevent OOB. */
+    if (index > 10) return;
     ppu.tm      = color_math_register_table[index];
-    ppu.ts      = color_math_register_table[11 + index];
-    ppu.cgwsel  = color_math_register_table[21 + index];
-    ppu.cgadsub = color_math_register_table[31 + index];
+    ppu.ts      = color_math_register_table[11 + (index <= 9 ? index : 9)];
+    ppu.cgwsel  = color_math_register_table[21 + (index <= 9 ? index : 9)];
+    ppu.cgadsub = color_math_register_table[31 + (index <= 9 ? index : 9)];
 }
 
 

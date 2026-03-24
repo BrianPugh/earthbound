@@ -110,6 +110,7 @@ void spawn_delivery_entities(void) {
  * in ert.new_entity_var[0] for the script to use. */
 void get_delivery_sprite_and_placeholder(uint16_t delivery_id) {
     if (!ensure_delivery_tables()) return;
+    if (delivery_id == 0 || delivery_id > DELIVERY_TABLE_COUNT) return;
 
     /* Store 0-based index in ert.new_entity_var[0] */
     uint16_t index = delivery_id - 1;
@@ -133,6 +134,7 @@ void get_delivery_sprite_and_placeholder(uint16_t delivery_id) {
  * Saves play time and party affliction status for a photo slot.
  * photo_id is 1-based (from the CC code argument). */
 void save_photo_state(uint16_t photo_id) {
+    if (photo_id == 0 || photo_id > NUM_PHOTOS) return;
     uint16_t slot = photo_id - 1;
 
     /* Assembly lines 13-28: play_time = TIMER / 3600, capped at 59999 */
@@ -834,7 +836,7 @@ void initiate_enemy_encounter(void) {
 
             /* First check the touched enemy itself (lines 137-147) */
             if (enemy_id == entities.enemy_ids[enemy_offset]) {
-                entities.pathfinding_states[enemy_offset] = 0xFF;
+                entities.pathfinding_states[enemy_offset] = -1;
                 count--;
             }
 
@@ -844,7 +846,7 @@ void initiate_enemy_encounter(void) {
                     if (entities.script_table[slot] == -1)
                         continue;  /* no script = inactive entity */
                     if (enemy_id == entities.enemy_ids[slot]) {
-                        entities.pathfinding_states[slot] = 0xFF;
+                        entities.pathfinding_states[slot] = -1;
                     }
                 }
             }
@@ -954,7 +956,7 @@ void initiate_enemy_encounter(void) {
         if (slot == enemy_slot)
             continue;
 
-        if (entities.pathfinding_states[slot] == 0xFF) {
+        if (entities.pathfinding_states[slot] == -1) {
             /* Battle participant — enable tick and movement (lines 366-373) */
             entities.tick_callback_hi[slot] &=
                 (uint16_t)~(uint16_t)(OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED);

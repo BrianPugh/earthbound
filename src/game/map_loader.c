@@ -540,22 +540,24 @@ static void fill_collision_tiles(int16_t view_x_tile, int16_t view_y_tile) {
             uint16_t bx = (uint16_t)world_tx / 4;       /* block column */
             uint8_t sub_col = (uint16_t)world_tx & 3;
 
-            /* Out-of-bounds tiles get zero collision flags. */
             /* Look up collision flags for this tile.
-             * Only write to the grid if this tile is within the loaded tileset area.
-             * The assembly streams individual rows/columns, so out-of-range cells
-             * are never overwritten and retain their previous valid data. The C port's
-             * full 64×64 refill must skip out-of-tileset tiles to match — otherwise
-             * cells that previously held correct data (from a fill at a different view
-             * position) get clobbered with unrelated block-0 collision values. */
-            if (world_tx < 0 || world_ty < 0)
+             * Tiles outside the loaded tileset area get wall collision (0x40)
+             * so the player cannot walk into out-of-bounds regions.
+             * The assembly's per-row/column streaming naturally keeps valid data
+             * in the grid, but the C port's full 64×64 refill needs explicit
+             * wall flags for tiles beyond the map boundary. */
+            uint16_t cx = world_tx & 63;
+            uint16_t cy = world_ty & 63;
+            if (world_tx < 0 || world_ty < 0 || !tilesetpalette_data) {
+                ml.loaded_collision_tiles[cy * 64 + cx] = 0x40;
                 continue;
-            if (!tilesetpalette_data)
-                continue;
+            }
             uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
             if (tp_index >= tilesetpalette_size ||
-                (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo)
+                (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo) {
+                ml.loaded_collision_tiles[cy * 64 + cx] = 0x40;
                 continue;
+            }
 
             uint16_t block_id = get_block_id(bx, by);
             uint8_t flags = 0;
@@ -567,8 +569,6 @@ static void fill_collision_tiles(int16_t view_x_tile, int16_t view_y_tile) {
                 }
             }
 
-            uint16_t cx = world_tx & 63;
-            uint16_t cy = world_ty & 63;
             ml.loaded_collision_tiles[cy * 64 + cx] = flags;
 
         }
@@ -1467,12 +1467,10 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
      * assembly to avoid ert.buffer dependency. */
     if (tileset_combo != ml.loaded_tileset_combo) {
         load_and_decompress(ASSET_MAPS_GFX(tileset_id), ppu.vram, sizeof(ppu.vram));
-        /* Clear collision grid when switching tilesets. The assembly's per-row/column
-         * streaming naturally leaves out-of-range cells untouched, but the C port's
-         * skip-out-of-tileset logic means stale data from the previous tileset could
-         * persist in cells not covered by the new tileset's fill range. Zeroing the
-         * grid ensures no stale collision flags (e.g., outdoor 0x80) bleed through. */
-        memset(ml.loaded_collision_tiles, 0, sizeof(ml.loaded_collision_tiles));
+        /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
+         * so any cell not overwritten by fill_collision_tiles() blocks movement.
+         * This prevents walking into out-of-bounds areas at map edges. */
+        memset(ml.loaded_collision_tiles, 0x40, sizeof(ml.loaded_collision_tiles));
         ml.loaded_tileset_combo = tileset_combo;
     }
 

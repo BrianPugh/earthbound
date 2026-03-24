@@ -115,7 +115,7 @@ typedef struct {
     int8_t collided_objects[MAX_ENTITIES];         /* ENTITY_COLLIDED_OBJECTS — -1 to 29 */
     uint8_t surface_flags[MAX_ENTITIES];           /* ENTITY_SURFACE_FLAGS — bits 0–3 */
     uint8_t obstacle_flags[MAX_ENTITIES];          /* ENTITY_OBSTACLE_FLAGS — bits 4,6,7 */
-    uint8_t pathfinding_states[MAX_ENTITIES];      /* ENTITY_PATHFINDING_STATES — small enum */
+    int16_t pathfinding_states[MAX_ENTITIES];       /* ENTITY_PATHFINDING_STATES — 0=inactive, 1=reset, -1=active (bit 15 used) */
     uint8_t walking_styles[MAX_ENTITIES];          /* ENTITY_WALKING_STYLES — small enum */
     uint16_t animation_fingerprints[MAX_ENTITIES]; /* ENTITY_ANIMATION_FINGERPRINTS */
     uint8_t overlay_flags[MAX_ENTITIES];           /* ENTITY_OVERLAY_FLAGS — bit 1: nausea, bit 0: mushroom */

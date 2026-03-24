@@ -76,8 +76,11 @@ uint16_t cur_photo_display;
  * here indexed by queue slot, and the queue entry's src field is unused. */
 static const uint8_t *credits_dma_src_ptrs[CREDITS_DMA_QUEUE_SIZE];
 
-/* Per-frame callback function pointer */
-frame_callback_fn frame_callback = NULL;
+/* Per-frame callback function pointer.
+ * Defaults to process_overworld_tasks, matching the assembly's
+ * SET_IRQ_CALLBACK in initialize_overworld_state.asm. Credits swap
+ * this to credits_scroll_frame, then restore it back. */
+frame_callback_fn frame_callback = NULL;  /* set to process_overworld_tasks by init_overworld */
 
 /* =====================================================================
  *  Helper: VRAM copy (replacement for PREPARE_VRAM_COPY)
@@ -1327,8 +1330,8 @@ void play_credits(void) {
         render_frame_tick();
     }
 
-    /* Reset IRQ callback */
-    frame_callback = NULL;
+    /* Reset IRQ callback to overworld tasks (assembly: SET_IRQ_CALLBACK PROCESS_OVERWORLD_TASKS) */
+    frame_callback = process_overworld_tasks;
 
     /* Wait 2000 frames */
     for (int f = 0; f < 2000; f++) {
@@ -1358,7 +1361,7 @@ void play_credits(void) {
     ppu.tm = 0x17;  /* Assembly: STA TM_MIRROR (main screen, not sub-screen) */
 
     /* Restore IRQ callback to overworld tasks */
-    frame_callback = NULL; /* process_overworld_tasks called from main loop */
+    frame_callback = process_overworld_tasks;
 
     ow.disabled_transitions = 0;
 

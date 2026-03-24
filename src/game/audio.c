@@ -59,7 +59,7 @@ static void audio_upload_pack(const uint8_t *pack_data, size_t pack_size) {
         offset += 2;
         if (offset + block_size > pack_size) break;
         /* Clamp block_size to avoid writing past the end of 64KB APU RAM */
-        if (addr + block_size > 65536) {
+        if ((uint32_t)addr + block_size > 65536) {
             block_size = 65536 - addr;
         }
         memcpy(&apu->ram[addr], &pack_data[offset], block_size);

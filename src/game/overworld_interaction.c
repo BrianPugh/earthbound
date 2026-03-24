@@ -196,6 +196,7 @@ void activate_hotspot(uint16_t slot, uint16_t hotspot_id, uint32_t pointer) {
     }
 
     int idx = slot - 1;  /* Convert 1-indexed to 0-indexed */
+    if (idx < 0 || idx >= 2) return;  /* Only slots 1 and 2 are valid */
 
     /* Read predefined hotspot coordinates and multiply by 8 */
     if (hotspot_id >= HOTSPOT_COORD_COUNT) return;

@@ -372,13 +372,14 @@ void host_process_frame(void) {
     /* Process sound effect queue (once per frame, matching NMI handler) */
     audio_process_sfx_queue();
 
-    /* Process per-frame callback (once per frame, matching IRQ handler).
-     * Normally PROCESS_OVERWORLD_TASKS; credits swaps to CREDITS_SCROLL_FRAME
-     * via frame_callback function pointer (port of SET_IRQ_CALLBACK). */
+    /* Execute per-frame IRQ callback (port of EXECUTE_IRQ_CALLBACK).
+     * Normally process_overworld_tasks; credits swaps to credits_scroll_frame.
+     * Only ONE runs per frame, matching the assembly's JMP (IRQ_CALLBACK). */
     if (frame_callback) {
         frame_callback();
+    } else {
+        process_overworld_tasks();
     }
-    process_overworld_tasks();
 
     /* Increment frame counter */
     core.frame_counter++;

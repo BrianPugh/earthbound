@@ -151,10 +151,10 @@ static const uint8_t opcode_arg_sizes[0x45] = {
 };
 
 /*
- * Resolve a 16-bit WRAM address to a C pointer.
+ * Resolve a 16-bit WRAM address to a C pointer + field width.
  *
- * Entity scripts use opcode 0x0D (CALLBACK_DISP) and 0x18 (CALLBACK_DISP2)
- * to perform read-modify-write operations on arbitrary WRAM addresses.
+ * Entity scripts use opcodes 0x0D, 0x12, 0x15, 0x18, and 0x1E to perform
+ * read/write/modify operations on arbitrary WRAM addresses.
  * This function maps those addresses to the corresponding C port fields.
  *
  * WRAM layout: entity tables are at fixed addresses (from ram.asm / earthbound.map),
@@ -164,27 +164,67 @@ static const uint8_t opcode_arg_sizes[0x45] = {
  * The bounds check uses the WRAM byte span (MAX_ENTITIES * 2), but the array
  * index divides by 2 since entity/script arrays are now [MAX_ENTITIES]/[MAX_SCRIPTS].
  *
- * Returns NULL if the address is not mapped.
+ * The width field records the C-side element size (1 or 2 bytes). Opcodes use
+ * wram_read/wram_write to access the field with correct zero-extension (for
+ * reads of 8-bit fields) or truncation (for writes to 8-bit fields). This
+ * keeps 8-bit fields packed in memory while matching the SNES's 16-bit
+ * word-indexed WRAM access pattern.
+ */
+typedef struct {
+    void *ptr;
+    uint8_t width;  /* sizeof the C field element: 1 or 2 */
+} WramField;
+
+#define WRAM_FIELD_NULL ((WramField){NULL, 0})
+
+/* Read a WRAM field as int16_t. 8-bit fields are zero-extended. */
+static inline int16_t wram_read(WramField f) {
+    if (f.width == 1) {
+        /* For signed int8_t fields, reading as uint8_t then widening to
+         * int16_t matches the SNES behavior: a 16-bit LDA from a byte
+         * field reads the next byte (adjacent slot) as the high byte,
+         * but scripts only care about the low byte. Zero-extending is
+         * the safest conservative choice. */
+        return (int16_t)*(uint8_t *)f.ptr;
+    }
+    return *(int16_t *)f.ptr;
+}
+
+/* Write an int16_t to a WRAM field. 8-bit fields are truncated. */
+static inline void wram_write(WramField f, int16_t val) {
+    if (f.width == 1)
+        *(uint8_t *)f.ptr = (uint8_t)val;
+    else
+        *(int16_t *)f.ptr = val;
+}
+
+/*
+ * Table macros — sizeof(field[0]) auto-detects the C-side element width,
+ * so 8-bit fields stay packed at 1 byte while 16-bit fields use 2.
  */
 #define WRAM_ENT_TABLE(base, field) \
     if (addr >= (base) && addr < (base) + MAX_ENTITIES * 2) \
-        return (int16_t *)&entities.field[(addr - (base)) / 2]
+        return (WramField){&entities.field[(addr - (base)) / 2], \
+                           sizeof(entities.field[0])}
 
 #define WRAM_SCR_TABLE(base, field) \
     if (addr >= (base) && addr < (base) + MAX_SCRIPTS * 2) \
-        return (int16_t *)&scripts.field[(addr - (base)) / 2]
+        return (WramField){&scripts.field[(addr - (base)) / 2], \
+                           sizeof(scripts.field[0])}
 
-/* Macro for BG scroll tables (4 layers × 2 bytes = 8 bytes per table) */
 #define WRAM_BG_TABLE(base, arr) \
     if (addr >= (base) && addr < (base) + MAX_BG_LAYERS * 2) \
-        return (int16_t *)&arr[(addr - (base)) / 2]
+        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0])}
 
-/* Macro for pathfinding tables (same size as entity tables) */
 #define WRAM_PATH_TABLE(base, arr) \
     if (addr >= (base) && addr < (base) + MAX_ENTITIES * 2) \
-        return (int16_t *)&arr[(addr - (base)) / 2]
+        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0])}
 
-static int16_t *resolve_wram_16(uint16_t addr) {
+/* Shorthand for 16-bit scalar globals */
+#define WRAM_GLOBAL(address, var) \
+    if (addr == (address)) return (WramField){&(var), 2}
+
+static WramField resolve_wram(uint16_t addr) {
     /* Entity script/linkage tables (ram.asm order) */
     WRAM_ENT_TABLE(0x0A62, script_table);
     WRAM_ENT_TABLE(0x0A9E, next_entity);
@@ -208,7 +248,7 @@ static int16_t *resolve_wram_16(uint16_t addr) {
     for (int i = 0; i < 8; i++) {
         uint16_t base = 0x0E5E + i * 0x3C; /* each table is 60 bytes apart in WRAM */
         if (addr >= base && addr < base + MAX_ENTITIES * 2)
-            return &entities.var[i][(addr - base) / 2];
+            return (WramField){&entities.var[i][(addr - base) / 2], 2};
     }
 
     /* Entity draw/callback tables */
@@ -272,45 +312,46 @@ static int16_t *resolve_wram_16(uint16_t addr) {
     WRAM_ENT_TABLE(0x341A, current_displayed_sprites);
     WRAM_ENT_TABLE(0x3456, animation_fingerprints);
 
-    /* Entity management globals */
-    if (addr == 0x0A38) return &ert.new_entity_var[0];
-    if (addr == 0x0A3A) return &ert.new_entity_var[1];
-    if (addr == 0x0A3C) return &ert.new_entity_var[2];
-    if (addr == 0x0A3E) return &ert.new_entity_var[3];
-    if (addr == 0x0A40) return &ert.new_entity_var[4];
-    if (addr == 0x0A42) return &ert.new_entity_var[5];
-    if (addr == 0x0A44) return &ert.new_entity_var[6];
-    if (addr == 0x0A46) return &ert.new_entity_var[7];
-    if (addr == 0x0A48) return &ert.new_entity_pos_z;
-    if (addr == 0x0A4A) return &ert.new_entity_priority;
-    if (addr == 0x0A4C) return (int16_t *)&entities.alloc_min_slot;
-    if (addr == 0x0A4E) return (int16_t *)&entities.alloc_max_slot;
-    if (addr == 0x0A50) return &entities.first_entity;
-    if (addr == 0x0A52) return &entities.last_entity;
-    if (addr == 0x0A60) return (int16_t *)&ert.disable_actionscript;
+    /* Entity management globals (all 16-bit) */
+    WRAM_GLOBAL(0x0A38, ert.new_entity_var[0]);
+    WRAM_GLOBAL(0x0A3A, ert.new_entity_var[1]);
+    WRAM_GLOBAL(0x0A3C, ert.new_entity_var[2]);
+    WRAM_GLOBAL(0x0A3E, ert.new_entity_var[3]);
+    WRAM_GLOBAL(0x0A40, ert.new_entity_var[4]);
+    WRAM_GLOBAL(0x0A42, ert.new_entity_var[5]);
+    WRAM_GLOBAL(0x0A44, ert.new_entity_var[6]);
+    WRAM_GLOBAL(0x0A46, ert.new_entity_var[7]);
+    WRAM_GLOBAL(0x0A48, ert.new_entity_pos_z);
+    WRAM_GLOBAL(0x0A4A, ert.new_entity_priority);
+    WRAM_GLOBAL(0x0A4C, entities.alloc_min_slot);
+    WRAM_GLOBAL(0x0A4E, entities.alloc_max_slot);
+    WRAM_GLOBAL(0x0A50, entities.first_entity);
+    WRAM_GLOBAL(0x0A52, entities.last_entity);
+    WRAM_GLOBAL(0x0A60, ert.disable_actionscript);
 
     /* Entity fade globals */
-    if (addr == 0x195F) return &ow.entity_fade_entity;
+    WRAM_GLOBAL(0x195F, ow.entity_fade_entity);
 
     /* Overworld state globals */
-    if (addr == 0x438A) return (int16_t *)&ow.current_teleport_destination_x;
-    if (addr == 0x438C) return (int16_t *)&ow.current_teleport_destination_y;
-    if (addr == 0x4A66) return (int16_t *)&ow.show_npc_flag;
-    if (addr == 0x4DBA) return (int16_t *)&ow.enemy_has_been_touched;
-    if (addr == 0x5D60) return (int16_t *)&ow.battle_swirl_countdown;
-    if (addr == 0x5D9A) return (int16_t *)&ow.pending_interactions;
-    if (addr == 0x9F3F) return (int16_t *)&ow.psi_teleport_destination;
+    WRAM_GLOBAL(0x438A, ow.current_teleport_destination_x);
+    WRAM_GLOBAL(0x438C, ow.current_teleport_destination_y);
+    WRAM_GLOBAL(0x4A66, ow.show_npc_flag);
+    WRAM_GLOBAL(0x4DBA, ow.enemy_has_been_touched);
+    WRAM_GLOBAL(0x5D60, ow.battle_swirl_countdown);
+    WRAM_GLOBAL(0x5D9A, ow.pending_interactions);
+    WRAM_GLOBAL(0x9F3F, ow.psi_teleport_destination);
 
     /* Ending / cast scene globals */
-    if (addr == 0xB4D1) return (int16_t *)&cast_tile_offset;
+    WRAM_GLOBAL(0xB4D1, cast_tile_offset);
 
-    return NULL;
+    return WRAM_FIELD_NULL;
 }
 
 #undef WRAM_ENT_TABLE
 #undef WRAM_SCR_TABLE
 #undef WRAM_BG_TABLE
 #undef WRAM_PATH_TABLE
+#undef WRAM_GLOBAL
 
 /*
  * Opcode dispatch — maps opcode number to handler.
@@ -508,7 +549,7 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
     /* ---- 0x0D: CALLBACK_DISP — 16-bit callback op on WRAM address ---- */
     /* Assembly: reads [base_addr(2), callback_idx(1), param(2)] from script.
      * Dispatches AND/OR/ADD/XOR via ENTITY_VAR_OP_TABLE. The WRAM address
-     * is resolved to a C port field via resolve_wram_16(). */
+     * is resolved to a C port field via resolve_wram(). */
     case 0x0D: {
         uint16_t addr = sw(pc);
         pc += 2;
@@ -516,15 +557,17 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
         pc++;
         int16_t param = (int16_t)sw(pc);
         pc += 2;
-        int16_t *target = resolve_wram_16(addr);
-        if (target) {
+        WramField f = resolve_wram(addr);
+        if (f.ptr) {
+            int16_t val = wram_read(f);
             switch (cb_idx) {
-                case 0: *target &= param; break;  /* AND */
-                case 1: *target |= param; break;  /* OR */
-                case 2: *target += param; break;  /* ADD */
-                case 3: *target ^= param; break;  /* XOR */
+                case 0: val &= param; break;  /* AND */
+                case 1: val |= param; break;  /* OR */
+                case 2: val += param; break;  /* ADD */
+                case 3: val ^= param; break;  /* XOR */
                 default: break;
             }
+            wram_write(f, val);
         } else {
             LOG_WARN("WARN: CALLBACK_DISP unhandled addr=$%04X cb=%d param=$%04X "
                      "(ent=%d scr=%d)\n",
@@ -545,17 +588,15 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
         pc++;
         uint8_t param = sb(pc);
         pc++;
-        /* Resolve to the containing 16-bit word */
-        int16_t *target = resolve_wram_16(addr & ~1);
-        if (target) {
-            uint16_t word = (uint16_t)*target;
+        /* Resolve to the containing 16-bit WRAM word (even-aligned address) */
+        WramField f = resolve_wram(addr & ~1);
+        if (f.ptr) {
+            int16_t word = wram_read(f);
             uint8_t byte_val;
             if (addr & 1) {
-                /* High byte */
-                byte_val = (uint8_t)(word >> 8);
+                byte_val = (uint8_t)((uint16_t)word >> 8);
             } else {
-                /* Low byte */
-                byte_val = (uint8_t)(word & 0xFF);
+                byte_val = (uint8_t)((uint16_t)word & 0xFF);
             }
             switch (cb_idx) {
                 case 0: byte_val &= param; break;
@@ -565,9 +606,9 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
                 default: break;
             }
             if (addr & 1) {
-                *target = (int16_t)((word & 0x00FF) | ((uint16_t)byte_val << 8));
+                wram_write(f, (int16_t)(((uint16_t)word & 0x00FF) | ((uint16_t)byte_val << 8)));
             } else {
-                *target = (int16_t)((word & 0xFF00) | byte_val);
+                wram_write(f, (int16_t)(((uint16_t)word & 0xFF00) | byte_val));
             }
         } else {
             LOG_WARN("WARN: CALLBACK_DISP2 unhandled addr=$%04X cb=%d param=$%02X "
@@ -705,13 +746,13 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
         case 0x001B: ppu.ts = val; break;          /* TD_MIRROR (sub-screen) */
         default: {
             /* Try entity/script table mapping */
-            int16_t *target = resolve_wram_16(addr & ~1);
-            if (target) {
-                uint16_t word = (uint16_t)*target;
+            WramField f = resolve_wram(addr & ~1);
+            if (f.ptr) {
+                int16_t word = wram_read(f);
                 if (addr & 1) {
-                    *target = (int16_t)((word & 0x00FF) | ((uint16_t)val << 8));
+                    wram_write(f, (int16_t)(((uint16_t)word & 0x00FF) | ((uint16_t)val << 8)));
                 } else {
-                    *target = (int16_t)((word & 0xFF00) | val);
+                    wram_write(f, (int16_t)(((uint16_t)word & 0xFF00) | val));
                 }
             } else {
                 LOG_WARN("WRITE_BYTE_WRAM: unhandled addr=$%04X val=$%02X\n", addr, val);
@@ -806,9 +847,9 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
                          rom_addr);
             }
         } else {
-            int16_t *target = resolve_wram_16(addr);
-            if (target) {
-                *target = value;
+            WramField f = resolve_wram(addr);
+            if (f.ptr) {
+                wram_write(f, value);
             } else {
                 LOG_WARN("WARN: WRITE_WORD_WRAM to unhandled addr $%04X = %d\n",
                          addr, value);
@@ -892,9 +933,9 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
             scripts.tempvar[script_offset] =
                 (int16_t)ert.wait_for_naming_screen_actionscript;
         } else {
-            int16_t *source = resolve_wram_16(addr);
-            if (source) {
-                scripts.tempvar[script_offset] = *source;
+            WramField f = resolve_wram(addr);
+            if (f.ptr) {
+                scripts.tempvar[script_offset] = wram_read(f);
             } else {
                 LOG_WARN("WARN: WRITE_WRAM_TEMPVAR unhandled addr $%04X\n", addr);
                 scripts.tempvar[script_offset] = 0;
