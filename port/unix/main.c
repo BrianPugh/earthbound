@@ -6,6 +6,7 @@
 #include "platform/platform.h"
 #include "game_main.h"
 #include "game/audio.h"
+#include "core/log.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);

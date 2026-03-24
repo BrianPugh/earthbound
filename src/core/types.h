@@ -4,8 +4,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 /* SNES screen dimensions (hardware constants — do not change) */
@@ -31,9 +29,6 @@
 /* Internal line buffer width: at least SNES_WIDTH to hold non-filling content
  * without overflow when the viewport is narrower than the SNES native res. */
 #define LINE_BUF_WIDTH  (VIEWPORT_WIDTH > SNES_WIDTH ? VIEWPORT_WIDTH : SNES_WIDTH)
-
-/* Window scale factor */
-#define WINDOW_SCALE 3
 
 /* Target framerate */
 #define TARGET_FPS 60
@@ -120,14 +115,5 @@ static inline uint32_t pixel_to_rgb888(pixel_t px) {
 /* Static assertion for struct sizes */
 #define ASSERT_STRUCT_SIZE(type, size) \
     _Static_assert(sizeof(type) == (size), "sizeof(" #type ") != " #size)
-
-/* Verbosity levels: 0=errors only, 1=+warnings, 2=+trace */
-extern int verbose_level;
-
-#define LOG_WARN(...)  do { if (verbose_level >= 1) fprintf(stderr, __VA_ARGS__); } while (0)
-#define LOG_TRACE(...) do { if (verbose_level >= 2) fprintf(stderr, __VA_ARGS__); } while (0)
-
-/* Hard failure for unimplemented/unknown code paths — prints and aborts */
-#define FATAL(...) do { fprintf(stderr, "FATAL: " __VA_ARGS__); abort(); } while (0)
 
 #endif /* CORE_TYPES_H */

@@ -19,6 +19,7 @@
 #include "include/binary.h"
 #include "include/constants.h"
 #include "core/memory.h"
+#include "core/log.h"
 #include "game/audio.h"
 #include "game/battle.h"
 #include "game_main.h"

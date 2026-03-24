@@ -20,6 +20,7 @@
 #include "game/overworld.h"
 #include "include/binary.h"
 #include "snes/ppu.h"
+#include "core/log.h"
 #include <stdlib.h>
 #include <string.h>
 

@@ -7,6 +7,7 @@
 #include "game/audio.h"
 #include "entity/entity.h"
 #include "data/assets.h"
+#include "core/log.h"
 #include "data/battle_text_data.h"
 #include "include/constants.h"
 #include <stdio.h>

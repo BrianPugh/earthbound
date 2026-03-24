@@ -134,8 +134,8 @@ bool platform_timer_init(void);
 void platform_timer_shutdown(void);
 void platform_timer_frame_start(void);
 void platform_timer_frame_end(void);
-uint32_t platform_timer_ticks(void);
-uint32_t platform_timer_ticks_per_sec(void);
+uint64_t platform_timer_ticks(void);
+uint64_t platform_timer_ticks_per_sec(void);
 uint32_t platform_timer_get_fps_tenths(void);
 ```
 

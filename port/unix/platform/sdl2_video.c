@@ -2,6 +2,11 @@
 #include <SDL.h>
 #include <string.h>
 
+/* Initial window scale factor (window is resizable) */
+#ifndef WINDOW_SCALE
+#define WINDOW_SCALE 3
+#endif
+
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;

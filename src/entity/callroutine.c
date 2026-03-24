@@ -31,6 +31,7 @@
 #include "include/constants.h"
 #include "game/audio.h"
 #include "core/memory.h"
+#include "core/log.h"
 #include "game/battle.h"
 #include "game/fade.h"
 #include "game/flyover.h"

@@ -14,6 +14,7 @@
 #include "entity/entity.h"
 #include "data/assets.h"
 #include "snes/ppu.h"
+#include "core/log.h"
 #include <string.h>
 
 /* ---- Runtime state ---- */

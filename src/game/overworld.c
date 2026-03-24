@@ -40,6 +40,7 @@
 #include "game/inventory.h"
 #include "core/memory.h"
 #include "core/decomp.h"
+#include "core/log.h"
 #include "platform/platform.h"
 #include "include/binary.h"
 #include "include/constants.h"

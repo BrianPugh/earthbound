@@ -23,6 +23,7 @@
 #include "game/ending.h"
 #include "include/binary.h"
 #include "snes/ppu.h"
+#include "core/log.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

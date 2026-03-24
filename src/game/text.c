@@ -8,6 +8,7 @@
 #include "game/battle.h"
 #include "game/map_loader.h"
 #include "core/memory.h"
+#include "core/log.h"
 #include "entity/entity.h"
 #include "entity/buffer_layout.h"
 #include "snes/ppu.h"

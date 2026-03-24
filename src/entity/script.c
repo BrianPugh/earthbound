@@ -9,6 +9,7 @@
 #include "entity/entity.h"
 #include "entity/script.h"
 #include "data/event_script_data.h"
+#include "core/log.h"
 #include <string.h>
 #include <stdio.h>
 

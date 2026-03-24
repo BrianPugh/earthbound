@@ -22,6 +22,7 @@
 #include "data/assets.h"
 #include "core/math.h"
 #include "core/memory.h"
+#include "core/log.h"
 #include "snes/ppu.h"
 #include "include/binary.h"
 #include "include/pad.h"

@@ -19,6 +19,7 @@
 #include "entity/buffer_layout.h"
 #include "entity/script.h"
 #include "core/decomp.h"
+#include "core/log.h"
 #include "data/assets.h"
 #include "snes/ppu.h"
 #include "include/constants.h"

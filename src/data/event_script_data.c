@@ -13,6 +13,7 @@
 #include "data/event_script_data.h"
 #include "data/assets.h"
 #include "include/binary.h"
+#include "core/log.h"
 #include <stdio.h>
 #include <string.h>
 

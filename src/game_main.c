@@ -4,6 +4,7 @@
 
 #include "game_main.h"
 #include "core/types.h"
+#include "core/log.h"
 #include "core/memory.h"
 #include "core/math.h"
 #include "core/decomp.h"
