@@ -615,12 +615,18 @@ void initialize_game_over_screen(void) {
     /* TM_MIRROR = $05 (BG1 + BG3 on main screen, BG2 off, OBJ off) */
     ppu.tm = 0x05;
 
-    /* Clear state */
+    /* Clear state.
+     * Assembly clears BG2 and BG1 scroll (lines 98-101, note: line 101 is a
+     * duplicate STZ BG1_X_POS — likely intended as BG1_Y_POS).
+     * Also clear BG3 scroll: BG3 is the text layer (TM=$05 = BG1+BG3), and
+     * non-zero BG3 scroll from battle causes the dialogue window to wrap. */
     bt.party_members_alive_overworld = 0;
+    ppu.bg_hofs[0] = 0;  /* BG1_X_POS */
+    ppu.bg_vofs[0] = 0;  /* BG1_Y_POS */
     ppu.bg_hofs[1] = 0;  /* BG2_X_POS */
     ppu.bg_vofs[1] = 0;  /* BG2_Y_POS */
-    ppu.bg_hofs[0] = 0;  /* BG1_X_POS */
-    ppu.bg_vofs[0] = 0;  /* BG1_Y_POS (cleared by SET_BG1_VRAM_LOCATION in asm) */
+    ppu.bg_hofs[2] = 0;  /* BG3_X_POS — prevents text window horizontal wrapping */
+    ppu.bg_vofs[2] = 0;  /* BG3_Y_POS */
 
     /* Fade in (step=1, delay=1) and wait for completion */
     fade_in(1, 1);

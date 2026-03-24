@@ -23,7 +23,7 @@ bool platform_video_init(void) {
     if (!window) return false;
 
     renderer = SDL_CreateRenderer(window, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        SDL_RENDERER_ACCELERATED);
     if (!renderer) return false;
 
     /* Integer scaling for crisp pixels */

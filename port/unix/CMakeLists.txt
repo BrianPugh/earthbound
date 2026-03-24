@@ -17,7 +17,7 @@ if(NOT SDL2_FOUND)
 endif()
 
 # Platform executable
-file(GLOB PLATFORM_SOURCES "platform/*.c")
+file(GLOB PLATFORM_SOURCES CONFIGURE_DEPENDS "platform/*.c")
 add_executable(earthbound main.c ${PLATFORM_SOURCES})
 
 target_link_libraries(earthbound earthbound_game)

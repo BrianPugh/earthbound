@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(earthbound_game C)
 set(CMAKE_C_STANDARD 11)
 
-file(GLOB_RECURSE SOURCES
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "core/*.c"
     "entity/*.c"
     "game/*.c"
@@ -12,7 +12,7 @@ file(GLOB_RECURSE SOURCES
     "verify/*.c"
     "game_main.c"
 )
-file(GLOB_RECURSE DATA_SOURCES "data/*.c")
+file(GLOB_RECURSE DATA_SOURCES CONFIGURE_DEPENDS "data/*.c")
 
 add_library(earthbound_game STATIC ${SOURCES} ${DATA_SOURCES})
 

@@ -695,7 +695,8 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             BATCH_SPAN(w1_left, w1_right, tm_w1_noninv, ts_w1_noninv);
 
         if (tm_w1_inv | ts_w1_inv) {
-            BATCH_SPAN(0, w1_left > 0 ? w1_left - 1 : 0, tm_w1_inv, ts_w1_inv);
+            if (w1_left > 0)
+                BATCH_SPAN(0, w1_left - 1, tm_w1_inv, ts_w1_inv);
             if (w1_right < 255)
                 BATCH_SPAN(w1_right + 1, 255, tm_w1_inv, ts_w1_inv);
         }
@@ -704,7 +705,8 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             BATCH_SPAN(w2_left, w2_right, tm_w2_noninv, ts_w2_noninv);
 
         if (tm_w2_inv | ts_w2_inv) {
-            BATCH_SPAN(0, w2_left > 0 ? w2_left - 1 : 0, tm_w2_inv, ts_w2_inv);
+            if (w2_left > 0)
+                BATCH_SPAN(0, w2_left - 1, tm_w2_inv, ts_w2_inv);
             if (w2_right < 255)
                 BATCH_SPAN(w2_right + 1, 255, tm_w2_inv, ts_w2_inv);
         }
@@ -788,7 +790,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 if (!cm_w1_inv) {
                     CM_SPAN(w1_left, w1_right, val_inside);
                 } else {
-                    CM_SPAN(0, w1_left > 0 ? w1_left - 1 : 0, val_inside);
+                    if (w1_left > 0) CM_SPAN(0, w1_left - 1, val_inside);
                     if (w1_right < 255) CM_SPAN(w1_right + 1, 255, val_inside);
                 }
             } else if (!cm_w1_en && cm_w2_en) {
@@ -796,7 +798,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 if (!cm_w2_inv) {
                     CM_SPAN(w2_left, w2_right, val_inside);
                 } else {
-                    CM_SPAN(0, w2_left > 0 ? w2_left - 1 : 0, val_inside);
+                    if (w2_left > 0) CM_SPAN(0, w2_left - 1, val_inside);
                     if (w2_right < 255) CM_SPAN(w2_right + 1, 255, val_inside);
                 }
             } else {

@@ -428,11 +428,16 @@ void display_psi_target_and_cost(uint16_t ability_id) {
     print_eb_string(psi_target_data + text_idx * PSI_TARGET_TEXT_LENGTH, PSI_TARGET_TEXT_LENGTH);
     dt.enable_word_wrap = 0xFF;  /* asm lines 78-79 */
 
-    /* Print PP cost on second line */
+    /* Print PP cost on second line.
+     * Assembly (US): PRINT_STRING "PP Cost:" (8 chars), PRINT_LETTER SPACE,
+     * SET_WINDOW_NUMBER_PADDING(129), SET_TEXT_PIXEL_POSITION(1, 40),
+     * then PRINT_NUMBER. */
     set_focus_text_cursor(0, 1);
     const uint8_t *pp_cost_data = ASSET_DATA(ASSET_US_DATA_PP_COST_TEXT_BIN);
     print_eb_string(pp_cost_data, 8);
-    print_char_with_sound(0x50);  /* space */
+    { static const uint8_t space = 0x50; print_eb_string(&space, 1); }
+    set_window_number_padding(129);
+    set_text_pixel_position(1, 40);
 
     uint16_t battle_action_id = psi->battle_action;
     uint8_t pp_cost = battle_action_table[battle_action_id].pp_cost;
