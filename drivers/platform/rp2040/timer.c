@@ -1,3 +1,6 @@
+/* Generic RP2040 timer implementation.
+ * No board-specific dependencies — uses only Pico SDK timer APIs. */
+
 #include "platform/platform.h"
 #include "pico/stdlib.h"
 #include "hardware/timer.h"

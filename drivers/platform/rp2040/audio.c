@@ -1,3 +1,10 @@
+/* Generic RP2040 PWM audio output.
+ *
+ * Board-parameterized: requires PIN_AUDIO_PWM from board.h.
+ * Uses a repeating timer ISR at 32 kHz to feed one mono sample to PWM.
+ * The main loop generates 534-sample frames into a ring buffer.
+ */
+
 #include "platform/platform.h"
 #include "game/audio.h"
 #include "game_main.h"
@@ -14,7 +21,7 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
-/* PWM audio: 8-bit resolution at 125 MHz → ~488 kHz carrier.
+/* PWM audio: 8-bit resolution at 125 MHz -> ~488 kHz carrier.
  * A repeating timer fires at 32 kHz to feed one mono sample to PWM.
  * The main loop generates 534-sample frames into a ring buffer. */
 
@@ -23,11 +30,11 @@
 #define PWM_WRAP            255
 
 /* Ring buffer: power-of-two size for cheap index masking.
- * 1024 samples ≈ 1.9 frames of headroom at 32 kHz. */
+ * 1024 samples ~ 1.9 frames of headroom at 32 kHz. */
 #define RING_BUF_SAMPLES    1024
 #define RING_BUF_MASK       (RING_BUF_SAMPLES - 1)
 
-/* Mono samples, unsigned 8-bit (0–255), ready for PWM */
+/* Mono samples, unsigned 8-bit (0-255), ready for PWM */
 static uint8_t ring_buf[RING_BUF_SAMPLES];
 static volatile uint32_t ring_read;   /* ISR reads */
 static volatile uint32_t ring_write;  /* main thread writes */
@@ -47,7 +54,7 @@ static bool audio_timer_callback(struct repeating_timer *t) {
         pwm_set_chan_level(pwm_slice, pwm_channel, ring_buf[r & RING_BUF_MASK]);
         ring_read = r + 1;
     } else {
-        /* Underrun — output midpoint (silence) */
+        /* Underrun -- output midpoint (silence) */
         pwm_set_chan_level(pwm_slice, pwm_channel, PWM_WRAP / 2);
     }
     return true;  /* keep repeating */
@@ -94,8 +101,8 @@ bool platform_audio_init(void) {
     pwm_set_chan_level(pwm_slice, pwm_channel, PWM_WRAP / 2);  /* silence */
     pwm_set_enabled(pwm_slice, true);
 
-    /* Start repeating timer at 32 kHz (negative period = µs interval) */
-    int period_us = -(1000000 / AUDIO_SAMPLE_RATE);  /* -31 µs */
+    /* Start repeating timer at 32 kHz (negative period = us interval) */
+    int period_us = -(1000000 / AUDIO_SAMPLE_RATE);  /* -31 us */
     add_repeating_timer_us(period_us, audio_timer_callback, NULL, &audio_timer);
 
     return true;

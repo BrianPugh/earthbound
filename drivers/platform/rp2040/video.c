@@ -1,3 +1,15 @@
+/* Generic RP2040 + ST7789 video implementation.
+ *
+ * Board-parameterized: requires from board.h:
+ *   PIN_LCD_BL    — backlight PWM GPIO
+ *   LCD_WIDTH     — display pixel width
+ *   LCD_HEIGHT    — display pixel height
+ *
+ * Handles backlight PWM, ST7789 init, and double-buffered DMA scanline
+ * streaming (single-core mode). Dual-core mode uses rp2040_worker.c instead
+ * for send_scanline and shutdown.
+ */
+
 #include "platform/platform.h"
 #include "board.h"
 #include "display/st7789/st7789.h"
@@ -11,8 +23,8 @@
 static st7789_t lcd;
 
 #ifndef ENABLE_DUAL_CORE_PPU
-/* Double-buffered scanline buffers (BGR565) — single-core only.
- * Dual-core mode has its own per-core buffers in pico_worker.c. */
+/* Double-buffered scanline buffers (BGR565) -- single-core only.
+ * Dual-core mode has its own per-core buffers in rp2040_worker.c. */
 static uint16_t scanline_buf[2][VIEWPORT_WIDTH];
 static int dma_chan = -1;
 static int active_buf;

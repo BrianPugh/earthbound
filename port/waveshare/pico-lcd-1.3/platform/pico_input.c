@@ -5,11 +5,6 @@
 
 #include "board.h"
 
-/* Global mode flags */
-bool platform_headless = false;
-bool platform_skip_intro = false;
-int platform_max_frames = 0;
-
 static uint16_t pad_state;
 static uint16_t pad_prev;
 static uint16_t aux_state;

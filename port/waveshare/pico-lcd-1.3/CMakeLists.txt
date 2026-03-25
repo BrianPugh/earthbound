@@ -53,14 +53,24 @@ target_compile_definitions(earthbound_game PRIVATE
     MAX_FRAME_SKIP=2
 )
 
-# Shared drivers (display, HAL)
+# Shared drivers (display, HAL, generic RP2040 platform)
 set(DRIVERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../drivers)
 
+# Board-specific platform files (e.g. input mapping)
+file(GLOB BOARD_PLATFORM_SOURCES "platform/*.c")
+
 # Platform executable
-file(GLOB PLATFORM_SOURCES "platform/*.c")
 add_executable(earthbound_pico
     main.c
-    ${PLATFORM_SOURCES}
+    ${BOARD_PLATFORM_SOURCES}
+    # Shared RP2040 platform implementations
+    ${DRIVERS_DIR}/platform/rp2040/timer.c
+    ${DRIVERS_DIR}/platform/rp2040/save.c
+    ${DRIVERS_DIR}/platform/rp2040/debug.c
+    ${DRIVERS_DIR}/platform/rp2040/audio.c
+    ${DRIVERS_DIR}/platform/rp2040/video.c
+    ${DRIVERS_DIR}/platform/rp2040/worker.c
+    # Shared display/HAL drivers
     ${DRIVERS_DIR}/display/st7789/st7789.c
     ${DRIVERS_DIR}/display/st7789/rp2040/st7789_rp2040.c
     ${DRIVERS_DIR}/hal/rp2040/hal_rp2040.c

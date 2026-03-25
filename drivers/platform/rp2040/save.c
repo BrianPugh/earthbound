@@ -1,9 +1,12 @@
 /*
- * Pico save data implementation — flash-backed persistent storage.
+ * Generic RP2040 flash-backed save implementation.
  *
- * Save data lives in the last 2 sectors (8 KB) of the 16 MB external QSPI
- * flash. Reads go through XIP (memory-mapped flash). Writes disable
- * interrupts and call the low-level flash_range_erase/program directly.
+ * Save data lives in the last 2 sectors (8 KB) of external QSPI flash.
+ * Reads go through XIP (memory-mapped flash). Writes disable interrupts
+ * and call the low-level flash_range_erase/program directly.
+ *
+ * No board-specific dependencies — uses only Pico SDK flash APIs.
+ * Requires PICO_FLASH_SIZE_BYTES to be defined (typically via CMake).
  */
 #include "platform/platform.h"
 
@@ -16,7 +19,7 @@
 #endif
 
 /* Save data occupies the last 2 flash sectors (8 KB).
- * PICO_FLASH_SIZE_BYTES is set to the full 16 MB via target_compile_definitions
+ * PICO_FLASH_SIZE_BYTES is set to the full flash size via target_compile_definitions
  * in CMakeLists.txt (the linker region is 8 KB smaller to prevent overlap). */
 #define SAVE_SECTOR_COUNT  2
 #define SAVE_FLASH_OFFSET  (PICO_FLASH_SIZE_BYTES - SAVE_SECTOR_COUNT * FLASH_SECTOR_SIZE)

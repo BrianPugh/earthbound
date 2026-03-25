@@ -3,6 +3,11 @@
 #include "platform/platform.h"
 #include "game_main.h"
 
+/* Platform globals (no CLI args on embedded — always defaults) */
+bool platform_headless = false;
+bool platform_skip_intro = false;
+int platform_max_frames = 0;
+
 /* Pico-specific: pump audio samples into PWM ring buffer each frame */
 extern void platform_audio_pump(void);
 

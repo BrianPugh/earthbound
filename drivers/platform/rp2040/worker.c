@@ -1,3 +1,10 @@
+/* Generic RP2040 dual-core PPU rendering.
+ *
+ * Distributes even/odd scanlines across both RP2040 cores with strict
+ * y-ordering for DMA output. No board-specific dependencies — uses only
+ * Pico SDK multicore APIs and the st7789_rp2040 DMA interface.
+ */
+
 #ifdef ENABLE_DUAL_CORE_PPU
 
 #include "platform/platform.h"
@@ -13,7 +20,7 @@
 static pixel_t dma_buf[2][2][VIEWPORT_WIDTH];  /* [core][active_buf][pixels] */
 
 /* Shared DMA channel + sequence counter.
- * next_dma_y enforces strict ordering: y=0,1,2,...239.
+ * next_dma_y enforces strict ordering: y=0,1,2,...height-1.
  * Each core waits for its turn, sends via DMA, then advances the counter. */
 static int worker_dma_chan = -1;
 static volatile int next_dma_y;

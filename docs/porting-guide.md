@@ -15,6 +15,19 @@ src/                          ← Platform-agnostic game library (libgame.a)
   game_main.h                   ← Entry points: game_init(), game_logic_entry()
   core/types.h                  ← pixel_t, VIEWPORT_*, PIXEL_RGB()
 
+drivers/                      ← Reusable components shared across embedded ports
+  display/st7789/               ST7789 LCD driver (platform-agnostic via HAL)
+    rp2040/                     RP2040-specific DMA pixel streaming
+  hal/                          Hardware abstraction layer interface
+    rp2040/                     RP2040 HAL (SPI, GPIO — parameterized by board.h)
+  platform/rp2040/              Generic RP2040 platform implementations
+    timer.c              Microsecond timer, frame pacing
+    save.c               Flash-backed persistent saves
+    audio.c              PWM audio output (parameterized by board.h)
+    video.c              ST7789 + DMA scanline streaming (parameterized by board.h)
+    worker.c             Dual-core PPU rendering
+    debug.c              No-op debug stubs
+
 port/unix/                    ← Reference desktop port (SDL2)
   main.c                        Command-line args, init sequence
   platform/
@@ -24,14 +37,11 @@ port/unix/                    ← Reference desktop port (SDL2)
     sdl2_timer.c                SDL ticks, vsync frame pacing
     sdl2_debug.c                BMP screenshot/VRAM dump
 
-port/waveshare/pico-lcd-1.3/  ← Embedded reference port (RP2040)
-  main.c                        Bare-metal init
+port/waveshare/pico-lcd-1.3/  ← Embedded reference port (RP2040 + ST7789)
+  board.h                       Pin assignments for this specific board
+  main.c                        Bare-metal init, platform globals
   platform/
-    pico_video.c                SPI + DMA scanline streaming to ST7789
-    pico_input.c                GPIO button reads
-    pico_audio.c                PWM audio output (disabled by default)
-    pico_timer.c                Hardware timer
-    pico_debug.c                No-ops
+    pico_input.c                Board-specific button mapping
 ```
 
 ## Minimal Port Checklist
@@ -291,3 +301,83 @@ The game has deep call stacks (battle → PSI animation → text display → men
 | `port/snes/` | SNES (65816) | Scaffolding | Real HW | Real PPU |
 
 Study `port/unix/` as the reference implementation and `port/waveshare/pico-lcd-1.3/` for embedded patterns.
+
+## Adding a New RP2040 Board
+
+Most RP2040 boards with an SPI display need only two board-specific files. The shared drivers in `drivers/` handle everything else.
+
+### What you write (board-specific)
+
+1. **`board.h`** — Pin assignments and display dimensions:
+
+```c
+/* ST7789 display (SPI) */
+#define PIN_LCD_DIN   11
+#define PIN_LCD_CLK   10
+#define PIN_LCD_CS     9
+#define PIN_LCD_DC     8
+#define PIN_LCD_RST   12
+#define PIN_LCD_BL    13
+#define LCD_SPI_INST  spi1
+#define LCD_SPI_BAUD  (62500000)
+#define LCD_WIDTH   240
+#define LCD_HEIGHT  240
+
+/* Buttons */
+#define PIN_BTN_A     15
+/* ... */
+
+/* Audio (optional) */
+#define PIN_AUDIO_PWM  0
+```
+
+2. **`platform/board_input.c`** — Button-to-pad mapping (the only code that varies per board). See `port/waveshare/pico-lcd-1.3/platform/pico_input.c` for the template.
+
+3. **`main.c`** — Copy from the waveshare port, adjust if needed.
+
+### What you reuse (from `drivers/`)
+
+Your `CMakeLists.txt` pulls in shared components:
+
+```cmake
+set(DRIVERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../drivers)
+
+add_executable(earthbound_myboard
+    main.c
+    platform/board_input.c
+    # Shared RP2040 platform
+    ${DRIVERS_DIR}/platform/rp2040/timer.c
+    ${DRIVERS_DIR}/platform/rp2040/save.c
+    ${DRIVERS_DIR}/platform/rp2040/debug.c
+    ${DRIVERS_DIR}/platform/rp2040/audio.c
+    ${DRIVERS_DIR}/platform/rp2040/video.c
+    ${DRIVERS_DIR}/platform/rp2040/worker.c
+    # Shared display/HAL drivers
+    ${DRIVERS_DIR}/display/st7789/st7789.c
+    ${DRIVERS_DIR}/display/st7789/rp2040/st7789_rp2040.c
+    ${DRIVERS_DIR}/hal/rp2040/hal_rp2040.c
+)
+
+target_include_directories(earthbound_myboard PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}   # for board.h
+    ${DRIVERS_DIR}                # for display/, hal/, platform/ headers
+)
+```
+
+The shared drivers find `board.h` through your board's include path, so pin definitions are injected at compile time without modifying any shared code.
+
+### Different display controller
+
+If your board uses a different LCD (e.g. ILI9341), you need a new display driver:
+
+1. Create `drivers/display/ili9341/ili9341.c` + `.h` (platform-agnostic, uses HAL)
+2. Create `drivers/display/ili9341/rp2040/ili9341_rp2040.c` + `.h` (DMA layer)
+3. Write a board-specific `platform/board_video.c` (or use the shared `video.c` if you factor out the display init)
+
+### Different MCU
+
+For a non-RP2040 target (e.g. ESP32), you need:
+
+1. A new HAL implementation: `drivers/hal/esp32/hal_esp32.c`
+2. New platform files: `drivers/platform/esp32/esp32_timer.c`, etc.
+3. The display driver (`st7789.c`) works unchanged — it only calls HAL functions
