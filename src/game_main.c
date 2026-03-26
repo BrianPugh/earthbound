@@ -421,8 +421,10 @@ void host_process_frame(void) {
             if (do_render)
                 platform_timer_update_fps();
         }
-        if (do_render)
-            platform_timer_frame_start();
+        /* Reset the per-frame timer.  Must run every frame (not just
+         * rendered ones) so that platform_timer_frame_end() computes its
+         * sleep deadline from the current frame, not a stale one. */
+        platform_timer_frame_start();
     }
 }
 
