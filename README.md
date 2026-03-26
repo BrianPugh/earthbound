@@ -23,46 +23,52 @@ The C port is structured as a platform-agnostic game library (`src/`) that any p
 
 **macOS** (using [Homebrew](https://brew.sh)):
 ```bash
-brew install cmake sdl2 uv git
+brew install cmake sdl2 pkg-config git
 ```
 
 **Ubuntu / Debian Linux**:
 ```bash
 sudo apt update
-sudo apt install cmake libsdl2-dev build-essential git
-# Install uv (Python package manager):
-curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt install cmake libsdl2-dev build-essential pkg-config git
 ```
 
-**Windows** (using [Scoop](https://scoop.sh)):
-```powershell
-scoop install cmake git uv
+**Fedora**:
+```bash
+sudo dnf install cmake SDL2-devel gcc pkg-config git
 ```
-You will also need [SDL2 development libraries](https://github.com/libsdl-org/SDL/releases) and a C compiler (Visual Studio with "Desktop development with C++" workload, or MinGW).
 
-### 2. Clone and Set Up
+You also need **Python 3.10+** (pre-installed on most systems — check with `python3 --version`).
+
+### 2. Clone, Add Your ROM, and Build
 
 ```bash
 git clone https://github.com/Herringfield/earthbound.git
 cd earthbound
-uv sync          # creates a venv and installs ebtools
+cp path/to/your/earthbound.sfc earthbound.sfc
+make unix
 ```
 
-### 3. Extract Assets from Your ROM
+That's it! `make unix` automatically sets up the Python environment, extracts game assets from your ROM, and compiles the game. When it finishes, run:
 
 ```bash
-uv run ebtools extract earthbound.yml "path/to/your/earthbound.sfc"
+./port/unix/build/earthbound
 ```
 
-Replace the path with your actual ROM location (e.g. `~/Desktop/earthbound.sfc`).
+If any dependencies are missing, `make unix` will tell you exactly what to install.
 
-### 4. Build and Run
+### Manual Build (Advanced)
+
+If you prefer to run each step yourself:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+ebtools extract
 cd port/unix
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-./build/earthbound_port
+./build/earthbound
 ```
 
 ---

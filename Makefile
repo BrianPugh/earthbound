@@ -97,3 +97,90 @@ $(BUILDDIR)/%.spc700.bin: asm/spc700/%.spc700.s
 
 %.bin: %.uncompressed
 	inhal -n $< $@
+
+# ── Unix C port (native PC build) ──────────────────────────────────
+# Usage: make unix
+#
+# Prerequisites:
+#   macOS:  brew install cmake sdl2
+#   Ubuntu: sudo apt install cmake libsdl2-dev build-essential
+#   Fedora: sudo dnf install cmake SDL2-devel gcc
+#
+# You also need Python 3.10+ and your EarthBound ROM as "earthbound.sfc"
+# in this directory. The rest is handled automatically.
+
+UNIX_BUILD_DIR = port/unix/build
+UNIX_BINARY = $(UNIX_BUILD_DIR)/earthbound
+NPROC = $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+.PHONY: unix unix-check-deps unix-check-rom unix-extract unix-venv
+
+unix: unix-check-deps unix-check-rom unix-venv unix-extract
+	@echo ""
+	@echo "=== Configuring C port ==="
+	@cmake -S port/unix -B $(UNIX_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
+	@echo ""
+	@echo "=== Building C port ==="
+	@cmake --build $(UNIX_BUILD_DIR) -j$(NPROC)
+	@echo ""
+	@echo "============================================"
+	@echo "  Build complete!"
+	@echo "  Run the game with:  ./$(UNIX_BINARY)"
+	@echo "============================================"
+
+unix-check-deps:
+	@echo "=== Checking dependencies ==="
+	@missing=""; \
+	if ! command -v cmake >/dev/null 2>&1; then missing="$$missing cmake"; fi; \
+	if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then missing="$$missing C-compiler"; fi; \
+	if ! command -v python3 >/dev/null 2>&1; then missing="$$missing python3"; fi; \
+	if ! command -v pkg-config >/dev/null 2>&1; then missing="$$missing pkg-config"; fi; \
+	if [ -n "$$missing" ]; then \
+		echo ""; \
+		echo "ERROR: Missing required tools:$$missing"; \
+		echo ""; \
+		echo "Install them with:"; \
+		echo "  macOS:  brew install cmake sdl2 pkg-config"; \
+		echo "  Ubuntu: sudo apt install cmake libsdl2-dev build-essential pkg-config"; \
+		echo "  Fedora: sudo dnf install cmake SDL2-devel gcc pkg-config"; \
+		echo ""; \
+		exit 1; \
+	fi; \
+	if ! pkg-config --exists sdl2 2>/dev/null; then \
+		echo ""; \
+		echo "ERROR: SDL2 development library not found."; \
+		echo ""; \
+		echo "Install it with:"; \
+		echo "  macOS:  brew install sdl2"; \
+		echo "  Ubuntu: sudo apt install libsdl2-dev"; \
+		echo "  Fedora: sudo dnf install SDL2-devel"; \
+		echo ""; \
+		exit 1; \
+	fi; \
+	echo "  All dependencies found."
+
+unix-check-rom:
+	@if [ ! -f earthbound.sfc ]; then \
+		echo ""; \
+		echo "ERROR: EarthBound ROM not found."; \
+		echo ""; \
+		echo "Place your US EarthBound ROM in this directory as:"; \
+		echo "  earthbound.sfc"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+unix-extract: unix-venv
+	@if [ ! -d asm/bin ] || [ ! -f asm/bin/assets.manifest ]; then \
+		echo "=== Extracting game assets from ROM ==="; \
+		. .venv/bin/activate && ebtools extract; \
+	else \
+		echo "=== Assets already extracted (skipping) ==="; \
+	fi
+
+unix-venv:
+	@if [ ! -d .venv ]; then \
+		echo "=== Setting up Python environment ==="; \
+		python3 -m venv .venv; \
+	fi
+	@. .venv/bin/activate && pip install -q -e .
