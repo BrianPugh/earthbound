@@ -31,7 +31,6 @@
 #include "data/battle_text_data.h"
 #include <string.h>
 
-
 /* --- CC handler: 0x04 SET_EVENT_FLAG ---
  * Bytecode: 04 <flag_lo> <flag_hi> (2 arg bytes) */
 void cc_set_event_flag(ScriptReader *r) {
@@ -498,6 +497,7 @@ static void cc_1f_set_sprite_movement(ScriptReader *r) {
  *   Map/movement (0x60-0x69), Combat (0x23), E-range (0xE1-0xF4). */
 void cc_1f_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     /* --- Audio commands --- */
     case 0x00: {
@@ -1425,6 +1425,7 @@ void cc_1f_dispatch(ScriptReader *r) {
  * Port from asm/text/ccs/cc_18_*.asm files. */
 void cc_18_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x00:
         /* CLOSE_WINDOW: 0 args. Port of tree_18.asm @UNKNOWN0 → CLOSE_FOCUS_WINDOW. */
@@ -1595,6 +1596,7 @@ void cc_18_dispatch(ScriptReader *r) {
  * Port from asm/text/ccs/cc_19_*.asm files. */
 void cc_19_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x02: {
         /* LOAD_STRING_TO_MEMORY: variable-length args.
@@ -2017,6 +2019,7 @@ void cc_19_dispatch(ScriptReader *r) {
 
 void cc_1a_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x00: /* fall through */
     case 0x01: {
@@ -2143,6 +2146,7 @@ void cc_1a_dispatch(ScriptReader *r) {
  *   0x06: COPY_WORKING_TO_ACTIVE — restore all 3 from global backups */
 void cc_1b_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x00: {
         /* TRANSFER_ACTIVE_MEM_STORAGE: copy active → storage backup.
@@ -2222,6 +2226,7 @@ void cc_1b_dispatch(ScriptReader *r) {
 
 void cc_1c_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x00: {
         /* TEXT_COLOUR_EFFECTS: 1 arg (palette index).
@@ -2547,6 +2552,7 @@ void cc_1c_dispatch(ScriptReader *r) {
  *   32-bit value: .DWORD assembled from 4 bytes (0 → argument_memory). */
 void cc_1d_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     case 0x00: {
         /* GIVE_ITEM_TO_CHARACTER: 2 data bytes.
@@ -3029,6 +3035,7 @@ void cc_1d_dispatch(ScriptReader *r) {
  *   Adds to party_characters[char_id-1].boosted_*, then recalculates stat. */
 void cc_1e_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
+
     switch (sub) {
     /* --- HP recovery/depletion --- */
     case 0x00:   /* RECOVER_HP_PERCENT */

@@ -2534,11 +2534,11 @@ dumpEntries:
   size: 4544
   extension: bin
   compressed: false
-# COMPRESSED_TEXT_PTRS — 767 x 4-byte SNES address pointers into compressed_text_data
+# COMPRESSED_TEXT_PTRS — 768 x 4-byte SNES address pointers into compressed_text_data
 - subdir: data
   name: 'compressed_text_ptrs'
   offset: 0x8CDED
-  size: 3068
+  size: 3072
   extension: bin
   compressed: false
 # ATTRACT_MODE_TXT — 10 x 4-byte far pointers to MSG_MD_* scripts within EEVENT0

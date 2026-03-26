@@ -76,11 +76,11 @@ DisplayTextState dt = {
 
 /* --- Compressed text dictionary (CC 0x15/0x16/0x17) ---
  * 767 null-terminated EB-encoded string fragments (e.g. " in the ", " that ").
- * The pointer table has 767 x 4-byte SNES address entries; each points into the
+ * The pointer table has 768 x 4-byte SNES address entries; each points into the
  * data blob.  CC 0x15 uses entries 0-255, CC 0x16 uses 256-511, CC 0x17 uses
- * 512-766.  Port of asm/data/text/compressed_text_data.asm +
+ * 512-767.  Port of asm/data/text/compressed_text_data.asm +
  * compressed_text_pointers.asm. */
-#define COMPRESSED_TEXT_ENTRY_COUNT 767
+#define COMPRESSED_TEXT_ENTRY_COUNT 768
 #define COMPRESSED_TEXT_SNES_BASE   0xC8BC2Du
 #define compressed_text_data       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
 #define compressed_text_data_size  ASSET_SIZE(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
