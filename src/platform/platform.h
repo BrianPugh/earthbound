@@ -60,6 +60,7 @@ void platform_video_begin_frame(void);
 void platform_video_send_scanline(int y, const pixel_t *pixels);
 pixel_t *platform_video_get_framebuffer(void);
 void platform_video_end_frame(void);
+void platform_video_set_vsync(bool enabled);
 void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb);
 
 /*

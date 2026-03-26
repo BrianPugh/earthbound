@@ -361,8 +361,10 @@ void host_process_frame(void) {
 
     if (aux_new & AUX_FPS_TOGGLE)
         show_fps = !show_fps;
-    if (aux_new & AUX_FAST_FORWARD)
+    if (aux_new & AUX_FAST_FORWARD) {
         fast_forward_active = !fast_forward_active;
+        platform_video_set_vsync(!fast_forward_active);
+    }
     if (aux_new & AUX_STATE_DUMP)
         platform_debug_dump_state();
     if (aux_new & AUX_DEBUG_TOGGLE) {

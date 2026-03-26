@@ -31,6 +31,9 @@ bool platform_video_init(void) {
         SDL_RENDERER_ACCELERATED);
     if (!renderer) return false;
 
+    /* Enable VSync — use runtime call for reliable driver support */
+    SDL_RenderSetVSync(renderer, 1);
+
     /* Integer scaling for crisp pixels */
     SDL_RenderSetLogicalSize(renderer, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
     SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
@@ -89,4 +92,9 @@ void platform_video_end_frame(void) {
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
     SDL_RenderPresent(renderer);
+}
+
+void platform_video_set_vsync(bool enabled) {
+    if (renderer)
+        SDL_RenderSetVSync(renderer, enabled ? 1 : 0);
 }

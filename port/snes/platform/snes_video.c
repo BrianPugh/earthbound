@@ -54,3 +54,8 @@ void platform_video_end_frame(void) {
      *     - Update HDMA tables if needed
      */
 }
+
+void platform_video_set_vsync(bool enabled) {
+    /* No-op on SNES — display is always VSync'd to the CRT. */
+    (void)enabled;
+}
