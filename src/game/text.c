@@ -342,6 +342,45 @@ void text_load_window_gfx(void) {
         }
     }
 
+    /* Step 1e: Composite checkerboard into status equip text tiles
+     * (load_window_gfx.asm lines 227-300).
+     * Iterates STATUS_EQUIP_WINDOW_TEXT_2 entries; for each non-blank entry,
+     * looks up the source tile in BUFFER, applies the checkerboard pattern
+     * (same algorithm as name tiles), and writes to BUFFER+$2C00.
+     * These become VRAM tiles 0x2C0+ — the status affliction icons shown
+     * in the HP/PP window and equip screen. */
+    {
+        const uint8_t *raw = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_TILE_TABLES_BIN);
+        /* TEXT_2 starts at offset 49 words (7 slots × 7 cols) past TEXT_1 */
+        const uint16_t *text2 = (const uint16_t *)(raw + AFFLICTION_GROUP_COUNT * 7 * 2);
+        uint8_t *dest = ert.buffer + 0x2C00;
+        const uint8_t *checker = ert.buffer + 0x70;
+
+        for (int i = 0; i < AFFLICTION_GROUP_COUNT * 7; i++) {
+            uint16_t val = text2[i];
+            if (val == 0) break;    /* null terminator */
+            if (val == 32) continue; /* blank — skip without advancing dest */
+
+            /* Source tile: ((val & 0xFFF0) + val) × 16 bytes into BUFFER */
+            uint32_t src_off = (uint32_t)((val & 0xFFF0) + val) * 16;
+            const uint8_t *src = ert.buffer + src_off;
+
+            /* Upper 8×8 half (8 rows × 2 bytes) */
+            for (int row = 0; row < 8; row++) {
+                uint8_t plane1 = src[row * 2 + 1];
+                dest[row * 2]     = checker[row * 2] | (uint8_t)~plane1;
+                dest[row * 2 + 1] = plane1;
+            }
+            /* Lower 8×8 half (+256 bytes) */
+            for (int row = 0; row < 8; row++) {
+                uint8_t plane1 = src[256 + row * 2 + 1];
+                dest[256 + row * 2]     = checker[row * 2] | (uint8_t)~plane1;
+                dest[256 + row * 2 + 1] = plane1;
+            }
+            dest += 16;
+        }
+    }
+
     /* Step 2: Upload tiles to VRAM matching UPLOAD_TEXT_TILES_TO_VRAM mode 1 */
     uint32_t vram_base = VRAM_TEXT_LAYER_TILES * 2; /* $C000 byte address */
 
