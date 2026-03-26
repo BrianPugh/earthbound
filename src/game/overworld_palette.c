@@ -549,9 +549,8 @@ void initialize_game_over_screen(void) {
             decomp(comp_data, comp_size, vram_dst, 0x10000);
 
             /* Choose graphics variant based on party leader.
-             * Assembly: if party_members[0] == 3 (Paula), use offset $8000.
-             * If Paula variant, move it down to the tile base. */
-            if ((game_state.party_members[0] & 0xFF) == 3)
+             * Assembly: if party_members[0] == JEFF, use offset $8000. */
+            if ((game_state.party_members[0] & 0xFF) == PARTY_MEMBER_JEFF)
                 memmove(vram_dst, vram_dst + 0x8000, 0x8000);
         }
     }

@@ -453,7 +453,7 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
     bool skip_hp_reduction = false;
     if (tgt->ally_or_enemy != 0) {
         uint16_t eid = tgt->id;
-        if (eid == 109 || eid == 111 ||  /* MASTER_BELCH_1, MASTER_BELCH_3 */
+        if (eid == ENEMY_MASTER_BELCH_1 || eid == ENEMY_MASTER_BELCH_3 ||
             eid == ENEMY_GIYGAS_2 || eid == ENEMY_GIYGAS_3 ||
             eid == ENEMY_GIYGAS_5 || eid == ENEMY_GIYGAS_6) {
             skip_hp_reduction = true;

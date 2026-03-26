@@ -2268,7 +2268,7 @@ void cc_1c_dispatch(ScriptReader *r) {
         if (char_id >= 1 && char_id <= 4) {
             name_data = party_characters[char_id - 1].name;
             name_max = 5;
-        } else if (char_id == 5) {
+        } else if (char_id == PARTY_MEMBER_POKEY) {
             name_data = game_state.pet_name;
             name_max = 6;
         }
@@ -2493,7 +2493,7 @@ void cc_1c_dispatch(ScriptReader *r) {
             /* Ally */
             if (query_type == 1) {
                 /* Paula (id==2) is female (2), others male (1) */
-                result = (atk->id == 2) ? 2 : 1;
+                result = (atk->id == PARTY_MEMBER_PAULA) ? 2 : 1;
             } else {
                 /* Return alive party member count, capped to 3 */
                 uint16_t alive = count_alive_party_members();
@@ -2525,7 +2525,7 @@ void cc_1c_dispatch(ScriptReader *r) {
         } else {
             /* Ally */
             if (query_type == 1) {
-                result = (tgt->id == 2) ? 2 : 1;
+                result = (tgt->id == PARTY_MEMBER_PAULA) ? 2 : 1;
             } else {
                 uint16_t alive = count_alive_party_members();
                 result = (alive > 3) ? 3 : alive;

@@ -462,7 +462,7 @@ void print_cast_name_party(uint16_t char_id, uint16_t x_col, uint16_t y_row) {
     uint16_t tile_pos;
     uint16_t width;
 
-    if (char_id == 7) {
+    if (char_id == PARTY_MEMBER_KING) {
         /* Pet name: tile 448, width 6 */
         tile_pos = 448;
         width = 6;

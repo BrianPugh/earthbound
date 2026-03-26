@@ -3592,7 +3592,7 @@ start_turn:
             }
 
             /* Poo with mirror active skips menu */
-            if (!skip_menu && member_id == 4 && bt.mirror_enemy != 0) {
+            if (!skip_menu && member_id == PARTY_MEMBER_POO && bt.mirror_enemy != 0) {
                 skip_menu = true;
             }
 
