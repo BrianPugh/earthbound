@@ -30,7 +30,8 @@ class NpcEntry(BaseModel):
     event_flag: int = Field(ge=0, le=65535)
     event_flag_name: str = ""
     show_condition: int = Field(ge=0, le=255)
-    text_pointer: str  # hex string (32-bit .DWORD, bytes 9-12)
+    dialogue_ref: str | None = None
+    text_pointer: str | None = None  # hex string (32-bit .DWORD, bytes 9-12)
     # Bytes 13-16: secondary data (type-dependent)
     secondary_pointer: str = ""  # hex string for OBJECT type (32-bit .DWORD)
     secondary_bytes: list[int] = Field(default_factory=list)  # for non-OBJECT types (4 bytes)
@@ -102,7 +103,12 @@ def export_npcs_json(
         f.write("\n")
 
 
-def pack_npcs(json_path: Path, common_data: CommonData, output_path: Path) -> None:
+def pack_npcs(
+    json_path: Path,
+    common_data: CommonData,
+    output_path: Path,
+    addr_remap: dict[int, int] | None = None,
+) -> None:
     """Pack npc_config.json back to binary."""
     config = NpcConfig.model_validate_json(json_path.read_bytes())
     buf = bytearray()
@@ -126,7 +132,10 @@ def pack_npcs(json_path: Path, common_data: CommonData, output_path: Path) -> No
         # Show condition (u8)
         buf.append(npc.show_condition)
         # Text pointer (32-bit LE, bytes 9-12)
-        buf.extend(struct.pack("<I", int(npc.text_pointer, 16)))
+        ptr = int(npc.text_pointer, 16)
+        if addr_remap and ptr in addr_remap:
+            ptr = addr_remap[ptr]
+        buf.extend(struct.pack("<I", ptr))
         # Secondary data (bytes 13-16)
         if npc.type == "OBJECT" and npc.secondary_pointer:
             buf.extend(struct.pack("<I", int(npc.secondary_pointer, 16)))

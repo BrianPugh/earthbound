@@ -6,6 +6,7 @@ Ported from app.d:parseItemConfig.
 import json
 import struct
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,9 @@ from ebtools.byte_reader import ByteReader
 from ebtools.config import CommonData, DumpDoc
 from ebtools.parsers._common import format_pointer
 from ebtools.parsers.enemy import _decode_text
+
+if TYPE_CHECKING:
+    from ebtools.text_dsl.string_table import StringTableBuilder
 
 RECORD_SIZE = 39
 NAME_BYTES = 25  # first 24 are text, byte 25 is padding/null
@@ -62,7 +66,9 @@ class Item(BaseModel):
     flag_names: list[str] = Field(default_factory=list)
     effect: int = Field(ge=0, le=65535)
     params: ItemParams
-    help_text_pointer: str  # hex string, e.g. "0xC539C4"
+    help_text: str | None = None
+    help_text_ref: str | None = None
+    help_text_pointer: str | None = None  # hex string, e.g. "0xC539C4"
 
 
 class ItemConfig(BaseModel):
@@ -241,7 +247,13 @@ def generate_items_header(items_json_path: Path, header_path: Path) -> None:
     header_path.write_text("\n".join(lines))
 
 
-def pack_items(items_json_path: Path, text_table: dict[int, str], output_path: Path) -> None:
+def pack_items(
+    items_json_path: Path,
+    text_table: dict[int, str],
+    output_path: Path,
+    string_table: StringTableBuilder | None = None,
+    addr_remap: dict[int, int] | None = None,
+) -> None:
     """Pack items.json back to a 254 × 39-byte binary.
 
     Parameters
@@ -252,7 +264,11 @@ def pack_items(items_json_path: Path, text_table: dict[int, str], output_path: P
         EB character code → string mapping (int key → str value).
     output_path
         Path to write the binary file.
+    string_table
+        Optional StringTableBuilder for encoding inline help_text strings.
     """
+    from ebtools.text_dsl.string_table import StringTableBuilder  # noqa: F811
+
     # Build reverse text table: character → EB byte
     reverse_table: dict[str, int] = {}
     for code, char in text_table.items():
@@ -291,7 +307,14 @@ def pack_items(items_json_path: Path, text_table: dict[int, str], output_path: P
         buf.append(item.params.ep)
         buf.append(item.params.special)
         # Help text pointer (u32 LE)
-        ptr = int(item.help_text_pointer, 16)
+        if item.help_text is not None and string_table is not None:
+            ptr = string_table.add(item.help_text)
+        elif item.help_text_pointer is not None:
+            ptr = int(item.help_text_pointer, 16)
+            if addr_remap and ptr in addr_remap:
+                ptr = addr_remap[ptr]
+        else:
+            ptr = 0
         buf.extend(struct.pack("<I", ptr))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

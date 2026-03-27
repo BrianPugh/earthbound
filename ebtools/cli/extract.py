@@ -741,3 +741,16 @@ def extract(
         music_count = export_music_json(music_asm_path, dataset_bin_path, music_json_path)
         if music_count > 0:
             print(f"Exported {music_count} music tracks to {music_json_path}")
+
+    # Export dialogue YAML files from raw text block binaries.
+    # Decodes text bytecode into human-readable YAML DSL with symbolic labels,
+    # event flag names, item names, etc.  Also migrates text pointer fields in
+    # items.json, enemies.json, etc. to inline text or dialogue references.
+    from ebtools.cli.migrate_text import export_dialogue_yaml
+
+    export_dialogue_yaml(
+        assets_dir=asset_output_dir,
+        bin_dir=out_path,
+        doc=doc,
+        common_data=common_data,
+    )

@@ -5,12 +5,16 @@ Ported from app.d:parseEnemyConfig.
 
 import struct
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from ebtools.byte_reader import ByteReader
 from ebtools.config import CommonData, DumpDoc
 from ebtools.parsers._common import format_pointer
+
+if TYPE_CHECKING:
+    from ebtools.text_dsl.string_table import StringTableBuilder
 
 RECORD_SIZE = 94
 NAME_BYTES = 25  # bytes 1-24 are text, byte 25 is padding/null
@@ -39,8 +43,12 @@ class Enemy(BaseModel):
     experience: int = Field(ge=0, le=4294967295)
     money: int = Field(ge=0, le=65535)
     movement: int = Field(ge=0, le=65535)
-    text_pointer_1: str  # hex string
-    text_pointer_2: str  # hex string
+    text_1: str | None = None
+    text_1_ref: str | None = None
+    text_pointer_1: str | None = None  # hex string
+    text_2: str | None = None
+    text_2_ref: str | None = None
+    text_pointer_2: str | None = None  # hex string
     palette: int = Field(ge=0, le=255)
     level: int = Field(ge=0, le=255)
     music: str
@@ -285,6 +293,8 @@ def pack_enemies(
     text_table: dict[int, str],
     common_data: CommonData,
     output_path: Path,
+    string_table: StringTableBuilder | None = None,
+    addr_remap: dict[int, int] | None = None,
 ) -> None:
     """Pack enemies.json back to a 231 x 94-byte binary."""
     reverse_table: dict[str, int] = {}
@@ -326,8 +336,24 @@ def pack_enemies(
         # Movement (u16 LE)
         buf.extend(struct.pack("<H", enemy.movement))
         # Text pointers (u32 LE each)
-        buf.extend(struct.pack("<I", _ptr_to_int(enemy.text_pointer_1)))
-        buf.extend(struct.pack("<I", _ptr_to_int(enemy.text_pointer_2)))
+        if enemy.text_1 is not None and string_table is not None:
+            ptr1 = string_table.add(enemy.text_1)
+        elif enemy.text_pointer_1 is not None:
+            ptr1 = _ptr_to_int(enemy.text_pointer_1)
+        else:
+            ptr1 = 0
+        if addr_remap and ptr1 in addr_remap:
+            ptr1 = addr_remap[ptr1]
+        buf.extend(struct.pack("<I", ptr1))
+        if enemy.text_2 is not None and string_table is not None:
+            ptr2 = string_table.add(enemy.text_2)
+        elif enemy.text_pointer_2 is not None:
+            ptr2 = _ptr_to_int(enemy.text_pointer_2)
+        else:
+            ptr2 = 0
+        if addr_remap and ptr2 in addr_remap:
+            ptr2 = addr_remap[ptr2]
+        buf.extend(struct.pack("<I", ptr2))
         # Palette (u8)
         buf.append(enemy.palette)
         # Level (u8)

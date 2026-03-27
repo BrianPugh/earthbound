@@ -7,9 +7,12 @@ overrides.
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from cyclopts import Parameter
+
+if TYPE_CHECKING:
+    from ebtools.config import CommonData, DumpDoc
 
 
 def pack_all(
@@ -28,20 +31,30 @@ def pack_all(
     an override layer by the embed-registry.
     """
     from ebtools.config import load_common_data, load_dump_doc
+    from ebtools.text_dsl.string_table import StringTableBuilder
 
     doc = load_dump_doc(yaml_config)
     common_data = load_common_data(commondata)
+
+    # Build reverse text table and string table builder for inline text
+    reverse_text_table: dict[str, int] = {char: code for code, char in doc.textTable.items()}
+    string_table = StringTableBuilder(reverse_text_table)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     packed = 0
 
     # --- JSON data tables ---
     json_packers = [
-        ("items", "items/items.json", _pack_items, {"doc": doc}),
-        ("enemies", "enemies/enemies.json", _pack_enemies, {"doc": doc, "common_data": common_data}),
+        ("items", "items/items.json", _pack_items, {"doc": doc, "string_table": string_table}),
+        (
+            "enemies",
+            "enemies/enemies.json",
+            _pack_enemies,
+            {"doc": doc, "common_data": common_data, "string_table": string_table},
+        ),
         ("npcs", "data/npc_config.json", _pack_npcs, {"common_data": common_data}),
-        ("battle actions", "battle/battle_actions.json", _pack_battle_actions, {}),
-        ("PSI abilities", "battle/psi_abilities.json", _pack_psi_abilities, {}),
+        ("battle actions", "battle/battle_actions.json", _pack_battle_actions, {"string_table": string_table}),
+        ("PSI abilities", "battle/psi_abilities.json", _pack_psi_abilities, {"string_table": string_table}),
         ("teleport destinations", "data/teleport_destinations.json", _pack_teleport, {"common_data": common_data}),
         (
             "PSI teleport destinations",
@@ -556,10 +569,17 @@ def pack_all(
         packed += 1
         print("  Packed guardian text")
 
+    # --- Dialogue files (MUST run before config packers so addr_remap is available) ---
+    addr_remap: dict[int, int] = {}  # original SNES addr → new compiled SNES addr
+    dialogue_dir = assets_dir / "dialogue"
+    if dialogue_dir.exists():
+        addr_remap = _pack_dialogue(dialogue_dir, output_dir, doc, reverse_text_table, common_data)
+        packed += 1
+
     for label, rel_path, func, kwargs in json_packers:
         json_path = assets_dir / rel_path
         if json_path.exists():
-            func(json_path, output_dir, **kwargs)
+            func(json_path, output_dir, addr_remap=addr_remap, **kwargs)  # type: ignore[call-arg]
             packed += 1
             print(f"  Packed {label}")
 
@@ -639,6 +659,17 @@ def pack_all(
     # --- Battle backgrounds ---
     packed += _pack_all_battle_bgs(assets_dir, output_dir)
 
+    # --- Inline string table ---
+    string_table_data = string_table.build()
+    if string_table_data:
+        st_out = output_dir / "text" / "inline_strings.bin"
+        st_out.parent.mkdir(parents=True, exist_ok=True)
+        st_out.write_bytes(string_table_data)
+        packed += 1
+        print(f"  Packed inline string table ({len(string_table_data)} bytes)")
+
+    # (Dialogue files were packed earlier — see _pack_dialogue call above)
+
     if packed == 0:
         print("Warning: no assets found to pack", file=sys.stderr)
     else:
@@ -660,76 +691,176 @@ def _pack_simple(func_name: str):
     return _do_pack
 
 
+def _pack_dialogue(
+    dialogue_dir: Path,
+    output_dir: Path,
+    doc: DumpDoc,
+    reverse_text_table: dict[str, int],
+    common_data: CommonData | None = None,
+) -> dict[int, int]:
+    """Compile all dialogue YAML into a single flat blob.
+
+    All dialogue blocks are concatenated into one ``dialogue/dialogue.bin``
+    file.  Every label gets a flat byte offset (guaranteed < 0xC00000) so
+    the C port can distinguish new-format offsets from legacy SNES addresses.
+
+    Returns a dict mapping original SNES addresses to flat offsets so config
+    packers can update text pointer fields.
+    """
+    from ebtools.text_dsl.compiler import build_reverse_names, compile_text_block
+    from ebtools.text_dsl.yaml_io import deserialize_dialogue_file
+
+    # Build reverse name lookup for symbolic names in dialogue YAML.
+    reverse_names = build_reverse_names(common_data) if common_data is not None else None
+
+    # Build label→original SNES address map from dump config.
+    original_label_addrs: dict[str, int] = {}
+    for entry in doc.dumpEntries:
+        if entry.extension == "ebtxt":
+            block_base = entry.offset + 0xC00000
+            for label_offset, label_name in doc.renameLabels.get(entry.name, {}).items():
+                original_label_addrs[label_name] = block_base + label_offset
+
+    yaml_files = sorted(dialogue_dir.glob("*.yaml")) + sorted(dialogue_dir.glob("*.yml"))
+
+    # The C port uses dialogue_blob_base (0x100000) to distinguish dialogue
+    # offsets from inline string offsets.  Label offsets used during compilation
+    # must include this base so cross-references within the blob are correct.
+    dialogue_blob_base = 0x100000
+
+    # Phase 1: Load all files, compute flat byte offsets for every label
+    # across ALL blocks in one continuous address space.
+    all_dialogue: list[tuple[Path, dict[str, list[dict]]]] = []
+    flat_label_offsets: dict[str, int] = {}
+    global_byte_pos = 0
+
+    for yaml_file in yaml_files:
+        messages = deserialize_dialogue_file(yaml_file.read_text())
+        all_dialogue.append((yaml_file, messages))
+
+        # Dummy offsets for size measurement (LABEL args always compile to 4 bytes)
+        dummy_offsets = {**original_label_addrs, **dict.fromkeys(messages, 0)}
+        for label, ops in messages.items():
+            flat_label_offsets[label] = dialogue_blob_base + global_byte_pos
+            compiled = compile_text_block(
+                ops, reverse_text_table, label_offsets=dummy_offsets, reverse_names=reverse_names
+            )
+            global_byte_pos += len(compiled)
+
+    # Phase 2: Compile everything into one flat blob with resolved labels
+    blob = bytearray()
+    for _yaml_file, messages in all_dialogue:
+        for _label, ops in messages.items():
+            compiled = compile_text_block(
+                ops, reverse_text_table, label_offsets=flat_label_offsets, reverse_names=reverse_names
+            )
+            blob.extend(compiled)
+
+    if blob:
+        out_path = output_dir / "dialogue" / "dialogue.bin"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(blob)
+        print(f"  Packed {len(all_dialogue)} dialogue files into dialogue.bin ({len(blob)} bytes)")
+
+    # Build address remap: original SNES addr → flat offset (already includes
+    # dialogue_blob_base from the label offset computation above).
+    addr_remap: dict[int, int] = {}
+    for label_name, original_addr in original_label_addrs.items():
+        flat_offset = flat_label_offsets.get(label_name)
+        if flat_offset is not None:
+            addr_remap[original_addr] = flat_offset
+
+    print(f"  Built address remap table ({len(addr_remap)} entries)")
+    return addr_remap
+
+
 # --- Individual pack helpers ---
 
 
-def _pack_items(json_path: Path, output_dir: Path, *, doc) -> None:
+def _pack_items(json_path: Path, output_dir: Path, *, doc, string_table=None, addr_remap=None) -> None:
     from ebtools.parsers.item import pack_items
 
-    pack_items(json_path, doc.textTable, output_dir / "data" / "item_configuration_table.bin")
+    pack_items(
+        json_path,
+        doc.textTable,
+        output_dir / "data" / "item_configuration_table.bin",
+        string_table=string_table,
+        addr_remap=addr_remap,
+    )
 
 
-def _pack_enemies(json_path: Path, output_dir: Path, *, doc, common_data) -> None:
+def _pack_enemies(json_path: Path, output_dir: Path, *, doc, common_data, string_table=None, addr_remap=None) -> None:
     from ebtools.parsers.enemy import pack_enemies
 
-    pack_enemies(json_path, doc.textTable, common_data, output_dir / "data" / "enemy_configuration_table.bin")
+    pack_enemies(
+        json_path,
+        doc.textTable,
+        common_data,
+        output_dir / "data" / "enemy_configuration_table.bin",
+        string_table=string_table,
+        addr_remap=addr_remap,
+    )
 
 
-def _pack_npcs(json_path: Path, output_dir: Path, *, common_data) -> None:
+def _pack_npcs(json_path: Path, output_dir: Path, *, common_data, addr_remap=None) -> None:
     from ebtools.parsers.npc import pack_npcs
 
-    pack_npcs(json_path, common_data, output_dir / "data" / "npc_config_table.bin")
+    pack_npcs(json_path, common_data, output_dir / "data" / "npc_config_table.bin", addr_remap=addr_remap)
 
 
-def _pack_battle_actions(json_path: Path, output_dir: Path) -> None:
+def _pack_battle_actions(json_path: Path, output_dir: Path, *, string_table=None, addr_remap=None) -> None:
     from ebtools.parsers.battle_action import pack_battle_actions
 
-    pack_battle_actions(json_path, output_dir / "data" / "battle_action_table.bin")
+    pack_battle_actions(
+        json_path, output_dir / "data" / "battle_action_table.bin", string_table=string_table, addr_remap=addr_remap
+    )
 
 
-def _pack_psi_abilities(json_path: Path, output_dir: Path) -> None:
+def _pack_psi_abilities(json_path: Path, output_dir: Path, *, string_table=None, addr_remap=None) -> None:
     from ebtools.parsers.psi_ability import pack_psi_abilities
 
-    pack_psi_abilities(json_path, output_dir / "data" / "psi_ability_table.bin")
+    pack_psi_abilities(
+        json_path, output_dir / "data" / "psi_ability_table.bin", string_table=string_table, addr_remap=addr_remap
+    )
 
 
-def _pack_teleport(json_path: Path, output_dir: Path, *, common_data) -> None:
+def _pack_teleport(json_path: Path, output_dir: Path, *, common_data, addr_remap=None) -> None:
     from ebtools.parsers.teleport import pack_teleport
 
     pack_teleport(json_path, common_data, output_dir / "data" / "teleport_destination_table.bin")
 
 
-def _pack_psi_teleport(json_path: Path, output_dir: Path, *, doc) -> None:
+def _pack_psi_teleport(json_path: Path, output_dir: Path, *, doc, addr_remap=None) -> None:
     from ebtools.parsers.teleport import pack_psi_teleport
 
     pack_psi_teleport(json_path, doc.textTable, output_dir / "data" / "psi_teleport_dest_table.bin")
 
 
-def _pack_bg_config(json_path: Path, output_dir: Path) -> None:
+def _pack_bg_config(json_path: Path, output_dir: Path, *, addr_remap=None) -> None:
     from ebtools.parsers.bg_config import pack_bg_config
 
     pack_bg_config(json_path, output_dir / "data" / "bg_data_table.bin")
 
 
-def _pack_exp_table(json_path: Path, output_dir: Path) -> None:
+def _pack_exp_table(json_path: Path, output_dir: Path, *, addr_remap=None) -> None:
     from ebtools.parsers.exp_table import pack_exp_table
 
     pack_exp_table(json_path, output_dir / "data" / "exp_table.bin")
 
 
-def _pack_stores(json_path: Path, output_dir: Path, *, common_data) -> None:
+def _pack_stores(json_path: Path, output_dir: Path, *, common_data, addr_remap=None) -> None:
     from ebtools.parsers.store import pack_stores
 
     pack_stores(json_path, common_data, output_dir / "data" / "store_table.bin")
 
 
-def _pack_music(json_path: Path, output_dir: Path) -> None:
+def _pack_music(json_path: Path, output_dir: Path, *, addr_remap=None) -> None:
     from ebtools.parsers.music import pack_music_dataset
 
     pack_music_dataset(json_path, output_dir / "music" / "dataset_table.bin")
 
 
-def _pack_swirls(json_path: Path, output_dir: Path) -> None:
+def _pack_swirls(json_path: Path, output_dir: Path, *, addr_remap=None) -> None:
     from ebtools.parsers.swirl import pack_swirls
 
     pack_swirls(json_path, output_dir)

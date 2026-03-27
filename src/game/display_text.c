@@ -87,6 +87,16 @@ DisplayTextState dt = {
 #define compressed_text_ptrs       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_PTRS_BIN)
 #define compressed_text_ptrs_size  ASSET_SIZE(ASSET_DATA_COMPRESSED_TEXT_PTRS_BIN)
 
+/* New inline string table (from ebtools pack-all text round-trip tooling) */
+static const uint8_t *inline_string_table = NULL;
+static size_t inline_string_table_size = 0;
+
+/* Flat dialogue blob — all compiled dialogue concatenated into one blob.
+ * Addresses below DIALOGUE_BLOB_BASE are inline strings; addresses at or above
+ * DIALOGUE_BLOB_BASE (but below 0xC00000) are dialogue blob offsets. */
+#define DIALOGUE_BLOB_BASE 0x100000
+static const uint8_t *dialogue_blob = NULL;
+static size_t dialogue_blob_size = 0;
 
 /* HP/PP modification functions: now in game_state.c, declared in game_state.h.
  * heal_character_hp/pp, reduce_hp/pp_target, recover/reduce_hp/pp_amtpercent. */
@@ -575,6 +585,28 @@ static TextBlock text_blocks[TEXT_BLOCK_COUNT] = {
  * Finds the block with the smallest valid offset (closest base address)
  * to avoid mismatching when a large block's range overlaps smaller ones. */
 static const uint8_t *resolve_snes_text_addr(uint32_t snes_addr, TextBlock **out_block) {
+    /* New-format flat offsets (< 0xC00000): dialogue blob or inline strings */
+    if (snes_addr < 0xC00000) {
+        if (snes_addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
+            uint32_t offset = snes_addr - DIALOGUE_BLOB_BASE;
+            if (offset < dialogue_blob_size) {
+                static TextBlock dialogue_block = {0};
+                dialogue_block.data = dialogue_blob;
+                dialogue_block.size = dialogue_blob_size;
+                dialogue_block.snes_base = DIALOGUE_BLOB_BASE;
+                if (out_block) *out_block = &dialogue_block;
+                return dialogue_blob + offset;
+            }
+        } else if (inline_string_table != NULL && snes_addr < inline_string_table_size) {
+            static TextBlock string_table_block = {0};
+            string_table_block.data = inline_string_table;
+            string_table_block.size = inline_string_table_size;
+            string_table_block.snes_base = 0;
+            if (out_block) *out_block = &string_table_block;
+            return inline_string_table + snes_addr;
+        }
+    }
+
     TextBlock *best = NULL;
     uint32_t best_offset = UINT32_MAX;
     for (int i = 0; i < TEXT_BLOCK_COUNT; i++) {
@@ -693,6 +725,26 @@ static bool load_text_block(int index) {
 }
 
 
+static bool display_text_load_inline_strings(void) {
+#ifdef ASSET_TEXT_INLINE_STRINGS_BIN_DATA
+    inline_string_table = ASSET_TEXT_INLINE_STRINGS_BIN_DATA;
+    inline_string_table_size = ASSET_TEXT_INLINE_STRINGS_BIN_SIZE;
+    return inline_string_table != NULL;
+#else
+    return true;  /* No string table in this build */
+#endif
+}
+
+static bool display_text_load_dialogue_blob(void) {
+#ifdef ASSET_DIALOGUE_DIALOGUE_BIN_DATA
+    dialogue_blob = ASSET_DIALOGUE_DIALOGUE_BIN_DATA;
+    dialogue_blob_size = ASSET_DIALOGUE_DIALOGUE_BIN_SIZE;
+    return dialogue_blob != NULL;
+#else
+    return true;  /* No dialogue blob in this build */
+#endif
+}
+
 bool display_text_load_eevent0(void) {
     /* On the SNES, all text data is always in ROM.  Load every text block
        so that cross-block CALL_TEXT references (CC_08) always resolve. */
@@ -700,6 +752,8 @@ bool display_text_load_eevent0(void) {
     for (int i = 0; i < TEXT_BLOCK_COUNT; i++) {
         if (!load_text_block(i)) ok = false;
     }
+    if (!display_text_load_inline_strings()) ok = false;
+    if (!display_text_load_dialogue_blob()) ok = false;
     return ok;
 }
 
