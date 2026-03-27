@@ -2,6 +2,11 @@
 
 Converts between opcode dicts (as produced by the decoder) and human-readable
 YAML format.
+
+Text convention: an ``@`` character (EB character code 0x70) at the start of a
+text string means "clear the text window before printing."  It acts as a
+paragraph separator -- without it, new text appends to whatever is already
+displayed in the window.
 """
 
 import yaml

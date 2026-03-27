@@ -1,5 +1,7 @@
 """Tests for the text DSL opcode registry, decoder, and compiler."""
 
+from pathlib import Path
+
 import pytest
 
 from ebtools.text_dsl.compiler import compile_text_block
@@ -974,3 +976,105 @@ class TestStringTableBuilder:
 
         builder = StringTableBuilder({})
         assert builder.build() == b""
+
+
+class TestDialogueValidation:
+    """Tests for dialogue YAML validation in pack_all."""
+
+    def test_unknown_opcode_in_yaml(self):
+        """Validation catches unknown opcode names in deserialized YAML."""
+        from ebtools.cli.pack_all import _validate_dialogue
+
+        yaml_file = Path("test_dialogue.yaml")
+        messages = {
+            "GREETING": [
+                {"op": "text", "value": "Hi"},
+                {"op": "bogus_opcode_that_does_not_exist", "foo": 1},
+                {"op": "line_break"},
+            ],
+        }
+        all_dialogue = [(yaml_file, messages)]
+        flat_label_offsets: dict[str, int] = {}
+
+        errors = _validate_dialogue(all_dialogue, flat_label_offsets)
+        assert len(errors) == 1
+        assert "bogus_opcode_that_does_not_exist" in errors[0]
+        assert "GREETING" in errors[0]
+        assert "test_dialogue.yaml" in errors[0]
+
+    def test_broken_label_ref(self):
+        """Validation catches unresolved label references."""
+        from ebtools.cli.pack_all import _validate_dialogue
+
+        yaml_file = Path("test_dialogue.yaml")
+        messages = {
+            "START": [
+                {"op": "jump", "dest": "NONEXISTENT_LABEL"},
+            ],
+        }
+        all_dialogue = [(yaml_file, messages)]
+        # Only "START" is known, "NONEXISTENT_LABEL" is not.
+        flat_label_offsets: dict[str, int] = {"START": 0x100000}
+
+        errors = _validate_dialogue(all_dialogue, flat_label_offsets)
+        assert len(errors) == 1
+        assert "NONEXISTENT_LABEL" in errors[0]
+        assert "START" in errors[0]
+        assert "jump" in errors[0]
+
+    def test_valid_dialogue_no_errors(self):
+        """Valid dialogue produces no validation errors."""
+        from ebtools.cli.pack_all import _validate_dialogue
+
+        yaml_file = Path("test_dialogue.yaml")
+        messages = {
+            "GREETING": [
+                {"op": "text", "value": "Hi"},
+                {"op": "jump", "dest": "FAREWELL"},
+            ],
+            "FAREWELL": [
+                {"op": "text", "value": "Bye"},
+                {"op": "line_break"},
+            ],
+        }
+        all_dialogue = [(yaml_file, messages)]
+        flat_label_offsets = {"GREETING": 0x100000, "FAREWELL": 0x100010}
+
+        errors = _validate_dialogue(all_dialogue, flat_label_offsets)
+        assert errors == []
+
+    def test_broken_jump_table_label(self):
+        """Validation catches unresolved labels inside jump tables."""
+        from ebtools.cli.pack_all import _validate_dialogue
+
+        yaml_file = Path("test_dialogue.yaml")
+        messages = {
+            "MENU": [
+                {"op": "jump_multi", "targets": ["OPTION_A", "MISSING_OPTION"]},
+            ],
+        }
+        all_dialogue = [(yaml_file, messages)]
+        flat_label_offsets = {"MENU": 0x100000, "OPTION_A": 0x100010}
+
+        errors = _validate_dialogue(all_dialogue, flat_label_offsets)
+        assert len(errors) == 1
+        assert "MISSING_OPTION" in errors[0]
+
+    def test_multiple_errors_collected(self):
+        """All errors are collected, not just the first one."""
+        from ebtools.cli.pack_all import _validate_dialogue
+
+        yaml_file = Path("test_dialogue.yaml")
+        messages = {
+            "A": [
+                {"op": "fake_op"},
+            ],
+            "B": [
+                {"op": "jump", "dest": "NOWHERE"},
+            ],
+        }
+        all_dialogue = [(yaml_file, messages)]
+        flat_label_offsets = {"A": 0, "B": 1}
+
+        errors = _validate_dialogue(all_dialogue, flat_label_offsets)
+        assert len(errors) == 2

@@ -38,24 +38,31 @@ def _resolve_named_value(
     arg_type: ArgType,
     value: object,
     reverse_names: dict[ArgType, dict[str, int]] | None,
+    *,
+    opcode_name: str = "",
+    arg_name: str = "",
 ) -> int:
     """Resolve a possibly-symbolic value to an integer.
 
     If *value* is already an int, return it unchanged.  If it's a string,
     look it up in the reverse_names table for the given ArgType.
     """
+    context = ""
+    if opcode_name:
+        context = f" (opcode {opcode_name!r}, arg {arg_name!r})"
+
     if isinstance(value, int):
         return value
     if isinstance(value, str):
         if reverse_names is None:
-            raise ValueError(f"String name {value!r} for {arg_type.name} but no reverse_names provided")
+            raise ValueError(f"String name {value!r} for {arg_type.name} but no reverse_names provided{context}")
         lookup = reverse_names.get(arg_type)
         if lookup is None:
-            raise ValueError(f"No reverse name table for {arg_type.name} (trying to resolve {value!r})")
+            raise ValueError(f"No reverse name table for {arg_type.name} (trying to resolve {value!r}){context}")
         if value not in lookup:
-            raise KeyError(f"Name {value!r} not found in reverse name table for {arg_type.name}")
+            raise KeyError(f"Name {value!r} not found in reverse name table for {arg_type.name}{context}")
         return lookup[value]
-    raise TypeError(f"Expected int or str for {arg_type.name}, got {type(value).__name__}")
+    raise TypeError(f"Expected int or str for {arg_type.name}, got {type(value).__name__}{context}")
 
 
 def _write_arg(
@@ -64,15 +71,18 @@ def _write_arg(
     value: object,
     label_offsets: dict[str, int] | None,
     reverse_names: dict[ArgType, dict[str, int]] | None = None,
+    *,
+    opcode_name: str = "",
+    arg_name: str = "",
 ) -> None:
     """Write a single argument value to the byte buffer according to its type."""
     if arg_type in (ArgType.U8,) or arg_type in _NAMED_U8_TYPES:
         if arg_type in _NAMED_U8_TYPES:
-            value = _resolve_named_value(arg_type, value, reverse_names)
+            value = _resolve_named_value(arg_type, value, reverse_names, opcode_name=opcode_name, arg_name=arg_name)
         buf.append(value & 0xFF)
     elif arg_type in (ArgType.U16,) or arg_type in _NAMED_U16_TYPES:
         if arg_type in _NAMED_U16_TYPES:
-            value = _resolve_named_value(arg_type, value, reverse_names)
+            value = _resolve_named_value(arg_type, value, reverse_names, opcode_name=opcode_name, arg_name=arg_name)
         buf.extend(struct.pack("<H", value))
     elif arg_type == ArgType.U24:
         buf.append(value & 0xFF)
@@ -212,6 +222,14 @@ def compile_text_block(
 
         # Write arguments.
         for arg_spec in spec.args:
-            _write_arg(buf, arg_spec.type, entry[arg_spec.name], label_offsets, reverse_names)
+            _write_arg(
+                buf,
+                arg_spec.type,
+                entry[arg_spec.name],
+                label_offsets,
+                reverse_names,
+                opcode_name=op_name,
+                arg_name=arg_spec.name,
+            )
 
     return bytes(buf)

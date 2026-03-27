@@ -691,6 +691,65 @@ def _pack_simple(func_name: str):
     return _do_pack
 
 
+def _validate_dialogue(
+    all_dialogue: list[tuple[Path, dict[str, list[dict]]]],
+    flat_label_offsets: dict[str, int],
+) -> list[str]:
+    """Validate deserialized dialogue data for common errors.
+
+    Checks for:
+    1. Unknown opcode names (not in OPCODE_BY_NAME, "text", or "unknown").
+    2. Broken label references (string values in LABEL/JUMP_TABLE arg positions
+       that don't exist in *flat_label_offsets*).
+
+    Returns a list of human-readable error strings.  An empty list means
+    everything is valid.
+    """
+    from ebtools.text_dsl.opcodes import OPCODE_BY_NAME, ArgType
+
+    errors: list[str] = []
+    label_arg_types = {ArgType.LABEL, ArgType.JUMP_TABLE}
+
+    for yaml_file, messages in all_dialogue:
+        fname = yaml_file.name
+        for label, ops in messages.items():
+            for i, entry in enumerate(ops):
+                op_name = entry.get("op", "")
+
+                # 1. Unknown opcode names
+                if op_name not in ("text", "unknown") and op_name not in OPCODE_BY_NAME:
+                    errors.append(f"{fname}: label {label!r}, entry {i}: unknown opcode {op_name!r}")
+                    continue  # can't check args for unknown opcodes
+
+                if op_name in ("text", "unknown"):
+                    continue
+
+                # 2. Broken label references
+                spec = OPCODE_BY_NAME[op_name]
+                for arg_spec in spec.args:
+                    if arg_spec.type not in label_arg_types:
+                        continue
+                    value = entry.get(arg_spec.name)
+                    if value is None:
+                        continue
+                    if arg_spec.type == ArgType.JUMP_TABLE:
+                        # JUMP_TABLE is a list of label targets
+                        if isinstance(value, list):
+                            for j, target in enumerate(value):
+                                if isinstance(target, str) and target not in flat_label_offsets:
+                                    errors.append(
+                                        f"{fname}: label {label!r}, entry {i}: "
+                                        f"unresolved label {target!r} in {op_name}.{arg_spec.name}[{j}]"
+                                    )
+                    elif isinstance(value, str) and value not in flat_label_offsets:
+                        errors.append(
+                            f"{fname}: label {label!r}, entry {i}: "
+                            f"unresolved label {value!r} in {op_name}.{arg_spec.name}"
+                        )
+
+    return errors
+
+
 def _pack_dialogue(
     dialogue_dir: Path,
     output_dir: Path,
@@ -742,18 +801,35 @@ def _pack_dialogue(
         dummy_offsets = {**original_label_addrs, **dict.fromkeys(messages, 0)}
         for label, ops in messages.items():
             flat_label_offsets[label] = dialogue_blob_base + global_byte_pos
-            compiled = compile_text_block(
-                ops, reverse_text_table, label_offsets=dummy_offsets, reverse_names=reverse_names
-            )
+            try:
+                compiled = compile_text_block(
+                    ops, reverse_text_table, label_offsets=dummy_offsets, reverse_names=reverse_names
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SystemExit(f"Error compiling dialogue {yaml_file.name}, label {label!r}: {exc}") from exc
             global_byte_pos += len(compiled)
+
+    # Merge original SNES label addresses so cross-block references resolve.
+    all_label_offsets = {**original_label_addrs, **flat_label_offsets}
+
+    # Validate after Phase 1 (all labels known).
+    validation_errors = _validate_dialogue(all_dialogue, all_label_offsets)
+    if validation_errors:
+        print("Dialogue validation errors:", file=sys.stderr)
+        for err in validation_errors:
+            print(f"  {err}", file=sys.stderr)
+        raise SystemExit(f"Dialogue validation failed with {len(validation_errors)} error(s)")
 
     # Phase 2: Compile everything into one flat blob with resolved labels
     blob = bytearray()
     for _yaml_file, messages in all_dialogue:
         for _label, ops in messages.items():
-            compiled = compile_text_block(
-                ops, reverse_text_table, label_offsets=flat_label_offsets, reverse_names=reverse_names
-            )
+            try:
+                compiled = compile_text_block(
+                    ops, reverse_text_table, label_offsets=flat_label_offsets, reverse_names=reverse_names
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise SystemExit(f"Error compiling dialogue {_yaml_file.name}, label {_label!r}: {exc}") from exc
             blob.extend(compiled)
 
     if blob:

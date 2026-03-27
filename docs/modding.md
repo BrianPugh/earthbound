@@ -1,31 +1,48 @@
 # Modding Support Roadmap
 
-This document tracks the gaps in our asset pipeline that prevent easy modding, and plans for addressing them.
+This document tracks the state of our asset pipeline for modding, what works today, and remaining gaps.
 
 ## Current State
 
-The pipeline already supports JSON round-trip editing for ~70 asset types (items, enemies, NPCs, PSI abilities, battle actions, stores, EXP tables, sprites, battle backgrounds, fonts, etc.). Overworld and battle sprites have indexed PNG + metadata JSON with a custom asset override system. The embed registry provides zero-overhead INCBIN with family macros.
+The pipeline supports JSON round-trip editing for ~70 asset types (items, enemies, NPCs, PSI abilities, battle actions, stores, EXP tables, sprites, battle backgrounds, fonts, etc.). Overworld and battle sprites have indexed PNG + metadata JSON with a custom asset override system. The embed registry provides zero-overhead INCBIN with family macros.
+
+**Text and dialogue editing is fully operational.** The complete round-trip works:
+
+1. `ebtools extract` generates human-readable dialogue YAML (`src/assets/dialogue/*.yml`) with symbolic label names, event flag names, and item/music/sprite references.
+2. `ebtools text search "query"` searches all dialogue YAML and JSON configs for text.
+3. `ebtools pack-all` (runs automatically via cmake) compiles dialogue YAML back to binary and remaps all text pointers.
+4. JSON configs use inline text fields (`help_text`, `description`, `text_1`/`text_2`) and symbolic refs (`help_text_ref`, `dialogue_ref`) pointing to YAML labels.
+
+**Modder workflow:**
+
+```bash
+# Find text
+ebtools text search "sleepy bones"
+
+# Edit dialogue
+vim src/assets/dialogue/E01ONET0.yml
+
+# Build (automatic — cmake runs pack-all)
+cd port/unix && cmake --build build
+
+# Play
+./build/earthbound
+```
 
 What works well today:
-- Structured data tables (items, enemies, PSI, stores, EXP) — clean JSON, easy to edit
-- Sprite pipeline — indexed PNG + metadata JSON with `src/custom_assets/` overrides
-- Locale separation (US/JP) handled transparently
+- **Text/dialogue** — YAML round-trip with symbolic names, search, automatic repacking
+- **Structured data tables** (items, enemies, PSI, stores, EXP) — clean JSON, easy to edit
+- **Sprite pipeline** — indexed PNG + metadata JSON with `src/custom_assets/` overrides
+- **Locale separation** (US/JP) handled transparently
 - `ebtools pack-all` repacks everything from JSON to binary
 
 ## Gaps
 
-### 1. Text/Dialogue Has No Round-Trip Tooling
+### ~~1. Text/Dialogue~~ — IMPLEMENTED
 
-**Impact: High — blocks nearly every modding use case.**
+See "Current State" above. Dialogue YAML files in `src/assets/dialogue/` support the full text bytecode DSL (text, pause, branching, menus, etc.) with symbolic label and flag names. JSON configs reference text inline or via symbolic refs to YAML labels.
 
-Item help text, NPC dialogue, enemy attack names, and PSI descriptions are stored as raw ROM address pointers in JSON (e.g., `"help_text_pointer": "0xC539C4"`). A modder can change an item's stats but can't edit what its description *says* without working in assembly.
-
-Almost every interesting mod (new weapon, new enemy, new NPC) needs custom text, making this the single biggest barrier.
-
-**What's needed:**
-- A text table extractor that decodes EB-encoded text blocks into human-readable strings
-- A text packer that re-encodes edited strings and updates pointer references
-- Integration with the existing JSON configs so that e.g. `items.json` can reference text by symbolic name instead of ROM address
+**Text format note:** An `@` character at the start of a text string means "clear the text window before printing." It acts as a paragraph separator. Without it, text appends to whatever is already in the window. For example, `- text: '@Good morning,'` clears the window first, while `- text: ' sleepy bones!'` appends to the existing text.
 
 ### 2. Event Scripts Are Opaque Bytecode
 
@@ -49,24 +66,27 @@ Items are 256 entries × 39 bytes, enemies are 256 × 94 bytes, NPCs have a fixe
 - C code changes to use runtime table sizes instead of hardcoded counts
 - A mechanism for mods to declare new entries without conflicting with each other
 
-### 4. Raw Pointer Coupling in JSON
+### 4. Raw Pointer Coupling in JSON — PARTIALLY ADDRESSED
 
 **Impact: Medium — makes JSON configs confusing and fragile.**
 
-Many JSON fields are raw ROM addresses (`text_pointer`, `function_pointer`, `secondary_pointer`). These are meaningless to modders and break if ROM layout changes. Some fields already use symbolic names (e.g., `event_flag_name`), but most pointers don't.
+**Progress:** JSON configs now have symbolic refs for text (`help_text_ref`, `dialogue_ref` pointing to YAML labels). Dialogue YAML uses symbolic label names, event flag names, and item/music/sprite names throughout. Raw ROM addresses are no longer needed for text.
 
-**What's needed:**
-- Symbolic name resolution in the packer (e.g., `"help_text": "desc_cracked_bat"` instead of `"help_text_pointer": "0xC539C4"`)
-- A symbol table that maps names to addresses, updated during extraction
+**Remaining:** Non-text pointers (`function_pointer`, `secondary_pointer`) are still raw ROM addresses. These are meaningless to modders and break if ROM layout changes.
+
+**What's still needed:**
+- Symbolic name resolution for non-text pointers (function and script references)
 - Backward compatibility with raw addresses for advanced users
 
-### 5. No JSON Validation
+### 5. JSON Validation — IN PROGRESS
 
 **Impact: Medium — modders get silent failures.**
 
-There's no schema validation on JSON edits. Setting an item's `type` to 99 or a sprite ID to 9999 produces a bad binary or runtime crash with no error message. Modders have to guess what went wrong.
+**Progress:** Packer validation is being added. The text packer validates YAML structure and reports errors on malformed dialogue.
 
-**What's needed:**
+**Remaining:** No schema validation on most JSON edits. Setting an item's `type` to 99 or a sprite ID to 9999 produces a bad binary or runtime crash with no error message.
+
+**What's still needed:**
 - JSON Schema definitions for each asset type
 - Validation in the packer with clear error messages (e.g., "item type must be 0-7", "sprite ID 9999 exceeds max 462")
 - Range checks, enum validation, and cross-reference checks (e.g., "battle action references nonexistent PSI ability")
@@ -106,9 +126,9 @@ The 171 `.ebm` audio packs have no tooling for inspection or modification. Even 
 
 ## Priority Order
 
-1. **Text round-trip tooling** (#1) — unblocks the most modding use cases
-2. **JSON validation** (#5) — cheap to implement, immediately improves modder experience
-3. **Symbolic pointer resolution** (#4) — natural companion to text tooling
+1. ~~**Text round-trip tooling** (#1)~~ — DONE
+2. **JSON validation** (#5) — in progress, immediately improves modder experience
+3. ~~**Symbolic pointer resolution** (#4)~~ — partially done (text refs complete, non-text pointers remain)
 4. **Event script DSL** (#2) — high impact but high effort
 5. **Variable table sizes** (#3) — important for the C port's modding story
 6. **Map data tooling** (#6) — enables level editing
