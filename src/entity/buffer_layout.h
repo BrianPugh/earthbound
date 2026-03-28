@@ -52,7 +52,19 @@
 
 /* ===== Pathfinding (pathfinding.c) ===== */
 #define BUF_PATHFINDING_MATRIX   0x3000  /* BFS collision grid (~2 KB, max 4 KB for 64x64) */
-#define BUF_PF_HEAP              0x4000  /* BFS heap/scratch (0xC00 = 3072 bytes) */
+#define BUF_PF_HEAP              0x4000  /* BFS heap/scratch (0xC00 = 3072 bytes, ends 0x4C00) */
+
+/* ===== VWF Save/Restore (text.c) ===== */
+/* 1664-byte snapshot of vwf_buffer, used by vwf_render_string_at(),
+ * vwf_render_eb_string_at(), and render_title_to_vram() to save/restore
+ * VWF state when rendering titles or inline strings.
+ *
+ * Phase-exclusive with pathfinding: VWF save/restore runs during
+ * render_all_windows() (per-frame rendering phase), while pathfinding
+ * runs during entity script ticks. They never execute concurrently
+ * within a single frame. Overlaps BUF_PF_HEAP at 0x4980–0x5000. */
+#define BUF_VWF_SAVE_SIZE        1664  /* VWF_BUFFER_TILES(52) * VWF_TILE_BYTES(32) */
+#define BUF_VWF_SAVE             (BUFFER_SIZE - BUF_VWF_SAVE_SIZE)  /* 0x4980 */
 
 /* ===== Text Window GFX Tile Uploads (battle_ui.c) ===== */
 /* Scattered text tile blocks uploaded to VRAM TEXT_LAYER_TILES. */

@@ -53,17 +53,11 @@ uint16_t vwf_x;        /* current pixel X position */
 uint16_t vwf_tile;     /* current tile index in ert.buffer */
 static uint16_t vwf_pixels_rendered; /* tracks how many pixels rendered */
 
-/* VWF save/restore aliases into the tail of ert.buffer (offset 0xF980).
- * Safe because VWF save/restore only runs during rendering (render_all_windows),
- * and no ert.buffer consumer is active above 0x7F80 during that phase.
- * See entity.h buffer concurrency map for details.
- *
- * TODO: This is a RAM-saving hack — previously 3 functions each allocated a
- * 1664-byte saved_buffer on the stack. When ert.buffer gets properly
- * partitioned (see entity.h "EMBEDDED PORT OPTIMIZATION" notes), give this
- * region an explicit named slot in the buffer layout instead of hiding it
- * behind a macro. */
-#define vwf_saved_buffer (ert.buffer + BUFFER_SIZE - VWF_BUFFER_SIZE)
+/* VWF save/restore aliases into the tail of ert.buffer (BUF_VWF_SAVE).
+ * Phase-exclusive with pathfinding — see buffer_layout.h for details. */
+_Static_assert(VWF_BUFFER_SIZE == BUF_VWF_SAVE_SIZE,
+               "BUF_VWF_SAVE_SIZE in buffer_layout.h must match VWF_BUFFER_SIZE");
+#define vwf_saved_buffer (ert.buffer + BUF_VWF_SAVE)
 
 /* Extra pixels added between each character (US = 1, naming screen = 0) */
 uint8_t character_padding = 1;
