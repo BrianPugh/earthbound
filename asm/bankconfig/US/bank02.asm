@@ -17,7 +17,7 @@
 
 .INCLUDE "overworld/inflict_sunstroke_check.asm"
 
-.INCLUDE "data/unknown/C200B9.asm"
+.INCLUDE "data/overworld/collision_check_offsets.asm"
 
 .INCLUDE "battle/initialize_battle_ui_state.asm"
 
@@ -45,7 +45,7 @@
 
 .INCLUDE "data/text/name_entry_grid_character_offset_table.asm"
 
-.INCLUDE "data/unknown/C20958.asm"
+.INCLUDE "data/system/used_bg2_tile_map_defaults.asm"
 
 .INCLUDE "data/text/the.asm"
 

@@ -338,7 +338,7 @@
 
 .INCLUDE "overworld/door_transition.asm"
 
-.INCLUDE "data/unknown/C06E02.asm"
+.INCLUDE "data/overworld/escalator_offset_table.asm"
 
 .INCLUDE "overworld/reset_movement_state.asm"
 
@@ -532,7 +532,7 @@
 
 .INCLUDE "data/dma_table.asm"
 
-.INCLUDE "data/unknown/C08FC2.asm"
+.INCLUDE "data/system/dma_table_extended.asm"
 
 .INCLUDE "system/math/mult8.asm"
 
@@ -700,7 +700,7 @@
 
 .INCLUDE "overworld/actionscript/script/0D.asm"
 
-.INCLUDE "data/unknown/C09ABD.asm"
+.INCLUDE "data/overworld/entity_var_op_table.asm"
 
 .INCLUDE "overworld/entity/entity_var_op_and.asm"
 
@@ -846,13 +846,13 @@
 
 .INCLUDE "overworld/map/get_map_block_cached.asm"
 
-.INCLUDE "data/unknown/C0A1AE.asm"
+.INCLUDE "data/overworld/map_tile_attribute_dispatch_table.asm"
 
 .INCLUDE "overworld/get_map_tile_attribute.asm"
 
 .INCLUDE "system/palette/load_bg_palette.asm"
 
-.INCLUDE "data/unknown/C0A20C.asm"
+.INCLUDE "data/system/palette_anim_buffer_ptr_table.asm"
 
 .INCLUDE "overworld/npc/find_entity_by_npc_id_linked.asm"
 
@@ -862,17 +862,17 @@
 
 .INCLUDE "overworld/party/update_party_sprite_position.asm"
 
-.INCLUDE "data/unknown/C0A2AB.asm"
+.INCLUDE "data/overworld/follower_spacing_thresholds.asm"
 
 .INCLUDE "overworld/party/check_follower_vertical_distance.asm"
 
 .INCLUDE "overworld/party/check_follower_horizontal_distance.asm"
 
-.INCLUDE "data/unknown/C0A30B.asm"
+.INCLUDE "data/overworld/follower_diagonal_spacing_thresholds.asm"
 
 .INCLUDE "overworld/party/check_follower_diagonal_distance.asm"
 
-.INCLUDE "data/unknown/C0A350.asm"
+.INCLUDE "data/overworld/follower_distance_check_table.asm"
 
 .INCLUDE "overworld/collision/entity_physics_with_collision.asm"
 
@@ -1046,13 +1046,13 @@
 
 .INCLUDE "data/dma_target_registers.asm"
 
-.INCLUDE "data/unknown/C0AE26.asm"
+.INCLUDE "data/battle/battlebg_layer1_hdma_table.asm"
 
-.INCLUDE "data/unknown/C0AE2D.asm"
+.INCLUDE "data/battle/battlebg_layer2_hdma_table.asm"
 
 .INCLUDE "system/dma/mask_hdma_channel.asm"
 
-.INCLUDE "data/unknown/C0AE44.asm"
+.INCLUDE "data/system/hdma_channel_disable_masks.asm"
 
 .INCLUDE "misc/battlebgs/load_bg_offset_parameters.asm"
 
@@ -1062,7 +1062,7 @@
 
 .INCLUDE "system/palette/set_color_math_from_table.asm"
 
-.INCLUDE "data/unknown/C0AFF1.asm"
+.INCLUDE "data/system/color_math_register_table.asm"
 
 .INCLUDE "system/set_coldata.asm"
 
@@ -1070,7 +1070,7 @@
 
 .INCLUDE "system/set_window_mask.asm"
 
-.INCLUDE "data/unknown/C0B0A6.asm"
+.INCLUDE "data/system/window_mask_lookup.asm"
 
 .INCLUDE "text/disable_windows.asm"
 
@@ -1080,9 +1080,9 @@
 
 .INCLUDE "text/generate_oval_window_data.asm"
 
-.INCLUDE "data/unknown/C0B2FF.asm"
+.INCLUDE "data/text/oval_arc_table.asm"
 
-.INCLUDE "data/unknown/C0B3FF.asm"
+.INCLUDE "data/text/oval_arc_table_end.asm"
 
 .INCLUDE "system/math/cosine_sine.asm"
 
@@ -1130,7 +1130,7 @@
 
 .INCLUDE "overworld/entity/check_entity_can_pursue_short.asm"
 
-.INCLUDE "data/unknown/C0C4CF.asm"
+.INCLUDE "data/overworld/quadrant_pursuit_directions.asm"
 
 .INCLUDE "data/map/opposite_directions.asm"
 
@@ -1174,7 +1174,7 @@
 
 .INCLUDE "overworld/pathfinding/steer_entity_toward_direction.asm"
 
-.INCLUDE "data/unknown/C0CF58.asm"
+.INCLUDE "data/overworld/direction_quantize_table.asm"
 
 .INCLUDE "overworld/collision/check_entity_collision_path.asm"
 
@@ -1306,7 +1306,7 @@
 
 .INCLUDE "data/sram_signature.asm"
 
-.INCLUDE "data/unknown/EF05A6.asm"
+.INCLUDE "data/system/save_slot_bit_flags.asm"
 
 .INCLUDE "system/saves/erase_save_block.asm"
 

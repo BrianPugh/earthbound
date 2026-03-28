@@ -17,7 +17,7 @@
 
 .INCLUDE "overworld/inflict_sunstroke_check.asm"
 
-.INCLUDE "data/unknown/C200B9.asm"
+.INCLUDE "data/overworld/collision_check_offsets.asm"
 
 .INCLUDE "battle/initialize_battle_ui_state.asm"
 

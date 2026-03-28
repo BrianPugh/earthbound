@@ -32,7 +32,7 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "data/ness_pajama_flag.asm"
 
-.INCLUDE "data/unknown/C30188.asm"
+.INCLUDE "data/unused/unused_data_C30188.asm"
 
 .INCLUDE "data/events/scripts/221.asm"
 
@@ -1326,17 +1326,17 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "data/events/scripts/784.asm"
 
-.INCLUDE "data/unknown/C39FF2.asm"
+.INCLUDE "data/events/npc_idle_anim_table.asm"
 
-.INCLUDE "data/unknown/C3A010.asm"
+.INCLUDE "data/events/npc_idle_anim_blink_9tick.asm"
 
-.INCLUDE "data/unknown/C3A01B.asm"
+.INCLUDE "data/events/npc_idle_anim_blink_8tick.asm"
 
-.INCLUDE "data/unknown/C3A026.asm"
+.INCLUDE "data/events/npc_idle_anim_static.asm"
 
-.INCLUDE "data/unknown/C3A02D.asm"
+.INCLUDE "data/events/npc_idle_anim_blink_8tick_alt.asm"
 
-.INCLUDE "data/unknown/C3A038.asm"
+.INCLUDE "data/events/npc_idle_anim_blink_4tick.asm"
 
 .INCLUDE "data/events/scripts/001.asm"
 
@@ -1994,7 +1994,7 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "data/events/C3DFD4.asm"
 
-.INCLUDE "data/unknown/C3DFE8.asm"
+.INCLUDE "data/overworld/delivery_sector_passable_table.asm"
 
 .INCLUDE "data/map/character_initial_entity_data.asm"
 
@@ -2004,47 +2004,47 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "data/map/allowed_input_directions.asm"
 
-.INCLUDE "data/unknown/C3E148.asm"
+.INCLUDE "data/overworld/interaction_x_offsets.asm"
 
-.INCLUDE "data/unknown/C3E158.asm"
+.INCLUDE "data/overworld/interaction_y_offsets.asm"
 
-.INCLUDE "data/unknown/C3E168.asm"
+.INCLUDE "data/overworld/direction_facing_table.asm"
 
 .INCLUDE "data/map/mushroomization_direction_remap_tables.asm"
 
-.INCLUDE "data/unknown/C3E1D8.asm"
+.INCLUDE "data/overworld/door_entry_direction_table.asm"
 
-.INCLUDE "data/unknown/C3E1E0.asm"
+.INCLUDE "data/overworld/door_entry_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E200.asm"
+.INCLUDE "data/overworld/stairs_direction_table.asm"
 
-.INCLUDE "data/unknown/C3E208.asm"
+.INCLUDE "data/overworld/stairs_facing_direction_table.asm"
 
-.INCLUDE "data/unknown/C3E210.asm"
+.INCLUDE "data/overworld/stairs_enter_y_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E218.asm"
+.INCLUDE "data/overworld/stairs_enter_x_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E220.asm"
+.INCLUDE "data/overworld/stairs_exit_y_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E228.asm"
+.INCLUDE "data/overworld/stairs_exit_x_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E230.asm"
+.INCLUDE "data/overworld/direction_x_offset_table.asm"
 
-.INCLUDE "data/unknown/C3E240.asm"
+.INCLUDE "data/overworld/direction_y_offset_table.asm"
 
 .INCLUDE "data/text/window_configuration_table.asm"
 
-.INCLUDE "data/unknown/C3E3F8.asm"
+.INCLUDE "data/text/hppp_window_tile_data.asm"
 
-.INCLUDE "data/unknown/C3E40E.asm"
+.INCLUDE "data/text/hppp_window_header_tiles.asm"
 
 .INCLUDE "data/text/blinking_triangle_tiles.asm"
 
-.INCLUDE "data/unknown/C3E41C.asm"
+.INCLUDE "data/text/pagination_anim_tiles.asm"
 
-.INCLUDE "data/unknown/C3E41C_pointer_table.asm"
+.INCLUDE "data/text/pagination_anim_tiles_ptr_table.asm"
 
-.INCLUDE "data/unknown/C3E44C.asm"
+.INCLUDE "data/text/menu_overflow_text.asm"
 
 .INCLUDE "text/update_text_window_palette.asm"
 
@@ -2064,7 +2064,7 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "text/clear_window_menu_options.asm"
 
-.INCLUDE "data/unknown/C3E84E.asm"
+.INCLUDE "data/text/window_border_anim_tiles.asm"
 
 .INCLUDE "data/debug/menu_text.asm"
 
@@ -2102,13 +2102,13 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "misc/null/C3EF23.asm"
 
-.INCLUDE "data/unknown/C3EF26.asm"
+.INCLUDE "data/text/mrsaturn_font_tables.asm"
 
 .INCLUDE "data/font_pointer_table.asm"
 
 .INCLUDE "data/psi_categories.asm"
 
-.INCLUDE "data/unknown/C3F0B0.asm"
+.INCLUDE "data/battle/psi_block_by_affliction_table.asm"
 
 .INCLUDE "data/psi_suffixes.asm"
 
@@ -2118,7 +2118,7 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "inventory/try_fix_broken_item.asm"
 
-.INCLUDE "data/unknown/C3F2B1.asm"
+.INCLUDE "data/stat_gain_modifier_table.asm"
 
 .INCLUDE "data/playable_character_graphics_table.asm"
 
@@ -2132,13 +2132,13 @@ SPRITE_GROUP_PALETTES:
 
 .INCLUDE "unused/C3F7FB.asm"
 
-.INCLUDE "data/unknown/C3F819.asm"
+.INCLUDE "data/battle/oval_window_battle_variant.asm"
 
-.INCLUDE "data/unknown/C3F871.asm"
+.INCLUDE "data/battle/battle_sprite_buffer_offsets.asm"
 
-.INCLUDE "data/unknown/C3F8B1.asm"
+.INCLUDE "data/battle/battle_sprite_tile_grid.asm"
 
-.INCLUDE "data/unknown/C3F8F1.asm"
+.INCLUDE "data/battle/attack_type_palettes.asm"
 
 .INCLUDE "data/enemy_psi_colours.asm"
 

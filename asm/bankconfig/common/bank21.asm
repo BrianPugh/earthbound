@@ -168,7 +168,7 @@ NINTENDO_ITOI_PALETTE:
 		LOCALEBINARY "intro/title_screen.pal.lzhal"
 .ENDIF
 
-.INCLUDE "data/unknown/E1CE08.asm"
+.INCLUDE "data/intro/title_letter_spritemap.asm"
 
 GAME_OVER_GRAPHICS:
 	BINARY "E1CFAF.gfx.lzhal"
@@ -183,12 +183,12 @@ GAME_OVER_ARRANGEMENT:
 	CAST_NAMES_GFX:
 		LOCALEBINARY "ending/cast_names.gfx.lzhal"
 
-	.INCLUDE "data/unknown/E1D815.asm"
+	.INCLUDE "data/ending/cast_bg_palette.asm"
 .ELSE
 	CAST_SCENE_BASE_GFX:
 		LOCALEBINARY "E1D6E1.gfx.lzhal"
 
-	.INCLUDE "data/unknown/E1D815.asm"
+	.INCLUDE "data/ending/cast_bg_palette.asm"
 
 	CAST_NAMES_GFX:
 		LOCALEBINARY "ending/cast_names.gfx.lzhal"
@@ -203,9 +203,9 @@ STAFF_CREDITS_FONT_GRAPHICS:
 STAFF_CREDITS_FONT_PALETTE:
 	BINARY "ending/credits_font.pal"
 
-.INCLUDE "data/unknown/E1E924.asm"
+.INCLUDE "data/ending/credits_bg2_palette.asm"
 
-.INCLUDE "data/unknown/E1E94A.asm"
+.INCLUDE "data/ending/credits_bg2_tilemap_tiles.asm"
 
 TOWN_MAP_LABEL_GFX:
 	LOCALEBINARY "town_maps/label.gfx.lzhal"
@@ -214,14 +214,14 @@ TOWN_MAP_ICON_PALETTE:
 	BINARY "town_maps/icon.pal"
 
 .IF .DEFINED(JPN)
-	.INCLUDE "data/unknown/E1F203-jp.asm"
+	.INCLUDE "data/map/town_map_icon_spritemap-jp.asm"
 .ELSE
-	.INCLUDE "data/unknown/E1F203.asm"
+	.INCLUDE "data/map/town_map_icon_spritemap.asm"
 .ENDIF
 
-.INCLUDE "data/unknown/E1F44C.asm"
+.INCLUDE "data/map/town_map_icon_spritemap_ptr_table.asm"
 
-.INCLUDE "data/unknown/E1F47A.asm"
+.INCLUDE "data/map/town_map_icon_animation_flags.asm"
 
 .INCLUDE "data/map/town_map_icon_placement_pointer_table.asm"
 

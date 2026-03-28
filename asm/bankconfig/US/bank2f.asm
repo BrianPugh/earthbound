@@ -45,7 +45,7 @@
 
 .INCLUDE "data/sram_signature.asm"
 
-.INCLUDE "data/unknown/EF05A6.asm"
+.INCLUDE "data/system/save_slot_bit_flags.asm"
 
 .INCLUDE "system/saves/erase_save_block.asm"
 
@@ -165,7 +165,7 @@
 
 .INCLUDE "data/sprite_grouping_data.asm"
 
-.INCLUDE "data/unknown/EF4A40.asm"
+.INCLUDE "data/sound_stone_melodies.asm"
 
 LOCALEINCLUDE "text_data/EEXPLPSI.ebtxt"
 
@@ -209,9 +209,9 @@ LOCALEINCLUDE "text_data/DEBUG_TEXT.ebtxt"
 
 .INCLUDE "data/map/town_map_mapping.asm"
 
-.INCLUDE "data/unknown/EFC51B.asm"
+.INCLUDE "data/text/vwf_shift_mask_table.asm"
 
-.INCLUDE "data/unknown/EFCD1B.asm"
+.INCLUDE "data/text/vwf_shift_overflow_table.asm"
 
 .INCLUDE "data/debug/sound_menu_option_strings.asm"
 
@@ -289,27 +289,27 @@ LOCALEINCLUDE "text_data/DEBUG_TEXT.ebtxt"
 
 .INCLUDE "system/debug/setup_debug_check_position_window.asm"
 
-.INCLUDE "data/unknown/EFEB1D.asm"
+.INCLUDE "data/debug/debug_position_window_hdma_table.asm"
 
 .INCLUDE "text/disable_hdma_and_init_window.asm"
 
-.INCLUDE "data/unknown/EFEB3D.asm"
+.INCLUDE "data/debug/debug_tilemap_data.asm"
 
 DEBUG_MENU_FONT:
 	BINARY "fonts/debug.gfx"
 
-.INCLUDE "data/unknown/EFEF70.asm"
+.INCLUDE "data/debug/debug_font_mask_data.asm"
 
 .INCLUDE "data/debug/debug_font_palette.asm"
 
 DEBUG_CURSOR_GRAPHICS:
 	BINARY "debug_cursor.gfx"
 
-.INCLUDE "data/unknown/EFF0D7.asm"
+.INCLUDE "data/debug/debug_menu_zero_data.asm"
 
-.INCLUDE "data/unknown/EFF1BB.asm"
+.INCLUDE "data/debug/debug_menu_palettes.asm"
 
-.INCLUDE "data/unknown_version_string.asm"
+.INCLUDE "data/system/compiler_version_string.asm"
 
 .INCLUDE "data/unused/EFF3DB.asm"
 
