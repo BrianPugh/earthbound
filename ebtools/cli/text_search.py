@@ -6,7 +6,7 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 
-text_app = App(name="text", help="Text search and inspection tools.")
+text_app = App(name="text", help="Text search, inspection, and verification tools.")
 
 
 @text_app.command
@@ -115,6 +115,71 @@ def _search_dialogue_yaml(yml_path: Path, query: str, case_sensitive: bool) -> l
         matches.append(label)
 
     return matches
+
+
+@text_app.command
+def verify(
+    *,
+    assets_dir: Annotated[Path, Parameter(help="Path to assets directory")] = Path("src/assets"),
+    yaml_config: Annotated[Path, Parameter(alias="-y")] = Path("earthbound.yml"),
+    commondata: Annotated[Path, Parameter(alias="-c")] = Path("commondefs.yml"),
+) -> None:
+    """Verify round-trip integrity of dialogue YAML files.
+
+    For each dialogue YAML: deserialize -> compile -> decode -> compare.
+    Reports any mismatches that indicate compiler or decoder bugs.
+    """
+    import sys
+
+    from ebtools.config import load_common_data, load_dump_doc
+    from ebtools.text_dsl.verify import verify_dialogue_round_trip
+
+    doc = load_dump_doc(yaml_config)
+    common_data = load_common_data(commondata)
+
+    text_table = doc.textTable
+    reverse_text_table: dict[str, int] = {char: code for code, char in text_table.items()}
+
+    from ebtools.text_dsl.compiler import build_reverse_names
+
+    reverse_names = build_reverse_names(common_data) if common_data is not None else None
+
+    # Build label offsets from dump config (original SNES addresses).
+    original_label_addrs: dict[str, int] = {}
+    for entry in doc.dumpEntries:
+        if entry.extension == "ebtxt":
+            block_base = entry.offset + 0xC00000
+            for label_offset, label_name in doc.renameLabels.get(entry.name, {}).items():
+                original_label_addrs[label_name] = block_base + label_offset
+
+    # Build compressed text dict for the decoder.
+    compressed_text: dict[int, str] | None = None
+    if doc.compressedTextStrings:
+        compressed_text = {i: s for i, s in enumerate(doc.compressedTextStrings) if s}
+
+    dialogue_dir = assets_dir / "dialogue"
+    if not dialogue_dir.is_dir():
+        print(f"Error: {dialogue_dir} is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Verifying dialogue round-trip in {dialogue_dir}...")
+
+    errors = verify_dialogue_round_trip(
+        dialogue_dir,
+        text_table,
+        reverse_text_table,
+        label_offsets=original_label_addrs,  # seed with ROM labels; synthetic offsets built internally
+        reverse_names=reverse_names,
+        compressed_text=compressed_text,
+    )
+
+    if errors:
+        print(f"\nFAILED: {len(errors)} error(s):", file=sys.stderr)
+        for err in errors:
+            print(f"  {err}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("OK: All dialogue files verified successfully.")
 
 
 def _search_items_json(json_path: Path, query: str, case_sensitive: bool) -> list[str]:

@@ -1078,3 +1078,103 @@ class TestDialogueValidation:
 
         errors = _validate_dialogue(all_dialogue, flat_label_offsets)
         assert len(errors) == 2
+
+
+class TestVerifyRoundTrip:
+    """Tests for the round-trip verification module."""
+
+    def test_simple_round_trip(self):
+        """Simple dialogue verifies cleanly."""
+        import tempfile
+
+        from ebtools.text_dsl.verify import verify_dialogue_round_trip
+        from ebtools.text_dsl.yaml_io import serialize_dialogue_file
+
+        text_table = {0x78: "H", 0x99: "i", 0x50: " "}
+        reverse_table = {v: k for k, v in text_table.items()}
+
+        messages = {
+            "GREETING": [
+                {"op": "text", "value": "Hi"},
+                {"op": "pause", "frames": 30},
+                {"op": "end_block"},
+            ],
+            "FAREWELL": [
+                {"op": "text", "value": " Hi"},
+                {"op": "end_block"},
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dialogue_dir = Path(tmpdir)
+            (dialogue_dir / "test.yml").write_text(serialize_dialogue_file(messages))
+            errors = verify_dialogue_round_trip(dialogue_dir, text_table, reverse_table)
+
+        assert errors == []
+
+    def test_cross_label_references(self):
+        """Dialogue with cross-label jumps verifies cleanly."""
+        import tempfile
+
+        from ebtools.text_dsl.verify import verify_dialogue_round_trip
+        from ebtools.text_dsl.yaml_io import serialize_dialogue_file
+
+        text_table = {0x78: "H", 0x99: "i"}
+        reverse_table = {v: k for k, v in text_table.items()}
+
+        messages = {
+            "START": [
+                {"op": "jump", "dest": "TARGET"},
+            ],
+            "TARGET": [
+                {"op": "text", "value": "Hi"},
+                {"op": "end_block"},
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dialogue_dir = Path(tmpdir)
+            (dialogue_dir / "test.yml").write_text(serialize_dialogue_file(messages))
+            errors = verify_dialogue_round_trip(dialogue_dir, text_table, reverse_table)
+
+        assert errors == []
+
+    @pytest.mark.skipif(
+        not Path("src/assets/dialogue").is_dir(),
+        reason="Dialogue YAML files not extracted",
+    )
+    @pytest.mark.skipif(
+        not Path("earthbound.yml").is_file() or not Path("commondefs.yml").is_file(),
+        reason="Config files not present",
+    )
+    def test_full_dialogue_round_trip(self):
+        """All real dialogue YAML files verify cleanly (integration test)."""
+        from ebtools.config import load_common_data, load_dump_doc
+        from ebtools.text_dsl.compiler import build_reverse_names
+        from ebtools.text_dsl.verify import verify_dialogue_round_trip
+
+        doc = load_dump_doc(Path("earthbound.yml"))
+        common_data = load_common_data(Path("commondefs.yml"))
+
+        text_table = doc.textTable
+        reverse_text_table = {char: code for code, char in text_table.items()}
+        reverse_names = build_reverse_names(common_data)
+
+        original_label_addrs: dict[str, int] = {}
+        for entry in doc.dumpEntries:
+            if entry.extension == "ebtxt":
+                block_base = entry.offset + 0xC00000
+                for label_offset, label_name in doc.renameLabels.get(entry.name, {}).items():
+                    original_label_addrs[label_name] = block_base + label_offset
+
+        compressed_text = {i: s for i, s in enumerate(doc.compressedTextStrings) if s}
+
+        errors = verify_dialogue_round_trip(
+            Path("src/assets/dialogue"),
+            text_table,
+            reverse_text_table,
+            label_offsets=original_label_addrs,
+            reverse_names=reverse_names,
+            compressed_text=compressed_text,
+        )
+        assert errors == [], "Round-trip verification failed:\n" + "\n".join(errors[:10])
