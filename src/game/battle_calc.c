@@ -359,17 +359,17 @@ uint16_t battle_psi_shield_nullify(void) {
 
     if (shield == STATUS_6_PSI_SHIELD_POWER) {
         /* PSI Shield Power — reflect attack */
-        display_in_battle_text_addr(MSG_BTL_PSYPOWER_TURN);
+        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_DEFLECTED);
         bt.damage_is_reflected = 1;
         swap_attacker_with_target();
         return 0;  /* Attack proceeds with swapped targets */
     } else if (shield == STATUS_6_PSI_SHIELD) {
         /* PSI Shield — absorb attack */
-        display_in_battle_text_addr(MSG_BTL_PSYCO_TURN);
+        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_NULLIFIED);
         tgt->shield_hp--;
         if (tgt->shield_hp == 0) {
             tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-            display_in_battle_text_addr(MSG_BTL_SHIELD_OFF);
+            display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
         }
         return 1;  /* Attack nullified */
     }
@@ -420,7 +420,7 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
 
     if (damage == 0) {
         /* "It didn't work" text */
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return 0;
     }
 
@@ -496,10 +496,10 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
         tgt->blink_timer = 0x15;
 
         if (bt.is_smaaaash_attack) {
-            display_text_wait_addr(MSG_BTL_DAMAGE_SMASH_M, damage);
+            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_SMASH_M, damage);
             bt.is_smaaaash_attack = 0;
         } else {
-            display_text_wait_addr(MSG_BTL_DAMAGE_M, damage);
+            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_MEDIUM, damage);
         }
 
         /* Giygas 3/4/5/6: green background flash on damage */
@@ -529,15 +529,15 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
             /* Mortal blow: stronger screen shake */
             bt.vertical_shake_duration = 8; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL */
             bt.vertical_shake_hold_duration = 16; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD */
-            display_text_wait_addr(MSG_BTL_DAMAGE_TO_DEATH, damage);
+            display_text_wait_addr(MSG_BTL4_RESULT_MORTAL_DAMAGE, damage);
         } else if (bt.is_smaaaash_attack) {
             bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR */
-            display_text_wait_addr(MSG_BTL_DAMAGE_SMASH, damage);
+            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_SMASH, damage);
             bt.vertical_shake_hold_duration = 0;
             bt.is_smaaaash_attack = 0;
         } else {
             bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL */
-            display_text_wait_addr(MSG_BTL_DAMAGE, damage);
+            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE, damage);
             bt.vertical_shake_hold_duration = 0;
         }
 
@@ -646,7 +646,7 @@ uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier) {
                 uint16_t reflected = damage >> 1;
                 if (reflected == 0) reflected = 1;
 
-                display_in_battle_text_addr(MSG_BTL_POWER_TURN);
+                display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_DEFLECTED);
                 swap_attacker_with_target();
                 battle_calc_damage(bt.current_target, reflected);
 
@@ -668,7 +668,7 @@ uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier) {
         tgt->shield_hp--;
         if (tgt->shield_hp == 0) {
             tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-            display_in_battle_text_addr(MSG_BTL_SHIELD_OFF);
+            display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
         }
     }
 
@@ -686,7 +686,7 @@ shields_done:
         if (battle_success_255(CHANCE_OF_WAKING_UP_WHEN_ATTACKED)) {
             tgt->current_action = 0;
             tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            display_in_battle_text_addr(MSG_BTL_NEMURI_OFF);
+            display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
         }
     }
 
@@ -771,9 +771,9 @@ uint16_t battle_miss_calc(uint16_t miss_message_type) {
     if ((miss_chance - 1) >= roll) {
         /* Miss! Display appropriate text */
         if (miss_message_type != 0) {
-            display_in_battle_text_addr(MSG_BTL_KARABURI_UTSU); /* gun miss */
+            display_in_battle_text_addr(MSG_BTL4_RESULT_NARROWLY_MISSED); /* gun miss */
         } else {
-            display_in_battle_text_addr(MSG_BTL_KARABURI); /* physical miss */
+            display_in_battle_text_addr(MSG_BTL4_RESULT_JUST_MISSED); /* physical miss */
         }
         return 1;
     }
@@ -819,10 +819,10 @@ uint16_t battle_smaaaash(void) {
     /* SMAAAASH! */
     if (atk->ally_or_enemy == 0) {
         bt.green_flash_duration = SMAAAASH_FLASH_DURATION;
-        display_in_battle_text_addr(MSG_BTL_SMASH_PLAYER);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_SMAASH_PLAYER);
     } else {
         bt.red_flash_duration = SMAAAASH_FLASH_DURATION;
-        display_in_battle_text_addr(MSG_BTL_SMASH_MONSTER);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_SMAASH_MONSTER);
     }
 
     /* Weaken target's shield to 1 HP if they have one */
@@ -856,7 +856,7 @@ void battle_heal_strangeness(void) {
 
     if (tgt->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
         tgt->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-        display_in_battle_text_addr(MSG_BTL_HEN_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_STRANGE);
     }
 }
 
@@ -885,7 +885,7 @@ void battle_weaken_shield(void) {
     tgt->shield_hp--;
     if (tgt->shield_hp == 0) {
         tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-        display_in_battle_text_addr(MSG_BTL_SHIELD_OFF);
+        display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
     }
 
     bt.damage_is_reflected = 0;
@@ -1029,7 +1029,7 @@ uint16_t battle_success_luck80(void) {
 uint16_t battle_fail_attack_on_npcs(void) {
     Battler *tgt = battler_from_offset(bt.current_target);
     if (tgt->npc_id != 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return 1;
     }
     return 0;
@@ -1086,7 +1086,7 @@ void battle_level_3_attack(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
         return;
     }
 
@@ -1121,7 +1121,7 @@ void battle_level_4_attack(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
         return;
     }
 

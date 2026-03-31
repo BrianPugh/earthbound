@@ -34,10 +34,8 @@
 #include "game_main.h"
 
 #include <stdio.h>
+#include "data/text_refs.h"
 
-/* Dad phone text address — EEVENT0 base + MSG_SYS_PAPA_2H offset.
- * Used by LOAD_DAD_PHONE and PROCESS_QUEUED_INTERACTIONS. */
-#define MSG_SYS_PAPA_2H_SNES_ADDR (0xC5E5BCu + 0x0DB6u)
 
 /* NPC type constants (from include/enums.asm NPC_TYPE enum) */
 #define NPC_TYPE_PERSON   1
@@ -46,7 +44,7 @@
 
 void display_text_and_wait_for_fade(uint32_t text_snes_addr) {
     disable_all_entities();
-    display_text_from_snes_addr(text_snes_addr);
+    display_text_from_addr(text_snes_addr);
     /* Assembly: loop calling WINDOW_TICK until ow.entity_fade_entity == -1.
      * Entity fade animation callroutines are ported (callbacks.c).
      * The fade entity (EVENT_ENTITY_WIPE, script 859) drives the animation via its script. */
@@ -97,7 +95,7 @@ void process_queued_interactions(void) {
          * Assembly: DISPLAY_TEXT_AND_WAIT_FOR_FADE, then check if this was
          * the dad phone message (MSG_SYS_PAPA_2H). If so, set timer. */
         display_text_and_wait_for_fade(data_ptr);
-        if (data_ptr == MSG_SYS_PAPA_2H_SNES_ADDR) {
+        if (data_ptr == MSG_SYS_PHONE_DAD) {
             ow.dad_phone_timer = 1687;
             ow.dad_phone_queued = 0;
         }

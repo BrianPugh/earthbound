@@ -1012,7 +1012,7 @@ uint16_t display_telephone_contact_text(void) {
             const uint8_t *entry = telephone_contacts_data + offset;
             uint32_t text_addr = read_u32_le(&entry[27]);
             if (text_addr != 0) {
-                display_text_from_snes_addr(text_addr);
+                display_text_from_addr(text_addr);
             }
         }
     }

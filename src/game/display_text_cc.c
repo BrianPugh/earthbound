@@ -1217,7 +1217,7 @@ void cc_1f_dispatch(ScriptReader *r) {
         }
         /* If a valid selection was made, call display_text recursively */
         if (target != 0 && wm != 0 && (uint16_t)wm <= count) {
-            display_text_from_snes_addr(target);
+            display_text_from_addr(target);
         }
         break;
     }

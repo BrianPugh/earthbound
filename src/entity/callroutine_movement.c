@@ -528,8 +528,8 @@ int16_t cr_movement_display_text(int16_t entity_offset, int16_t script_offset,
 
     uint32_t full_snes_addr = ((uint32_t)bank << 16) | ((uint16_t)text_hi << 8) | text_lo;
 
-    /* Use resolve_snes_text_addr for ALL banks (not just EEVENT0) */
-    display_text_from_snes_addr(full_snes_addr);
+    /* Use resolve_text_addr for ALL banks (not just EEVENT0) */
+    display_text_from_addr(full_snes_addr);
 
     /* Set FLG_TEMP_1 (flag 2) to unblock script spin loops.
      * Assembly: text bytecode sets this when text completes. */

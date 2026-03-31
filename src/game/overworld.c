@@ -53,14 +53,12 @@
 
 /* Forward declarations */
 #include "game_main.h"
+#include "data/text_refs.h"
 extern uint16_t item_transformations_loaded;
 
 /* Music track IDs (from include/constants/music.asm) */
 #define MUSIC_BICYCLE  82
 
-/* Dad phone text address — EEVENT0 base + MSG_SYS_PAPA_2H offset.
- * Used by LOAD_DAD_PHONE and PROCESS_QUEUED_INTERACTIONS. */
-#define MSG_SYS_PAPA_2H_SNES_ADDR (0xC5E5BCu + 0x0DB6u)
 
 
 /* Consolidated overworld state */
@@ -1060,7 +1058,7 @@ void load_dad_phone(void) {
         return;
 
     /* Assembly lines 22-26: Queue dad phone interaction */
-    queue_interaction(10, MSG_SYS_PAPA_2H_SNES_ADDR);
+    queue_interaction(10, MSG_SYS_PHONE_DAD);
     ow.dad_phone_queued = 1;
 }
 
@@ -1807,7 +1805,7 @@ void set_leader_position_and_load_party(uint16_t x, uint16_t y,
 void initialize_overworld_state(void) {
     /* Load EEVENT0 + ESYSTEM text blocks so the prologue text
      * (MSG_EVT_PROLOGUE_NEW at $C5E70B) and other overworld text can
-     * be resolved by display_text_from_snes_addr(). In the assembly
+     * be resolved by display_text_from_addr(). In the assembly
      * these live in ROM and are always available. */
     display_text_load_eevent0();
 

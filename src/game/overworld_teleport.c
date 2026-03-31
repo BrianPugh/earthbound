@@ -49,6 +49,7 @@
 #include "game_main.h"
 #include <math.h>
 #include <stdlib.h>
+#include "data/text_refs.h"
 
 /* ---- SETUP_TELEPORT_ENTITY_FLAGS (port of asm/overworld/teleport/setup_teleport_entity_flags.asm) ----
  *
@@ -936,7 +937,7 @@ void get_off_bicycle_with_message(void) {
      * Shows "got off the bicycle" message, then dismounts. */
     create_window(0x01);  /* WINDOW::TEXT_STANDARD */
     set_working_memory(1);
-    display_text_from_snes_addr(0xC7C95Eu);  /* MSG_SYS_BICYCLE_OFF */
+    display_text_from_addr(MSG_SYS_BIKE_GOT_OFF);
     close_focus_window();
     window_tick();
     dismount_bicycle();

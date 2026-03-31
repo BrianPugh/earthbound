@@ -38,6 +38,7 @@
 #include "core/decomp.h"
 #include "game_main.h"
 #include <string.h>
+#include "data/text_refs.h"
 
 /* ---- ADJUST_SINGLE_COLOUR (port of asm/overworld/adjust_single_colour.asm) ----
  *
@@ -115,7 +116,7 @@ void check_low_hp_alert(uint16_t party_index) {
             create_window(0x01);  /* WINDOW::TEXT_STANDARD */
             set_battle_attacker_name((const char *)cs->name,
                                     sizeof(cs->name));
-            display_text_from_snes_addr(0xC7C7AFu);  /* MSG_SYS_MAP_CRITICAL_SITUATION */
+            display_text_from_addr(MSG_SYS_HP_CRITICAL_WARNING);
             close_focus_window();
             window_tick();
             enable_all_entities();
@@ -297,8 +298,6 @@ next_member:
 /* Event flag for "No Continue" selected (flag 475 = FLG_SYS_COMEBACK) */
 #define EVENT_FLAG_NOCONTINUE_SELECTED  475
 
-/* Comeback message text ROM address */
-#define MSG_SYS_COMEBACK  0xC7DE7Du
 
 /* Buffer offsets for INITIALIZE_MAP_PALETTE_FADE / UPDATE_MAP_PALETTE_FADE.
  * These use the ert.buffer[] at offsets $7800-$7EFF for palette staging and
@@ -633,7 +632,7 @@ void initialize_game_over_screen(void) {
 }
 
 /* ---- PLAY_COMEBACK_SEQUENCE (port of asm/misc/play_comeback_sequence.asm) ----
- * Displays the comeback dialogue (MSG_SYS_COMEBACK) and runs 4 palette
+ * Displays the comeback dialogue (MSG_SYS_REVIVE_AFTER_KO) and runs 4 palette
  * animation phases with skippable pauses between them.
  * Returns -1 if player chose "Continue", 0 if "No Continue". */
 int16_t play_comeback_sequence(void) {
@@ -641,8 +640,8 @@ int16_t play_comeback_sequence(void) {
     skippable_pause(60);
 
     /* Display comeback message text.
-     * Assembly: DISPLAY_TEXT_PTR MSG_SYS_COMEBACK */
-    display_text_from_snes_addr(MSG_SYS_COMEBACK);
+     * Assembly: DISPLAY_TEXT_PTR MSG_SYS_REVIVE_AFTER_KO */
+    display_text_from_addr(MSG_SYS_REVIVE_AFTER_KO);
 
     /* Close all windows and hide HPPP.
      * Assembly: JSL CLOSE_ALL_WINDOWS_AND_HIDE_HPPP */

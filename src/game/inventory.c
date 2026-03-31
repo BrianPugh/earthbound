@@ -1516,7 +1516,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
         dt.blinking_triangle_flag = 1;
         set_battle_target_name((const char *)ch->name, 5);
         set_cnum((uint32_t)ch->level);
-        display_text_from_snes_addr(MSG_BTL_LEVEL_UP);
+        display_text_from_addr(MSG_BTL8_LEVEL_UP);
         dt.blinking_triangle_flag = 2;
     }
 
@@ -1532,7 +1532,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_offense(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_OFFENSE_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_OFFENSE_UP);
             }
         }
     }
@@ -1547,7 +1547,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_defense(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_DEFENSE_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_DEFENSE_UP);
             }
         }
     }
@@ -1562,7 +1562,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_speed(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_SPEED_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_SPEED_UP);
             }
         }
     }
@@ -1577,7 +1577,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_guts(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_GUTS_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_GUTS_UP);
             }
         }
     }
@@ -1600,7 +1600,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_vitality(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_VITA_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_VITALITY_UP);
             }
         }
     }
@@ -1621,7 +1621,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_iq(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_IQ_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_IQ_UP);
             }
         }
     }
@@ -1636,7 +1636,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             recalc_character_postmath_luck(char_id);
             if (play_sound_flag) {
                 set_cnum((uint32_t)gain);
-                display_text_from_snes_addr(MSG_BTL_LV_LUCK_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_LUCK_UP);
             }
         }
     }
@@ -1657,7 +1657,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
         ch->current_hp_target += hp_increase;
         if (play_sound_flag) {
             set_cnum((uint32_t)hp_increase);
-            display_text_from_snes_addr(MSG_BTL_LV_MAXHP_UP);
+            display_text_from_addr(MSG_BTL8_LEVEL_MAX_HP_UP);
         }
     }
 
@@ -1685,7 +1685,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
             ch->current_pp_target += pp_increase;
             if (play_sound_flag) {
                 set_cnum((uint32_t)pp_increase);
-                display_text_from_snes_addr(MSG_BTL_LV_MAXPP_UP);
+                display_text_from_addr(MSG_BTL8_LEVEL_MAX_PP_UP);
             }
         }
     }
@@ -1711,7 +1711,7 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
                 else if (char_index == 3) learn_level = psi->poo_level;
                 if (learn_level == new_level) {
                     set_current_item((uint8_t)psi_id);
-                    display_text_from_snes_addr(MSG_BTL_LEARN_PSI);
+                    display_text_from_addr(MSG_BTL8_LEARNED_PSI);
                 }
             }
         }

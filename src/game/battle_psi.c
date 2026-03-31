@@ -478,7 +478,7 @@ void display_psi_description(uint16_t ability_id) {
     uint32_t text_addr = battle_psi_table[ability_id].text;
 
     /* Display the PSI description text script */
-    display_text_from_snes_addr(text_addr);
+    display_text_from_addr(text_addr);
 
     clear_instant_printing();
 }
@@ -595,7 +595,7 @@ open_psi_list:
             /* Not enough PP — show message (assembly: battle_psi_menu.asm lines 141-146) */
             create_window(WINDOW_TEXT_BATTLE);
             dt.blinking_triangle_flag = 2;
-            display_text_from_snes_addr(MSG_BTL_PSI_CANNOT_MENU);
+            display_text_from_addr(MSG_BTL6_NOT_ENOUGH_PP_MENU);
             dt.blinking_triangle_flag = 0;  /* CLEAR_BLINKING_PROMPT */
             close_focus_window();
             check_result = 0;

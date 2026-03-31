@@ -584,7 +584,7 @@ static TextBlock text_blocks[TEXT_BLOCK_COUNT] = {
  * Returns pointer to the byte within the block, or NULL if not found.
  * Finds the block with the smallest valid offset (closest base address)
  * to avoid mismatching when a large block's range overlaps smaller ones. */
-static const uint8_t *resolve_snes_text_addr(uint32_t snes_addr, TextBlock **out_block) {
+static const uint8_t *resolve_text_addr(uint32_t snes_addr, TextBlock **out_block) {
     /* New-format flat offsets (< 0xC00000): dialogue blob or inline strings */
     if (snes_addr < 0xC00000) {
         if (snes_addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
@@ -700,14 +700,14 @@ const uint8_t *display_text_get_eevent0(uint16_t offset, size_t *remaining_size)
     return eevent0_data + offset;
 }
 
-void display_text_from_snes_addr(uint32_t snes_addr) {
+void display_text_from_addr(uint32_t snes_addr) {
     TextBlock *blk = NULL;
-    const uint8_t *ptr = resolve_snes_text_addr(snes_addr, &blk);
+    const uint8_t *ptr = resolve_text_addr(snes_addr, &blk);
     if (ptr && blk) {
         size_t remaining = blk->size - (size_t)(ptr - blk->data);
         display_text(ptr, remaining);
     } else {
-        fprintf(stderr, "WARNING: resolve_snes_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
+        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
     }
 }
 
@@ -830,13 +830,13 @@ void script_skip(ScriptReader *r, int n) {
  * Searches all loaded text blocks to convert SNES ROM address to ert.buffer ptr. */
 void resolve_text_jump(ScriptReader *r, uint32_t snes_addr) {
     TextBlock *blk = NULL;
-    const uint8_t *ptr = resolve_snes_text_addr(snes_addr, &blk);
+    const uint8_t *ptr = resolve_text_addr(snes_addr, &blk);
     if (ptr && blk) {
         r->ptr = ptr;
         r->base = blk->data;
         r->end = blk->data + blk->size;
     } else {
-        fprintf(stderr, "WARNING: resolve_snes_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
+        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
     }
 }
 
@@ -1261,7 +1261,7 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
             if (member_id > 0 && member_id <= 4) {
                 uint32_t script_addr = dt.party_member_selection_scripts[member_id - 1];
                 if (script_addr != 0) {
-                    display_text_from_snes_addr(script_addr);
+                    display_text_from_addr(script_addr);
                 }
             }
         }
@@ -1321,7 +1321,7 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
                         if (mid > 0 && mid <= 4) {
                             uint32_t sa = dt.party_member_selection_scripts[mid - 1];
                             if (sa != 0) {
-                                display_text_from_snes_addr(sa);
+                                display_text_from_addr(sa);
                             }
                         }
                     }
@@ -1352,7 +1352,7 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
                         if (mid > 0 && mid <= 4) {
                             uint32_t sa = dt.party_member_selection_scripts[mid - 1];
                             if (sa != 0) {
-                                display_text_from_snes_addr(sa);
+                                display_text_from_addr(sa);
                             }
                         }
                     }
@@ -2005,7 +2005,7 @@ void display_text(const uint8_t *script, size_t script_size) {
              * Recursive call to DISPLAY_TEXT at target address.
              * Returns here after the called text hits END_BLOCK. */
             uint32_t target = script_read_dword(&reader);
-            display_text_from_snes_addr(target);
+            display_text_from_addr(target);
             break;
         }
         case 0x09: {

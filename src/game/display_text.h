@@ -45,7 +45,7 @@ void display_text_free_battle_text(void);
 /* Convert a SNES ROM text address to a buffer pointer and call display_text().
  * Searches all loaded text blocks (EEVENT0, EBATTLE0-9).
  * Port helper for assembly code that passes text addresses as SNES pointers. */
-void display_text_from_snes_addr(uint32_t snes_addr);
+void display_text_from_addr(uint32_t snes_addr);
 
 /* Battle name buffer sizes (from bankconfig/common/ram.asm). */
 #define BATTLE_NAME_ATTACKER_SIZE  30  /* sizeof(enemy_data::name) + 5 (USA) */

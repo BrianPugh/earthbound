@@ -121,7 +121,7 @@ void display_text_wait_addr(uint32_t snes_addr, uint32_t param) {
     if (bt.battle_mode_flag) {
         dt.blinking_triangle_flag = 2;
     }
-    display_text_from_snes_addr(snes_addr);
+    display_text_from_addr(snes_addr);
     dt.blinking_triangle_flag = 0;
 }
 
@@ -133,7 +133,7 @@ void display_in_battle_text_addr(uint32_t snes_addr) {
     if (bt.battle_mode_flag) {
         dt.blinking_triangle_flag = 2;
     }
-    display_text_from_snes_addr(snes_addr);
+    display_text_from_addr(snes_addr);
     dt.blinking_triangle_flag = 0;
 }
 
@@ -1218,7 +1218,7 @@ void battle_recover_hp(Battler *target, uint16_t heal_amount) {
     /* Heal blocked if afflictions[0] == UNCONSCIOUS */
     if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
         /* Display "couldn't be healed" message */
-        display_in_battle_text_addr(MSG_BTL_HEAL_NG);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_HEAL_NO_EFFECT);
         return;
     }
 
@@ -1227,10 +1227,10 @@ void battle_recover_hp(Battler *target, uint16_t heal_amount) {
 
     if (new_hp >= target->hp_max) {
         /* Display "HP maxed out" message */
-        display_in_battle_text_addr(MSG_BTL_HPMAX_KAIFUKU);
+        display_in_battle_text_addr(MSG_BTL5_HP_MAXED_OUT);
     } else {
         /* Display "recovered X HP" message with heal_amount as parameter */
-        display_text_wait_addr(MSG_BTL_HP_KAIFUKU, heal_amount);
+        display_text_wait_addr(MSG_BTL5_HP_RECOVERED, heal_amount);
     }
 }
 
@@ -1262,7 +1262,7 @@ void battle_recover_pp(Battler *target, uint16_t amount) {
     battle_set_pp(target, new_pp);
 
     /* Display "recovered X PP" message */
-    display_text_wait_addr(MSG_BTL_PP_KAIFUKU, actual_recovery);
+    display_text_wait_addr(MSG_BTL5_PP_RECOVERED, actual_recovery);
 }
 
 /* ======================================================================
@@ -1657,7 +1657,7 @@ void battle_ko_target(Battler *target) {
             party_characters[char_row].current_hp = 1;
 
             /* Display KO text */
-            display_in_battle_text_addr(MSG_BTL_KIZETU_ON);
+            display_in_battle_text_addr(MSG_BTL5_ALLY_COLLAPSED);
         }
     }
 }
@@ -1671,7 +1671,7 @@ void battle_ko_target(Battler *target) {
  */
 void battle_revive_target(Battler *target, uint16_t hp) {
     /* Display revive text */
-    display_in_battle_text_addr(MSG_BTL_IKIKAERI);
+    display_in_battle_text_addr(MSG_BTL5_REVIVED);
 
     /* Clear all afflictions */
     target->afflictions[STATUS_GROUP_SHIELD] = 0;
@@ -1956,7 +1956,7 @@ void apply_neutralize_to_all(void) {
             bt.mirror_enemy = 0;
             battle_copy_mirror_data(b, &bt.mirror_battler_backup);
             b->current_action = 0;
-            display_in_battle_text_addr(MSG_BTL_NEUTRALIZE_METAMORPH);
+            display_in_battle_text_addr(MSG_BTL5_MORPH_NEUTRALIZED);
             break;
         }
     }
@@ -2042,9 +2042,9 @@ void flash_inflict_crying(void) {
         battler_from_offset(bt.current_target),
         STATUS_2_CRYING, STATUS_2_CRYING);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_NAMIDA_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_CRYING);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2058,9 +2058,9 @@ void flash_inflict_paralysis(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_PARALYZED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_SHIBIRE_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_NUMB);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2074,9 +2074,9 @@ void flash_inflict_feeling_strange(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_HEN_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2182,7 +2182,7 @@ void check_dead_players(void) {
             /* Check if battle text window was already open */
             WindowInfo *existing = get_window(0x0E);
             create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
-            display_in_battle_text_addr(MSG_BTL_KIZETU_ON);
+            display_in_battle_text_addr(MSG_BTL5_ALLY_COLLAPSED);
             if (!existing) {
                 redirect_close_focus_window();
             }
@@ -3518,7 +3518,7 @@ setup_item_drop:
 
     /* Announce "Green/blue/red aura!" for party-first initiative */
     if (initiative_mode == INITIATIVE_PARTY_FIRST) {
-        display_in_battle_text_addr(MSG_BTL_SENSEI_PC);
+        display_in_battle_text_addr(MSG_BTL8_SURPRISE_ATTACK_PLAYER);
     }
 
     /* Announce initial enemy statuses (asleep, sealed, strange) */
@@ -3528,13 +3528,13 @@ setup_item_drop:
         fix_target_name();
 
         if (enemy->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
-            display_in_battle_text_addr(MSG_BTL_AT_START_NEMURI);
+            display_in_battle_text_addr(MSG_BTL0_STATUS_ASLEEP_AT_START);
         }
         if (enemy->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-            display_in_battle_text_addr(MSG_BTL_AT_START_FUUIN);
+            display_in_battle_text_addr(MSG_BTL0_STATUS_PSI_BLOCKED_AT_START);
         }
         if (enemy->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
-            display_in_battle_text_addr(MSG_BTL_AT_START_HEN);
+            display_in_battle_text_addr(MSG_BTL0_STATUS_STRANGE_AT_START);
         }
     }
 
@@ -3834,7 +3834,7 @@ next_battler_action:
      * ================================================================ */
     create_window(0x0E);
     if (initiative_mode == INITIATIVE_ENEMIES_FIRST) {
-        display_in_battle_text_addr(MSG_BTL_SENSEI_MON);
+        display_in_battle_text_addr(MSG_BTL8_SURPRISE_ATTACK_ENEMY);
     }
 
     /* ================================================================
@@ -3897,12 +3897,12 @@ next_battler_action:
         }
 
         if (run_success) {
-            display_in_battle_text_addr(MSG_BTL_PLAYER_FLEE);
+            display_in_battle_text_addr(MSG_BTL0_ESCAPE_SUCCESS);
             battle_result = 0;
             goto battle_ending;
         } else {
             run_attempt = 0;
-            display_in_battle_text_addr(MSG_BTL_PLAYER_FLEE_NG);
+            display_in_battle_text_addr(MSG_BTL0_ESCAPE_FAILED);
         }
     }
 
@@ -4050,16 +4050,16 @@ check_asleep:
 
         if (status0 == STATUS_0_NAUSEOUS) {
             status_damage = battle_25pct_variance(20);
-            display_text_wait_addr(MSG_BTL_KIMOCHI_DAMAGE, status_damage);
+            display_text_wait_addr(MSG_BTL4_STATUS_SICK_HP_DAMAGE, status_damage);
         } else if (status0 == STATUS_0_POISONED) {
             status_damage = battle_25pct_variance(20);
-            display_text_wait_addr(MSG_BTL_MODOKU_DAMAGE, status_damage);
+            display_text_wait_addr(MSG_BTL4_STATUS_POISON_HP_DAMAGE, status_damage);
         } else if (status0 == STATUS_0_SUNSTROKE) {
             status_damage = battle_25pct_variance(4);
-            display_text_wait_addr(MSG_BTL_NISSHA_DAMAGE, status_damage);
+            display_text_wait_addr(MSG_BTL4_STATUS_DIZZY_HP_DAMAGE, status_damage);
         } else if (status0 == STATUS_0_COLD) {
             status_damage = battle_25pct_variance(4);
-            display_text_wait_addr(MSG_BTL_KAZE_DAMAGE, status_damage);
+            display_text_wait_addr(MSG_BTL4_STATUS_SNEEZE_HP_DAMAGE, status_damage);
         }
 
         /* Apply status damage */
@@ -4149,7 +4149,7 @@ check_asleep:
             uint8_t pp_cost = battle_action_table[action_id].pp_cost;
             if (pp_cost > 0) {
                 if (pp_cost > attacker->pp_target) {
-                    display_in_battle_text_addr(MSG_BTL_PSI_CANNOT);
+                    display_in_battle_text_addr(MSG_BTL6_NOT_ENOUGH_PP_BATTLE);
                     goto after_action;
                 }
                 set_battler_pp_from_target(bt.current_attacker, pp_cost);
@@ -4177,10 +4177,10 @@ check_asleep:
         /* Display status text for confused/mushroomized */
         if (retargeted) {
             if (attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
-                display_in_battle_text_addr(MSG_BTL_RND_ACT_HEN);
+                display_in_battle_text_addr(MSG_BTL0_ACTING_UNUSUAL);
             }
             if (attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED) {
-                display_in_battle_text_addr(MSG_BTL_RND_ACT_KINOKO);
+                display_in_battle_text_addr(MSG_BTL0_ACTING_FUNKY);
             }
         }
 
@@ -4218,7 +4218,7 @@ check_asleep:
                     }
                 }
                 if (!can_target_dead) {
-                    display_in_battle_text_addr(MSG_BTL_NOT_EXIST);
+                    display_in_battle_text_addr(MSG_BTL4_RESULT_TARGET_ALREADY_GONE);
                     continue;
                 }
             }
@@ -4273,7 +4273,7 @@ after_action:
                 if (bt.mirror_turn_timer == 0) {
                     bt.mirror_enemy = 0;
                     battle_copy_mirror_data(attacker, &bt.mirror_battler_backup);
-                    display_in_battle_text_addr(MSG_BTL_NEUTRALIZE_METAMORPH);
+                    display_in_battle_text_addr(MSG_BTL5_MORPH_NEUTRALIZED);
                 }
             }
         }
@@ -4291,18 +4291,18 @@ after_action:
         if (temp_status == STATUS_2_ASLEEP) {
             /* 1/4 chance of waking up */
             if ((rand_byte() & 3) == 0) {
-                display_in_battle_text_addr(MSG_BTL_NEMURI_OFF);
+                display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
                 attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
             }
         } else if (temp_status == STATUS_2_IMMOBILIZED) {
             /* CHANCE_OF_BODY_MOVING_AGAIN% chance of recovery */
             if (rand_limit(100) < (100 - CHANCE_OF_BODY_MOVING_AGAIN)) {
-                display_in_battle_text_addr(MSG_BTL_SHIBARA_OFF);
+                display_in_battle_text_addr(MSG_BTL5_CURED_IMMOBILIZED);
                 attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
             }
         } else if (temp_status == STATUS_2_SOLIDIFIED) {
             /* Always recover from solidified after acting */
-            display_in_battle_text_addr(MSG_BTL_KOORI_STAT);
+            display_in_battle_text_addr(MSG_BTL5_CURED_SOLIDIFIED);
             attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
         }
 
@@ -4313,7 +4313,7 @@ after_action:
                 conc--;
                 attacker->afflictions[STATUS_GROUP_CONCENTRATION] = conc;
                 if (conc == 0) {
-                    display_in_battle_text_addr(MSG_BTL_FUUIN_OFF);
+                    display_in_battle_text_addr(MSG_BTL5_CURED_PSI_BLOCKED);
                 }
             }
         }
@@ -4335,7 +4335,7 @@ check_battle_end:
         /* Party defeated */
         battle_result = 1;
         reset_hppp_rolling();
-        display_in_battle_text_addr(MSG_BTL_MONSTER_WIN);
+        display_in_battle_text_addr(MSG_BTL8_ENEMY_VICTORY);
         post_battle_exit = 1;
     }
 
@@ -4376,15 +4376,15 @@ enemies_are_dead:
 
     /* Display victory message with EXP amount */
     if (bt.current_battle_group >= 0x01C0) {  /* ENEMY_GROUP_BOSS_START */
-        display_text_wait_addr(MSG_BTL_PLAYER_WIN_BOSS, bt.battle_exp_scratch);
+        display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY_BOSS, bt.battle_exp_scratch);
     } else {
-        display_text_wait_addr(MSG_BTL_PLAYER_WIN, bt.battle_exp_scratch);
+        display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY, bt.battle_exp_scratch);
     }
 
     /* Announce item drop */
     if (bt.item_dropped != 0) {
         set_current_item_far((uint8_t)bt.item_dropped);
-        display_in_battle_text_addr(MSG_BTL_PRESENT);
+        display_in_battle_text_addr(MSG_BTL8_ENEMY_PRESENT_DROPPED);
     }
 
     /* Distribute EXP to all conscious, non-NPC, non-dead party members */
@@ -5083,7 +5083,7 @@ static void instant_win_handler(void) {
     }
 
     /* Display "YOU WON" message with EXP amount */
-    display_text_wait_addr(MSG_BTL_PLAYER_WIN_FORCE, bt.battle_exp_scratch);
+    display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY_FORCED, bt.battle_exp_scratch);
 
     /* --- Award EXP to eligible battlers --- */
     for (int i = 0; i < BATTLER_COUNT; i++) {
@@ -5136,7 +5136,7 @@ static void instant_win_handler(void) {
 
     if (bt.item_dropped != 0) {
         set_current_item((uint8_t)bt.item_dropped);
-        display_in_battle_text_addr(MSG_BTL_PRESENT);
+        display_in_battle_text_addr(MSG_BTL8_ENEMY_PRESENT_DROPPED);
     }
 
     /* --- Restore music and re-enable entities --- */

@@ -50,7 +50,7 @@ void btlact_bash(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA); /* dodged */
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK); /* dodged */
         return;
     }
     battle_level_2_attack();
@@ -67,7 +67,7 @@ void btlact_shoot(void) {
     if (battle_miss_calc(1))
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_UTU_YOKETA); /* dodged shot */
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_QUICK); /* dodged shot */
         return;
     }
     battle_level_2_attack();
@@ -84,29 +84,29 @@ void btlact_spy(void) {
     Battler *tgt = battler_from_offset(bt.current_target);
 
     /* Display offense */
-    display_text_wait_addr(MSG_BTL_CHECK_OFFENSE, tgt->offense);
+    display_text_wait_addr(MSG_BTL5_CHECK_OFFENSE_STAT, tgt->offense);
 
     /* Display defense */
-    display_text_wait_addr(MSG_BTL_CHECK_DEFENSE, tgt->defense);
+    display_text_wait_addr(MSG_BTL5_CHECK_DEFENSE_STAT, tgt->defense);
 
     /* Check elemental resistances — display if 0xFF (complete immunity) */
     if (tgt->fire_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_ANTI_FIRE);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FIRE);
     }
     if (tgt->freeze_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_ANTI_FREEZE);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FREEZE);
     }
     if (tgt->flash_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_ANTI_FLASH);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FLASH);
     }
     if (tgt->paralysis_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_ANTI_PARALYSIS);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PARALYSIS);
     }
     if (tgt->hypnosis_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_BRAIN_LEVEL_0);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_OPEN_TO_HYPNOSIS);
     }
     if (tgt->brainshock_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL_CHECK_BRAIN_LEVEL_3);
+        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_BRAIN_SHOCK);
     }
 
     /* Check for stealable item drop */
@@ -114,7 +114,7 @@ void btlact_spy(void) {
         if (find_inventory_space2(3) != 0) {
             if (bt.item_dropped != 0) {
                 set_current_item((uint8_t)bt.item_dropped);
-                display_in_battle_text_addr(MSG_BTL_CHECK_PRESENT_GET);
+                display_in_battle_text_addr(MSG_BTL8_PRESENT_BEHIND_ENEMY);
                 bt.item_dropped = 0;
             }
         }
@@ -133,7 +133,7 @@ void btlact_level_1_attack(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA); /* dodged */
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK); /* dodged */
         return;
     }
     battle_level_1_attack();
@@ -154,12 +154,12 @@ void btlact_healing_alpha(void) {
 
     if (easyheal == STATUS_0_COLD) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_KAZE_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_COLD);
         return;
     }
     if (easyheal == STATUS_0_SUNSTROKE) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_NISSYA_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_SUNSTROKE);
         return;
     }
 
@@ -168,12 +168,12 @@ void btlact_healing_alpha(void) {
 
     if (temp == STATUS_2_ASLEEP) {
         tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-        display_in_battle_text_addr(MSG_BTL_NEMURI_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
         return;
     }
 
     /* No curable status — display "no effect" */
-    display_in_battle_text_addr(MSG_BTL_HEAL_NG);
+    display_in_battle_text_addr(MSG_BTL4_RESULT_HEAL_NO_EFFECT);
 }
 
 /*
@@ -189,10 +189,10 @@ void btlact_shield_alpha(void) {
 
     if (result == 0) {
         /* Shield already active — refreshed (assembly: BEQ = result==0) */
-        display_in_battle_text_addr(MSG_BTL_SHIELD_ON);
+        display_in_battle_text_addr(MSG_BTL5_SHIELD_OF_LIGHT_APPLIED);
     } else {
         /* New shield applied */
-        display_in_battle_text_addr(MSG_BTL_SHIELD_ADD);
+        display_in_battle_text_addr(MSG_BTL5_SHIELD_OF_LIGHT_STRONGER);
     }
 }
 
@@ -210,26 +210,26 @@ void btlact_healing_beta(void) {
 
     if (easyheal == STATUS_0_POISONED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_MODOKU_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_POISONED);
         return;
     }
     if (easyheal == STATUS_0_NAUSEOUS) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_KIMOCHI_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_NAUSEOUS);
         return;
     }
 
     /* Check TEMPORARY group for crying */
     if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_CRYING) {
         tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-        display_in_battle_text_addr(MSG_BTL_NAMIDA_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_CRYING);
         return;
     }
 
     /* Check STRANGENESS group */
     if (tgt->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
         tgt->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-        display_in_battle_text_addr(MSG_BTL_HEN_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_STRANGE);
         return;
     }
 
@@ -252,12 +252,12 @@ void btlact_healing_gamma(void) {
 
     if (easyheal == STATUS_0_PARALYZED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_SHIBIRE_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_NUMB);
         return;
     }
     if (easyheal == STATUS_0_DIAMONDIZED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_DAIYA_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_DIAMONDIZED);
         return;
     }
     if (easyheal == STATUS_0_UNCONSCIOUS) {
@@ -267,7 +267,7 @@ void btlact_healing_gamma(void) {
             uint16_t revive_hp = tgt->hp_max >> 2;
             battle_revive_target(tgt, revive_hp);
         } else {
-            display_in_battle_text_addr(MSG_BTL_IKIKAERI_F); /* revive failed */
+            display_in_battle_text_addr(MSG_BTL5_REVIVE_FAILED); /* revive failed */
         }
         return;
     }
@@ -305,9 +305,9 @@ void btlact_shield_beta(void) {
     uint16_t result = battle_shields_common(tgt, STATUS_6_SHIELD_POWER);
 
     if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL_POWER_ON);
+        display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_APPLIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_POWER_ADD);
+        display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_STRONGER);
     }
 }
 
@@ -322,9 +322,9 @@ void btlact_psi_shield_alpha(void) {
     uint16_t result = battle_shields_common(tgt, STATUS_6_PSI_SHIELD);
 
     if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL_PSYCO_ON);
+        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_APPLIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_PSYCO_ADD);
+        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_STRONGER);
     }
 }
 
@@ -339,9 +339,9 @@ void btlact_psi_shield_beta(void) {
     uint16_t result = battle_shields_common(tgt, STATUS_6_PSI_SHIELD_POWER);
 
     if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL_PSYPOWER_ON);
+        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_APPLIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_PSYPOWER_ADD);
+        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_STRONGER);
     }
 }
 
@@ -469,7 +469,7 @@ void btlact_freezetime(void) {
     bt.half_hppp_meter_speed = 0;
     bt.disable_hppp_rolling = 0;
 
-    display_in_battle_text_addr(MSG_BTL_TIMESTOP_RET);
+    display_in_battle_text_addr(MSG_BTL8_TIME_STARTED_AGAIN);
     bt.battler_target_flags = 0;
 }
 
@@ -489,9 +489,9 @@ void btlact_poison(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_MODOKU_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -507,9 +507,9 @@ void btlact_nauseate(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_NAUSEOUS);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KIMOCHI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_NAUSEOUS);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -525,9 +525,9 @@ void btlact_feel_strange(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_HEN_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -541,9 +541,9 @@ void btlact_immobilize(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_TEMPORARY, STATUS_2_IMMOBILIZED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_SHIBARA_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_IMMOBILIZED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -587,7 +587,7 @@ void btlact_level_2_attack_poison(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
         return;
     }
     battle_level_2_attack();
@@ -596,7 +596,7 @@ void btlact_level_2_attack_poison(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_MODOKU_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
     }
 }
 
@@ -614,7 +614,7 @@ void btlact_level_2_attack_diamondize(void) {
     if (battle_smaaaash())
         return;
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_TATAKU_YOKETA);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
         return;
     }
     battle_level_2_attack();
@@ -641,7 +641,7 @@ void btlact_level_2_attack_diamondize(void) {
     bt.battle_exp_scratch += target->exp;
     bt.battle_money_scratch += target->money;
 
-    display_in_battle_text_addr(MSG_BTL_DAIYA_ON);
+    display_in_battle_text_addr(MSG_BTL5_STATUS_DIAMONDIZED);
 }
 
 /* ======================================================================
@@ -691,7 +691,7 @@ void btlact_psi_freeze_common(uint16_t base_damage) {
         uint16_t result = battle_inflict_status(target,
             STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
         if (result != 0) {
-            display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+            display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
         }
     }
 
@@ -710,7 +710,7 @@ void btlact_psi_rockin_common(uint16_t base_damage) {
         return;
     uint16_t damage = battle_50pct_variance(base_damage);
     if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         goto weaken;
     }
     battle_calc_resist_damage(damage, 0xFF);
@@ -786,9 +786,9 @@ void psi_thunder_common(uint16_t base_damage, uint16_t hits) {
         if (battle_success_255(effective_damage)) {
             /* Hit — display text based on damage tier */
             if (base_damage == 120) {
-                display_in_battle_text_addr(MSG_BTL_THUNDER_SMALL);
+                display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_HIT_SMALL);
             } else {
-                display_in_battle_text_addr(MSG_BTL_THUNDER_LARGE);
+                display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_HIT_LARGE);
             }
 
             /* Wait for PSI animation to finish */
@@ -803,7 +803,7 @@ void psi_thunder_common(uint16_t base_damage, uint16_t hits) {
             if (target->ally_or_enemy == 0) {
                 uint16_t char_id = (target->row & 0xFF) + 1;
                 if (find_item_in_inventory2(char_id, 1)) { /* 1 = FRANKLIN_BADGE */
-                    display_in_battle_text_addr(MSG_BTL_FRANKLIN_TURN);
+                    display_in_battle_text_addr(MSG_BTL5_FRANKLIN_BADGE_DEFLECTED);
                     bt.damage_is_reflected = 1;
                     swap_attacker_with_target();
                 }
@@ -825,8 +825,8 @@ void psi_thunder_common(uint16_t base_damage, uint16_t hits) {
             battle_weaken_shield();
         } else {
             /* Miss */
-            display_in_battle_text_addr(MSG_BTL_THUNDER_MISS_SE);
-            display_in_battle_text_addr(MSG_BTL_KAMINARI_HAZURE);
+            display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_MISS);
+            display_in_battle_text_addr(MSG_BTL6_THUNDER_MISSED);
         }
 
         /* Check if either side is wiped out */
@@ -901,7 +901,7 @@ void bottle_rocket_common(uint16_t count) {
             hits++;
     }
     if (hits == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t damage = battle_25pct_variance(hits * 120);
@@ -924,16 +924,16 @@ void btlact_multi_bottle_rocket(void) { bottle_rocket_common(MULTI_BOTTLE_ROCKET
  */
 void insect_spray_common(uint16_t base_damage) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (target->ally_or_enemy != 1) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     if (battle_get_enemy_type(target->id) != 1) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t damage = battle_50pct_variance(base_damage);
@@ -947,16 +947,16 @@ void insect_spray_common(uint16_t base_damage) {
  */
 void rust_spray_common(uint16_t base_damage) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (target->ally_or_enemy != 1) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     if (battle_get_enemy_type(target->id) != 2) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t damage = battle_50pct_variance(base_damage);
@@ -1079,7 +1079,7 @@ void btlact_teleport_box(void) {
     uint16_t attrs = load_sector_attrs(
         game_state.leader_x_coord, game_state.leader_y_coord);
     if (attrs & 0x0080) {
-        display_in_battle_text_addr(MSG_BTL_TLPTBOX_CANT);
+        display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_CANT_USE_HERE);
         return;
     }
     Battler *attacker = battler_from_offset(bt.current_attacker);
@@ -1098,13 +1098,13 @@ void btlact_teleport_box(void) {
         uint8_t strength = item_entry->params[ITEM_PARAM_STRENGTH];
         int16_t threshold = ((int16_t)(strength & 0xFF) - 0x80) ^ (int16_t)0xFF80;
         if (roll >= (uint16_t)threshold) {
-            display_in_battle_text_addr(MSG_BTL_TLPTBOX_NG);
+            display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_MALFUNCTION);
             return;
         }
     }
     /* Fail in boss battles */
     if (battle_boss_battle_check() == 0) {
-        display_in_battle_text_addr(MSG_BTL_TLPTBOX_NG);
+        display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_MALFUNCTION);
         return;
     }
 
@@ -1112,7 +1112,7 @@ teleport_success:;
     /* Remove item from inventory */
     uint8_t slot = attacker->action_item_slot & 0xFF;
     remove_item_from_inventory(attacker->id, slot);
-    display_in_battle_text_addr(MSG_BTL_TLPTBOX_OK);
+    display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_SUCCESS);
     /* Set teleport state: instant teleport to current destination */
     ow.psi_teleport_destination = game_state.unknownC3;
     ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
@@ -1320,17 +1320,17 @@ place_new_enemy:
     }
 
     if (param) {
-        display_in_battle_text_addr(MSG_BTL_TANEMAKI_HAETA); /* seeds sprouted */
+        display_in_battle_text_addr(MSG_BTL8_SEED_STARTED_GROWING); /* seeds sprouted */
     } else {
-        display_in_battle_text_addr(MSG_BTL_NAKAMA_KITA); /* called for help */
+        display_in_battle_text_addr(MSG_BTL8_ALLY_JOINED_BATTLE); /* called for help */
     }
     return;
 
 help_failed:
     if (param) {
-        display_in_battle_text_addr(MSG_BTL_TANEMAKI_NO); /* seeds didn't sprout */
+        display_in_battle_text_addr(MSG_BTL8_SEED_DIDNT_SPROUT); /* seeds didn't sprout */
     } else {
-        display_in_battle_text_addr(MSG_BTL_NAKAMA_NO); /* nobody came */
+        display_in_battle_text_addr(MSG_BTL8_NO_ALLY_CAME); /* nobody came */
     }
 }
 
@@ -1348,20 +1348,20 @@ void btlact_sow_seeds(void)    { call_for_help_common(1); }
  */
 void btlact_hp_sucker(void) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
 
     /* Attacker must be alive (hp_target > 0) */
     Battler *attacker = battler_from_offset(bt.current_attacker);
     if (attacker->hp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
 
     /* Self-targeting check (e.g., feeling strange) */
     if (bt.current_target == bt.current_attacker) {
-        display_in_battle_text_addr(MSG_BTL_HPSUCK_ME);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DRAINED_OWN_HP);
         return;
     }
 
@@ -1372,7 +1372,7 @@ void btlact_hp_sucker(void) {
     /* Reduce target's HP */
     battle_reduce_hp(target, drain_amount);
 
-    display_text_wait_addr(MSG_BTL_HPSUCK_ON, drain_amount);
+    display_text_wait_addr(MSG_BTL4_RESULT_HP_DRAINED_FROM, drain_amount);
 
     /* Heal attacker by the drain amount */
     uint16_t new_attacker_hp = attacker->hp + drain_amount;
@@ -1401,12 +1401,12 @@ void btlact_mirror(void) {
 
     /* Must target an enemy (not ally) */
     if ((target->ally_or_enemy & 0xFF) == 0) {
-        display_in_battle_text_addr(MSG_BTL_METAMORPHOSE_NG);
+        display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
         return;
     }
     /* Must not be an NPC ally */
     if ((target->npc_id & 0xFF) != 0) {
-        display_in_battle_text_addr(MSG_BTL_METAMORPHOSE_NG);
+        display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
         return;
     }
     /* Check mirror success rate from enemy config table */
@@ -1414,7 +1414,7 @@ void btlact_mirror(void) {
     if (enemy_config_table != NULL) {
         uint8_t success_rate = enemy_config_table[target_id].mirror_success;
         if (roll >= success_rate) {
-            display_in_battle_text_addr(MSG_BTL_METAMORPHOSE_NG);
+            display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
             return;
         }
     }
@@ -1430,7 +1430,7 @@ void btlact_mirror(void) {
     /* Copy target's data to attacker (preserving attacker's HP/PP/identity) */
     battle_copy_mirror_data(attacker, target);
 
-    display_in_battle_text_addr(MSG_BTL_METAMORPHOSE_OK);
+    display_in_battle_text_addr(MSG_BTL5_MORPH_SUCCESS);
 }
 
 /*
@@ -1558,16 +1558,16 @@ static const uint8_t *battle_apply_condiment(void) {
         if (entry->condiment1_id == (uint8_t)condiment_id ||
             entry->condiment2_id == (uint8_t)condiment_id) {
             /* Condiment match — display "great flavor!" text and return condiment params */
-            display_in_battle_text_addr(MSG_BTL_EAT_SPICE_ATARI);
+            display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_TASTED_GOOD);
             return &entry->strength;  /* points to [strength, epi, ep, special] */
         }
         /* Wrong condiment for this food */
-        display_in_battle_text_addr(MSG_BTL_EAT_SPICE_HAZURE);
+        display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_BAD_TASTE);
         return default_params;
     }
 
     /* Food not in condiment table — wrong condiment */
-    display_in_battle_text_addr(MSG_BTL_EAT_SPICE_HAZURE);
+    display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_BAD_TASTE);
     return default_params;
 }
 
@@ -1604,7 +1604,7 @@ void btlact_eat_food(void) {
     uint16_t idx = char_id - 1;
     if (party_characters[idx].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL]
             == STATUS_0_UNCONSCIOUS) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
 
@@ -1696,7 +1696,7 @@ do_boost_iq:
     tgt->iq += (uint8_t)amount;
     party_characters[idx].boosted_iq += (uint8_t)amount;
     recalc_character_postmath_iq(char_id);
-    display_text_wait_addr(MSG_BTL_IQ_UP, amount);
+    display_text_wait_addr(MSG_BTL6_IQ_WENT_UP, amount);
     goto check_special;
 
 do_boost_guts:
@@ -1707,7 +1707,7 @@ do_boost_guts:
     tgt->guts += (uint16_t)amount;
     party_characters[idx].boosted_guts += (uint8_t)amount;
     recalc_character_postmath_guts(char_id);
-    display_text_wait_addr(MSG_BTL_GUTS_UP, amount);
+    display_text_wait_addr(MSG_BTL6_GUTS_WENT_UP, amount);
     goto check_special;
 
 do_boost_speed:
@@ -1718,7 +1718,7 @@ do_boost_speed:
     tgt->speed += (uint16_t)amount;
     party_characters[idx].boosted_speed += (uint8_t)amount;
     recalc_character_postmath_speed(char_id);
-    display_text_wait_addr(MSG_BTL_SPEED_UP, amount);
+    display_text_wait_addr(MSG_BTL6_SPEED_WENT_UP, amount);
     goto check_special;
 
 do_boost_vitality:
@@ -1730,7 +1730,7 @@ do_boost_vitality:
     tgt->vitality += (uint8_t)amount;
     party_characters[idx].boosted_vitality += (uint8_t)amount;
     recalc_character_postmath_vitality(char_id);
-    display_text_wait_addr(MSG_BTL_VITA_UP, amount);
+    display_text_wait_addr(MSG_BTL6_VITALITY_WENT_UP, amount);
     goto check_special;
 
 do_boost_luck:
@@ -1741,7 +1741,7 @@ do_boost_luck:
     tgt->luck += (uint16_t)amount;
     party_characters[idx].boosted_luck += (uint8_t)amount;
     recalc_character_postmath_luck(char_id);
-    display_text_wait_addr(MSG_BTL_LUCK_UP, amount);
+    display_text_wait_addr(MSG_BTL6_LUCK_WENT_UP, amount);
     /* fall through to check_special */
 
 check_special:
@@ -1792,7 +1792,7 @@ void btlact_bag_of_dragonite(void) {
  */
 void btlact_yogurt_dispenser(void) {
     if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t damage = rand_limit(4) + 1;
@@ -1808,7 +1808,7 @@ void btlact_snake(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t damage = rand_limit(4) + 1;
@@ -1820,7 +1820,7 @@ void btlact_snake(void) {
             battler_from_offset(bt.current_target),
             STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
         if (result != 0) {
-            display_in_battle_text_addr(MSG_BTL_MODOKU_ON);
+            display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
         }
     }
 }
@@ -1840,15 +1840,15 @@ void btlact_cold(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->freeze_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_COLD);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KAZE_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_COLD);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -1860,15 +1860,15 @@ void btlact_cold(void) {
 void btlact_inflict_poison(void) {
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_MODOKU_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -1881,20 +1881,20 @@ void btlact_paralyze(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_PARALYZED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_SHIBIRE_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_NUMB);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -1905,20 +1905,20 @@ void btlact_paralyze(void) {
  */
 void btlact_inflict_solidification(void) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -1932,16 +1932,16 @@ void btlact_counter_psi(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_luck40()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     target->afflictions[STATUS_GROUP_CONCENTRATION] = 4;
-    display_in_battle_text_addr(MSG_BTL_FUUIN_ON);
+    display_in_battle_text_addr(MSG_BTL5_STATUS_PSI_BLOCKED);
 }
 
 /*
@@ -1955,20 +1955,20 @@ void btlact_distract(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_luck40()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     target->afflictions[STATUS_GROUP_CONCENTRATION] = STATUS_4_CANT_CONCENTRATE4;
-    display_in_battle_text_addr(MSG_BTL_FUUIN_ON);
+    display_in_battle_text_addr(MSG_BTL5_STATUS_PSI_BLOCKED);
 }
 
 /*
@@ -1985,7 +1985,7 @@ void btlact_neutralize(void) {
     target->luck    = target->base_luck;
     target->shield_hp = 0;
     target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    display_in_battle_text_addr(MSG_BTL_NEUTRALIZE_RESULT);
+    display_in_battle_text_addr(MSG_BTL5_PSI_EFFECTS_NEUTRALIZED);
 }
 
 
@@ -1998,7 +1998,7 @@ void btlact_heal_poison(void) {
     Battler *target = battler_from_offset(bt.current_target);
     if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_POISONED) {
         target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL_MODOKU_OFF);
+        display_in_battle_text_addr(MSG_BTL5_CURED_POISONED);
     }
 }
 
@@ -2009,16 +2009,16 @@ void btlact_heal_poison(void) {
  */
 void btlact_shield_killer(void) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     if (target->afflictions[STATUS_GROUP_SHIELD] == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    display_in_battle_text_addr(MSG_BTL_SHIELD_OFF);
+    display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
 }
 
 /* ======================================================================
@@ -2054,13 +2054,13 @@ void btlact_diamondize(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_DIAMONDIZED);
     if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
 
@@ -2076,7 +2076,7 @@ void btlact_diamondize(void) {
     bt.battle_exp_scratch += target->exp;
     bt.battle_money_scratch += target->money;
 
-    display_in_battle_text_addr(MSG_BTL_DAIYA_ON);
+    display_in_battle_text_addr(MSG_BTL5_STATUS_DIAMONDIZED);
 }
 
 /*
@@ -2092,16 +2092,16 @@ void btlact_possess(void) {
     Battler *target = battler_from_offset(bt.current_target);
     /* Only works on allies (party members) */
     if ((target->ally_or_enemy & 0xFF) != 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_HARDHEAL, STATUS_1_POSSESSED);
     if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
-    display_in_battle_text_addr(MSG_BTL_TORITSU_ON);
+    display_in_battle_text_addr(MSG_BTL5_STATUS_POSSESSED_GHOST);
     /* If first enemy slot is empty, spawn Tiny Lil' Ghost as NPC ally */
     if ((bt.battlers_table[TOTAL_PARTY_COUNT].consciousness & 0xFF) == 0) {
         battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
@@ -2242,17 +2242,17 @@ void btlact_steal(void) {
 void btlact_reduce_pp(void) {
     Battler *target = battler_from_offset(bt.current_target);
     if (target->pp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL_PPSUCK_ZERO);
+        display_in_battle_text_addr(MSG_BTL6_TARGET_HAS_NO_PP);
         return;
     }
     uint16_t drain = target->pp_max / 16;
     if (drain == 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     drain = battle_50pct_variance(drain);
     battle_reduce_pp(target, drain);
-    display_text_wait_addr(MSG_BTL_PPSUCK_OBJ, drain);
+    display_text_wait_addr(MSG_BTL4_RESULT_PP_LOST, drain);
 }
 
 /*
@@ -2265,7 +2265,7 @@ void btlact_reduce_pp(void) {
 void btlact_magnet_a(void) {
     Battler *target = battler_from_offset(bt.current_target);
     if (target->pp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL_PPSUCK_ZERO);
+        display_in_battle_text_addr(MSG_BTL6_TARGET_HAS_NO_PP);
         return;
     }
     /* Assembly lines 15-28: drain = rand(4) + rand(4) + 2 → range [2..9] */
@@ -2273,7 +2273,7 @@ void btlact_magnet_a(void) {
     /* Clamp to target's actual PP */
     if (target->pp_target < drain)
         drain = target->pp_target;
-    display_text_wait_addr(MSG_BTL_PPSUCK, drain);
+    display_text_wait_addr(MSG_BTL4_RESULT_PP_DRAINED_FROM, drain);
     battle_reduce_pp(target, drain);
     /* Add drained PP to attacker */
     Battler *attacker = battler_from_offset(bt.current_attacker);
@@ -2308,20 +2308,20 @@ void btlact_handbag_strap(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     int16_t damage = HANDBAG_STRAP_BASE_DAMAGE - (int16_t)target->defense;
     if (damage <= 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     battle_calc_resist_damage((uint16_t)damage, 0xFF);
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
     }
 }
 
@@ -2334,20 +2334,20 @@ void btlact_mummy_wrap(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
     int16_t damage = MUMMY_WRAP_BASE_DAMAGE - (int16_t)target->defense;
     if (damage <= 0) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     battle_calc_resist_damage((uint16_t)damage, 0xFF);
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
     }
 }
 
@@ -2370,11 +2370,11 @@ void btlact_fly_honey(void) {
             continue;
         if (b->id == ENEMY_MASTER_BELCH_1 || b->id == ENEMY_MASTER_BELCH_3) {
             b->id = ENEMY_MASTER_BELCH_2;
-            display_in_battle_text_addr(MSG_BTL_G_HAEMITU_G); /* fly honey worked! */
+            display_in_battle_text_addr(MSG_BTL6_FLY_HONEY_BELCH_GRABS); /* fly honey worked! */
             return;
         }
     }
-    display_in_battle_text_addr(MSG_BTL_G_HAEMITU_NG); /* no Master Belch found */
+    display_in_battle_text_addr(MSG_BTL6_FLY_HONEY_BELCH_IGNORED); /* no Master Belch found */
 }
 
 /* ======================================================================
@@ -2393,7 +2393,7 @@ uint16_t flash_immunity_test(void) {
         return 0;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->flash_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return 0;
     }
     return 1;
@@ -2582,15 +2582,15 @@ void btlact_crying(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->flash_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_TEMPORARY, STATUS_2_CRYING);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_NAMIDA_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_CRYING);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2607,9 +2607,9 @@ void btlact_crying2(void) {
         battler_from_offset(bt.current_target),
         STATUS_2_CRYING, STATUS_2_CRYING);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_NAMIDA_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_CRYING);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2622,16 +2622,16 @@ void btlact_solidify(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(
         battler_from_offset(bt.current_target),
         STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2642,16 +2642,16 @@ void btlact_solidify(void) {
  */
 void btlact_solidify_2(void) {
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(
         battler_from_offset(bt.current_target),
         STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KOORI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2668,9 +2668,9 @@ void btlact_mushroomize(void) {
         battler_from_offset(bt.current_target),
         STATUS_1_MUSHROOMIZED, STATUS_1_MUSHROOMIZED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_KINOKO_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_FEEL_STRANGE);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2685,15 +2685,15 @@ void btlact_paralysis_alpha(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_PARALYZED);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_SHIBIRE_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_NUMB);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2708,15 +2708,15 @@ void btlact_hypnosis_alpha(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->hypnosis_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_TEMPORARY, STATUS_2_ASLEEP);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_NEMURI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_ASLEEP);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2731,15 +2731,15 @@ void btlact_brainshock_alpha(void) {
         return;
     Battler *target = battler_from_offset(bt.current_target);
     if (!battle_success_255(target->brainshock_resist)) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     uint16_t result = battle_inflict_status(target,
         STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_HEN_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -2761,7 +2761,7 @@ void btlact_offense_up_alpha(void) {
     uint16_t old_offense = target->offense;
     battle_increase_offense(target);
     uint16_t diff = target->offense - old_offense;
-    display_text_wait_addr(MSG_BTL_OFFENSE_UP, diff);
+    display_text_wait_addr(MSG_BTL6_OFFENSE_WENT_UP, diff);
 }
 
 /*
@@ -2774,7 +2774,7 @@ void btlact_defense_down_alpha(void) {
     if (battle_fail_attack_on_npcs())
         return;
     if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
         return;
     }
     Battler *target = battler_from_offset(bt.current_target);
@@ -2783,7 +2783,7 @@ void btlact_defense_down_alpha(void) {
     int16_t diff = (int16_t)(old_defense - target->defense);
     if (diff < 0)
         diff = 0;
-    display_text_wait_addr(MSG_BTL_DEFENSE_DOWN, (uint32_t)diff);
+    display_text_wait_addr(MSG_BTL6_DEFENSE_WENT_DOWN, (uint32_t)diff);
 }
 
 /*
@@ -2795,7 +2795,7 @@ void btlact_speed_up_1d4(void) {
     uint16_t amount = rand_limit(4) + 1;
     Battler *target = battler_from_offset(bt.current_target);
     target->speed += amount;
-    display_text_wait_addr(MSG_BTL_SPEED_UP, amount);
+    display_text_wait_addr(MSG_BTL6_SPEED_WENT_UP, amount);
 }
 
 /*
@@ -2807,7 +2807,7 @@ void btlact_guts_up_1d4(void) {
     uint16_t amount = rand_limit(4) + 1;
     Battler *target = battler_from_offset(bt.current_target);
     target->guts += amount;
-    display_text_wait_addr(MSG_BTL_GUTS_UP, amount);
+    display_text_wait_addr(MSG_BTL6_GUTS_WENT_UP, amount);
 }
 
 /*
@@ -2819,7 +2819,7 @@ void btlact_vitality_up_1d4(void) {
     uint16_t amount = rand_limit(4) + 1;
     Battler *target = battler_from_offset(bt.current_target);
     target->vitality += (uint8_t)amount;
-    display_text_wait_addr(MSG_BTL_VITA_UP, amount);
+    display_text_wait_addr(MSG_BTL6_VITALITY_WENT_UP, amount);
 }
 
 /*
@@ -2831,7 +2831,7 @@ void btlact_iq_up_1d4(void) {
     uint16_t amount = rand_limit(4) + 1;
     Battler *target = battler_from_offset(bt.current_target);
     target->iq += (uint8_t)amount;
-    display_text_wait_addr(MSG_BTL_IQ_UP, amount);
+    display_text_wait_addr(MSG_BTL6_IQ_WENT_UP, amount);
 }
 
 /*
@@ -2843,7 +2843,7 @@ void btlact_luck_up_1d4(void) {
     uint16_t amount = rand_limit(4) + 1;
     Battler *target = battler_from_offset(bt.current_target);
     target->luck += amount;
-    display_text_wait_addr(MSG_BTL_LUCK_UP, amount);
+    display_text_wait_addr(MSG_BTL6_LUCK_WENT_UP, amount);
 }
 
 /*
@@ -2859,14 +2859,14 @@ void btlact_random_stat_up_1d4(void) {
         uint16_t amount = rand_limit(4) + 1;
         Battler *target = battler_from_offset(bt.current_target);
         target->defense += amount;
-        display_text_wait_addr(MSG_BTL_DEFENSE_UP, amount);
+        display_text_wait_addr(MSG_BTL6_DEFENSE_WENT_UP, amount);
         break;
     }
     case 1: { /* Offense */
         uint16_t amount = rand_limit(4) + 1;
         Battler *target = battler_from_offset(bt.current_target);
         target->offense += amount;
-        display_text_wait_addr(MSG_BTL_OFFENSE_UP, amount);
+        display_text_wait_addr(MSG_BTL6_OFFENSE_WENT_UP, amount);
         break;
     }
     case 2: btlact_speed_up_1d4(); break;
@@ -2890,7 +2890,7 @@ void btlact_reduce_offense(void) {
     uint16_t old_offense = target->offense;
     battle_decrease_offense(target);
     uint16_t diff = old_offense - target->offense;
-    display_text_wait_addr(MSG_BTL_OFFENSE_DOWN, diff);
+    display_text_wait_addr(MSG_BTL6_OFFENSE_WENT_DOWN, diff);
 }
 
 /*
@@ -2908,13 +2908,13 @@ void btlact_reduce_offense_defense(void) {
     uint16_t old_offense = target->offense;
     battle_decrease_offense(target);
     uint16_t off_diff = old_offense - target->offense;
-    display_text_wait_addr(MSG_BTL_OFFENSE_DOWN, off_diff);
+    display_text_wait_addr(MSG_BTL6_OFFENSE_WENT_DOWN, off_diff);
 
     /* Reduce defense */
     uint16_t old_defense = target->defense;
     battle_decrease_defense(target);
     uint16_t def_diff = old_defense - target->defense;
-    display_text_wait_addr(MSG_BTL_DEFENSE_DOWN, def_diff);
+    display_text_wait_addr(MSG_BTL6_DEFENSE_WENT_DOWN, def_diff);
 }
 
 /*
@@ -2931,7 +2931,7 @@ void btlact_sudden_guts_pill(void) {
     if (new_guts > 0xFF)
         new_guts = 0xFF;
     target->guts = new_guts;
-    display_text_wait_addr(MSG_BTL_2GUTS_UP, target->guts);
+    display_text_wait_addr(MSG_BTL6_GUTS_AMAZINGLY_BECAME, target->guts);
 }
 
 /*
@@ -2947,7 +2947,7 @@ void btlact_defense_spray(void) {
     uint16_t old_defense = target->defense;
     battle_increase_defense(target);
     uint16_t diff = target->defense - old_defense;
-    display_text_wait_addr(MSG_BTL_DEFENSE_UP, diff);
+    display_text_wait_addr(MSG_BTL6_DEFENSE_WENT_UP, diff);
 }
 
 /*
@@ -2980,7 +2980,7 @@ void btlact_cut_guts(void) {
         target->guts = min_guts;
 
     uint16_t diff = old_guts - target->guts;
-    display_text_wait_addr(MSG_BTL_GUTS_DOWN, diff);
+    display_text_wait_addr(MSG_BTL6_GUTS_WENT_DOWN, diff);
 }
 
 /* ======================================================================
@@ -3046,9 +3046,9 @@ void btlact_pray_aroma(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_TEMPORARY, STATUS_2_ASLEEP);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_NEMURI_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_ASLEEP);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -3076,9 +3076,9 @@ void btlact_pray_rending_sound(void) {
         battler_from_offset(bt.current_target),
         STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
     if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL_HEN_ON);
+        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
     } else {
-        display_in_battle_text_addr(MSG_BTL_KIKANAI);
+        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
     }
 }
 
@@ -3110,16 +3110,16 @@ void btlact_pray(void) {
 
     /* PRAYER_TEXT_PTRS: text address for each prayer type (asm/data/battle/prayer_text_pointers.asm) */
     static const uint32_t prayer_text_addrs[10] = {
-        MSG_BTL_INORU_6,   /* 0: subtle */
-        MSG_BTL_INORU_2,   /* 1: warm */
-        MSG_BTL_INORU_1,   /* 2: mysterious */
-        MSG_BTL_INORU_7,   /* 3: golden */
-        MSG_BTL_INORU_5,   /* 4: rockin */
-        MSG_BTL_INORU_3,   /* 5: flash */
-        MSG_BTL_INORU_8,   /* 6: rainbow */
-        MSG_BTL_INORU_9,   /* 7: aroma */
-        MSG_BTL_INORU_10,  /* 8: rending sound */
-        MSG_BTL_INORU_4,   /* 9: defense down */
+        MSG_BTL6_PRAY_SUBTLE_LIGHT,   /* 0: subtle */
+        MSG_BTL6_PRAY_WARM_LIGHT,   /* 1: warm */
+        MSG_BTL6_PRAY_MYSTERIOUS_LIGHT,   /* 2: mysterious */
+        MSG_BTL6_PRAY_GOLDEN_LIGHT,   /* 3: golden */
+        MSG_BTL6_PRAY_LIGHT_CHASED_ENEMY,   /* 4: rockin */
+        MSG_BTL6_PRAY_DAZZLING_LIGHT,   /* 5: flash */
+        MSG_BTL6_PRAY_RAINBOW_LIGHT,   /* 6: rainbow */
+        MSG_BTL6_PRAY_MYSTERIOUS_AROMA,   /* 7: aroma */
+        MSG_BTL6_PRAY_HEAVEN_RENDING_SOUND,  /* 8: rending sound */
+        MSG_BTL6_PRAY_HEAVY_AIR,   /* 9: defense down */
     };
 
     /* Sub-action function for each prayer type */
@@ -3212,7 +3212,7 @@ void btlact_switch_weapons(void) {
     /* Check if the character can use this item */
     uint16_t item_slot_arg = attacker->current_action_argument;
     if (!check_item_usable_by(char_id, item_slot_arg)) {
-        display_text_from_snes_addr(MSG_BTL_EQUIP_NG_WEAPON);
+        display_text_from_addr(MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON);
         goto dispatch;
     }
 
@@ -3234,7 +3234,7 @@ void btlact_switch_weapons(void) {
     attacker->base_guts = ch->guts;
     attacker->guts = (uint16_t)attacker->base_guts + guts_bonus;
 
-    display_text_from_snes_addr(MSG_BTL_EQUIP_OK);
+    display_text_from_addr(MSG_GOODS4_EQUIP_ITEM_SUCCESS);
 
 dispatch:;
     /* Check if the (now-equipped) weapon is a projectile type */
@@ -3247,7 +3247,7 @@ dispatch:;
             if (entry && (entry->type & 0x03) == 1) {
                 /* Projectile weapon — dispatch to action 5 (shoot) */
                 if (battle_action_table) {
-                    display_text_from_snes_addr(battle_action_table[5].description_text_pointer);
+                    display_text_from_addr(battle_action_table[5].description_text_pointer);
                     bt.temp_function_pointer = battle_action_table[5].battle_function_pointer;
                     jump_temp_function_pointer();
                 }
@@ -3259,7 +3259,7 @@ dispatch:;
 
     /* Normal weapon — dispatch to action 4 (bash) */
     if (battle_action_table) {
-        display_text_from_snes_addr(battle_action_table[4].description_text_pointer);
+        display_text_from_addr(battle_action_table[4].description_text_pointer);
         bt.temp_function_pointer = battle_action_table[4].battle_function_pointer;
         jump_temp_function_pointer();
     }
@@ -3282,7 +3282,7 @@ void btlact_switch_armor(void) {
     /* Check if the character can use this item */
     uint16_t item_slot_arg = attacker->current_action_argument;
     if (!check_item_usable_by(char_id, item_slot_arg)) {
-        display_text_from_snes_addr(MSG_BTL_EQUIP_NG_WEAPON);
+        display_text_from_addr(MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON);
         dt.blinking_triangle_flag = 0;
         return;
     }
@@ -3298,7 +3298,7 @@ void btlact_switch_armor(void) {
     /* Equip the new armor */
     equip_item(char_id, (uint16_t)attacker->action_item_slot);
 
-    display_text_from_snes_addr(MSG_BTL_EQUIP_OK);
+    display_text_from_addr(MSG_GOODS4_EQUIP_ITEM_SUCCESS);
 
     /* Update battler base stats from char_struct and reapply bonuses */
     attacker->base_defense = ch->defense;
@@ -3349,11 +3349,11 @@ void btlact_clumsydeath(void) {
     }
 
     if (event_flag_get(event_flag)) {
-        display_in_battle_text_addr(MSG_BTL_TONZURA_BREAK_IN_OK);
+        display_in_battle_text_addr(MSG_BTL4_RUNAWAY5_RESCUE);
         ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
         ow.psi_teleport_destination = 15;
     } else {
-        display_in_battle_text_addr(MSG_BTL_TONZURA_BREAK_IN_NG);
+        display_in_battle_text_addr(MSG_BTL4_ENEMY_ESCAPE_SMOKE_FAIL);
         ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
         ow.psi_teleport_destination = 13;
         bt.special_defeat = 1;
@@ -3398,7 +3398,7 @@ void btlact_masterbarfdeath(void) {
     }
 
     /* Display Poo's entrance text */
-    display_text_with_prompt_addr(MSG_BTL_POO_BREAK_IN_2);
+    display_text_with_prompt_addr(MSG_BTL4_POO_USES_STARSTORM);
 
     /* Set up Starstorm Alpha attack */
     fix_attacker_name(0);
@@ -3468,7 +3468,7 @@ void btlact_pokey_speech(void) {
     bt.giygas_phase = GIYGAS_DEVILS_MACHINE_OFF;
     replace_boss_battler(ENEMY_GIYGAS_3);
     load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_PHASE_1, MUSIC_GIYGAS_PHASE1);
-    display_text_with_prompt_addr(MSG_BTL_MECHPOKEY_1_TALK_B);
+    display_text_with_prompt_addr(MSG_BTL6_MECH_POKEY_SPEECH_1B);
     /* Kill slot 9 (Pokey's mech) */
     bt.battlers_table[9].consciousness = 0;
     bt.giygas_phase = GIYGAS_STARTS_ATTACKING;
@@ -3492,7 +3492,7 @@ void btlact_pokey_speech_2(void) {
     /* Show slot 9 consciousness */
     bt.battlers_table[9].consciousness = 1;
     render_all_battle_sprites();
-    display_text_with_prompt_addr(MSG_BTL_MECHPOKEY_2_TALK_2);
+    display_text_with_prompt_addr(MSG_BTL6_MECH_POKEY_SPEECH_2);
     /* Hide slot 9 */
     bt.battlers_table[9].consciousness = 0;
     render_all_battle_sprites();
@@ -3510,13 +3510,13 @@ void btlact_pokey_speech_2(void) {
  * ====================================================================== */
 void btlact_giygas_prayer_1(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_DURING_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_7_DOSEI);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_MR_SATURN_RESPONDS);
     battle_wait(2 * FRAMES_PER_SECOND);
     play_sfx(SFX_PSI_STARSTORM);
     battle_wait(30);  /* HALF_OF_A_SECOND */
     bt.vertical_shake_duration = FRAMES_PER_SECOND;
     bt.vertical_shake_hold_duration = 12;  /* FIFTH_OF_A_SECOND */
-    display_text_with_prompt_addr(MSG_BTL_INORU_DAMAGE_1);
+    display_text_with_prompt_addr(MSG_BTL7_GIYGAS_DEFENSES_UNSTABLE);
     bt.giygas_phase = GIYGAS_PRAYER_1_USED;
     replace_boss_battler(ENEMY_GIYGAS_6);
     load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1, MUSIC_NONE);
@@ -3529,35 +3529,35 @@ void btlact_giygas_prayer_1(void) {
  * ====================================================================== */
 void btlact_giygas_prayer_2(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_2_TONZURA);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_RUNAWAY_FIVE);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_1);
     bt.giygas_phase = GIYGAS_PRAYER_2_USED;
 }
 
 void btlact_giygas_prayer_3(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_3_PAULA_PAPA);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_PAULAS_FAMILY);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_2);
     bt.giygas_phase = GIYGAS_PRAYER_3_USED;
 }
 
 void btlact_giygas_prayer_4(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_4_TONY);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_TONY_AND_CLASS);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_3);
     bt.giygas_phase = GIYGAS_PRAYER_4_USED;
 }
 
 void btlact_giygas_prayer_5(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_5_RAMA);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_DALAAM_MASTER);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_4);
     bt.giygas_phase = GIYGAS_PRAYER_5_USED;
 }
 
 void btlact_giygas_prayer_6(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_6_FRANK);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_FRANK_RESPONDS);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_5);
     bt.giygas_phase = GIYGAS_PRAYER_6_USED;
 }
@@ -3570,7 +3570,7 @@ void btlact_giygas_prayer_6(void) {
  * ====================================================================== */
 void btlact_giygas_prayer_7(void) {
     display_battle_cutscene_text(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
-                                 MUSIC_GIYGAS_PHASE3, MSG_EVT_PRAY_1_NES_MAMA);
+                                 MUSIC_GIYGAS_PHASE3, MSG_EVT4_PAULA_PRAYER_NES_MOM_RESPONDS);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_6);
     bt.giygas_phase = GIYGAS_PRAYER_7_USED;
     load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_7, MUSIC_GIYGAS_WEAKENED2);
@@ -3582,7 +3582,7 @@ void btlact_giygas_prayer_7(void) {
  * Prayer 8: uses weakened sequence instead of cutscene text.
  * ====================================================================== */
 void btlact_giygas_prayer_8(void) {
-    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL_INORU_BACK_TO_PC_8);
+    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL7_PRAY_ABSORBED_BY_DARKNESS);
     bt.giygas_phase = GIYGAS_PRAYER_8_USED;
 }
 
@@ -3606,16 +3606,16 @@ void btlact_giygas_prayer_9(void) {
     /* Reset HP/PP rolling counters */
     reset_hppp_rolling();
 
-    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL_INORU_BACK_TO_PC_9);
+    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL7_PRAY_RESPONSE_STRANGER);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_7);
 
-    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL_INORU_BACK_TO_PC_F_1);
+    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL7_PRAY_KEPT_PRAYING_1);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_8);
 
-    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL_INORU_BACK_TO_PC_F_2);
+    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL7_PRAY_KEPT_PRAYING_2);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_9);
 
-    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL_INORU_BACK_TO_PC_F_3);
+    play_giygas_weakened_sequence(MUSIC_GIYGAS_WEAKENED2, MSG_BTL7_PRAY_KEPT_PRAYING_3);
     giygas_hurt_prayer(GIYGAS_PRAYER_DAMAGE_10);
 
     /* Close windows and hide HP/PP */
@@ -3654,7 +3654,7 @@ void btlact_giygas_prayer_9(void) {
     /* Briefly show Pokey (battler slot 9), display his text, then hide */
     bt.battlers_table[9].consciousness = 1;
     render_all_battle_sprites();
-    display_in_battle_text_addr(MSG_BTL_POKEY_RUN_AWAY);
+    display_in_battle_text_addr(MSG_BTL6_POKEY_ESCAPES);
     bt.battlers_table[9].consciousness = 0;
     render_all_battle_sprites();
     battle_wait(FRAMES_PER_SECOND);

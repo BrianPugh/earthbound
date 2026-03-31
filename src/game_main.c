@@ -35,6 +35,7 @@
 #include "game/position_buffer.h"
 #include "game/inventory.h"
 #include "game/display_text_internal.h"
+#include "data/text_refs.h"
 
 /* Verbosity level (0=errors, 1=warnings, 2=trace) */
 int verbose_level = 0;
@@ -876,7 +877,7 @@ display_menu:
         goto cleanup;
     case 22:
         /* TEST1 (MSG_BTL) — assembly @CMD_MSG_BTL (lines 243-248).
-         * Sets message pointer to MSG_BTL_INORU_BACK_TO_PC_9 (0xC9F70C). */
+         * Sets message pointer to MSG_BTL7_PRAY_RESPONSE_STRANGER (0xC9F70C). */
         message_addr = 0xC9F70C;
         break;
     case 23: {
@@ -884,7 +885,7 @@ display_menu:
          * Close windows, display "To Be Continued" text, then cleanup. */
         close_all_windows();
         hide_hppp_windows();
-        display_text_from_snes_addr(0xC9C7FA);  /* MSG_EVT_TO_BE_CONTINUED */
+        display_text_from_addr(MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH);
         goto cleanup;
     }
     default:
@@ -901,7 +902,7 @@ display_menu:
     if (message_addr != 0) {
         close_focus_window();
         create_window(WINDOW_TEXT_STANDARD);
-        display_text_from_snes_addr(message_addr);
+        display_text_from_addr(message_addr);
     }
     goto display_menu;
 

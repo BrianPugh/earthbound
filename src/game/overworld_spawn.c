@@ -36,14 +36,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "data/text_refs.h"
 
 /* ---- Delivery System ---- */
 
 #define EVENT_SCRIPT_499 499
 #define EVENT_SCRIPT_500 500
 
-/* MSG_EVT_PHOTOGRAPHER ROM address ($C7AB3F from earthbound.yml text block 0x0848) */
-#define MSG_EVT_PHOTOGRAPHER 0xC7AB3Fu
+/* MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES ROM address ($C7AB3F from earthbound.yml text block 0x0848) */
 
 /* Shared delivery table data (lazy-loaded by either function) */
 static const DeliveryEntry *delivery_table = NULL;
@@ -74,7 +74,7 @@ const DeliveryEntry *get_delivery_table(void) {
  * gated by event flags, then spawns delivery entities.
  * Called after every door transition and at overworld init. */
 void spawn_buzz_buzz(void) {
-    display_text_from_snes_addr(0xC5EA35u);  /* MSG_EVT_BUNBUNBUN */
+    display_text_from_addr(MSG_EVT0_BUZZBUZZ_CHECK);
     spawn_delivery_entities();
 }
 
@@ -194,8 +194,8 @@ void encounter_travelling_photographer(uint16_t photo_id) {
     /* Assembly lines 13-14: DEC, STA SPAWNING_TRAVELLING_PHOTOGRAPHER_ID */
     ow.spawning_travelling_photographer_id = photo_id - 1;
 
-    /* Assembly line 15: DISPLAY_TEXT_PTR MSG_EVT_PHOTOGRAPHER */
-    display_text_from_snes_addr(MSG_EVT_PHOTOGRAPHER);
+    /* Assembly line 15: DISPLAY_TEXT_PTR MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES */
+    display_text_from_addr(MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES);
 
     /* Assembly lines 16-17: LDA @LOCAL01; JSL SAVE_PHOTO_STATE */
     save_photo_state(photo_id);

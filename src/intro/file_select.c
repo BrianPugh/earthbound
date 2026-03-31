@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "game_main.h"
+#include "data/text_refs.h"
 
 /* Whether each save slot has data */
 static uint8_t save_files_present[SAVE_COUNT];
@@ -1435,7 +1436,7 @@ static bool new_game_naming(void) {
 
     /* Assembly lines 655-656: Freeze entities and queue prologue text.
      * MSG_EVT_PROLOGUE_NEW = $C5E70B */
-    freeze_and_queue_text_interaction(0xC5E70Bu);
+    freeze_and_queue_text_interaction(MSG_EVT0_PROLOGUE_METEORITE_FALL);
 
     /* Assembly lines 657-659: Disable monster spawns for prologue */
     event_flag_set(EVENT_FLAG_MONSTER_OFF);

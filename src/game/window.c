@@ -1370,7 +1370,7 @@ uint16_t selection_menu(uint16_t allow_cancel) {
     if (w->current_option < w->menu_count &&
         w->menu_items[w->current_option].script != 0) {
         set_instant_printing();
-        display_text_from_snes_addr(w->menu_items[w->current_option].script);
+        display_text_from_addr(w->menu_items[w->current_option].script);
     }
 
     /* Assembly lines 123-158: invoke cursor_move_callback for initial option */
@@ -1524,7 +1524,7 @@ uint16_t selection_menu(uint16_t allow_cancel) {
                  * Then (line 160): CLEAR_INSTANT_PRINTING, WINDOW_TICK. */
                 if (w->menu_items[w->current_option].script != 0) {
                     set_instant_printing();
-                    display_text_from_snes_addr(w->menu_items[w->current_option].script);
+                    display_text_from_addr(w->menu_items[w->current_option].script);
                 }
                 clear_instant_printing();
                 window_tick();
