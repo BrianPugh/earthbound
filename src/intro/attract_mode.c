@@ -39,7 +39,7 @@ static uint16_t current_scene_index;
  * 10 × 4-byte far pointers to MSG_MD_* scripts within EEVENT0.
  * We load the table at runtime and derive offsets by subtracting the
  * base address (first entry, MSG_MD_TOTO at offset 0). */
-static uint16_t attract_mode_text_offsets[ATTRACT_MODE_SCENE_COUNT];
+static uint32_t attract_mode_text_addrs[ATTRACT_MODE_SCENE_COUNT];
 static bool attract_mode_offsets_loaded = false;
 
 static bool load_attract_mode_text_offsets(void) {
@@ -54,14 +54,9 @@ static bool load_attract_mode_text_offsets(void) {
   }
 
   /* Each entry is a 32-bit little-endian SNES far address.
-   * The first entry (MSG_MD_TOTO) is at offset 0 within EEVENT0,
-   * so it equals the EEVENT0 base SNES address. Subtract it from
-   * all entries to get byte offsets within EEVENT0. */
-  uint32_t base = read_u32_le(&data[0]);
+   * Store as-is — resolve_text_addr() handles SNES→blob remapping. */
   for (int i = 0; i < ATTRACT_MODE_SCENE_COUNT; i++) {
-    int off = i * 4;
-    uint32_t addr = read_u32_le(&data[off]);
-    attract_mode_text_offsets[i] = (uint16_t)(addr - base);
+    attract_mode_text_addrs[i] = read_u32_le(&data[i * 4]);
   }
   attract_mode_offsets_loaded = true;
   return true;
@@ -160,12 +155,7 @@ uint16_t run_attract_mode(uint16_t scene_index) {
    * with movement scripts, and pauses for the scene duration.
    * DISPLAY_TEXT blocks until the script hits END_BLOCK. */
   {
-    size_t remaining;
-    const uint8_t *script = display_text_get_eevent0(
-        attract_mode_text_offsets[scene_index], &remaining);
-    if (script) {
-      display_text(script, remaining);
-    }
+    display_text_from_addr(attract_mode_text_addrs[scene_index]);
   }
 
   /* The assembly does NOT clear ow.camera_focus_entity here — the camera

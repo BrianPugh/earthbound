@@ -11,6 +11,9 @@ from ebtools.text_dsl.opcodes import OPCODE_BY_NAME, ArgType
 if TYPE_CHECKING:
     from ebtools.config import CommonData
 
+# String annotation for CommonData used at module level to avoid
+# runtime import of ebtools.config (which may not be needed by all callers).
+
 # ArgTypes that encode as U8 and support symbolic name resolution.
 _NAMED_U8_TYPES = frozenset(
     {
@@ -133,7 +136,7 @@ def _write_string_arg(buf: bytearray, value: dict, label_offsets: dict[str, int]
         raise ValueError(f"Unknown STRING terminator: {terminator!r}")
 
 
-def build_reverse_names(common_data: CommonData) -> dict[ArgType, dict[str, int]]:
+def build_reverse_names(common_data: "CommonData") -> dict[ArgType, dict[str, int]]:
     """Build a reverse lookup table from CommonData for compiling symbolic names.
 
     Maps each ArgType to a dict of {name: numeric_value}.  STATUS_GROUP is

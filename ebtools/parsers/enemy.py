@@ -293,7 +293,7 @@ def pack_enemies(
     text_table: dict[int, str],
     common_data: CommonData,
     output_path: Path,
-    string_table: StringTableBuilder | None = None,
+    string_table: "StringTableBuilder | None" = None,
     addr_remap: dict[int, int] | None = None,
 ) -> None:
     """Pack enemies.json back to a 231 x 94-byte binary."""

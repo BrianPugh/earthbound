@@ -251,7 +251,7 @@ def pack_items(
     items_json_path: Path,
     text_table: dict[int, str],
     output_path: Path,
-    string_table: StringTableBuilder | None = None,
+    string_table: "StringTableBuilder | None" = None,
     addr_remap: dict[int, int] | None = None,
 ) -> None:
     """Pack items.json back to a 254 × 39-byte binary.

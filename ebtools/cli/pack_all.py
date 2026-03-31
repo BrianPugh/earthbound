@@ -7,12 +7,11 @@ overrides.
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from cyclopts import Parameter
 
-if TYPE_CHECKING:
-    from ebtools.config import CommonData, DumpDoc
+from ebtools.config import CommonData, DumpDoc
 
 
 def pack_all(
@@ -852,7 +851,9 @@ def _pack_dialogue(
     print(f"  Built address remap table ({len(addr_remap)} entries)")
 
     # Generate C header with all label → flat offset mappings.
-    _generate_text_refs_header(flat_label_offsets, output_dir.parent / "data")
+    # Write to src/data/ (source tree), derived from dialogue_dir (src/assets/dialogue).
+    src_data_dir = dialogue_dir.parent.parent / "data"
+    _generate_text_refs_header(flat_label_offsets, src_data_dir)
 
     # Emit binary remap table: sorted array of (snes_addr_u32, blob_offset_u32) pairs.
     # Used by the C port to resolve SNES addresses embedded in binary ROM data

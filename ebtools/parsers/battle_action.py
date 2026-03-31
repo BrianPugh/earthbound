@@ -63,7 +63,7 @@ def export_battle_actions_json(data: bytes, output_path: Path) -> None:
 def pack_battle_actions(
     json_path: Path,
     output_path: Path,
-    string_table: StringTableBuilder | None = None,
+    string_table: "StringTableBuilder | None" = None,
     addr_remap: dict[int, int] | None = None,
 ) -> None:
     """Pack battle_actions.json back to binary."""

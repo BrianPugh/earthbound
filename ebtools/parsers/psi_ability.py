@@ -91,7 +91,7 @@ def export_psi_abilities_json(
 def pack_psi_abilities(
     json_path: Path,
     output_path: Path,
-    string_table: StringTableBuilder | None = None,
+    string_table: "StringTableBuilder | None" = None,
     addr_remap: dict[int, int] | None = None,
 ) -> None:
     """Pack psi_abilities.json back to binary."""

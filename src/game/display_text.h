@@ -28,23 +28,13 @@ void display_text(const uint8_t *script, size_t script_size);
  * Returns true on success. */
 bool display_text_load_eevent0(void);
 
-/* Free the loaded EEVENT0 data. */
+/* No-ops kept for API compatibility (all text lives in the dialogue blob). */
 void display_text_free_eevent0(void);
-
-/* Get a pointer to an EEVENT0 sub-script at the given byte offset.
- * Returns NULL if EEVENT0 is not loaded or offset is out of range. */
-const uint8_t *display_text_get_eevent0(uint16_t offset, size_t *remaining_size);
-
-/* Load all 10 EBATTLE text blocks (battle text data).
- * Call once when entering battle. Returns true if all loaded. */
 bool display_text_load_battle_text(void);
-
-/* Free all loaded EBATTLE text data. */
 void display_text_free_battle_text(void);
 
-/* Convert a SNES ROM text address to a buffer pointer and call display_text().
- * Searches all loaded text blocks (EEVENT0, EBATTLE0-9).
- * Port helper for assembly code that passes text addresses as SNES pointers. */
+/* Resolve a text address (dialogue blob offset or legacy SNES address)
+ * and display the text script at that location. */
 void display_text_from_addr(uint32_t snes_addr);
 
 /* Battle name buffer sizes (from bankconfig/common/ram.asm). */

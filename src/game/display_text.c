@@ -439,168 +439,13 @@ uint32_t get_cnum(void) {
     return dt.cnum;
 }
 
-/* --- Text block registry ---
- * All text bytecode lives in binary blobs extracted by ebtools.
- * Each block has a SNES base address so we can convert ROM pointers
- * (used by DISPLAY_TEXT_PTR / JUMP / CALL CCs) to ert.buffer offsets.
- * SNES base = ROM offset + 0xC00000 (HiROM mapping). */
-
+/* TextBlock — lightweight struct used by resolve_text_addr() to return
+ * a data pointer + size to callers that need to compute remaining bytes. */
 typedef struct {
     const uint8_t *data;
     size_t   size;
-    uint32_t snes_base;
-    AssetId  asset_id;  /* for lazy loading */
 } TextBlock;
 
-enum {
-    /* Event text blocks */
-    TEXT_BLOCK_EEVENT0 = 0,
-    TEXT_BLOCK_EEVENT1,
-    TEXT_BLOCK_EEVENT2,
-    TEXT_BLOCK_EEVENT3,
-    TEXT_BLOCK_EEVENT4,
-    TEXT_BLOCK_EEVENT5,
-    /* Location-specific event text */
-    TEXT_BLOCK_E01ONET0,
-    TEXT_BLOCK_E01ONET1,
-    TEXT_BLOCK_E01ONET2,
-    TEXT_BLOCK_E02TWSN0,
-    TEXT_BLOCK_E02TWSN1,
-    TEXT_BLOCK_E02TWSN2,
-    TEXT_BLOCK_E03HAPPY,
-    TEXT_BLOCK_E04GRFD,
-    TEXT_BLOCK_E05THRK,
-    TEXT_BLOCK_E06WINS,
-    TEXT_BLOCK_E07GPFT,
-    TEXT_BLOCK_E08DOSEI,
-    TEXT_BLOCK_E09DSRT,
-    TEXT_BLOCK_E10FOUR0,
-    TEXT_BLOCK_E10FOUR1,
-    TEXT_BLOCK_E11SUMS,
-    TEXT_BLOCK_E12RAMA,
-    TEXT_BLOCK_E13SKRB,
-    TEXT_BLOCK_E14MAKYO,
-    TEXT_BLOCK_E15GUMI,
-    TEXT_BLOCK_E16DKFD,
-    TEXT_BLOCK_E17PAST,
-    TEXT_BLOCK_E18MGKT,
-    TEXT_BLOCK_E19MOON,
-    /* Battle text */
-    TEXT_BLOCK_EBATTLE0,
-    TEXT_BLOCK_EBATTLE1,
-    TEXT_BLOCK_EBATTLE2,
-    TEXT_BLOCK_EBATTLE3,
-    TEXT_BLOCK_EBATTLE4,
-    TEXT_BLOCK_EBATTLE5,
-    TEXT_BLOCK_EBATTLE6,
-    TEXT_BLOCK_EBATTLE7,
-    TEXT_BLOCK_EBATTLE8,
-    TEXT_BLOCK_EBATTLE9,
-    /* Goods/item text */
-    TEXT_BLOCK_EGOODS0,
-    TEXT_BLOCK_EGOODS1,
-    TEXT_BLOCK_EGOODS2,
-    TEXT_BLOCK_EGOODS3,
-    TEXT_BLOCK_EGOODS4,
-    /* System text */
-    TEXT_BLOCK_ESYSTEM,
-    /* UI/menu text */
-    TEXT_BLOCK_EGLOBAL,
-    TEXT_BLOCK_EHINT,
-    TEXT_BLOCK_ENEWS,
-    TEXT_BLOCK_ESHOP0,
-    TEXT_BLOCK_ESHOP1,
-    TEXT_BLOCK_ESHOP2,
-    TEXT_BLOCK_ESHOP3,
-    /* Help/reference text */
-    TEXT_BLOCK_EEXPLGDS,
-    TEXT_BLOCK_EEXPLPSI,
-    /* Special/misc text */
-    TEXT_BLOCK_EBGMESS,
-    TEXT_BLOCK_EDEBUG,
-    TEXT_BLOCK_KEYBOARD,
-    TEXT_BLOCK_DEBUG_TEXT,
-    TEXT_BLOCK_DOOR_SCRIPTS,
-    TEXT_BLOCK_UNKNOWN_EFA2FA,
-    TEXT_BLOCK_COUNT
-};
-
-#define TEXT_BLOCK_EBATTLE_FIRST TEXT_BLOCK_EBATTLE0
-#define TEXT_BLOCK_EBATTLE_LAST  TEXT_BLOCK_EBATTLE9
-#define TEXT_BLOCK_EGOODS_FIRST  TEXT_BLOCK_EGOODS0
-#define TEXT_BLOCK_EGOODS_LAST   TEXT_BLOCK_EGOODS4
-
-static TextBlock text_blocks[TEXT_BLOCK_COUNT] = {
-    /* Event text blocks */
-    [TEXT_BLOCK_EEVENT0]  = { NULL, 0, 0xC5E5BCu, ASSET_DATA_EEVENT0_BIN  },
-    [TEXT_BLOCK_EEVENT1]  = { NULL, 0, 0xC78000u, ASSET_DATA_EEVENT1_BIN  },
-    [TEXT_BLOCK_EEVENT2]  = { NULL, 0, 0xC88000u, ASSET_DATA_EEVENT2_BIN  },
-    [TEXT_BLOCK_EEVENT3]  = { NULL, 0, 0xC91C3Au, ASSET_DATA_EEVENT3_BIN  },
-    [TEXT_BLOCK_EEVENT4]  = { NULL, 0, 0xC7A2F7u, ASSET_DATA_EEVENT4_BIN  },
-    [TEXT_BLOCK_EEVENT5]  = { NULL, 0, 0xC9B226u, ASSET_DATA_EEVENT5_BIN  },
-    /* Location-specific event text */
-    [TEXT_BLOCK_E01ONET0] = { NULL, 0, 0xC74BA9u, ASSET_DATA_E01ONET0_BIN },
-    [TEXT_BLOCK_E01ONET1] = { NULL, 0, 0xC72709u, ASSET_DATA_E01ONET1_BIN },
-    [TEXT_BLOCK_E01ONET2] = { NULL, 0, 0xC659C9u, ASSET_DATA_E01ONET2_BIN },
-    [TEXT_BLOCK_E02TWSN0] = { NULL, 0, 0xC80000u, ASSET_DATA_E02TWSN0_BIN },
-    [TEXT_BLOCK_E02TWSN1] = { NULL, 0, 0xC953BFu, ASSET_DATA_E02TWSN1_BIN },
-    [TEXT_BLOCK_E02TWSN2] = { NULL, 0, 0xC93853u, ASSET_DATA_E02TWSN2_BIN },
-    [TEXT_BLOCK_E03HAPPY] = { NULL, 0, 0xC98000u, ASSET_DATA_E03HAPPY_BIN },
-    [TEXT_BLOCK_E04GRFD]  = { NULL, 0, 0xEF952Eu, ASSET_DATA_E04GRFD_BIN  },
-    [TEXT_BLOCK_E05THRK]  = { NULL, 0, 0xC8D9EDu, ASSET_DATA_E05THRK_BIN  },
-    [TEXT_BLOCK_E06WINS]  = { NULL, 0, 0xC6A9F9u, ASSET_DATA_E06WINS_BIN  },
-    [TEXT_BLOCK_E07GPFT]  = { NULL, 0, 0xEF617Bu, ASSET_DATA_E07GPFT_BIN  },
-    [TEXT_BLOCK_E08DOSEI] = { NULL, 0, 0xC7E797u, ASSET_DATA_E08DOSEI_BIN },
-    [TEXT_BLOCK_E09DSRT]  = { NULL, 0, 0xC60000u, ASSET_DATA_E09DSRT_BIN  },
-    [TEXT_BLOCK_E10FOUR0] = { NULL, 0, 0xC6D19Cu, ASSET_DATA_E10FOUR0_BIN },
-    [TEXT_BLOCK_E10FOUR1] = { NULL, 0, 0xC82105u, ASSET_DATA_E10FOUR1_BIN },
-    [TEXT_BLOCK_E11SUMS]  = { NULL, 0, 0xC89E1Bu, ASSET_DATA_E11SUMS_BIN  },
-    [TEXT_BLOCK_E12RAMA]  = { NULL, 0, 0xC9C991u, ASSET_DATA_E12RAMA_BIN  },
-    [TEXT_BLOCK_E13SKRB]  = { NULL, 0, 0xC56DF3u, ASSET_DATA_E13SKRB_BIN  },
-    [TEXT_BLOCK_E14MAKYO] = { NULL, 0, 0xC9E37Eu, ASSET_DATA_E14MAKYO_BIN },
-    [TEXT_BLOCK_E15GUMI]  = { NULL, 0, 0xC9D6F8u, ASSET_DATA_E15GUMI_BIN  },
-    [TEXT_BLOCK_E16DKFD]  = { NULL, 0, 0xEF57EBu, ASSET_DATA_E16DKFD_BIN  },
-    [TEXT_BLOCK_E17PAST]  = { NULL, 0, 0xC57E1Cu, ASSET_DATA_E17PAST_BIN  },
-    [TEXT_BLOCK_E18MGKT]  = { NULL, 0, 0xC76F20u, ASSET_DATA_E18MGKT_BIN  },
-    [TEXT_BLOCK_E19MOON]  = { NULL, 0, 0xC96D10u, ASSET_DATA_E19MOON_BIN  },
-    /* Battle text */
-    [TEXT_BLOCK_EBATTLE0] = { NULL, 0, 0xEF843Fu, ASSET_DATA_EBATTLE0_BIN },
-    [TEXT_BLOCK_EBATTLE1] = { NULL, 0, 0xEF9A47u, ASSET_DATA_EBATTLE1_BIN },
-    [TEXT_BLOCK_EBATTLE2] = { NULL, 0, 0xEF7E25u, ASSET_DATA_EBATTLE2_BIN },
-    [TEXT_BLOCK_EBATTLE3] = { NULL, 0, 0xEF89FEu, ASSET_DATA_EBATTLE3_BIN },
-    [TEXT_BLOCK_EBATTLE4] = { NULL, 0, 0xEF7186u, ASSET_DATA_EBATTLE4_BIN },
-    [TEXT_BLOCK_EBATTLE5] = { NULL, 0, 0xEF69A1u, ASSET_DATA_EBATTLE5_BIN },
-    [TEXT_BLOCK_EBATTLE6] = { NULL, 0, 0xC8F77Du, ASSET_DATA_EBATTLE6_BIN },
-    [TEXT_BLOCK_EBATTLE7] = { NULL, 0, 0xC9EE2Fu, ASSET_DATA_EBATTLE7_BIN },
-    [TEXT_BLOCK_EBATTLE8] = { NULL, 0, 0xEF77FDu, ASSET_DATA_EBATTLE8_BIN },
-    [TEXT_BLOCK_EBATTLE9] = { NULL, 0, 0xEF8FADu, ASSET_DATA_EBATTLE9_BIN },
-    /* Goods/item text */
-    [TEXT_BLOCK_EGOODS0]  = { NULL, 0, 0xC97B6Bu, ASSET_DATA_EGOODS0_BIN  },
-    [TEXT_BLOCK_EGOODS1]  = { NULL, 0, 0xC9F897u, ASSET_DATA_EGOODS1_BIN  },
-    [TEXT_BLOCK_EGOODS2]  = { NULL, 0, 0xEF9EF4u, ASSET_DATA_EGOODS2_BIN  },
-    [TEXT_BLOCK_EGOODS3]  = { NULL, 0, 0xC6F8D9u, ASSET_DATA_EGOODS3_BIN  },
-    [TEXT_BLOCK_EGOODS4]  = { NULL, 0, 0xC77DCEu, ASSET_DATA_EGOODS4_BIN  },
-    /* System text */
-    [TEXT_BLOCK_ESYSTEM]  = { NULL, 0, 0xC7C588u, ASSET_DATA_ESYSTEM_BIN  },
-    /* UI/menu text */
-    [TEXT_BLOCK_EGLOBAL]  = { NULL, 0, 0xC68000u, ASSET_DATA_EGLOBAL_BIN  },
-    [TEXT_BLOCK_EHINT]    = { NULL, 0, 0xC70000u, ASSET_DATA_EHINT_BIN    },
-    [TEXT_BLOCK_ENEWS]    = { NULL, 0, 0xC841DEu, ASSET_DATA_ENEWS_BIN    },
-    [TEXT_BLOCK_ESHOP0]   = { NULL, 0, 0xC50000u, ASSET_DATA_ESHOP0_BIN   },
-    [TEXT_BLOCK_ESHOP1]   = { NULL, 0, 0xC5B3BAu, ASSET_DATA_ESHOP1_BIN   },
-    [TEXT_BLOCK_ESHOP2]   = { NULL, 0, 0xC90000u, ASSET_DATA_ESHOP2_BIN   },
-    [TEXT_BLOCK_ESHOP3]   = { NULL, 0, 0xC62D30u, ASSET_DATA_ESHOP3_BIN   },
-    /* Help/reference text */
-    [TEXT_BLOCK_EEXPLGDS] = { NULL, 0, 0xC53711u, ASSET_DATA_EEXPLGDS_BIN },
-    [TEXT_BLOCK_EEXPLPSI] = { NULL, 0, 0xEF4E20u, ASSET_DATA_EEXPLPSI_BIN },
-    /* Special/misc text */
-    [TEXT_BLOCK_EBGMESS]  = { NULL, 0, 0xC86279u, ASSET_DATA_EBGMESS_BIN  },
-    [TEXT_BLOCK_EDEBUG]   = { NULL, 0, 0xC58000u, ASSET_DATA_EDEBUG_BIN   },
-    [TEXT_BLOCK_KEYBOARD] = { NULL, 0, 0xEFA460u, ASSET_DATA_KEYBOARD_BIN },
-    [TEXT_BLOCK_DEBUG_TEXT] = { NULL, 0, 0xEFA6EBu, ASSET_DATA_DEBUG_TEXT_BIN },
-    [TEXT_BLOCK_DOOR_SCRIPTS] = { NULL, 0, 0xC9992Fu, ASSET_DATA_DOOR_SCRIPTS_BIN },
-    [TEXT_BLOCK_UNKNOWN_EFA2FA] = { NULL, 0, 0xEFA2FAu, ASSET_DATA_UNKNOWN_EFA2FA_BIN },
-};
 
 /* Resolve a text address to a byte pointer within the dialogue blob or
  * inline string table.  Also handles legacy SNES addresses (>= 0xC00000)
@@ -648,11 +493,6 @@ static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
 
     return NULL;
 }
-
-/* --- EEVENT0 convenience (kept for existing callers) --- */
-
-#define eevent0_data (text_blocks[TEXT_BLOCK_EEVENT0].data)
-#define eevent0_size (text_blocks[TEXT_BLOCK_EEVENT0].size)
 
 /* Print a PSI name given a PSI name ID.
  * Port of GET_PSI_NAME (asm/text/get_psi_name.asm).
@@ -717,12 +557,6 @@ void get_psi_suffix_label(uint16_t ability_id, char *out, size_t out_size) {
     }
 }
 
-const uint8_t *display_text_get_eevent0(uint16_t offset, size_t *remaining_size) {
-    if (!eevent0_data || offset >= eevent0_size) return NULL;
-    if (remaining_size) *remaining_size = eevent0_size - offset;
-    return eevent0_data + offset;
-}
-
 void display_text_from_addr(uint32_t snes_addr) {
     TextBlock *blk = NULL;
     const uint8_t *ptr = resolve_text_addr(snes_addr, &blk);
@@ -732,19 +566,6 @@ void display_text_from_addr(uint32_t snes_addr) {
     } else {
         fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
     }
-}
-
-/* Load a single text block by index. Returns true on success. */
-static bool load_text_block(int index) {
-    TextBlock *blk = &text_blocks[index];
-    if (blk->data) return true;
-    blk->size = ASSET_SIZE(blk->asset_id);
-    blk->data = ASSET_DATA(blk->asset_id);
-    if (!blk->data) {
-        fprintf(stderr, "display_text: failed to load text block %d (asset id %d)\n", index, blk->asset_id);
-        return false;
-    }
-    return true;
 }
 
 
@@ -771,46 +592,20 @@ static bool display_text_load_dialogue_blob(void) {
 }
 
 bool display_text_load_eevent0(void) {
-    /* On the SNES, all text data is always in ROM.  Load every text block
-       so that cross-block CALL_TEXT references (CC_08) always resolve. */
+    /* All text data lives in the dialogue blob + inline string table.
+     * Load both at startup. */
     bool ok = true;
-    for (int i = 0; i < TEXT_BLOCK_COUNT; i++) {
-        if (!load_text_block(i)) ok = false;
-    }
     if (!display_text_load_inline_strings()) ok = false;
     if (!display_text_load_dialogue_blob()) ok = false;
     return ok;
 }
 
+/* Battle text is part of the dialogue blob — no separate loading needed. */
+bool display_text_load_battle_text(void) { return true; }
 
-/* Load all EBATTLE + EGOODS text blocks. Call once when entering battle. */
-bool display_text_load_battle_text(void) {
-    bool ok = true;
-    for (int i = TEXT_BLOCK_EBATTLE_FIRST; i <= TEXT_BLOCK_EBATTLE_LAST; i++) {
-        if (!load_text_block(i)) ok = false;
-    }
-    for (int i = TEXT_BLOCK_EGOODS_FIRST; i <= TEXT_BLOCK_EGOODS_LAST; i++) {
-        if (!load_text_block(i)) ok = false;
-    }
-    return ok;
-}
-
-
-
-void display_text_free_eevent0(void) {
-    TextBlock *blk = &text_blocks[TEXT_BLOCK_EEVENT0];
-    blk->data = NULL;
-    blk->size = 0;
-}
-
-
-void display_text_free_battle_text(void) {
-    for (int i = TEXT_BLOCK_EBATTLE_FIRST; i <= TEXT_BLOCK_EGOODS_LAST; i++) {
-        TextBlock *blk = &text_blocks[i];
-        blk->data = NULL;
-        blk->size = 0;
-    }
-}
+/* No-ops: dialogue blob is always loaded, nothing to free. */
+void display_text_free_eevent0(void) {}
+void display_text_free_battle_text(void) {}
 
 
 
