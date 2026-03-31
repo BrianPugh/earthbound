@@ -76,12 +76,10 @@ DisplayTextState dt = {
 
 /* --- Compressed text dictionary (CC 0x15/0x16/0x17) ---
  * 767 null-terminated EB-encoded string fragments (e.g. " in the ", " that ").
- * The pointer table has 768 x 4-byte SNES address entries; each points into the
- * data blob.  CC 0x15 uses entries 0-255, CC 0x16 uses 256-511, CC 0x17 uses
- * 512-767.  Port of asm/data/text/compressed_text_data.asm +
- * compressed_text_pointers.asm. */
+ * The pointer table has 768 x 4-byte offset entries; each is a byte offset
+ * into the data blob.  CC 0x15 uses entries 0-255, CC 0x16 uses 256-511,
+ * CC 0x17 uses 512-767. */
 #define COMPRESSED_TEXT_ENTRY_COUNT 768
-#define COMPRESSED_TEXT_SNES_BASE   0xC8BC2Du
 #define compressed_text_data       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
 #define compressed_text_data_size  ASSET_SIZE(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
 #define compressed_text_ptrs       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_PTRS_BIN)
@@ -97,6 +95,30 @@ static size_t inline_string_table_size = 0;
 #define DIALOGUE_BLOB_BASE 0x100000
 static const uint8_t *dialogue_blob = NULL;
 static size_t dialogue_blob_size = 0;
+
+/* SNES address → dialogue blob offset remap table.
+ * Sorted array of (snes_addr_u32, blob_offset_u32) pairs, binary-searched
+ * at runtime. Used by callroutine_movement CC_0F which constructs SNES
+ * addresses from binary ROM movement script data. */
+static const uint8_t *addr_remap_data = NULL;
+static size_t addr_remap_count = 0;
+
+/* Binary search the remap table. Returns dialogue blob offset, or 0 on miss. */
+static uint32_t remap_snes_to_blob(uint32_t snes_addr) {
+    if (!addr_remap_data || addr_remap_count == 0) return 0;
+    size_t lo = 0, hi = addr_remap_count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        uint32_t key = read_u32_le(&addr_remap_data[mid * 8]);
+        if (key == snes_addr)
+            return read_u32_le(&addr_remap_data[mid * 8 + 4]);
+        if (key < snes_addr)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return 0;
+}
 
 /* HP/PP modification functions: now in game_state.c, declared in game_state.h.
  * heal_character_hp/pp, reduce_hp/pp_target, recover/reduce_hp/pp_amtpercent. */
@@ -580,49 +602,50 @@ static TextBlock text_blocks[TEXT_BLOCK_COUNT] = {
     [TEXT_BLOCK_UNKNOWN_EFA2FA] = { NULL, 0, 0xEFA2FAu, ASSET_DATA_UNKNOWN_EFA2FA_BIN },
 };
 
-/* Look up a SNES address across all loaded text blocks.
- * Returns pointer to the byte within the block, or NULL if not found.
- * Finds the block with the smallest valid offset (closest base address)
- * to avoid mismatching when a large block's range overlaps smaller ones. */
-static const uint8_t *resolve_text_addr(uint32_t snes_addr, TextBlock **out_block) {
-    /* New-format flat offsets (< 0xC00000): dialogue blob or inline strings */
-    if (snes_addr < 0xC00000) {
-        if (snes_addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
-            uint32_t offset = snes_addr - DIALOGUE_BLOB_BASE;
-            if (offset < dialogue_blob_size) {
-                static TextBlock dialogue_block = {0};
-                dialogue_block.data = dialogue_blob;
-                dialogue_block.size = dialogue_blob_size;
-                dialogue_block.snes_base = DIALOGUE_BLOB_BASE;
-                if (out_block) *out_block = &dialogue_block;
-                return dialogue_blob + offset;
-            }
-        } else if (inline_string_table != NULL && snes_addr < inline_string_table_size) {
-            static TextBlock string_table_block = {0};
-            string_table_block.data = inline_string_table;
-            string_table_block.size = inline_string_table_size;
-            string_table_block.snes_base = 0;
-            if (out_block) *out_block = &string_table_block;
-            return inline_string_table + snes_addr;
+/* Resolve a text address to a byte pointer within the dialogue blob or
+ * inline string table.  Also handles legacy SNES addresses (>= 0xC00000)
+ * via the addr_remap binary search table.
+ *
+ * *out_block receives the containing TextBlock (for size-remaining calculation).
+ * Returns NULL if the address cannot be resolved. */
+static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
+    static TextBlock dialogue_block = {0};
+
+    /* New-format: dialogue blob offsets (0x100000 .. 0xBFFFFF) */
+    if (addr >= DIALOGUE_BLOB_BASE && addr < 0xC00000 && dialogue_blob != NULL) {
+        uint32_t offset = addr - DIALOGUE_BLOB_BASE;
+        if (offset < dialogue_blob_size) {
+            dialogue_block.data = dialogue_blob;
+            dialogue_block.size = dialogue_blob_size;
+            if (out_block) *out_block = &dialogue_block;
+            return dialogue_blob + offset;
         }
     }
 
-    TextBlock *best = NULL;
-    uint32_t best_offset = UINT32_MAX;
-    for (int i = 0; i < TEXT_BLOCK_COUNT; i++) {
-        TextBlock *blk = &text_blocks[i];
-        if (!blk->data) continue;
-        if (snes_addr < blk->snes_base) continue;
-        uint32_t offset = snes_addr - blk->snes_base;
-        if (offset < blk->size && offset < best_offset) {
-            best = blk;
-            best_offset = offset;
+    /* Inline string table (0 .. DIALOGUE_BLOB_BASE-1) */
+    if (addr < DIALOGUE_BLOB_BASE && inline_string_table != NULL && addr < inline_string_table_size) {
+        static TextBlock string_table_block = {0};
+        string_table_block.data = inline_string_table;
+        string_table_block.size = inline_string_table_size;
+        if (out_block) *out_block = &string_table_block;
+        return inline_string_table + addr;
+    }
+
+    /* Legacy SNES address (>= 0xC00000): remap to dialogue blob offset */
+    if (addr >= 0xC00000) {
+        uint32_t remapped = remap_snes_to_blob(addr);
+        if (remapped >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
+            uint32_t offset = remapped - DIALOGUE_BLOB_BASE;
+            if (offset < dialogue_blob_size) {
+                dialogue_block.data = dialogue_blob;
+                dialogue_block.size = dialogue_blob_size;
+                if (out_block) *out_block = &dialogue_block;
+                return dialogue_blob + offset;
+            }
         }
+        fprintf(stderr, "WARN: resolve_text_addr: SNES addr $%06X not in remap table\n", addr);
     }
-    if (best) {
-        if (out_block) *out_block = best;
-        return best->data + best_offset;
-    }
+
     return NULL;
 }
 
@@ -739,10 +762,12 @@ static bool display_text_load_dialogue_blob(void) {
 #ifdef ASSET_DIALOGUE_DIALOGUE_BIN_DATA
     dialogue_blob = ASSET_DIALOGUE_DIALOGUE_BIN_DATA;
     dialogue_blob_size = ASSET_DIALOGUE_DIALOGUE_BIN_SIZE;
-    return dialogue_blob != NULL;
-#else
-    return true;  /* No dialogue blob in this build */
 #endif
+#ifdef ASSET_DIALOGUE_ADDR_REMAP_BIN_DATA
+    addr_remap_data = ASSET_DIALOGUE_ADDR_REMAP_BIN_DATA;
+    addr_remap_count = ASSET_DIALOGUE_ADDR_REMAP_BIN_SIZE / 8;
+#endif
+    return dialogue_blob != NULL;
 }
 
 bool display_text_load_eevent0(void) {
@@ -861,10 +886,8 @@ const TeleportDestination *get_teleport_dest(uint16_t index) {
 const uint8_t *compressed_text_lookup(uint16_t bank_offset, uint8_t index) {
     uint16_t effective_index = bank_offset + index;
     if (effective_index >= COMPRESSED_TEXT_ENTRY_COUNT) return NULL;
-    /* Read 4-byte SNES address from pointer table */
-    uint32_t snes_addr = read_u32_le(&compressed_text_ptrs[effective_index * 4]);
-    /* Convert SNES address to offset within our data ert.buffer */
-    uint32_t offset = snes_addr - COMPRESSED_TEXT_SNES_BASE;
+    /* Read 4-byte offset from pointer table (byte offset into compressed_text_data) */
+    uint32_t offset = read_u32_le(&compressed_text_ptrs[effective_index * 4]);
     if (offset >= compressed_text_data_size) return NULL;
     return compressed_text_data + offset;
 }

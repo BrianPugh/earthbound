@@ -854,7 +854,27 @@ def _pack_dialogue(
     # Generate C header with all label → flat offset mappings.
     _generate_text_refs_header(flat_label_offsets, output_dir.parent / "data")
 
+    # Emit binary remap table: sorted array of (snes_addr_u32, blob_offset_u32) pairs.
+    # Used by the C port to resolve SNES addresses embedded in binary ROM data
+    # (e.g., movement script CC_0F text display) without the legacy TextBlock registry.
+    _emit_addr_remap_bin(addr_remap, output_dir)
+
     return addr_remap
+
+
+def _emit_addr_remap_bin(addr_remap: dict[int, int], output_dir: Path) -> None:
+    """Emit ``dialogue/addr_remap.bin`` — sorted (snes_addr, blob_offset) pairs."""
+    import struct
+
+    sorted_pairs = sorted(addr_remap.items())
+    buf = bytearray()
+    for snes_addr, blob_offset in sorted_pairs:
+        buf.extend(struct.pack("<II", snes_addr, blob_offset))
+
+    out_path = output_dir / "dialogue" / "addr_remap.bin"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(bytes(buf))
+    print(f"  Emitted addr_remap.bin ({len(sorted_pairs)} entries, {len(buf)} bytes)")
 
 
 def _generate_text_refs_header(

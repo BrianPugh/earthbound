@@ -1571,7 +1571,7 @@ def pack_compressed_text(json_path: Path, text_table: TextTable, data_output: Pa
     # Build pointer table: only first 767 entries get pointers
     ptrs_buf = bytearray()
     for off in offsets[:COMPRESSED_TEXT_PTR_COUNT]:
-        ptrs_buf.extend(struct.pack("<I", COMPRESSED_TEXT_SNES_BASE + off))
+        ptrs_buf.extend(struct.pack("<I", off))
 
     data_output.parent.mkdir(parents=True, exist_ok=True)
     ptrs_output.parent.mkdir(parents=True, exist_ok=True)

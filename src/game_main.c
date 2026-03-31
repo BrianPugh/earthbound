@@ -773,21 +773,20 @@ display_menu:
         ow.respawn_y = game_state.leader_y_coord;
         break;
     case 4:
-        /* Apple (MSG_DEBUG_00) — assembly @CMD_MSG_00 (lines 119-124).
-         * Sets message pointer to MSG_DEBUG_00 (0xC58000). */
-        message_addr = 0xC58000;
+        /* Apple (MSG_DEBUG_00) — assembly @CMD_MSG_00 (lines 119-124). */
+        message_addr = MSG_DBG_MAIN_MENU;
         break;
     case 5:
         /* Banana (MSG_DEBUG_01) — assembly @CMD_MSG_01 (lines 125-130). */
-        message_addr = 0xC58ED1;
+        message_addr = MSG_DBG_EVENT_SCENE_SELECT;
         break;
     case 6:
         /* TV (MSG_DEBUG_02) — assembly @CMD_MSG_02 (lines 131-136). */
-        message_addr = 0xC58DBF;
+        message_addr = MSG_DBG_MONSTER_TOGGLE;
         break;
     case 7:
-        /* Event (TEXT_DEBUG_UNKNOWN_MENU_2) — assembly @CMD_MSG_UNKNOWN (lines 137-142). */
-        message_addr = 0xEFA6EC;
+        /* Event — assembly @CMD_MSG_UNKNOWN (lines 137-142). */
+        message_addr = MSG_DBGTXT_DEBUG_MENU_CAMERA_MOVE;
         break;
     case 8: {
         /* WARP — assembly @CMD_WARP (lines 143-179).
