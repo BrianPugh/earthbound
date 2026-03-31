@@ -513,23 +513,16 @@ int16_t cr_disable_entity_collision2(int16_t entity_offset, int16_t script_offse
 
 int16_t cr_movement_display_text(int16_t entity_offset, int16_t script_offset,
                                   uint16_t pc, uint16_t *out_pc) {
-    /* 4 extra bytes: bank(1), 0(1), text_lo(1), text_hi(1).
-     * Port of asm/overworld/movement_display_text.asm — reads a 24-bit text pointer
-     * and calls DISPLAY_TEXT_FROM_PARAMS to run the text bytecode.
-     *
-     * The 4 bytes encode a ROM address from EVENT_DISPLAY_TEXT_IMMEDIATELY:
-     *   .BANKBYTE(label), 0, .LOBYTE(label), .HIBYTE(label)
-     * For attract mode, these point into EEVENT0 (bank $CB, base $E5BC).
-     * Convert to ert.buffer offset and call display_text(). */
-    uint8_t bank = sb(pc);
-    uint8_t text_lo = sb(pc + 2);
-    uint8_t text_hi = sb(pc + 3);
+    /* 4 extra bytes encoding a text address: [hi_byte, 0, lo_byte, mid_byte].
+     * Pack-time remapping converts these from SNES ROM addresses to dialogue
+     * blob offsets, so the reconstructed address is a blob offset (0x1xxxxx). */
+    uint8_t hi_byte = sb(pc);
+    uint8_t lo_byte = sb(pc + 2);
+    uint8_t mid_byte = sb(pc + 3);
     *out_pc = pc + 4;
 
-    uint32_t full_snes_addr = ((uint32_t)bank << 16) | ((uint16_t)text_hi << 8) | text_lo;
-
-    /* SNES address from ROM script bytes — remapped to dialogue blob at runtime */
-    display_text_from_addr(full_snes_addr);
+    uint32_t text_addr = ((uint32_t)hi_byte << 16) | ((uint16_t)mid_byte << 8) | lo_byte;
+    display_text_from_addr(text_addr);
 
     /* Set FLG_TEMP_1 (flag 2) to unblock script spin loops.
      * Assembly: text bytecode sets this when text completes. */

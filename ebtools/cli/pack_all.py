@@ -221,12 +221,7 @@ def pack_all(
             "data/status_window_text.bin",
             _pack_simple("pack_raw_byte_list"),
         ),
-        (
-            "attract mode txt",
-            "data/attract_mode_txt.json",
-            "data/attract_mode_txt.bin",
-            _pack_simple("pack_attract_mode"),
-        ),
+        # attract_mode_txt packed separately after dialogue (needs addr_remap)
         (
             "map enemy placement",
             "data/map_enemy_placement.json",
@@ -268,7 +263,7 @@ def pack_all(
     # Non-data misc assets (maps, ending, sprites, town map icons, loose files)
     _misc_packers = [
         ("maps/door_config_table.json", "maps/door_config_table.bin"),
-        ("maps/door_data.json", "maps/door_data.bin"),
+        # door_data.json packed separately after dialogue (needs addr_remap for text pointers)
         ("maps/door_pointer_table.json", "maps/door_pointer_table.bin"),
         ("maps/event_control_ptr_table.json", "maps/event_control_ptr_table.bin"),
         ("maps/screen_transition_config.json", "maps/screen_transition_config.bin"),
@@ -331,8 +326,7 @@ def pack_all(
         ("locale/ending/cast_sequence_formatting.json", "US/ending/cast_sequence_formatting.bin"),
         ("locale/ending/credits_font_gfx.json", "US/ending/credits_font.gfx.lzhal"),
         ("locale/ending/staff_text.json", "US/ending/staff_text.bin"),
-        ("locale/events/bank_c3_scripts.json", "US/events/bank_c3_scripts.bin"),
-        ("locale/events/bank_c4_scripts.json", "US/events/bank_c4_scripts.bin"),
+        # bank_c3/c4_scripts packed separately after dialogue (need addr_remap)
         ("locale/events/event_script_pointers.json", "US/events/event_script_pointers.bin"),
         ("locale/events/naming_screen_entities.json", "US/events/naming_screen_entities.bin"),
         ("locale/graphics/sound_stone_gfx.json", "US/graphics/sound_stone.gfx.lzhal"),
@@ -584,6 +578,41 @@ def pack_all(
         pack_telephone_contacts(_telephone_json, text_table, _telephone_out, addr_remap=addr_remap)
         packed += 1
         print("  Packed telephone contacts")
+
+    # Event scripts with text address remapping.
+    # The C port loads bank_c3_scripts_combined.bin (early + main concatenated).
+    # Patch both halves and emit the combined binary.
+    _c3_json = assets_dir / "locale" / "events" / "bank_c3_scripts.json"
+    _c3_early_bin = bin_dir / "US" / "events" / "bank_c3_early_scripts.bin"
+    if _c3_json.exists():
+        _pack_event_script_combined(
+            _c3_json,
+            _c3_early_bin,
+            output_dir / "US" / "events" / "bank_c3_scripts_combined.bin",
+            addr_remap,
+        )
+        packed += 1
+    _c4_json = assets_dir / "locale" / "events" / "bank_c4_scripts.json"
+    if _c4_json.exists():
+        _pack_event_script(_c4_json, output_dir / "US" / "events" / "bank_c4_scripts.bin", addr_remap)
+        packed += 1
+
+    # Door data with text address remapping
+    _door_json = assets_dir / "maps" / "door_data.json"
+    if _door_json.exists():
+        _pack_binary_with_addr_remap(_door_json, output_dir / "maps" / "door_data.bin", addr_remap)
+        packed += 1
+
+    # Attract mode text pointer table
+    _attract_json = assets_dir / "data" / "attract_mode_txt.json"
+    if _attract_json.exists():
+        from ebtools.parsers.simple_tables import pack_attract_mode
+
+        _attract_out = output_dir / "data" / "attract_mode_txt.bin"
+        _attract_out.parent.mkdir(parents=True, exist_ok=True)
+        pack_attract_mode(_attract_json, _attract_out, addr_remap=addr_remap)
+        packed += 1
+        print("  Packed attract mode txt (with text address remapping)")
 
     # --- Compressed text dictionary (1 JSON -> 2 bin files) ---
     ct_json = assets_dir / "data" / "compressed_text.json"
@@ -876,6 +905,118 @@ def _emit_addr_remap_bin(addr_remap: dict[int, int], output_dir: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(bytes(buf))
     print(f"  Emitted addr_remap.bin ({len(sorted_pairs)} entries, {len(buf)} bytes)")
+
+
+def _pack_binary_with_addr_remap(
+    json_path: Path,
+    output_path: Path,
+    addr_remap: dict[int, int],
+) -> None:
+    """Pack a raw byte array, remapping any 4-byte LE values found in addr_remap.
+
+    Scans every 4-byte-aligned offset for values that match an addr_remap key
+    (SNES text addresses >= 0xC00000) and replaces them with the dialogue blob
+    offset.  Safe for binary data where text pointers are 4-byte aligned and
+    other fields are small integers (event flags, coordinates, etc.).
+    """
+    import json
+
+    data = bytearray(json.loads(json_path.read_text()))
+    patched = 0
+    # Scan at every byte offset — door data text pointers aren't necessarily
+    # 4-byte aligned (they're at offset 2 within variable-length entries).
+    for i in range(len(data) - 3):
+        val = int.from_bytes(data[i : i + 4], "little")
+        if val in addr_remap:
+            new_val = addr_remap[val]
+            data[i : i + 4] = new_val.to_bytes(4, "little")
+            patched += 1
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bytes(data))
+    print(f"  Packed {json_path.name} ({patched} text addresses remapped)")
+
+
+def _remap_event_script_text_addrs(data: bytearray, addr_remap: dict[int, int]) -> int:
+    """Scan event script bytecode and remap embedded SNES text addresses in-place.
+
+    Looks for EVENT_CALLROUTINE (opcode 0x42) with callroutine addresses
+    MOVEMENT_DISPLAY_TEXT (0xC0A8A0) or MOVEMENT_QUEUE_INTERACTION (0xC0A88D).
+    Both encode a 4-byte text address as [bank, 0x00, lo, hi] after the
+    3-byte callroutine address.  Returns the number of addresses patched.
+    """
+    # Callroutine signatures to scan for (3-byte LE: lo, mid, hi)
+    text_callroutines = {
+        (0xA0, 0xA8, 0xC0),  # MOVEMENT_DISPLAY_TEXT
+        (0x8D, 0xA8, 0xC0),  # MOVEMENT_QUEUE_INTERACTION
+    }
+
+    patched = 0
+    i = 0
+    while i < len(data) - 7:
+        if data[i] == 0x42:
+            sig = (data[i + 1], data[i + 2], data[i + 3])
+            if sig in text_callroutines:
+                bank = data[i + 4]
+                text_lo = data[i + 6]
+                text_hi = data[i + 7]
+                snes_addr = (bank << 16) | (text_hi << 8) | text_lo
+
+                if snes_addr in addr_remap:
+                    new_addr = addr_remap[snes_addr]
+                    data[i + 4] = (new_addr >> 16) & 0xFF
+                    data[i + 6] = new_addr & 0xFF
+                    data[i + 7] = (new_addr >> 8) & 0xFF
+                    patched += 1
+                i += 8
+                continue
+        i += 1
+    return patched
+
+
+def _pack_event_script(
+    json_path: Path,
+    output_path: Path,
+    addr_remap: dict[int, int],
+) -> None:
+    """Pack a single event script byte array with text address remapping."""
+    import json
+
+    data = bytearray(json.loads(json_path.read_text()))
+    patched = _remap_event_script_text_addrs(data, addr_remap)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bytes(data))
+    print(f"  Packed {json_path.name} ({patched} text addresses remapped)")
+
+
+def _pack_event_script_combined(
+    main_json_path: Path,
+    early_bin_path: Path,
+    output_path: Path,
+    addr_remap: dict[int, int],
+) -> None:
+    """Pack bank_c3_scripts_combined.bin = early_scripts + main_scripts, with text remapping.
+
+    The C port loads the combined binary.  The early half comes from ROM
+    extraction (no JSON), the main half from editable JSON.
+    """
+    import json
+
+    # Load early scripts from extracted binary (no JSON exists for these)
+    early = bytearray(early_bin_path.read_bytes()) if early_bin_path.exists() else bytearray()
+    early_patched = _remap_event_script_text_addrs(early, addr_remap)
+
+    # Load main scripts from JSON
+    main = bytearray(json.loads(main_json_path.read_text()))
+    main_patched = _remap_event_script_text_addrs(main, addr_remap)
+
+    combined = early + main
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(bytes(combined))
+    total = early_patched + main_patched
+    print(
+        f"  Packed bank_c3_scripts_combined.bin ({total} text addresses remapped, "
+        f"{len(early)}+{len(main)}={len(combined)} bytes)"
+    )
 
 
 def _generate_text_refs_header(

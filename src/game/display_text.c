@@ -95,29 +95,6 @@ static size_t inline_string_table_size = 0;
 static const uint8_t *dialogue_blob = NULL;
 static size_t dialogue_blob_size = 0;
 
-/* SNES address → dialogue blob offset remap table.
- * Sorted array of (snes_addr_u32, blob_offset_u32) pairs, binary-searched
- * at runtime. Used by callroutine_movement CC_0F which constructs SNES
- * addresses from binary ROM movement script data. */
-static const uint8_t *addr_remap_data = NULL;
-static size_t addr_remap_count = 0;
-
-/* Binary search the remap table. Returns dialogue blob offset, or 0 on miss. */
-static uint32_t remap_snes_to_blob(uint32_t snes_addr) {
-    if (!addr_remap_data || addr_remap_count == 0) return 0;
-    size_t lo = 0, hi = addr_remap_count;
-    while (lo < hi) {
-        size_t mid = lo + (hi - lo) / 2;
-        uint32_t key = read_u32_le(&addr_remap_data[mid * 8]);
-        if (key == snes_addr)
-            return read_u32_le(&addr_remap_data[mid * 8 + 4]);
-        if (key < snes_addr)
-            lo = mid + 1;
-        else
-            hi = mid;
-    }
-    return 0;
-}
 
 /* HP/PP modification functions: now in game_state.c, declared in game_state.h.
  * heal_character_hp/pp, reduce_hp/pp_target, recover/reduce_hp/pp_amtpercent. */
@@ -451,23 +428,12 @@ typedef struct {
  * Address ranges:
  *   0x000000 .. 0x0FFFFF  — inline string table (item/enemy descriptions)
  *   0x100000 .. 0xBFFFFF  — dialogue blob (compiled from YAML)
- *   0xC00000 .. 0xFFFFFF  — legacy SNES ROM address (remapped via addr_remap.bin)
  *
  * *out_block receives the data source for size-remaining calculation.
  * Returns NULL if the address cannot be resolved. */
 static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
     static TextBlock dialogue_block = {0};
     static TextBlock string_table_block = {0};
-
-    /* Legacy SNES address: remap to dialogue blob offset first */
-    if (addr >= 0xC00000) {
-        uint32_t remapped = remap_snes_to_blob(addr);
-        if (remapped == 0) {
-            fprintf(stderr, "WARN: resolve_text_addr: addr $%06X not in remap table\n", addr);
-            return NULL;
-        }
-        addr = remapped;
-    }
 
     /* Dialogue blob */
     if (addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
@@ -580,10 +546,6 @@ static bool display_text_load_dialogue_blob(void) {
 #ifdef ASSET_DIALOGUE_DIALOGUE_BIN_DATA
     dialogue_blob = ASSET_DIALOGUE_DIALOGUE_BIN_DATA;
     dialogue_blob_size = ASSET_DIALOGUE_DIALOGUE_BIN_SIZE;
-#endif
-#ifdef ASSET_DIALOGUE_ADDR_REMAP_BIN_DATA
-    addr_remap_data = ASSET_DIALOGUE_ADDR_REMAP_BIN_DATA;
-    addr_remap_count = ASSET_DIALOGUE_ADDR_REMAP_BIN_SIZE / 8;
 #endif
     return dialogue_blob != NULL;
 }

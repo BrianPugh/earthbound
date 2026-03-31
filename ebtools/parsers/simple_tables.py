@@ -1300,11 +1300,14 @@ def export_attract_mode_json(data: bytes, output_path: Path) -> None:
     _write_json(output_path, entries)
 
 
-def pack_attract_mode(json_path: Path, output_path: Path) -> None:
+def pack_attract_mode(json_path: Path, output_path: Path, addr_remap: dict[int, int] | None = None) -> None:
     entries = _read_json(json_path)
     buf = bytearray()
     for addr_str in entries:
-        buf.extend(struct.pack("<I", int(addr_str, 16)))
+        ptr = int(addr_str, 16)
+        if addr_remap and ptr in addr_remap:
+            ptr = addr_remap[ptr]
+        buf.extend(struct.pack("<I", ptr))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(bytes(buf))
 
