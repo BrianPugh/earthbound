@@ -14,7 +14,7 @@
 #include "game/window.h"
 
 #include "data/assets.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 
 #define BATTLE_ROW_TEXT_LENGTH 13
 #include "game/overworld.h"

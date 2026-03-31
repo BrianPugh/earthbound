@@ -28,7 +28,7 @@
 #include "include/pad.h"
 #include "platform/platform.h"
 #include "game_main.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include <string.h>
 
 /* --- CC handler: 0x04 SET_EVENT_FLAG ---
@@ -1616,10 +1616,8 @@ void cc_19_dispatch(ScriptReader *r) {
             b = script_read_byte(r);
             if (b == 0x01) {
                 /* Terminator with 4-byte callback address.
-                 * Assembly: assembles 4 bytes into a callback pointer and
-                 * calls ADD_MENU_OPTION(text, callback). The callback is a
-                 * SNES far text pointer invoked by selection_menu when the
-                 * cursor lands on this option (hover preview text). */
+                 * The callback is a text address invoked by selection_menu
+                 * when the cursor lands on this option (hover preview text). */
                 uint32_t callback = script_read_dword(r);
                 label_buf[pos] = '\0';
                 WindowInfo *w = get_focus_window_info();

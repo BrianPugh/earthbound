@@ -14,7 +14,7 @@
 #include "game/window.h"
 
 #include "data/assets.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include "game/fade.h"
 #include "game/battle_bg.h"
 #include "game/map_loader.h"

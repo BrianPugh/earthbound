@@ -12,8 +12,7 @@
 #define PSI_TELEPORT_DEST_NAME_LEN    25
 #define PSI_TELEPORT_DEST_ENTRY_SIZE  31  /* name[25] + event_flag[2] + x[2] + y[2] */
 
-/* Text address constants used by teleport */
-#define MSG_EVT_MASTER_TLPT_SNES_ADDR 0xC62AE7u
+/* Teleport master's "learn PSI Teleport" dialogue (from text_refs.h) */
 
 /* ---- Teleport functions (overworld_teleport.c) ---- */
 void psi_teleport_alpha_tick(int16_t entity_offset);

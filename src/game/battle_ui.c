@@ -15,7 +15,7 @@
 #include "game/window.h"
 
 #include "data/assets.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include "game/fade.h"
 #include "game/battle_bg.h"
 #include "game/overworld.h"
@@ -1819,7 +1819,7 @@ void initialize_battle_ui_state(void) {
     /* USA-only: reset BG2 tile usage map and VWF text alignment state */
     init_used_bg2_tile_map();
 
-    /* Load all battle text data blocks (EBATTLE0-9) */
+    /* Battle text lives in the dialogue blob (loaded at startup). */
     display_text_load_battle_text();
 }
 

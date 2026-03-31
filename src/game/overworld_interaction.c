@@ -42,9 +42,9 @@
 #define NPC_TYPE_ITEM_BOX 2
 #define NPC_TYPE_OBJECT   3
 
-void display_text_and_wait_for_fade(uint32_t text_snes_addr) {
+void display_text_and_wait_for_fade(uint32_t text_addr) {
     disable_all_entities();
-    display_text_from_addr(text_snes_addr);
+    display_text_from_addr(text_addr);
     /* Assembly: loop calling WINDOW_TICK until ow.entity_fade_entity == -1.
      * Entity fade animation callroutines are ported (callbacks.c).
      * The fade entity (EVENT_ENTITY_WIPE, script 859) drives the animation via its script. */

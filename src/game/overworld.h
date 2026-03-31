@@ -628,7 +628,7 @@ void run_frames_until_fade_done(void);
  * Port of DISPLAY_TEXT_AND_WAIT_FOR_FADE (asm/text/display_text_and_wait_for_fade.asm).
  * Disables all entities, runs text script, waits for any entity fade,
  * then re-enables all entities. */
-void display_text_and_wait_for_fade(uint32_t text_snes_addr);
+void display_text_and_wait_for_fade(uint32_t text_addr);
 
 /* Process the next queued interaction (NPC text, door, screen reload, etc.).
  * Port of PROCESS_QUEUED_INTERACTIONS (asm/overworld/process_queued_interactions.asm).

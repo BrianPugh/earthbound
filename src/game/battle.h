@@ -1103,8 +1103,8 @@ void display_in_battle_text(const uint8_t *text, size_t size);
 
 /* SNES address variants — resolve MSG_BTL_* address, then display with battle wrappers.
  * Use these with #define constants from data/battle_text_data.h. */
-void display_text_wait_addr(uint32_t snes_addr, uint32_t param);
-void display_in_battle_text_addr(uint32_t snes_addr);
+void display_text_wait_addr(uint32_t addr, uint32_t param);
+void display_in_battle_text_addr(uint32_t addr);
 extern void swap_attacker_with_target(void);
 extern void set_current_item(uint8_t item);
 extern void reset_hppp_rolling(void);

@@ -27,7 +27,7 @@
 #include "snes/ppu.h"
 #include "core/decomp.h"
 #include "platform/platform.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include <stdio.h>
 #include <string.h>
 

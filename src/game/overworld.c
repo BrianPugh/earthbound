@@ -1803,10 +1803,7 @@ void set_leader_position_and_load_party(uint16_t x, uint16_t y,
  * loads the map at the leader's saved position, and prepares all
  * overworld subsystems. */
 void initialize_overworld_state(void) {
-    /* Load EEVENT0 + ESYSTEM text blocks so the prologue text
-     * (MSG_EVT_PROLOGUE_NEW at $C5E70B) and other overworld text can
-     * be resolved by display_text_from_addr(). In the assembly
-     * these live in ROM and are always available. */
+    /* Load the dialogue blob and inline string table. */
     display_text_load_eevent0();
 
     /* Assembly line 11: JSL INIT_ENTITY_SYSTEM */

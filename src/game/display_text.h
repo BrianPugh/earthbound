@@ -24,7 +24,7 @@
  * script_size: size of the bytecode buffer (for bounds checking). */
 void display_text(const uint8_t *script, size_t script_size);
 
-/* Load the EEVENT0 binary asset. Call once at startup.
+/* Load the dialogue blob and inline string table. Call once at startup.
  * Returns true on success. */
 bool display_text_load_eevent0(void);
 
@@ -35,7 +35,7 @@ void display_text_free_battle_text(void);
 
 /* Resolve a text address (dialogue blob offset or legacy SNES address)
  * and display the text script at that location. */
-void display_text_from_addr(uint32_t snes_addr);
+void display_text_from_addr(uint32_t addr);
 
 /* Battle name buffer sizes (from bankconfig/common/ram.asm). */
 #define BATTLE_NAME_ATTACKER_SIZE  30  /* sizeof(enemy_data::name) + 5 (USA) */

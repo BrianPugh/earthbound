@@ -24,7 +24,7 @@ uint8_t script_read_byte(ScriptReader *r);
 uint16_t script_read_word(ScriptReader *r);
 uint32_t script_read_dword(ScriptReader *r);
 void script_skip(ScriptReader *r, int n);
-void resolve_text_jump(ScriptReader *r, uint32_t snes_addr);
+void resolve_text_jump(ScriptReader *r, uint32_t addr);
 
 /* ---- Data helpers (display_text.c) ---- */
 const uint8_t *compressed_text_lookup(uint16_t bank_offset, uint8_t index);

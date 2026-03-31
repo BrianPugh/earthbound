@@ -26,7 +26,7 @@
 #include "include/pad.h"
 #include "platform/platform.h"
 #include "game_main.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include "intro/file_select.h"
 #include "intro/title_screen.h"
 #include "game/battle_bg.h"

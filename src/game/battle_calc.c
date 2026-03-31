@@ -14,7 +14,7 @@
 #include "game/text.h"
 #include "game/window.h"
 
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 
 
 /* ======================================================================

@@ -90,8 +90,7 @@ static const uint8_t *inline_string_table = NULL;
 static size_t inline_string_table_size = 0;
 
 /* Flat dialogue blob — all compiled dialogue concatenated into one blob.
- * Addresses below DIALOGUE_BLOB_BASE are inline strings; addresses at or above
- * DIALOGUE_BLOB_BASE (but below 0xC00000) are dialogue blob offsets. */
+ * See resolve_text_addr() for the address range layout. */
 #define DIALOGUE_BLOB_BASE 0x100000
 static const uint8_t *dialogue_blob = NULL;
 static size_t dialogue_blob_size = 0;
@@ -447,17 +446,31 @@ typedef struct {
 } TextBlock;
 
 
-/* Resolve a text address to a byte pointer within the dialogue blob or
- * inline string table.  Also handles legacy SNES addresses (>= 0xC00000)
- * via the addr_remap binary search table.
+/* Resolve a text address to a byte pointer.
  *
- * *out_block receives the containing TextBlock (for size-remaining calculation).
+ * Address ranges:
+ *   0x000000 .. 0x0FFFFF  — inline string table (item/enemy descriptions)
+ *   0x100000 .. 0xBFFFFF  — dialogue blob (compiled from YAML)
+ *   0xC00000 .. 0xFFFFFF  — legacy SNES ROM address (remapped via addr_remap.bin)
+ *
+ * *out_block receives the data source for size-remaining calculation.
  * Returns NULL if the address cannot be resolved. */
 static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
     static TextBlock dialogue_block = {0};
+    static TextBlock string_table_block = {0};
 
-    /* New-format: dialogue blob offsets (0x100000 .. 0xBFFFFF) */
-    if (addr >= DIALOGUE_BLOB_BASE && addr < 0xC00000 && dialogue_blob != NULL) {
+    /* Legacy SNES address: remap to dialogue blob offset first */
+    if (addr >= 0xC00000) {
+        uint32_t remapped = remap_snes_to_blob(addr);
+        if (remapped == 0) {
+            fprintf(stderr, "WARN: resolve_text_addr: addr $%06X not in remap table\n", addr);
+            return NULL;
+        }
+        addr = remapped;
+    }
+
+    /* Dialogue blob */
+    if (addr >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
         uint32_t offset = addr - DIALOGUE_BLOB_BASE;
         if (offset < dialogue_blob_size) {
             dialogue_block.data = dialogue_blob;
@@ -467,28 +480,12 @@ static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
         }
     }
 
-    /* Inline string table (0 .. DIALOGUE_BLOB_BASE-1) */
+    /* Inline string table */
     if (addr < DIALOGUE_BLOB_BASE && inline_string_table != NULL && addr < inline_string_table_size) {
-        static TextBlock string_table_block = {0};
         string_table_block.data = inline_string_table;
         string_table_block.size = inline_string_table_size;
         if (out_block) *out_block = &string_table_block;
         return inline_string_table + addr;
-    }
-
-    /* Legacy SNES address (>= 0xC00000): remap to dialogue blob offset */
-    if (addr >= 0xC00000) {
-        uint32_t remapped = remap_snes_to_blob(addr);
-        if (remapped >= DIALOGUE_BLOB_BASE && dialogue_blob != NULL) {
-            uint32_t offset = remapped - DIALOGUE_BLOB_BASE;
-            if (offset < dialogue_blob_size) {
-                dialogue_block.data = dialogue_blob;
-                dialogue_block.size = dialogue_blob_size;
-                if (out_block) *out_block = &dialogue_block;
-                return dialogue_blob + offset;
-            }
-        }
-        fprintf(stderr, "WARN: resolve_text_addr: SNES addr $%06X not in remap table\n", addr);
     }
 
     return NULL;
@@ -557,14 +554,14 @@ void get_psi_suffix_label(uint16_t ability_id, char *out, size_t out_size) {
     }
 }
 
-void display_text_from_addr(uint32_t snes_addr) {
+void display_text_from_addr(uint32_t addr) {
     TextBlock *blk = NULL;
-    const uint8_t *ptr = resolve_text_addr(snes_addr, &blk);
+    const uint8_t *ptr = resolve_text_addr(addr, &blk);
     if (ptr && blk) {
         size_t remaining = blk->size - (size_t)(ptr - blk->data);
         display_text(ptr, remaining);
     } else {
-        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
+        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     }
 }
 
@@ -645,18 +642,18 @@ void script_skip(ScriptReader *r, int n) {
     for (int i = 0; i < n; i++) script_read_byte(r);
 }
 
-/* Resolve a SNES text address to a ert.buffer pointer and update the reader.
- * Port of the JUMP mechanism used by CC_0A, CC_06, CC_09, CC_1B_02/03.
- * Searches all loaded text blocks to convert SNES ROM address to ert.buffer ptr. */
-void resolve_text_jump(ScriptReader *r, uint32_t snes_addr) {
+/* Resolve a text address and update the reader's stream pointers.
+ * Used by CC_0A (JUMP), CC_06 (JUMP_IF_FLAG_SET), CC_09 (JUMP_MULTI),
+ * CC_08 (CALL_TEXT), CC_1B_02/03 (conditional jumps). */
+void resolve_text_jump(ScriptReader *r, uint32_t addr) {
     TextBlock *blk = NULL;
-    const uint8_t *ptr = resolve_text_addr(snes_addr, &blk);
+    const uint8_t *ptr = resolve_text_addr(addr, &blk);
     if (ptr && blk) {
         r->ptr = ptr;
         r->base = blk->data;
         r->end = blk->data + blk->size;
     } else {
-        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL - text block may not be loaded\n", snes_addr);
+        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     }
 }
 
@@ -1807,9 +1804,8 @@ void display_text(const uint8_t *script, size_t script_size) {
 
         /* Jump CCs */
         case 0x06: {
-            /* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword SNES address).
-             * Port of CC_06 (asm/text/ccs/jump_event_flag.asm).
-             * If event flag is set (non-zero), jump to target; else skip. */
+            /* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword address).
+             * Port of CC_06. If event flag is set, jump to target; else skip. */
             uint16_t flag = script_read_word(&reader);
             uint32_t target = script_read_dword(&reader);
             if (event_flag_get(flag)) {
@@ -1818,10 +1814,8 @@ void display_text(const uint8_t *script, size_t script_size) {
             break;
         }
         case 0x08: {
-            /* CALL_TEXT: 4 args (dword SNES address).
-             * Port of CC_08 (asm/text/ccs/call.asm).
-             * Recursive call to DISPLAY_TEXT at target address.
-             * Returns here after the called text hits END_BLOCK. */
+            /* CALL_TEXT: 4 args (dword address).
+             * Port of CC_08. Recursive call; returns after END_BLOCK. */
             uint32_t target = script_read_dword(&reader);
             display_text_from_addr(target);
             break;
@@ -1843,9 +1837,8 @@ void display_text(const uint8_t *script, size_t script_size) {
             break;
         }
         case 0x0A: {
-            /* JUMP: 4 args (dword SNES address).
-             * Port of CC_0A (asm/text/ccs/jump.asm).
-             * Unconditional jump to SNES address within text data. */
+            /* JUMP: 4 args (dword address).
+             * Port of CC_0A. Unconditional jump. */
             uint32_t target = script_read_dword(&reader);
             resolve_text_jump(&reader, target);
             break;

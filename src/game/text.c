@@ -14,7 +14,6 @@
 #include "snes/ppu.h"
 #include "core/decomp.h"
 #include "data/assets.h"
-#include "data/battle_text_data.h"
 #include "include/binary.h"
 #include "include/constants.h"
 #include "include/pad.h"

@@ -35,7 +35,7 @@
 #include "snes/ppu.h"
 #include "core/decomp.h"
 #include "platform/platform.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include <string.h>
 
 /* EarthBound character encoding constants (from include/macros.asm EBTEXT) */
@@ -78,7 +78,7 @@ static uint16_t instant_win_sorted_defense[4];
 
 /* ---- Forward declarations ---- */
 void display_text_with_prompt(const uint8_t *text, size_t size);
-void display_text_with_prompt_addr(uint32_t snes_addr);
+void display_text_with_prompt_addr(uint32_t addr);
 
 static uint16_t battle_item_menu(void);
 
@@ -112,7 +112,7 @@ void display_in_battle_text(const uint8_t *text, size_t size) {
 }
 
 /* SNES address variants — resolve text address then display with battle wrappers. */
-void display_text_wait_addr(uint32_t snes_addr, uint32_t param) {
+void display_text_wait_addr(uint32_t addr, uint32_t param) {
     if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
         game_state.auto_fight_enable = 0;
         clear_hppp_window_header();
@@ -121,11 +121,11 @@ void display_text_wait_addr(uint32_t snes_addr, uint32_t param) {
     if (bt.battle_mode_flag) {
         dt.blinking_triangle_flag = 2;
     }
-    display_text_from_addr(snes_addr);
+    display_text_from_addr(addr);
     dt.blinking_triangle_flag = 0;
 }
 
-void display_in_battle_text_addr(uint32_t snes_addr) {
+void display_in_battle_text_addr(uint32_t addr) {
     if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
         game_state.auto_fight_enable = 0;
         clear_hppp_window_header();
@@ -133,7 +133,7 @@ void display_in_battle_text_addr(uint32_t snes_addr) {
     if (bt.battle_mode_flag) {
         dt.blinking_triangle_flag = 2;
     }
-    display_text_from_addr(snes_addr);
+    display_text_from_addr(addr);
     dt.blinking_triangle_flag = 0;
 }
 
@@ -2771,9 +2771,9 @@ void display_text_with_prompt(const uint8_t *text, size_t size) {
     dt.blinking_triangle_flag = 0;
 }
 
-void display_text_with_prompt_addr(uint32_t snes_addr) {
+void display_text_with_prompt_addr(uint32_t addr) {
     dt.blinking_triangle_flag = 1;
-    display_in_battle_text_addr(snes_addr);
+    display_in_battle_text_addr(addr);
     dt.blinking_triangle_flag = 0;
 }
 

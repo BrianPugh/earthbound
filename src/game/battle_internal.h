@@ -43,7 +43,7 @@ extern const uint8_t *npc_ai_table;
 /* Battle flow helpers */
 void display_in_battle_text_addr(uint32_t addr);
 void display_text_with_prompt(const uint8_t *text, size_t size);
-void display_text_with_prompt_addr(uint32_t snes_addr);
+void display_text_with_prompt_addr(uint32_t addr);
 void display_battle_cutscene_text(uint16_t group, uint16_t music, uint32_t text_addr);
 void play_giygas_weakened_sequence(uint16_t music, uint32_t text_addr);
 void battle_wait(uint16_t frames);

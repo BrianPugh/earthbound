@@ -528,7 +528,7 @@ int16_t cr_movement_display_text(int16_t entity_offset, int16_t script_offset,
 
     uint32_t full_snes_addr = ((uint32_t)bank << 16) | ((uint16_t)text_hi << 8) | text_lo;
 
-    /* Use resolve_text_addr for ALL banks (not just EEVENT0) */
+    /* SNES address from ROM script bytes — remapped to dialogue blob at runtime */
     display_text_from_addr(full_snes_addr);
 
     /* Set FLG_TEMP_1 (flag 2) to unblock script spin loops.

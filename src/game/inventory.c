@@ -8,7 +8,7 @@
 #include "entity/entity.h"
 #include "data/assets.h"
 #include "core/log.h"
-#include "data/battle_text_data.h"
+#include "data/text_refs.h"
 #include "include/constants.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -848,7 +848,7 @@ void teleport_mainloop(void) {
 
         /* Style STAR_MASTER (5): display master teleport text */
         if (ow.psi_teleport_style == TELEPORT_STYLE_STAR_MASTER) {
-            freeze_and_queue_text_interaction(MSG_EVT_MASTER_TLPT_SNES_ADDR);
+            freeze_and_queue_text_interaction(MSG_DSRT_EVT_LEARN_TELEPORT);
         }
     } else if (ow.psi_teleport_state == 2) {
         /* STATE_FAILED: teleport failure sequence */
