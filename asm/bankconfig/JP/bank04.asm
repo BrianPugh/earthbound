@@ -775,23 +775,23 @@ LOCALEINCLUDE "flyovers.symbols.asm"
 
 .INCLUDE "data/overworld/sound_stone_melody_ptr_table.asm"
 
-.INCLUDE "data/sound_stone_unknown1.asm"
+.INCLUDE "data/sound_stone_note_x_positions.asm"
 
-.INCLUDE "data/sound_stone_unknown2.asm"
+.INCLUDE "data/sound_stone_note_y_positions.asm"
 
-.INCLUDE "data/sound_stone_unknown3.asm"
+.INCLUDE "data/sound_stone_idle_sprite_tiles.asm"
 
-.INCLUDE "data/sound_stone_unknown4.asm"
+.INCLUDE "data/sound_stone_idle_sprite_palettes.asm"
 
-.INCLUDE "data/sound_stone_unknown5.asm"
+.INCLUDE "data/sound_stone_orbit_sprite_tiles.asm"
 
-.INCLUDE "data/sound_stone_unknown6.asm"
+.INCLUDE "data/sound_stone_orbit_sprite_palettes.asm"
 
 .INCLUDE "data/music/sound_stone_music.asm"
 
-.INCLUDE "data/sound_stone_unknown7.asm"
+.INCLUDE "data/sound_stone_melody_durations.asm"
 
-.INCLUDE "data/sound_stone_unknown8.asm"
+.INCLUDE "data/sound_stone_melody_durations_2.asm"
 
 .INCLUDE "data/sound_stone_melody_flags.asm"
 
