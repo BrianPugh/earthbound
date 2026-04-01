@@ -113,6 +113,8 @@ list(APPEND EMBED_EXCLUDE_ARGS
     --exclude "data/E0[1-9]*.bin"
     --exclude "data/E1[0-9]*.bin"
     --exclude "dialogue/addr_remap.bin"
+    --exclude "data/compressed_text_data.bin"
+    --exclude "data/compressed_text_ptrs.bin"
 )
 
 add_custom_command(

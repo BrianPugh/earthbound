@@ -614,17 +614,6 @@ def pack_all(
         packed += 1
         print("  Packed attract mode txt (with text address remapping)")
 
-    # --- Compressed text dictionary (1 JSON -> 2 bin files) ---
-    ct_json = assets_dir / "data" / "compressed_text.json"
-    if ct_json.exists():
-        from ebtools.parsers.simple_tables import pack_compressed_text
-
-        data_out = output_dir / "data" / "compressed_text_data.bin"
-        ptrs_out = output_dir / "data" / "compressed_text_ptrs.bin"
-        pack_compressed_text(ct_json, text_table, data_out, ptrs_out)
-        packed += 1
-        print("  Packed compressed text dictionary")
-
     # --- Entity collision (5 bin files from 1 JSON) ---
     ec_json = assets_dir / "data" / "entity_collision.json"
     if ec_json.exists():

@@ -27,7 +27,6 @@ void script_skip(ScriptReader *r, int n);
 void resolve_text_jump(ScriptReader *r, uint32_t addr);
 
 /* ---- Data helpers (display_text.c) ---- */
-const uint8_t *compressed_text_lookup(uint16_t bank_offset, uint8_t index);
 void toggle_hppp_flipout_mode(uint16_t enable);
 uint16_t is_escargo_express_full(void);
 uint16_t get_item_subtype_2(uint16_t item_id);

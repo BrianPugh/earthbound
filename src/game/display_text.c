@@ -74,18 +74,7 @@ DisplayTextState dt = {
 #define psi_suffix_data        ASSET_DATA(ASSET_DATA_PSI_SUFFIXES_BIN)
 #define psi_suffix_data_size   ASSET_SIZE(ASSET_DATA_PSI_SUFFIXES_BIN)
 
-/* --- Compressed text dictionary (CC 0x15/0x16/0x17) ---
- * 767 null-terminated EB-encoded string fragments (e.g. " in the ", " that ").
- * The pointer table has 768 x 4-byte offset entries; each is a byte offset
- * into the data blob.  CC 0x15 uses entries 0-255, CC 0x16 uses 256-511,
- * CC 0x17 uses 512-767. */
-#define COMPRESSED_TEXT_ENTRY_COUNT 768
-#define compressed_text_data       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
-#define compressed_text_data_size  ASSET_SIZE(ASSET_DATA_COMPRESSED_TEXT_DATA_BIN)
-#define compressed_text_ptrs       ASSET_DATA(ASSET_DATA_COMPRESSED_TEXT_PTRS_BIN)
-#define compressed_text_ptrs_size  ASSET_SIZE(ASSET_DATA_COMPRESSED_TEXT_PTRS_BIN)
-
-/* New inline string table (from ebtools pack-all text round-trip tooling) */
+/* Inline string table (item/enemy descriptions compiled by ebtools pack-all) */
 static const uint8_t *inline_string_table = NULL;
 static size_t inline_string_table_size = 0;
 
@@ -627,22 +616,6 @@ const TeleportDestination *get_teleport_dest(uint16_t index) {
     size_t offset = (size_t)index * sizeof(TeleportDestination);
     if (offset + sizeof(TeleportDestination) > teleport_table_size) return NULL;
     return (const TeleportDestination *)(teleport_table_data + offset);
-}
-
-/* --- Compressed text dictionary loading ---
- * Used by CC 0x15/0x16/0x17 to inline common text fragments. */
-
-/* Look up a compressed text dictionary entry.
- * bank_offset: 0 for CC 0x15, 256 for CC 0x16, 512 for CC 0x17.
- * index: the byte read after the CC (0-255).
- * Returns pointer into compressed_text_data, or NULL on failure. */
-const uint8_t *compressed_text_lookup(uint16_t bank_offset, uint8_t index) {
-    uint16_t effective_index = bank_offset + index;
-    if (effective_index >= COMPRESSED_TEXT_ENTRY_COUNT) return NULL;
-    /* Read 4-byte offset from pointer table (byte offset into compressed_text_data) */
-    uint32_t offset = read_u32_le(&compressed_text_ptrs[effective_index * 4]);
-    if (offset >= compressed_text_data_size) return NULL;
-    return compressed_text_data + offset;
 }
 
 /* Item configuration table is now in inventory.c / inventory.h.
@@ -1525,31 +1498,6 @@ void check_text_word_wrap(ScriptReader *reader) {
             ch = *peek.ptr++;
         }
 
-        /* Handle dictionary codes (0x15/0x16/0x17) — expand inline.
-         * Port of @DICT1/@DICT2/@DICT3 in check_text_word_wrap.asm. */
-        if (ch >= 0x15 && ch <= 0x17) {
-            uint16_t bank_offset = (ch - 0x15) * 256;
-            /* Read index byte */
-            uint8_t index;
-            if (peek.prefix_ptr) {
-                index = *peek.prefix_ptr;
-                if (index == 0x00) { peek.prefix_ptr = NULL; continue; }
-                peek.prefix_ptr++;
-            } else {
-                if (peek.ptr >= peek.end) break;
-                index = *peek.ptr++;
-            }
-            const uint8_t *entry = compressed_text_lookup(bank_offset, index);
-            if (entry) {
-                /* Read first char from dictionary entry, set rest as prefix */
-                ch = *entry;
-                if (ch == 0x00) continue;
-                peek.prefix_ptr = entry + 1;
-            } else {
-                continue;
-            }
-        }
-
         /* Word boundary: space (0x50) or control code (< 0x20) */
         if (ch == 0x50) break;
         if (ch < 0x20) break;
@@ -1848,22 +1796,6 @@ void display_text(const uint8_t *script, size_t script_size) {
         case 0x1D: cc_1d_dispatch(&reader); break;
         case 0x1E: cc_1e_dispatch(&reader); break;
         case 0x1F: cc_1f_dispatch(&reader); break;
-
-        /* Compression banks (0x15-0x17): dictionary text substitution.
-         * Reads an index byte, looks up a common string fragment, and inserts
-         * it into the text stream via the prefix ert.buffer.
-         * Port of @COMPRESSION_BANK_ONE/TWO/THREE in display_text.asm. */
-        case 0x15:
-        case 0x16:
-        case 0x17: {
-            uint16_t bank_offset = (byte - 0x15) * 256;
-            uint8_t index = script_read_byte(&reader);
-            const uint8_t *entry = compressed_text_lookup(bank_offset, index);
-            if (entry) {
-                reader.prefix_ptr = entry;
-            }
-            break;
-        }
 
         /* All other simple CCs — skip arguments */
         default:
