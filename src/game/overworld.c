@@ -1804,7 +1804,7 @@ void set_leader_position_and_load_party(uint16_t x, uint16_t y,
  * overworld subsystems. */
 void initialize_overworld_state(void) {
     /* Load the dialogue blob and inline string table. */
-    display_text_load_eevent0();
+    display_text_init();
 
     /* Assembly line 11: JSL INIT_ENTITY_SYSTEM */
     entity_system_init();

@@ -26,15 +26,13 @@ void display_text(const uint8_t *script, size_t script_size);
 
 /* Load the dialogue blob and inline string table. Call once at startup.
  * Returns true on success. */
-bool display_text_load_eevent0(void);
+bool display_text_init(void);
 
 /* No-ops kept for API compatibility (all text lives in the dialogue blob). */
-void display_text_free_eevent0(void);
 bool display_text_load_battle_text(void);
 void display_text_free_battle_text(void);
 
-/* Resolve a text address (dialogue blob offset or legacy SNES address)
- * and display the text script at that location. */
+/* Resolve a text address (dialogue blob offset) and display the text. */
 void display_text_from_addr(uint32_t addr);
 
 /* Battle name buffer sizes (from bankconfig/common/ram.asm). */

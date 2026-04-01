@@ -92,6 +92,29 @@ list(APPEND EMBED_EXCLUDE_ARGS --exclude "US/overworld_sprites/gfx/*")
 # .arr.bundled (8-frame bundles) for streaming decompression instead.
 list(APPEND EMBED_EXCLUDE_ARGS --exclude "psianims/arrangements/*.arr.lzhal")
 
+# Exclude legacy per-block text bytecode binaries -- all text is now served
+# from the unified dialogue.bin blob compiled from src/assets/dialogue/ YAML.
+list(APPEND EMBED_EXCLUDE_ARGS
+    --exclude "data/EEVENT*.bin"
+    --exclude "data/EBATTLE*.bin"
+    --exclude "data/EGOODS*.bin"
+    --exclude "data/ESYSTEM.bin"
+    --exclude "data/EGLOBAL.bin"
+    --exclude "data/EHINT.bin"
+    --exclude "data/ENEWS.bin"
+    --exclude "data/ESHOP*.bin"
+    --exclude "data/EEXPL*.bin"
+    --exclude "data/EBGMESS.bin"
+    --exclude "data/EDEBUG.bin"
+    --exclude "data/KEYBOARD.bin"
+    --exclude "data/DEBUG_TEXT.bin"
+    --exclude "data/DOOR_SCRIPTS.bin"
+    --exclude "data/UNKNOWN_EFA2FA.bin"
+    --exclude "data/E0[1-9]*.bin"
+    --exclude "data/E1[0-9]*.bin"
+    --exclude "dialogue/addr_remap.bin"
+)
+
 add_custom_command(
     OUTPUT ${EMBED_ARRAY} ${EMBED_INC} ${EMBED_HEADER} ${EMBED_IDS} ${EMBED_DECL}
     COMMAND ${EBTOOLS_EXE} embed-registry

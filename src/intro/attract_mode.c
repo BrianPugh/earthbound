@@ -72,7 +72,7 @@ uint16_t run_attract_mode(uint16_t scene_index) {
 
   /* Lazy-load EEVENT0 bytecode, pointer table, and map data tables.
    * These are loaded once and cached for subsequent scenes. */
-  display_text_load_eevent0();
+  display_text_init();
   load_attract_mode_text_offsets();
   map_loader_init();
   if (!sprite_grouping_ptr_table)

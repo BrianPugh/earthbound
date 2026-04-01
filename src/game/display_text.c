@@ -550,7 +550,7 @@ static bool display_text_load_dialogue_blob(void) {
     return dialogue_blob != NULL;
 }
 
-bool display_text_load_eevent0(void) {
+bool display_text_init(void) {
     /* All text data lives in the dialogue blob + inline string table.
      * Load both at startup. */
     bool ok = true;
@@ -563,7 +563,6 @@ bool display_text_load_eevent0(void) {
 bool display_text_load_battle_text(void) { return true; }
 
 /* No-ops: dialogue blob is always loaded, nothing to free. */
-void display_text_free_eevent0(void) {}
 void display_text_free_battle_text(void) {}
 
 
