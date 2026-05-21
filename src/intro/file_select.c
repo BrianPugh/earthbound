@@ -12,6 +12,7 @@
 #include "include/binary.h"
 #include "snes/ppu.h"
 #include "core/memory.h"
+#include "core/embedded.h"
 #include "data/assets.h"
 #include "platform/platform.h"
 #include "include/pad.h"
@@ -196,7 +197,7 @@ static uint16_t file_select_menu(void) {
     /* Pass 2: Display per-slot details for occupied slots.
      * Assembly (file_select_menu.asm:115-214): after OPEN_WINDOW_AND_PRINT_MENU,
      * prints Level and Text Speed info at specific cursor positions. */
-    static const char *speed_names[] = {"Fast", "Medium", "Slow"};
+    static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         if (!save_files_present[slot]) continue;
 
@@ -288,7 +289,7 @@ static void file_select_menu_display_only(void) {
 
     open_window_and_print_menu(1, 0);
 
-    static const char *speed_names[] = {"Fast", "Medium", "Slow"};
+    static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         if (!save_files_present[slot]) continue;
 
