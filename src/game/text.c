@@ -85,13 +85,13 @@ static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
     f->glyph_size = ASSET_SIZE(gfx_id);
     f->glyph_data = ASSET_DATA(gfx_id);
     if (!f->glyph_data) {
-        fprintf(stderr, "Failed to load font gfx (asset id %d)\n", gfx_id);
+        LOG_WARN("Failed to load font gfx (asset id %d)\n", gfx_id);
         return false;
     }
 
     f->width_data = ASSET_DATA(width_id);
     if (!f->width_data) {
-        fprintf(stderr, "Failed to load font widths (asset id %d)\n", width_id);
+        LOG_WARN("Failed to load font widths (asset id %d)\n", width_id);
         f->glyph_data = NULL;
         return false;
     }
@@ -190,7 +190,7 @@ void text_load_window_gfx(void) {
     size_t compressed_size = ASSET_SIZE(ASSET_GRAPHICS_TEXT_WINDOW_GFX_LZHAL);
     const uint8_t *compressed = ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_GFX_LZHAL);
     if (!compressed) {
-        fprintf(stderr, "Failed to load text window graphics\n");
+        LOG_WARN("Failed to load text window graphics\n");
         return;
     }
 
@@ -211,7 +211,7 @@ void text_load_window_gfx(void) {
                                       ert.buffer, BUFFER_SIZE);
 
     if (decompressed_size == 0) {
-        fprintf(stderr, "Failed to decompress text window graphics\n");
+        LOG_WARN("Failed to decompress text window graphics\n");
         return;
     }
 
@@ -395,7 +395,7 @@ void text_load_flavour_palette(uint8_t flavour) {
         if (pal_data) {
             flavour_palettes = (const uint16_t *)pal_data;
         } else {
-            fprintf(stderr, "Failed to load flavour palettes\n");
+            LOG_WARN("Failed to load flavour palettes\n");
             return;
         }
     }

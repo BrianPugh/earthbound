@@ -37,8 +37,11 @@
 #include "game/display_text_internal.h"
 #include "data/text_refs.h"
 
-/* Verbosity level (0=errors, 1=warnings, 2=trace) */
-int verbose_level = 0;
+/* Verbosity level (0=errors, 1=warnings, 2=trace).
+ * Defaults to 1 so warnings (asset-load failures, etc.) print without -v;
+ * matches the pre-existing behavior of the raw fprintf(stderr, ...) calls
+ * that were folded into LOG_WARN. */
+int verbose_level = 1;
 
 /* Auto-dump flag: set to non-zero to trigger a screenshot + VRAM dump */
 int debug_auto_dump_requested = 0;

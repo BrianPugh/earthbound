@@ -263,7 +263,7 @@ static void cc_1f_teleport_to(ScriptReader *r) {
     uint8_t dest_id = script_read_byte(r);
     const TeleportDestination *dest = get_teleport_dest(dest_id);
     if (!dest) {
-        fprintf(stderr, "display_text: bad teleport dest %d\n", dest_id);
+        LOG_WARN("display_text: bad teleport dest %d\n", dest_id);
         return;
     }
     /* Save and override ow.overworld_status_suppression (teleport.asm lines 12-15) */

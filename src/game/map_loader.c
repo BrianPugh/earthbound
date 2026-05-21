@@ -283,14 +283,14 @@ bool map_loader_init(void) {
     tilesetpalette_data = ASSET_DATA(ASSET_DATA_GLOBAL_MAP_TILESETPALETTE_DATA_BIN);
     tilesetpalette_size = ASSET_SIZE(ASSET_DATA_GLOBAL_MAP_TILESETPALETTE_DATA_BIN);
     if (!tilesetpalette_data) {
-        fprintf(stderr, "map_loader: failed to load global_map_tilesetpalette_data.bin\n");
+        LOG_WARN("map_loader: failed to load global_map_tilesetpalette_data.bin\n");
         return false;
     }
 
     tileset_table_data = ASSET_DATA(ASSET_DATA_TILESET_TABLE_BIN);
     tileset_table_size = ASSET_SIZE(ASSET_DATA_TILESET_TABLE_BIN);
     if (!tileset_table_data) {
-        fprintf(stderr, "map_loader: failed to load tileset_table.bin\n");
+        LOG_WARN("map_loader: failed to load tileset_table.bin\n");
         tilesetpalette_data = NULL;
         return false;
     }
@@ -308,14 +308,14 @@ bool map_loader_init(void) {
         npc_config_table_count = npc_config_bytes / sizeof(NpcConfig);
     }
     if (!sprite_placement_ptr_table || !sprite_placement_table || !npc_config_table) {
-        fprintf(stderr, "map_loader: NPC data tables not available (non-fatal)\n");
+        LOG_WARN("map_loader: NPC data tables not available (non-fatal)\n");
     }
 
     /* Load sector attributes table (non-fatal if missing) */
     sector_attributes_data = ASSET_DATA(ASSET_DATA_PER_SECTOR_ATTRIBUTES_BIN);
     sector_attributes_size = ASSET_SIZE(ASSET_DATA_PER_SECTOR_ATTRIBUTES_BIN);
     if (!sector_attributes_data) {
-        fprintf(stderr, "map_loader: sector attributes not available (non-fatal)\n");
+        LOG_WARN("map_loader: sector attributes not available (non-fatal)\n");
     }
 
     /* Load collision data tables */
@@ -324,7 +324,7 @@ bool map_loader_init(void) {
     collision_pointers_blob = ASSET_DATA(ASSET_DATA_MAP_COLLISION_POINTERS_BLOB_BIN);
     collision_pointers_blob_size = ASSET_SIZE(ASSET_DATA_MAP_COLLISION_POINTERS_BLOB_BIN);
     if (!collision_arrangement_table || !collision_pointers_blob) {
-        fprintf(stderr, "map_loader: collision data not available (non-fatal)\n");
+        LOG_WARN("map_loader: collision data not available (non-fatal)\n");
     }
 
     /* Load entity collision geometry tables */
@@ -340,7 +340,7 @@ bool map_loader_init(void) {
     tile_event_data = ASSET_DATA(ASSET_MAPS_TILE_EVENT_CONTROL_TABLE_BIN);
     tile_event_data_size = ASSET_SIZE(ASSET_MAPS_TILE_EVENT_CONTROL_TABLE_BIN);
     if (!event_control_ptr_table_data || !tile_event_data) {
-        fprintf(stderr, "map_loader: event control tables not available (non-fatal)\n");
+        LOG_WARN("map_loader: event control tables not available (non-fatal)\n");
     }
 
     /* Load map music data tables (non-fatal if missing) */
@@ -351,7 +351,7 @@ bool map_loader_init(void) {
     event_music_table = ASSET_DATA(ASSET_DATA_OVERWORLD_EVENT_MUSIC_TABLE_BIN);
     event_music_table_size = ASSET_SIZE(ASSET_DATA_OVERWORLD_EVENT_MUSIC_TABLE_BIN);
     if (!per_sector_music_data || !event_music_ptr_table || !event_music_table) {
-        fprintf(stderr, "map_loader: music data not available (non-fatal)\n");
+        LOG_WARN("map_loader: music data not available (non-fatal)\n");
     }
 
     return true;
@@ -729,7 +729,7 @@ static size_t load_and_decompress(AssetId id, uint8_t *dst, size_t dst_max) {
     const uint8_t *compressed = ASSET_DATA(id);
     size_t compressed_size = ASSET_SIZE(id);
     if (!compressed) {
-        fprintf(stderr, "map_loader: failed to load asset %d\n", (int)id);
+        LOG_WARN("map_loader: failed to load asset %d\n", (int)id);
         return 0;
     }
 
@@ -799,13 +799,13 @@ void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
     const uint8_t *pal_data = ASSET_DATA(ASSET_MAPS_PALETTES(tileset_combo));
     size_t pal_size = ASSET_SIZE(ASSET_MAPS_PALETTES(tileset_combo));
     if (!pal_data) {
-        fprintf(stderr, "map_loader: failed to load palette %d\n", tileset_combo);
+        LOG_WARN("map_loader: failed to load palette %d\n", tileset_combo);
         return;
     }
 
     size_t offset = (size_t)palette_index * (BPP4PALETTE_SIZE * 6);
     if (offset + BPP4PALETTE_SIZE * 6 > pal_size) {
-        fprintf(stderr, "map_loader: palette %d too small for index %d "
+        LOG_WARN("map_loader: palette %d too small for index %d "
                 "(offset=%zu, size=%zu)\n", tileset_combo, palette_index, offset, pal_size);
         return;
     }
@@ -915,12 +915,12 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
         const uint8_t *pal_data = ASSET_DATA(ASSET_MAPS_PALETTES(file_num));
         size_t pal_size = ASSET_SIZE(ASSET_MAPS_PALETTES(file_num));
         if (!pal_data) {
-            fprintf(stderr, "map_loader: failed to load palette %d\n", file_num);
+            LOG_WARN("map_loader: failed to load palette %d\n", file_num);
             return;
         }
 
         if (byte_offset + BPP4PALETTE_SIZE * 6 > pal_size) {
-            fprintf(stderr, "map_loader: palette %d too small for offset %zu "
+            LOG_WARN("map_loader: palette %d too small for offset %zu "
                     "(size=%zu)\n", file_num, byte_offset, pal_size);
             return;
         }
@@ -948,7 +948,7 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
         uint16_t override_low = read_u16_le(&pal_set[32]);
 
         if (!resolve_palette_rom_address(override_low, &file_num, &byte_offset)) {
-            fprintf(stderr, "map_loader: failed to resolve palette override "
+            LOG_WARN("map_loader: failed to resolve palette override "
                     "0x%04X\n", override_low);
             break;
         }
@@ -1421,7 +1421,7 @@ static void load_special_sprite_palette(void) {
  * sector_y: Y sector index (0-79) */
 void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     if (!tilesetpalette_data || !tileset_table_data) {
-        fprintf(stderr, "map_loader: data tables not loaded\n");
+        LOG_WARN("map_loader: data tables not loaded\n");
         return;
     }
 
@@ -1434,7 +1434,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     /* Look up sector data */
     size_t sector_index = (size_t)sector_y * 32 + sector_x;
     if (sector_index >= tilesetpalette_size) {
-        fprintf(stderr, "map_loader: sector (%d, %d) out of range (size=%zu)\n",
+        LOG_WARN("map_loader: sector (%d, %d) out of range (size=%zu)\n",
                 sector_x, sector_y, tilesetpalette_size);
         return;
     }
@@ -1609,7 +1609,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     uint16_t sector_y = v1 >> 4;
     size_t tp_index = (size_t)sector_y * 32 + sector_x;
     if (tp_index >= tilesetpalette_size) {
-        fprintf(stderr, "load_your_sanctuary_location: sector (%u,%u) out of range\n",
+        LOG_WARN("load_your_sanctuary_location: sector (%u,%u) out of range\n",
                 sector_x, sector_y);
         return;
     }
@@ -1656,7 +1656,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
                                            SHARED_SCRATCH_SIZE);
     arrangement_loaded = (arrangement_size > 0);
     if (!arrangement_loaded) {
-        fprintf(stderr, "load_your_sanctuary_location: failed to load arrangement for tileset %u\n", tileset_id);
+        LOG_WARN("load_your_sanctuary_location: failed to load arrangement for tileset %u\n", tileset_id);
         return;
     }
 
@@ -1764,7 +1764,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
                                           decomp_staging,
                                           SHARED_SCRATCH_SIZE);
     if (gfx_size == 0) {
-        fprintf(stderr, "load_your_sanctuary_location: failed to load gfx for tileset %u\n", tileset_id);
+        LOG_WARN("load_your_sanctuary_location: failed to load gfx for tileset %u\n", tileset_id);
         return;
     }
 

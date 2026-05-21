@@ -26,7 +26,7 @@ bool ensure_item_config(void) {
     item_config_size = ASSET_SIZE(ASSET_DATA_ITEM_CONFIGURATION_TABLE_BIN);
     item_config_data = ASSET_DATA(ASSET_DATA_ITEM_CONFIGURATION_TABLE_BIN);
     if (!item_config_data) {
-        fprintf(stderr, "inventory: failed to load item_configuration_table.bin\n");
+        LOG_WARN("inventory: failed to load item_configuration_table.bin\n");
         return false;
     }
     return true;
@@ -362,7 +362,7 @@ static bool ensure_transform_table(void) {
     transform_table_size = ASSET_SIZE(ASSET_DATA_TIMED_ITEM_TRANSFORMATION_TABLE_BIN);
     transform_table_data = ASSET_DATA(ASSET_DATA_TIMED_ITEM_TRANSFORMATION_TABLE_BIN);
     if (!transform_table_data) {
-        fprintf(stderr, "inventory: failed to load timed_item_transformation_table.bin\n");
+        LOG_WARN("inventory: failed to load timed_item_transformation_table.bin\n");
         return false;
     }
     return true;
@@ -1306,7 +1306,7 @@ static bool ensure_exp_table(void) {
     exp_table_size = ASSET_SIZE(ASSET_DATA_EXP_TABLE_BIN);
     exp_table_data = ASSET_DATA(ASSET_DATA_EXP_TABLE_BIN);
     if (!exp_table_data) {
-        fprintf(stderr, "inventory: failed to load exp_table.bin\n");
+        LOG_WARN("inventory: failed to load exp_table.bin\n");
         return false;
     }
     return true;
@@ -1429,7 +1429,7 @@ static bool ensure_stats_growth(void) {
         stats_growth_size = ASSET_SIZE(ASSET_DATA_STATS_GROWTH_VARS_BIN);
         stats_growth_data = ASSET_DATA(ASSET_DATA_STATS_GROWTH_VARS_BIN);
         if (!stats_growth_data || stats_growth_size < STATS_GROWTH_SIZE) {
-            fprintf(stderr, "inventory: failed to load stats_growth_vars.bin\n");
+            LOG_WARN("inventory: failed to load stats_growth_vars.bin\n");
             return false;
         }
     }
@@ -1437,7 +1437,7 @@ static bool ensure_stats_growth(void) {
         stat_gain_mod_size = ASSET_SIZE(ASSET_DATA_STAT_GAIN_MODIFIER_TABLE_BIN);
         stat_gain_mod_data = ASSET_DATA(ASSET_DATA_STAT_GAIN_MODIFIER_TABLE_BIN);
         if (!stat_gain_mod_data || stat_gain_mod_size < STAT_GAIN_MOD_SIZE) {
-            fprintf(stderr, "inventory: failed to load stat_gain_modifier_table.bin\n");
+            LOG_WARN("inventory: failed to load stat_gain_modifier_table.bin\n");
             return false;
         }
     }

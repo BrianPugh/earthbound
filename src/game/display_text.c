@@ -40,6 +40,7 @@
 #include "game/flyover.h"
 #include "game/ending.h"
 #include "game/town_map.h"
+#include "core/log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -516,7 +517,7 @@ void display_text_from_addr(uint32_t addr) {
         size_t remaining = blk->size - (size_t)(ptr - blk->data);
         display_text(ptr, remaining);
     } else {
-        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     }
 }
 
@@ -603,7 +604,7 @@ void resolve_text_jump(ScriptReader *r, uint32_t addr) {
         r->base = blk->data;
         r->end = blk->data + blk->size;
     } else {
-        fprintf(stderr, "WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     }
 }
 

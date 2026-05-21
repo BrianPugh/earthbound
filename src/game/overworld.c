@@ -2027,7 +2027,7 @@ static void record_auto_movement_step(uint16_t direction) {
 
     /* Different direction: advance to next entry */
     if (auto_movement_index + 1 >= AUTO_MOVEMENT_BUFFER_SIZE) {
-        fprintf(stderr, "auto_movement_buffer overflow!\n");
+        LOG_WARN("auto_movement_buffer overflow!\n");
         return;
     }
     auto_movement_index++;

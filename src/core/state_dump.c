@@ -1,5 +1,15 @@
 #include "core/state_dump.h"
 
+#ifdef EB_EMBEDDED
+
+/* No filesystem on embedded targets; F4 state dump is a debug-only feature. */
+bool state_dump_save(const char *path) {
+    (void)path;
+    return false;
+}
+
+#else
+
 #include <stdio.h>
 #include <stdint.h>
 
@@ -93,3 +103,5 @@ bool state_dump_save(const char *path) {
     fclose(f);
     return true;
 }
+
+#endif /* EB_EMBEDDED */

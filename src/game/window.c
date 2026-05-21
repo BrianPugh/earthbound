@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "core/log.h"
 #include "game_main.h"
 
 /* Window configuration table: position/size for each window ID.
@@ -2694,7 +2695,7 @@ uint16_t alloc_bg2_tilemap_entry(void) {
      * Assembly: HIDE_HPPP_WINDOWS_LONG, CLOSE_ALL_WINDOWS_FAR,
      * ENABLE_ALL_ENTITIES, LONGJMP(JMP_BUF2).
      * C port: close all windows and return tile 0 as fallback. */
-    fprintf(stderr, "WARNING: alloc_bg2_tilemap_entry: tile exhaustion!\n");
+    LOG_WARN("WARNING: alloc_bg2_tilemap_entry: tile exhaustion!\n");
     close_all_windows();
     return 0;
 }

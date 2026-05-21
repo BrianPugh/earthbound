@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/log.h"
+
 #include "apu.h"
 #include "spc.h"
 #include "dsp.h"
@@ -72,7 +74,7 @@ static bool audio_load_pack(uint8_t pack_index) {
     size_t size = ASSET_SIZE(ASSET_AUDIOPACKS(pack_index));
     const uint8_t *data = ASSET_DATA(ASSET_AUDIOPACKS(pack_index));
     if (!data) {
-        fprintf(stderr, "audio: failed to load audiopacks/%d.ebm\n", pack_index);
+        LOG_WARN("audio: failed to load audiopacks/%d.ebm\n", pack_index);
         return false;
     }
     audio_upload_pack(data, size);
@@ -84,14 +86,14 @@ void audio_init(void) {
     size_t dataset_size = ASSET_SIZE(ASSET_MUSIC_DATASET_TABLE_BIN);
     dataset_table = ASSET_DATA(ASSET_MUSIC_DATASET_TABLE_BIN);
     if (!dataset_table) {
-        fprintf(stderr, "audio: failed to load music/dataset_table.bin\n");
+        LOG_WARN("audio: failed to load music/dataset_table.bin\n");
         return;
     }
     dataset_table_count = dataset_size / DATASET_ENTRY_SIZE;
 
     apu = apu_init(NULL);
     if (!apu) {
-        fprintf(stderr, "audio: apu_init failed (allocation failure)\n");
+        LOG_WARN("audio: apu_init failed (allocation failure)\n");
         return;
     }
     apu->palTiming = false;  /* NTSC */

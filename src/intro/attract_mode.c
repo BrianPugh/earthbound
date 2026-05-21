@@ -24,6 +24,7 @@
 #include "include/pad.h"
 #include "platform/platform.h"
 #include "snes/ppu.h"
+#include "core/log.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -49,7 +50,7 @@ static bool load_attract_mode_text_offsets(void) {
   size_t size = ASSET_SIZE(ASSET_DATA_ATTRACT_MODE_TXT_BIN);
   const uint8_t *data = ASSET_DATA(ASSET_DATA_ATTRACT_MODE_TXT_BIN);
   if (!data || size < ATTRACT_MODE_SCENE_COUNT * 4) {
-    fprintf(stderr, "attract: failed to load data/attract_mode_txt.bin\n");
+    LOG_WARN("attract: failed to load data/attract_mode_txt.bin\n");
     return false;
   }
 

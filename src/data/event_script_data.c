@@ -159,7 +159,7 @@ void load_title_screen_script_data(void) {
         register_script_bank(script_bank_buf, (uint32_t)size,
                              TITLE_SCRIPT_BANK_ROM_BASE, 0xC4);
     } else {
-        fprintf(stderr, "ERROR: failed to load title_screen_scripts.bin\n");
+        LOG_WARN("ERROR: failed to load title_screen_scripts.bin\n");
         title_script_bank = NULL;
         title_script_bank_size = 0;
     }
@@ -173,7 +173,7 @@ void load_title_screen_script_data(void) {
             title_script_pointers[i] = rom_lo - title_script_bank_base;
         }
     } else {
-        fprintf(stderr, "ERROR: failed to load title_screen_script_pointers.bin\n");
+        LOG_WARN("ERROR: failed to load title_screen_script_pointers.bin\n");
         memset(title_script_pointers, 0, sizeof(title_script_pointers));
     }
 
@@ -188,7 +188,7 @@ void load_title_screen_script_data(void) {
             title_spritemap_offsets[i] = rom_ptr - SPRITEMAP_WITHIN_BANK_BASE;
         }
     } else {
-        fprintf(stderr, "ERROR: failed to load title_screen_spritemaps.bin\n");
+        LOG_WARN("ERROR: failed to load title_screen_spritemaps.bin\n");
         title_spritemap_data = NULL;
         memset(title_spritemap_offsets, 0, sizeof(title_spritemap_offsets));
     }
@@ -221,7 +221,7 @@ void load_event_script_data(void) {
         event_script_pointer_table = event_ptr_table_buf;
         event_script_pointer_count = EVENT_SCRIPT_POINTER_COUNT;
     } else {
-        fprintf(stderr, "ERROR: failed to load event_script_pointers.bin\n");
+        LOG_WARN("ERROR: failed to load event_script_pointers.bin\n");
         event_script_pointer_table = NULL;
         event_script_pointer_count = 0;
     }
