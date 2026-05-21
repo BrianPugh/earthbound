@@ -18,7 +18,11 @@ Building requires a donor ROM to extract assets first with `ebtools`, then assem
 The US retail donor ROM is at `earthbound.sfc` in the repo root (gitignored).
 
 ```
-# US Retail (args default to earthbound.yml and earthbound.sfc)
+# One-shot desktop build (recommended for fresh checkouts)
+# Checks deps, creates .venv, installs ebtools, extracts assets, builds port/unix
+make unix
+
+# US Retail SNES ROM (args default to earthbound.yml and earthbound.sfc)
 ebtools extract
 make
 
@@ -52,6 +56,17 @@ uv run ebtools extract
 ```
 
 All `ebtools` CLI invocations, `pytest` runs, and Python scripts must use the `.venv` — never the system Python.
+
+### Tests and linting
+
+Pytest tests live in `tests/` (sprite/tile extraction, text DSL, asset migration, coverage). Run the full suite or a single test:
+
+```bash
+uv run python -m pytest                              # all
+uv run python -m pytest tests/test_overworld_sprites.py::test_name   # one
+```
+
+Ruff is configured in `pyproject.toml` (target Python 3.10, line length 120, numpy docstring convention) and runs on commit via `.pre-commit-config.yaml`. Install hooks once with `pre-commit install`, or invoke manually: `uv run ruff check .` / `uv run ruff format .`.
 
 ## Architecture
 
@@ -209,9 +224,11 @@ cmake --build build-debug
 
 Requires SDL2 and the extracted assets from ebtools.
 
-**Architecture:** `src/` builds as a static library (`libgame.a`) containing all platform-agnostic game logic. `port/unix/` contains SDL2/Unix platform code and builds the `earthbound_port` executable, linking against the game library. Other ports (e.g., `port/snes/`) implement the same `platform.h` interface. See **[docs/porting-guide.md](docs/porting-guide.md)** for how to add a new platform port.
+**Architecture:** `src/` builds as a static library (`libgame.a`) containing all platform-agnostic game logic. Each port directory implements the `platform.h` interface and links against the library. See **[docs/porting-guide.md](docs/porting-guide.md)** for how to add a new platform port.
 
-**SNES port (`port/snes/`):** Scaffolding for compiling the C port back to a native SNES ROM. Not yet functional — requires a 65816 C compiler (vbcc or Calypsi) and significant `src/` changes (removing coroutines, malloc, stdio). See `port/snes/README.md` for the full roadmap.
+- **`port/unix/`** — SDL2 desktop port (Windows/macOS/Linux). Primary development target; builds `earthbound_port`.
+- **`port/waveshare/pico-lcd-1.3/`** — RP2040 (Raspberry Pi Pico) embedded port for the Waveshare 1.3" LCD board (240x240 ST7789, 9 inputs). Playable, no audio yet.
+- **`port/snes/`** — Scaffolding for compiling the C port back to a native SNES ROM. Not yet functional — requires a 65816 C compiler (vbcc or Calypsi) and significant `src/` changes (removing coroutines, malloc, stdio). See `port/snes/README.md` for the full roadmap.
 
 ### Debug Hotkeys
 
