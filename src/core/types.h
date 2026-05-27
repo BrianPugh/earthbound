@@ -44,16 +44,20 @@
 #define OAM_SIZE     544      /* 512 + 32 bytes */
 #define WRAM_SIZE    0x20000  /* 128KB */
 
-/* Framebuffer pixel type — always BGR565 (16-bit).
- * SNES source colors are BGR555 (5 bits per channel).  BGR565 preserves
- * all color information and converts from BGR555 with a single shift
- * (same channel order, just widen green by 1 bit).  Halves framebuffer RAM
- * compared to RGB888, which matters on embedded targets.
+/* Framebuffer pixel type — 16-bit. Default layout is BGR565; ports whose
+ * panel hardware expects RGB565 can compile with -DEB_PIXEL_RGB565=1 to
+ * swap the red/blue channel positions everywhere a pixel is *constructed*
+ * (palette conversion, PIXEL_RGB literals). The arithmetic operators on
+ * pixel_t (blend_colors, pixel_apply_brightness) are bit-position symmetric
+ * and work for either layout unchanged — green stays at bits [10:5] in both.
  *
- * BGR565 layout: BBBBBGGGGGGRRRRR
- *   R = bits  4:0  (5 bits)
- *   G = bits 10:5  (6 bits, 5 bits of precision from SNES)
- *   B = bits 15:11 (5 bits) */
+ * Cost of the toggle: a one-time tweak of bgr555_to_pixel() and PIXEL_RGB();
+ * the per-frame palette shadow (ppu_render.c::cgram_render) carries the chosen
+ * layout into every downstream pixel for free, saving the port a per-pixel
+ * swap in send_scanline().
+ *
+ * BGR565 layout: BBBBBGGGGGGRRRRR — R[4:0], G[10:5], B[15:11]
+ * RGB565 layout: RRRRRGGGGGGBBBBB — R[15:11], G[10:5], B[4:0] */
 typedef uint16_t pixel_t;
 
 /* Colour helpers (SNES BGR555 format) */
@@ -70,14 +74,23 @@ static inline uint32_t bgr555_to_rgb888(uint16_t bgr) {
     return (r << 16) | (g << 8) | b;
 }
 
-/* Convert BGR555 to pixel_t (BGR565).
- * Same channel order — just shift the upper 10 bits (B+G) left by 1
- * to make room for the 6th green bit: 0BBBBBGGGGGRRRRR → BBBBBGGGGGGRRRRR */
+/* Convert BGR555 to pixel_t.
+ * BGR565 path: same channel order, shift the upper 10 bits (B+G) left by 1
+ *   to make room for the 6th green bit: 0BBBBBGGGGGRRRRR → BBBBBGGGGGGRRRRR.
+ * RGB565 path: also swap R↔B between bits [4:0] and [15:11]. */
 static inline pixel_t bgr555_to_pixel(uint16_t bgr) {
+#ifdef EB_PIXEL_RGB565
+    return (pixel_t)(((bgr & 0x001F) << 11) |     /* R: [4:0]   → [15:11] */
+                     ((bgr & 0x03E0) << 1)  |     /* G: [9:5]   → [10:6]  */
+                     ((bgr >> 10) & 0x001F));     /* B: [14:10] → [4:0]   */
+#else
     return (pixel_t)(((bgr & 0x7FE0) << 1) | (bgr & 0x001F));
+#endif
 }
 
-/* Apply SNES brightness (0-15) to a pixel */
+/* Apply SNES brightness (0-15) to a pixel. Bit-position symmetric — works
+ * for both BGR565 and RGB565 because green is at [10:5] in both and the
+ * outer 5-bit fields are treated identically. */
 static inline pixel_t pixel_apply_brightness(pixel_t px, uint8_t brightness) {
     uint16_t r = px & 0x1F;
     uint16_t g = (px >> 6) & 0x1F;
@@ -88,15 +101,26 @@ static inline pixel_t pixel_apply_brightness(pixel_t px, uint8_t brightness) {
     return (pixel_t)(r | (g << 6) | (b << 11));
 }
 
-/* Construct a pixel_t (BGR565) from 8-bit R, G, B components */
+/* Construct a pixel_t from 8-bit R, G, B components. */
+#ifdef EB_PIXEL_RGB565
+#define PIXEL_RGB(r, g, b) \
+    (pixel_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
+#else
 #define PIXEL_RGB(r, g, b) \
     (pixel_t)(((b) >> 3 << 11) | (((g) & 0xFC) << 3) | (((r) & 0xF8) >> 3))
+#endif
 
-/* Convert pixel_t (BGR565) to RGB888 (uint32_t) */
+/* Convert pixel_t to RGB888 (uint32_t) */
 static inline uint32_t pixel_to_rgb888(pixel_t px) {
-    uint8_t r5 = px & 0x1F;
-    uint8_t g6 = (px >> 5) & 0x3F;
+#ifdef EB_PIXEL_RGB565
+    uint8_t r5 = (px >> 11) & 0x1F;
+    uint8_t g6 = (px >> 5)  & 0x3F;
+    uint8_t b5 = px         & 0x1F;
+#else
+    uint8_t r5 = px         & 0x1F;
+    uint8_t g6 = (px >> 5)  & 0x3F;
     uint8_t b5 = (px >> 11) & 0x1F;
+#endif
     uint8_t r = (r5 * 255 + 15) / 31;
     uint8_t g = (g6 * 255 + 31) / 63;
     uint8_t b = (b5 * 255 + 15) / 31;
