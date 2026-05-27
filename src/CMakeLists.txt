@@ -17,8 +17,8 @@ file(GLOB_RECURSE DATA_SOURCES CONFIGURE_DEPENDS "data/*.c")
 add_library(earthbound_game STATIC ${SOURCES} ${DATA_SOURCES})
 
 # Viewport resolution (defaults to SNES native 256x224)
-set(VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
-set(VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
+set(EB_VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
+set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 
 target_include_directories(earthbound_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -27,8 +27,8 @@ target_include_directories(earthbound_game PUBLIC
 
 target_compile_definitions(earthbound_game PUBLIC
     USA=1
-    VIEWPORT_WIDTH=${VIEWPORT_WIDTH}
-    VIEWPORT_HEIGHT=${VIEWPORT_HEIGHT}
+    EB_VIEWPORT_WIDTH=${EB_VIEWPORT_WIDTH}
+    EB_VIEWPORT_HEIGHT=${EB_VIEWPORT_HEIGHT}
 )
 
 if(MSVC)
@@ -206,8 +206,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_include_directories(gen_struct_info PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} include/ ${EMBED_GEN_DIR})
     target_compile_definitions(gen_struct_info PRIVATE
         USA=1
-        VIEWPORT_WIDTH=${VIEWPORT_WIDTH}
-        VIEWPORT_HEIGHT=${VIEWPORT_HEIGHT}
+        EB_VIEWPORT_WIDTH=${EB_VIEWPORT_WIDTH}
+        EB_VIEWPORT_HEIGHT=${EB_VIEWPORT_HEIGHT}
         $<$<BOOL:${ENABLE_AUDIO}>:ENABLE_AUDIO=1>
     )
     add_dependencies(gen_struct_info items_header music_header)

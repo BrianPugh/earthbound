@@ -813,7 +813,7 @@ int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_of
     int screen_right = (int)(int16_t)((uint16_t)right_x - ppu.bg_hofs[0]);
 
     /* Phase 1: scanlines before cone — full window (dark area) */
-    for (int s = 0; s < VIEWPORT_HEIGHT && s < screen_y; s++) {
+    for (int s = 0; s < EB_VIEWPORT_HEIGHT && s < screen_y; s++) {
         ppu.wh0_table[s] = 0;
         ppu.wh1_table[s] = 0xFF;
     }
@@ -822,13 +822,13 @@ int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_of
     for (int i = 0; i < 16; i++) {
         int s = screen_y + i;
         if (s < 0) continue;
-        if (s >= VIEWPORT_HEIGHT) break;
+        if (s >= EB_VIEWPORT_HEIGHT) break;
         ppu.wh0_table[s] = (uint8_t)(screen_left + i);
         ppu.wh1_table[s] = (uint8_t)(screen_right - i);
     }
 
     /* Phase 3: remaining scanlines — empty window (no masking) */
-    for (int s = screen_y + 16; s < VIEWPORT_HEIGHT; s++) {
+    for (int s = screen_y + 16; s < EB_VIEWPORT_HEIGHT; s++) {
         if (s < 0) continue;
         ppu.wh0_table[s] = 128;
         ppu.wh1_table[s] = 127;

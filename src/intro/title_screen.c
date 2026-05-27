@@ -150,14 +150,14 @@ uint16_t show_title_screen(uint16_t quick_mode) {
     /* Shift sprites to match the centered BG.  Non-filling BGs are rendered
      * at SNES_WIDTH and then centered in the viewport (temp_nf path), so
      * sprite OAM X values (designed for 256px) need the same offset. */
-    ppu.sprite_x_offset = VIEWPORT_PAD_LEFT;
+    ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
 
     /* ROM: JSL OAM_CLEAR */
     memset(ppu.oam, 0, sizeof(ppu.oam));
     memset(ppu.oam_hi, 0, sizeof(ppu.oam_hi));
     for (int i = 0; i < 128; i++) {
-        ppu.oam[i].y = VIEWPORT_HEIGHT;
-        ppu.oam_full_y[i] = VIEWPORT_HEIGHT;
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
 
     /* Store quick_mode flag for entity scripts to read */

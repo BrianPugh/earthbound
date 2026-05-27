@@ -107,8 +107,8 @@ enum TextFlavour {
 #define EVENT_SCRIPT_801  801  /* Cast scene entity wipe script */
 
 /* Screen */
-#define SCREEN_X_RESOLUTION VIEWPORT_WIDTH
-#define SCREEN_Y_RESOLUTION VIEWPORT_HEIGHT
+#define SCREEN_X_RESOLUTION EB_VIEWPORT_WIDTH
+#define SCREEN_Y_RESOLUTION EB_VIEWPORT_HEIGHT
 
 /* Timing (in frames at 60fps) */
 #define FRAMES_PER_SECOND    60

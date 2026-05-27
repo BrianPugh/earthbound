@@ -10,25 +10,25 @@
 #define SNES_WIDTH  256
 #define SNES_HEIGHT 224
 
-/* Viewport dimensions (configurable via CMake -DVIEWPORT_WIDTH=N -DVIEWPORT_HEIGHT=N) */
-#ifndef VIEWPORT_WIDTH
-#define VIEWPORT_WIDTH  SNES_WIDTH
+/* Viewport dimensions (configurable via -DEB_VIEWPORT_WIDTH=N -DEB_VIEWPORT_HEIGHT=N) */
+#ifndef EB_VIEWPORT_WIDTH
+#define EB_VIEWPORT_WIDTH  SNES_WIDTH
 #endif
-#ifndef VIEWPORT_HEIGHT
-#define VIEWPORT_HEIGHT SNES_HEIGHT
+#ifndef EB_VIEWPORT_HEIGHT
+#define EB_VIEWPORT_HEIGHT SNES_HEIGHT
 #endif
 
 /* Padding from SNES area to viewport edges (0 at native resolution) */
-#define VIEWPORT_PAD_LEFT  ((VIEWPORT_WIDTH - SNES_WIDTH) / 2)
-#define VIEWPORT_PAD_TOP   ((VIEWPORT_HEIGHT - SNES_HEIGHT) / 2)
+#define EB_VIEWPORT_PAD_LEFT  ((EB_VIEWPORT_WIDTH - SNES_WIDTH) / 2)
+#define EB_VIEWPORT_PAD_TOP   ((EB_VIEWPORT_HEIGHT - SNES_HEIGHT) / 2)
 
 /* Viewport center coordinates */
-#define VIEWPORT_CENTER_X  (VIEWPORT_WIDTH / 2)
-#define VIEWPORT_CENTER_Y  (VIEWPORT_HEIGHT / 2)
+#define EB_VIEWPORT_CENTER_X  (EB_VIEWPORT_WIDTH / 2)
+#define EB_VIEWPORT_CENTER_Y  (EB_VIEWPORT_HEIGHT / 2)
 
 /* Internal line buffer width: at least SNES_WIDTH to hold non-filling content
  * without overflow when the viewport is narrower than the SNES native res. */
-#define LINE_BUF_WIDTH  (VIEWPORT_WIDTH > SNES_WIDTH ? VIEWPORT_WIDTH : SNES_WIDTH)
+#define LINE_BUF_WIDTH  (EB_VIEWPORT_WIDTH > SNES_WIDTH ? EB_VIEWPORT_WIDTH : SNES_WIDTH)
 
 /* Target framerate */
 #define TARGET_FPS 60

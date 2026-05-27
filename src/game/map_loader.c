@@ -1924,8 +1924,8 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
              * screen to prevent visible pop-in. Attract mode (enabled=1) skips
              * this check. */
             if (ow.npc_spawns_enabled != 1) {
-                bool on_screen_x = (uint16_t)screen_rel_x < VIEWPORT_WIDTH;
-                bool on_screen_y = (uint16_t)screen_rel_y < VIEWPORT_HEIGHT;
+                bool on_screen_x = (uint16_t)screen_rel_x < EB_VIEWPORT_WIDTH;
+                bool on_screen_y = (uint16_t)screen_rel_y < EB_VIEWPORT_HEIGHT;
                 if (on_screen_x && on_screen_y) {
                     continue;
                 }
@@ -1938,10 +1938,10 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
              * i.e., when screen_rel < -65 (= screen_rel <= -66).
              * Value -65 gives result 0 which does NOT trigger JUMPGTS (not strictly > 0).
              * Only spawn NPCs within (-65, 320) i.e., screen_rel must be >= -65. */
-            if (screen_rel_x < -65 || screen_rel_x >= (VIEWPORT_WIDTH + 64)) {
+            if (screen_rel_x < -65 || screen_rel_x >= (EB_VIEWPORT_WIDTH + 64)) {
                 continue;
             }
-            if (screen_rel_y < -65 || screen_rel_y >= (VIEWPORT_HEIGHT + 96)) {
+            if (screen_rel_y < -65 || screen_rel_y >= (EB_VIEWPORT_HEIGHT + 96)) {
                 continue;
             }
         }
@@ -2008,8 +2008,8 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 
     /* Fill tilemaps from chunk data + arrangement table.
      * Center the view on the player position. */
-    int16_t view_x_tile = (int16_t)x_tile - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)y_tile - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 
@@ -2019,12 +2019,12 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 
     /* Set BG scroll positions to center on player BEFORE spawning NPCs.
      * spawn_npcs_at_sector's screen bounds check reads ppu.bg_hofs/bg_vofs
-     * to filter NPCs outside [-65, VIEWPORT_WIDTH+64) pixels of camera.
+     * to filter NPCs outside [-65, EB_VIEWPORT_WIDTH+64) pixels of camera.
      * Screen center offset: VIEWPORT_CENTER pixels. */
-    ppu.bg_hofs[0] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_hofs[1] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_vofs[0] = y_pixels - VIEWPORT_CENTER_Y;
-    ppu.bg_vofs[1] = y_pixels - VIEWPORT_CENTER_Y;
+    ppu.bg_hofs[0] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_hofs[1] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_vofs[0] = y_pixels - EB_VIEWPORT_CENTER_Y;
+    ppu.bg_vofs[1] = y_pixels - EB_VIEWPORT_CENTER_Y;
 
     /* Normalize ow.npc_spawns_enabled to 1 before initial spawn.
      * Assembly lines 130-133: if NPC_SPAWNS_ENABLED != 0, set to 1.
@@ -2062,12 +2062,12 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     }
 
     /* Assembly lines 165-182: Spawn enemies across the initial visible area.
-     * Calls SPAWN_HORIZONTAL for each row from -8 to (VIEWPORT_HEIGHT/8+12),
+     * Calls SPAWN_HORIZONTAL for each row from -8 to (EB_VIEWPORT_HEIGHT/8+12),
      * covering the full vertical extent of the screen plus margin. */
     {
-        int16_t init_screen_x = (int16_t)(x_tile - (VIEWPORT_CENTER_X / 8));
-        int16_t init_screen_y = (int16_t)(y_tile - (VIEWPORT_CENTER_Y / 8));
-        for (int row = -8; row < (VIEWPORT_HEIGHT / 8 + 12); row++) {
+        int16_t init_screen_x = (int16_t)(x_tile - (EB_VIEWPORT_CENTER_X / 8));
+        int16_t init_screen_y = (int16_t)(y_tile - (EB_VIEWPORT_CENTER_Y / 8));
+        for (int row = -8; row < (EB_VIEWPORT_HEIGHT / 8 + 12); row++) {
             spawn_horizontal((uint16_t)(init_screen_x - 8),
                              (uint16_t)(init_screen_y + row));
         }
@@ -2076,8 +2076,8 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     /* Initialize scroll tracking state.
      * Assembly lines 188-191: SCREEN_LEFT_X = x_tile - VIEWPORT_CENTER/8,
      * SCREEN_TOP_Y = y_tile - VIEWPORT_CENTER/8. */
-    ml.screen_left_x = (int16_t)(x_tile - (VIEWPORT_CENTER_X / 8));
-    ml.screen_top_y = (int16_t)(y_tile - (VIEWPORT_CENTER_Y / 8));
+    ml.screen_left_x = (int16_t)(x_tile - (EB_VIEWPORT_CENTER_X / 8));
+    ml.screen_top_y = (int16_t)(y_tile - (EB_VIEWPORT_CENTER_Y / 8));
 
     /* Enable layers: BG1 + BG2 + BG3 + OBJ (assembly skips in photograph mode) */
     if (!photograph_map_loading_mode)
@@ -2111,8 +2111,8 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     load_map_at_sector(sector_x, sector_y);
 
     /* Assembly lines 42-59: compute view offsets */
-    int16_t view_x_tile = (int16_t)x_tile - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)y_tile - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
 
     /* Assembly lines 60-110: invalidate streaming cache, fill tilemaps + collision */
     fill_tilemaps(view_x_tile, view_y_tile);
@@ -2122,10 +2122,10 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     wait_for_fade_complete();
 
     /* Assembly lines 133-142: set BG scroll positions */
-    ppu.bg_hofs[0] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_hofs[1] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_vofs[0] = y_pixels - VIEWPORT_CENTER_Y;
-    ppu.bg_vofs[1] = y_pixels - VIEWPORT_CENTER_Y;
+    ppu.bg_hofs[0] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_hofs[1] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_vofs[0] = y_pixels - EB_VIEWPORT_CENTER_Y;
+    ppu.bg_vofs[1] = y_pixels - EB_VIEWPORT_CENTER_Y;
 
     /* Assembly lines 143-146: set scroll tracking state */
     ml.screen_left_x = view_x_tile;
@@ -2142,8 +2142,8 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
  * centers the 64-tile grid on the player. */
 void load_initial_map_data(void) {
     /* BG1_X_POS = ppu.bg_hofs[0], BG1_Y_POS = ppu.bg_vofs[0] */
-    uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - VIEWPORT_CENTER_X) >> 3;
-    uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - VIEWPORT_CENTER_Y) >> 3;
+    uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - EB_VIEWPORT_CENTER_X) >> 3;
+    uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - EB_VIEWPORT_CENTER_Y) >> 3;
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 }
@@ -2162,7 +2162,7 @@ static void spawn_npcs_in_column(int16_t x_tile, int16_t y_tile_start) {
 
     uint16_t npc_sector_x = (uint16_t)x_tile >> 5;
     uint16_t prev_sector_y = 0x8000;  /* sentinel: impossible sector */
-    int16_t limit = y_tile_start + (VIEWPORT_HEIGHT / 8 + 4);
+    int16_t limit = y_tile_start + (EB_VIEWPORT_HEIGHT / 8 + 4);
 
     for (int16_t y = y_tile_start; y != limit; y++) {
         if (y < 0) continue;
@@ -2189,7 +2189,7 @@ static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile) {
     uint16_t npc_sector_y = (uint16_t)row_y_tile >> 5;
     uint16_t prev_sector_x = 0x8000;  /* sentinel */
     int16_t start_x = left_x_tile - 2;
-    int16_t limit = left_x_tile + (VIEWPORT_WIDTH / 8 + 4);
+    int16_t limit = left_x_tile + (EB_VIEWPORT_WIDTH / 8 + 4);
 
     for (int16_t x = start_x; x != limit; x++) {
         if (x < 0) continue;
@@ -2217,8 +2217,8 @@ static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile) {
 void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     /* Step 1: Compute BG scroll positions and update PPU registers.
      * Assembly lines 14-20: BG1/2_X/Y_POS = scroll params. */
-    int16_t scroll_x = (int16_t)(cam_x_pixels - VIEWPORT_CENTER_X);
-    int16_t scroll_y = (int16_t)(cam_y_pixels - VIEWPORT_CENTER_Y);
+    int16_t scroll_x = (int16_t)(cam_x_pixels - EB_VIEWPORT_CENTER_X);
+    int16_t scroll_y = (int16_t)(cam_y_pixels - EB_VIEWPORT_CENTER_Y);
     ppu.bg_hofs[0] = (uint16_t)scroll_x;
     ppu.bg_hofs[1] = (uint16_t)scroll_x;
     ppu.bg_vofs[0] = (uint16_t)scroll_y;
@@ -2237,15 +2237,15 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling RIGHT: SCREEN_LEFT_X < target.
              * Assembly lines 58-97. */
             ml.screen_left_x++;
-            spawn_npcs_in_column(ml.screen_left_x + (VIEWPORT_WIDTH / 8 + 2 + VIEWPORT_PAD_LEFT / 8), target_y_tile - 1);
+            spawn_npcs_in_column(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 2 + EB_VIEWPORT_PAD_LEFT / 8), target_y_tile - 1);
             /* Assembly lines 89-96: SPAWN_VERTICAL */
-            spawn_vertical((uint16_t)(ml.screen_left_x + (VIEWPORT_WIDTH / 8 + 8)),
+            spawn_vertical((uint16_t)(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 8)),
                            (uint16_t)(target_y_tile - 8));
         } else {
             /* Scrolling LEFT: SCREEN_LEFT_X > target.
              * Assembly lines 99-137. */
             ml.screen_left_x--;
-            spawn_npcs_in_column(ml.screen_left_x - 3 - VIEWPORT_PAD_LEFT / 8, target_y_tile - 1);
+            spawn_npcs_in_column(ml.screen_left_x - 3 - EB_VIEWPORT_PAD_LEFT / 8, target_y_tile - 1);
             /* Assembly lines 130-137: SPAWN_VERTICAL */
             spawn_vertical((uint16_t)(ml.screen_left_x - 8),
                            (uint16_t)(target_y_tile - 8));
@@ -2260,15 +2260,15 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling DOWN: SCREEN_TOP_Y < target.
              * Assembly lines 147-188. */
             ml.screen_top_y++;
-            spawn_npcs_in_row(target_x_tile, ml.screen_top_y + (VIEWPORT_HEIGHT / 8 + 1 + VIEWPORT_PAD_TOP / 8));
+            spawn_npcs_in_row(target_x_tile, ml.screen_top_y + (EB_VIEWPORT_HEIGHT / 8 + 1 + EB_VIEWPORT_PAD_TOP / 8));
             /* Assembly lines 181-188: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
-                             (uint16_t)(ml.screen_top_y + (VIEWPORT_HEIGHT / 8 + 8)));
+                             (uint16_t)(ml.screen_top_y + (EB_VIEWPORT_HEIGHT / 8 + 8)));
         } else {
             /* Scrolling UP: SCREEN_TOP_Y > target.
              * Assembly lines 191-228. */
             ml.screen_top_y--;
-            spawn_npcs_in_row(target_x_tile, ml.screen_top_y - 1 - VIEWPORT_PAD_TOP / 8);
+            spawn_npcs_in_row(target_x_tile, ml.screen_top_y - 1 - EB_VIEWPORT_PAD_TOP / 8);
             /* Assembly lines 221-228: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
                              (uint16_t)(ml.screen_top_y - 8));
@@ -2278,8 +2278,8 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     /* Step 5: Refill tilemaps centered on camera.
      * The assembly streams individual columns/rows via LOAD_MAP_COLUMN_TO_VRAM /
      * LOAD_MAP_ROW_TO_VRAM. The C port refills the entire tilemap instead. */
-    int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 }

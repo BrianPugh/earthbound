@@ -67,8 +67,8 @@ static void file_select_init(void) {
     /* Step 2: Initialize entity/graphics systems (simplified) */
     /* In the ROM: INIT_ENTITY_SYSTEM, OAM_CLEAR, UPDATE_SCREEN, etc. */
     for (int i = 0; i < 128; i++) {
-        ppu.oam[i].y = VIEWPORT_HEIGHT;
-        ppu.oam_full_y[i] = VIEWPORT_HEIGHT;
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
 
     /* Step 3: Set BG mode $09 (Mode 1 + BG3 priority) */
@@ -143,8 +143,8 @@ static void file_select_init(void) {
     ppu.ts = 0x00;
 
     /* Sprites use SNES-native coordinates; offset them to match centered BG3 */
-    ppu.sprite_x_offset = VIEWPORT_PAD_LEFT;
-    ppu.sprite_y_offset = VIEWPORT_PAD_TOP;
+    ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
 
     /* Step 13: Clear scroll positions */
     ppu.bg_hofs[0] = 0; ppu.bg_vofs[0] = 0;

@@ -209,11 +209,11 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
     if (text_row >= fps_overlay.n_lines || glyph_y >= h) return;
 
     int overlay_w = 46;
-    int ox = VIEWPORT_WIDTH - overlay_w - 1;
+    int ox = EB_VIEWPORT_WIDTH - overlay_w - 1;
     pixel_t color = fps_overlay.colors[text_row];
 
     /* Black background */
-    for (int x = ox - 1; x < VIEWPORT_WIDTH; x++)
+    for (int x = ox - 1; x < EB_VIEWPORT_WIDTH; x++)
         if (x >= 0) pixels[x] = PIXEL_RGB(0, 0, 0);
 
     /* Stamp glyphs */
@@ -228,7 +228,7 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
             for (int col = 0; col < w && col < 8; col++) {
                 if (!(bits & (0x80 >> col))) { /* 0-bit = drawn */
                     int px = cx + col;
-                    if (px >= 0 && px < VIEWPORT_WIDTH)
+                    if (px >= 0 && px < EB_VIEWPORT_WIDTH)
                         pixels[px] = color;
                 }
             }

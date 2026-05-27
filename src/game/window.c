@@ -32,7 +32,7 @@
    WINDOW_X_NUDGE: tiles lost per side when the viewport is narrower than 256px
    (e.g. 1 tile at 240px).  Applied to edge-hugging windows so they keep a
    visible margin instead of being flush with (or clipped by) the screen edge. */
-#define WINDOW_X_NUDGE_ ((SNES_WIDTH - VIEWPORT_WIDTH) / 2 / 8)
+#define WINDOW_X_NUDGE_ ((SNES_WIDTH - EB_VIEWPORT_WIDTH) / 2 / 8)
 #define WINDOW_X_NUDGE (WINDOW_X_NUDGE_ > 0 ? WINDOW_X_NUDGE_ : 0)
 static const uint16_t window_configs[][4] = {
     [0x00] = {  1 + WINDOW_X_NUDGE,  1, 13,  8 },  /* Command menu (Talk to, Goods, PSI, ...) */

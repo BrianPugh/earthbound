@@ -25,39 +25,39 @@
  * Ported from asm/data/unknown/C4A5CE.asm etc.
  * 0x8000 in initial_width/height means "keep current value". */
 
-/* Standard open: centre=(VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y), start at 0 size, expand */
+/* Standard open: centre=(EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y), start at 0 size, expand */
 static const OvalWindowData oval_standard_open[] = {
-    { 0x3D, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, 0x0000, 0x0000, 0, 0, 0x00E0, 0x00B7, 0x0004, 0x0003 },
+    { 0x3D, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, 0x0000, 0x0000, 0, 0, 0x00E0, 0x00B7, 0x0004, 0x0003 },
     { 0 } /* terminator */
 };
 
 /* Variant open: same as standard but slower (duration=0x64) */
 static const OvalWindowData oval_variant_open[] = {
-    { 0x64, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, 0x0000, 0x0000, 0, 0, 0x00E0, 0x00B7, 0x0004, 0x0003 },
+    { 0x64, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, 0x0000, 0x0000, 0, 0, 0x00E0, 0x00B7, 0x0004, 0x0003 },
     { 0 } /* terminator */
 };
 
 /* Standard close: shrink from current position */
 static const OvalWindowData oval_standard_close[] = {
-    { 0x3D, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
+    { 0x3D, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
       0, 0, (int16_t)0xFF20, (int16_t)0xFF49, (int16_t)0xFFFC, (int16_t)0xFFFD },
     { 0 } /* terminator */
 };
 
 /* Variant close: slower */
 static const OvalWindowData oval_variant_close[] = {
-    { 0x64, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
+    { 0x64, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
       0, 0, (int16_t)0xFF20, (int16_t)0xFF49, (int16_t)0xFFFC, (int16_t)0xFFFD },
     { 0 } /* terminator */
 };
 
 /* Battle variant: 3 frames (shrink, hold, shrink more) */
 static const OvalWindowData oval_battle[] = {
-    { 0x3C, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, (int16_t)0x9800, (int16_t)0x7F00,
+    { 0x3C, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, (int16_t)0x9800, (int16_t)0x7F00,
       0, 0, (int16_t)0xFF20, (int16_t)0xFF49, (int16_t)0xFFFC, (int16_t)0xFFFD },
-    { 0x3C, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
+    { 0x3C, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
       0, 0, 0x0000, 0x0000, 0x0000, 0x0000 },
-    { 0x3C, 0, VIEWPORT_CENTER_X, VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
+    { 0x3C, 0, EB_VIEWPORT_CENTER_X, EB_VIEWPORT_CENTER_Y, (int16_t)0x8000, (int16_t)0x8000,
       0, 0, (int16_t)0xFF38, (int16_t)0xFF50, (int16_t)0xFFFC, (int16_t)0xFFFD },
     { 0 } /* terminator */
 };
@@ -133,8 +133,8 @@ static int16_t loaded_oval_window_height_velocity;
 static int16_t loaded_oval_window_width_acceleration;
 static int16_t loaded_oval_window_height_acceleration;
 
-/* Per-scanline window boundary buffer (VIEWPORT_HEIGHT entries, 2 bytes each: left|right packed) */
-static uint16_t swirl_window_hdma_buffer[VIEWPORT_HEIGHT];
+/* Per-scanline window boundary buffer (EB_VIEWPORT_HEIGHT entries, 2 bytes each: left|right packed) */
+static uint16_t swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT];
 
 #define SWIRL_DATA_COUNT 126
 
@@ -150,11 +150,11 @@ static uint16_t swirl_window_hdma_buffer[VIEWPORT_HEIGHT];
  *     - 0x01-0x7F: repeat mode — next N bytes for count scanlines
  *     - 0x80-0xFF: individual mode — (N & 0x7F) scanlines, N bytes each
  *
- * Output: swirl_window_hdma_buffer[VIEWPORT_HEIGHT], packed as (WH0 << 8) | WH1.
+ * Output: swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT], packed as (WH0 << 8) | WH1.
  */
 static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
     /* Clear buffer to disabled state (WH0=0xFF, WH1=0x00) */
-    for (int i = 0; i < VIEWPORT_HEIGHT; i++)
+    for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++)
         swirl_window_hdma_buffer[i] = 0xFF00;
 
     if (data_size < 2) return;
@@ -165,8 +165,8 @@ static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
 
     const uint8_t *p = data + 1;
     const uint8_t *end = data + data_size;
-    int scanline = VIEWPORT_PAD_TOP;
-    int max_scanline = VIEWPORT_PAD_TOP + SNES_HEIGHT;
+    int scanline = EB_VIEWPORT_PAD_TOP;
+    int max_scanline = EB_VIEWPORT_PAD_TOP + SNES_HEIGHT;
 
     while (p < end && scanline < max_scanline) {
         uint8_t count_byte = *p++;
@@ -199,14 +199,14 @@ static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
     }
 
     /* Extend edge values into padding rows so the swirl covers the full viewport */
-    if (VIEWPORT_PAD_TOP > 0) {
-        uint16_t top_val = swirl_window_hdma_buffer[VIEWPORT_PAD_TOP];
-        for (int i = 0; i < VIEWPORT_PAD_TOP; i++)
+    if (EB_VIEWPORT_PAD_TOP > 0) {
+        uint16_t top_val = swirl_window_hdma_buffer[EB_VIEWPORT_PAD_TOP];
+        for (int i = 0; i < EB_VIEWPORT_PAD_TOP; i++)
             swirl_window_hdma_buffer[i] = top_val;
 
-        int last = VIEWPORT_PAD_TOP + SNES_HEIGHT - 1;
+        int last = EB_VIEWPORT_PAD_TOP + SNES_HEIGHT - 1;
         uint16_t bot_val = swirl_window_hdma_buffer[last];
-        for (int i = last + 1; i < VIEWPORT_HEIGHT; i++)
+        for (int i = last + 1; i < EB_VIEWPORT_HEIGHT; i++)
             swirl_window_hdma_buffer[i] = bot_val;
     }
 }
@@ -236,20 +236,20 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
     /* The assembly has two paths: one for centre_y in the upper half (drawing top-down),
      * and one for centre_y in the lower half (drawing bottom-up).
      * The top-down path starts from Y=0 in the buffer and works down.
-     * The bottom-up path starts from Y=(VIEWPORT_HEIGHT-1) and works up.
+     * The bottom-up path starts from Y=(EB_VIEWPORT_HEIGHT-1) and works up.
      * In both cases, the algorithm is the same ellipse calculation. */
 
     /* Clear the buffer to 0xFF00 (left=0xFF, right=0x00 — window disabled).
      * Assembly uses LDA #$00FF which stores little-endian as [0xFF,0x00] → WH0=0xFF, WH1=0x00.
      * C packing is (left<<8)|right, so 0xFF00 → left=0xFF, right=0x00. */
-    for (int i = 0; i < VIEWPORT_HEIGHT; i++)
+    for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++)
         swirl_window_hdma_buffer[i] = 0xFF00;
 
     if (half_width == 0 || half_height == 0)
         return;
 
     /* Assembly: BMI→bottom-up (negative), BCS→top-down (>= centre), fall-through→bottom-up */
-    bool top_down = (centre_y >= VIEWPORT_CENTER_Y);
+    bool top_down = (centre_y >= EB_VIEWPORT_CENTER_Y);
 
     if (top_down) {
         /* Top-down path (assembly @UNKNOWN1 through @UNKNOWN15) */
@@ -258,7 +258,7 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
         /* Fill scanlines above the ellipse (window disabled) */
         int gap = centre_y - half_height;
         if (gap > 0) {
-            for (int i = 0; i < gap && y_idx < VIEWPORT_HEIGHT; i++, y_idx++)
+            for (int i = 0; i < gap && y_idx < EB_VIEWPORT_HEIGHT; i++, y_idx++)
                 swirl_window_hdma_buffer[y_idx] = 0xFF00;
         }
 
@@ -267,7 +267,7 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
         if (row_offset < 0) row_offset = 0;
 
         /* Draw ellipse scanlines from top to bottom */
-        while (row_offset >= 0 && y_idx < VIEWPORT_HEIGHT) {
+        while (row_offset >= 0 && y_idx < EB_VIEWPORT_HEIGHT) {
             /* Compute horizontal half-width at this row */
             uint16_t x_extent;
             if (row_offset == 0) {
@@ -291,10 +291,10 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
 
             /* Convert from viewport space to SNES coordinate space.
              * The rendering loop compares window boundaries against
-             * SNES-space pixel coordinates (wx = x - VIEWPORT_PAD_LEFT),
+             * SNES-space pixel coordinates (wx = x - EB_VIEWPORT_PAD_LEFT),
              * so the HDMA table values must be in the same space. */
-            left -= VIEWPORT_PAD_LEFT;
-            right -= VIEWPORT_PAD_LEFT;
+            left -= EB_VIEWPORT_PAD_LEFT;
+            right -= EB_VIEWPORT_PAD_LEFT;
 
             uint16_t packed;
             if (right < 0 || left > 255) {
@@ -310,7 +310,7 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
 
             /* Mirror: also write the symmetric row below centre */
             int mirror_idx = y_idx + row_offset * 2;
-            if (mirror_idx < VIEWPORT_HEIGHT) {
+            if (mirror_idx < EB_VIEWPORT_HEIGHT) {
                 swirl_window_hdma_buffer[mirror_idx] = packed;
             }
 
@@ -323,10 +323,10 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
          * are already disabled. No post-fill needed. */
     } else {
         /* Bottom-up path (assembly @UNKNOWN16 through @UNKNOWN30) */
-        int y_idx = VIEWPORT_HEIGHT - 1;
+        int y_idx = EB_VIEWPORT_HEIGHT - 1;
 
         /* Fill scanlines below the ellipse (window disabled) */
-        int gap = (VIEWPORT_HEIGHT - centre_y) - half_height;
+        int gap = (EB_VIEWPORT_HEIGHT - centre_y) - half_height;
         if (gap > 0) {
             for (int i = 0; i < gap && y_idx >= 0; i++, y_idx--)
                 swirl_window_hdma_buffer[y_idx] = 0xFF00;
@@ -354,8 +354,8 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
             int left = centre_x - x_extent;
 
             /* Convert from viewport space to SNES coordinate space */
-            left -= VIEWPORT_PAD_LEFT;
-            right -= VIEWPORT_PAD_LEFT;
+            left -= EB_VIEWPORT_PAD_LEFT;
+            right -= EB_VIEWPORT_PAD_LEFT;
 
             uint16_t packed;
             if (right < 0 || left > 255) {
@@ -387,7 +387,7 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
 
 /* Copy HDMA buffer to PPU per-scanline window tables */
 static void apply_hdma_to_ppu(void) {
-    for (int i = 0; i < VIEWPORT_HEIGHT; i++) {
+    for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++) {
         uint16_t packed = swirl_window_hdma_buffer[i];
         ppu.wh0_table[i] = (packed >> 8) & 0xFF; /* left */
         ppu.wh1_table[i] = packed & 0xFF;         /* right */
