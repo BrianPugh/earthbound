@@ -90,6 +90,8 @@ EarthBound was designed for comfortable one-handed play — many buttons are int
 
 **Minimum for hardware ports:** D-Pad + A + B is fully playable. Add X for the town map and Start for the title screen.
 
+**Two-button play (B + L):** Compile with `-DEB_B_OPENS_MAIN_MENU` to make B in the overworld open the full pause menu (Talk to / Goods / PSI / Equip / Check / Status) right after showing the HP/PP and money windows, so the A button isn't needed for overworld play. Useful for very constrained hardware ports.
+
 ### Default Keyboard Mapping
 
 | Key | SNES Button |

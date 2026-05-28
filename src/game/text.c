@@ -2575,7 +2575,11 @@ void open_menu_button_checktalk(void) {
 /* Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
  * Called when B/Select is pressed in the overworld.
  * Shows HP/PP windows and money, loops until dismissed.
- * A/L button opens full menu (OPEN_MENU_BUTTON). */
+ * A/L button opens full menu (OPEN_MENU_BUTTON).
+ *
+ * When compiled with -DEB_B_OPENS_MAIN_MENU, the wait loop is skipped: after
+ * showing the HPPP/money windows, control falls straight into the main pause
+ * menu. This lets the game be played with two action buttons (B + L). */
 void open_hppp_display(void) {
     disable_all_entities();
     play_sfx(1);  /* SFX::CURSOR1 */
@@ -2584,6 +2588,12 @@ void open_hppp_display(void) {
     show_hppp_windows();
     display_money_window();
 
+#ifdef EB_B_OPENS_MAIN_MENU
+    /* open_menu_button() handles all cleanup (hide HPPP, close windows,
+     * enable entities), so we can return immediately after it completes. */
+    open_menu_button();
+    return;
+#else
     /* Loop: WINDOW_TICK → wait for button press */
     for (;;) {
         window_tick();
@@ -2608,6 +2618,7 @@ void open_hppp_display(void) {
             return;
         }
     }
+#endif
 }
 
 void text_setup_bg3(void) {
