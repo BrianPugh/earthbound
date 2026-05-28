@@ -174,7 +174,12 @@ void ppu_render_frame_ex(int ctx_id, int y_start, int y_end, int y_stride,
 
 #ifdef PPU_PROFILE
 typedef struct {
-    uint32_t total, clear, bg, obj, win, composite, send;
+    /* total = whole-frame duration of ppu_render_frame_ex.
+     * iter  = time spent inside the scanline for-loop (sum of all phases
+     *         + per-iteration glue + border-scanline work).
+     *         setup = total - iter (frame-level work before the loop).
+     *         glue  = iter - clear - win - bg - obj - composite - send. */
+    uint32_t total, iter, clear, bg, obj, win, composite, send;
     bool ready;
 } PPUProfile;
 extern PPUProfile ppu_profile;

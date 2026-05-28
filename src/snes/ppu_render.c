@@ -27,6 +27,13 @@
 #define PPU_HOT_FUNC(name) name
 #endif
 
+/* PPU_LINEBUF_ATTR — embedded ports can route the per-scanline working buffers
+ * into fast memory (e.g. STM32 DTCM) by defining this at build time. Defaults
+ * to nothing on desktop, so the buffers stay in normal BSS. */
+#ifndef PPU_LINEBUF_ATTR
+#define PPU_LINEBUF_ATTR
+#endif
+
 #ifdef PPU_PROFILE
 PPUProfile ppu_profile;
 #define PROF_SECTION(name) uint64_t _prof_##name = platform_timer_ticks()
@@ -834,24 +841,24 @@ void PPU_HOT_FUNC(precompute_window_masks)(
  * Promoted from stack to static so both cores have independent working memory.
  * When PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
  * with no runtime overhead vs. the old stack allocation. */
-static pixel_t  line_out_ctx[PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH];
-static uint16_t best_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint16_t best_bg_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint16_t sub_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint8_t  sub_bg_gp_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint16_t obj_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint8_t  obj_prio_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint8_t  eff_tm_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint8_t  eff_ts_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
-static uint8_t  cm_prevented_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
+static pixel_t  line_out_ctx[PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t best_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t best_bg_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t sub_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  sub_bg_gp_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t obj_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  obj_prio_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  eff_tm_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  eff_ts_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  cm_prevented_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
 
 /* Temp buffers for wide-mode non-filling layer render path.
  * Promoted from stack to static to avoid core 1 stack overflow (4KB limit). */
-static uint16_t temp_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH];
-static uint16_t temp_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH];
-static uint16_t temp_sub_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH];
-static uint8_t  temp_sub_gp_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH];
-static uint8_t  temp_tm_all_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH];
+static uint16_t temp_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t temp_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t temp_sub_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  temp_sub_gp_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
+static uint8_t  temp_tm_all_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
 
 void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                          int y_stride, scanline_callback_t send_scanline) {
@@ -958,6 +965,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 #ifdef PPU_PROFILE
     uint32_t prof_clear = 0, prof_bg = 0, prof_obj = 0;
     uint32_t prof_win = 0, prof_composite = 0, prof_send = 0;
+    uint32_t prof_iter = 0;
     PROF_SECTION(total);
 #endif
 
@@ -1044,6 +1052,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     int render_y_start = fb_y_offset;
     int render_y_end = fb_y_offset + render_height;
 
+    PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
         /* Border scanline — outside the renderable area */
         if (out_y < render_y_start || out_y >= render_y_end) {
@@ -1362,9 +1371,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         send_scanline(out_y, line_out);
         PROF_END(snd, prof_send);
     }
+    PROF_END(iter, prof_iter);
 
 #ifdef PPU_PROFILE
     ppu_profile.total = (uint32_t)(platform_timer_ticks() - _prof_total);
+    ppu_profile.iter = prof_iter;
     ppu_profile.clear = prof_clear;
     ppu_profile.bg = prof_bg;
     ppu_profile.obj = prof_obj;

@@ -118,7 +118,7 @@ static int debug_format_tenths(char *buf, int size, uint32_t tenths) {
 
 /* Cached overlay text, computed once at frame start */
 #ifdef PPU_PROFILE
-#define FPS_OVERLAY_LINES 11
+#define FPS_OVERLAY_LINES 13
 #else
 #define FPS_OVERLAY_LINES 5
 #endif
@@ -188,6 +188,20 @@ static void fps_overlay_prepare(void) {
         fps_overlay.colors[n++] = pc;
         snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]),
                  "SND %lu", (unsigned long)(ppu_profile.send / div));
+        fps_overlay.colors[n++] = pc;
+        /* Derived: SETUP = total - iter (frame setup before scanline loop);
+         *          GLUE  = iter - sum_of_phases (per-iteration inter-phase work). */
+        uint32_t phases_sum = ppu_profile.clear + ppu_profile.bg + ppu_profile.obj +
+                              ppu_profile.win + ppu_profile.composite + ppu_profile.send;
+        uint32_t setup_ticks = (ppu_profile.total > ppu_profile.iter)
+                              ? (ppu_profile.total - ppu_profile.iter) : 0;
+        uint32_t glue_ticks  = (ppu_profile.iter  > phases_sum)
+                              ? (ppu_profile.iter - phases_sum) : 0;
+        snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]),
+                 "SET %lu", (unsigned long)(setup_ticks / div));
+        fps_overlay.colors[n++] = pc;
+        snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]),
+                 "GLU %lu", (unsigned long)(glue_ticks / div));
         fps_overlay.colors[n++] = pc;
     }
 #endif
