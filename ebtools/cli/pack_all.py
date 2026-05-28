@@ -23,6 +23,17 @@ def pack_all(
     bin_dir: Annotated[Path, Parameter(alias="-b", help="Extracted binary assets (e.g. asm/bin/)")] = Path("asm/bin"),
     yaml_config: Annotated[Path, Parameter(alias="-y", help="Dump doc YAML")] = Path("earthbound.yml"),
     commondata: Annotated[Path, Parameter(alias="-c", help="Common data definitions")] = Path("commondefs.yml"),
+    text_refs_dir: Annotated[
+        Path | None,
+        Parameter(
+            help=(
+                "Directory to write the generated text_refs.h header into. "
+                "Defaults to assets_dir/../data (i.e. src/data when assets_dir "
+                "is src/assets). Set this when the C-port's data/ directory is "
+                "not a sibling of the assets directory."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Pack all human-friendly assets from src/assets/ back to binary format.
 
@@ -560,7 +571,10 @@ def pack_all(
     addr_remap: dict[int, int] = {}  # original SNES addr → new compiled SNES addr
     dialogue_dir = assets_dir / "dialogue"
     if dialogue_dir.exists():
-        addr_remap = _pack_dialogue(dialogue_dir, output_dir, doc, reverse_text_table, common_data)
+        addr_remap = _pack_dialogue(
+            dialogue_dir, output_dir, doc, reverse_text_table, common_data,
+            text_refs_dir=text_refs_dir,
+        )
         packed += 1
 
     for label, rel_path, func, kwargs in json_packers:
@@ -776,6 +790,7 @@ def _pack_dialogue(
     doc: DumpDoc,
     reverse_text_table: dict[str, int],
     common_data: CommonData | None = None,
+    text_refs_dir: Path | None = None,
 ) -> dict[int, int]:
     """Compile all dialogue YAML into a single flat blob.
 
@@ -869,8 +884,11 @@ def _pack_dialogue(
     print(f"  Built address remap table ({len(addr_remap)} entries)")
 
     # Generate C header with all label → flat offset mappings.
-    # Write to src/data/ (source tree), derived from dialogue_dir (src/assets/dialogue).
-    src_data_dir = dialogue_dir.parent.parent / "data"
+    # Defaults to writing into <assets_dir>/../data — that's src/data when the
+    # canonical src/assets/dialogue layout is used. Callers whose data/ lives
+    # somewhere else (e.g. assets under port/assets but C source under src/)
+    # pass --text-refs-dir to override.
+    src_data_dir = text_refs_dir if text_refs_dir is not None else dialogue_dir.parent.parent / "data"
     _generate_text_refs_header(flat_label_offsets, src_data_dir)
 
     return addr_remap
