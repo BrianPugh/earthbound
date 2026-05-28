@@ -171,7 +171,9 @@ unix-check-rom:
 	fi
 
 unix-extract: unix-venv
-	@if [ ! -d asm/bin ] || [ ! -f asm/bin/assets.manifest ]; then \
+	@if [ ! -f asm/bin/assets.manifest ] || \
+	    [ ! -f src/assets/items/items.json ] || \
+	    [ ! -f src/assets/music_tracks.json ]; then \
 		echo "=== Extracting game assets from ROM ==="; \
 		. .venv/bin/activate && ebtools extract; \
 	else \
