@@ -9,6 +9,7 @@
 #include "game/map_loader.h"
 #include "core/memory.h"
 #include "core/log.h"
+#include "core/embedded.h"
 #include "entity/entity.h"
 #include "entity/buffer_layout.h"
 #include "snes/ppu.h"
@@ -85,13 +86,13 @@ static bool load_font(uint8_t font_id, AssetId gfx_id, AssetId width_id,
     f->glyph_size = ASSET_SIZE(gfx_id);
     f->glyph_data = ASSET_DATA(gfx_id);
     if (!f->glyph_data) {
-        fprintf(stderr, "Failed to load font gfx (asset id %d)\n", gfx_id);
+        LOG_WARN("Failed to load font gfx (asset id %d)\n", gfx_id);
         return false;
     }
 
     f->width_data = ASSET_DATA(width_id);
     if (!f->width_data) {
-        fprintf(stderr, "Failed to load font widths (asset id %d)\n", width_id);
+        LOG_WARN("Failed to load font widths (asset id %d)\n", width_id);
         f->glyph_data = NULL;
         return false;
     }
@@ -190,7 +191,7 @@ void text_load_window_gfx(void) {
     size_t compressed_size = ASSET_SIZE(ASSET_GRAPHICS_TEXT_WINDOW_GFX_LZHAL);
     const uint8_t *compressed = ASSET_DATA(ASSET_GRAPHICS_TEXT_WINDOW_GFX_LZHAL);
     if (!compressed) {
-        fprintf(stderr, "Failed to load text window graphics\n");
+        LOG_WARN("Failed to load text window graphics\n");
         return;
     }
 
@@ -211,7 +212,7 @@ void text_load_window_gfx(void) {
                                       ert.buffer, BUFFER_SIZE);
 
     if (decompressed_size == 0) {
-        fprintf(stderr, "Failed to decompress text window graphics\n");
+        LOG_WARN("Failed to decompress text window graphics\n");
         return;
     }
 
@@ -395,7 +396,7 @@ void text_load_flavour_palette(uint8_t flavour) {
         if (pal_data) {
             flavour_palettes = (const uint16_t *)pal_data;
         } else {
-            fprintf(stderr, "Failed to load flavour palettes\n");
+            LOG_WARN("Failed to load flavour palettes\n");
             return;
         }
     }
@@ -863,7 +864,7 @@ static void display_equipment_menu(uint16_t char_id) {
             eb_to_ascii_buf(equip_text_data + ETEXT10_OFF + slot * ETEXT10_STRIDE,
                             ETEXT10_STRIDE, slot_label);
         } else {
-            static const char *fallback[] = { "  Weapon", "      Body", "     Arms", "     Other" };
+            static const char *fallback[] EB_NORELOC = { "  Weapon", "      Body", "     Arms", "     Other" };
             snprintf(slot_label, sizeof(slot_label), "%s", fallback[slot]);
         }
         /* add_menu_item with explicit position: column 0, row = slot.
@@ -1665,7 +1666,7 @@ done:
 
 /* PSI category names — structural labels matching asm/data/psi_categories.asm (US).
  * These are 8-byte PADDEDEBTEXT in ROM; we use ASCII equivalents here. */
-static const char *status_psi_category_names[4] = {
+static const char *status_psi_category_names[4] EB_NORELOC = {
     "Offense", "Recover", "Assist", "Other"
 };
 
@@ -2237,7 +2238,7 @@ goods_show_inventory:
                 /* Build Use/Give/Drop/Help menu (assembly lines 159-192).
                  * ITEM_USE_MENU_STRINGS: "Use"(0), "Give"(1), "Drop"(2), "Help!"(3)
                  * Userdata: Use=1, Give=2, Drop=3, Help!=4 */
-                static const char *item_action_labels[4] = {
+                static const char *item_action_labels[4] EB_NORELOC = {
                     "Use", "Give", "Drop", "Help!"
                 };
 

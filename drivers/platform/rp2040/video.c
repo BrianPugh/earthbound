@@ -25,7 +25,7 @@ static st7789_t lcd;
 #ifndef ENABLE_DUAL_CORE_PPU
 /* Double-buffered scanline buffers (BGR565) -- single-core only.
  * Dual-core mode has its own per-core buffers in rp2040_worker.c. */
-static uint16_t scanline_buf[2][VIEWPORT_WIDTH];
+static uint16_t scanline_buf[2][EB_VIEWPORT_WIDTH];
 static int dma_chan = -1;
 static int active_buf;
 #endif
@@ -83,12 +83,12 @@ void platform_video_send_scanline(int y, const pixel_t *pixels) {
 
     /* Copy pixels to the idle buffer while previous DMA runs */
     int fill = active_buf ^ 1;
-    memcpy(scanline_buf[fill], pixels, VIEWPORT_WIDTH * sizeof(uint16_t));
+    memcpy(scanline_buf[fill], pixels, EB_VIEWPORT_WIDTH * sizeof(uint16_t));
 
     st7789_rp2040_dma_wait(dma_chan);
 
     active_buf = fill;
-    st7789_rp2040_dma_start(dma_chan, scanline_buf[fill], VIEWPORT_WIDTH);
+    st7789_rp2040_dma_start(dma_chan, scanline_buf[fill], EB_VIEWPORT_WIDTH);
 }
 #endif
 

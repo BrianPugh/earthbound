@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 project(earthbound C)
 set(CMAKE_C_STANDARD 11)
 
-set(VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
-set(VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
+set(EB_VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
+set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src

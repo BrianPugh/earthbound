@@ -259,14 +259,14 @@ int16_t cr_reset_entity_animation(int16_t ent, int16_t scr,
     /* During fast teleportation, always treat entities as on-screen */
     if (ow.psi_teleport_speed_int >= 4)
         return -1;
-    int16_t leader_sx = (int16_t)game_state.leader_x_coord - VIEWPORT_CENTER_X;
-    int16_t leader_sy = (int16_t)game_state.leader_y_coord - VIEWPORT_CENTER_Y;
+    int16_t leader_sx = (int16_t)game_state.leader_x_coord - EB_VIEWPORT_CENTER_X;
+    int16_t leader_sy = (int16_t)game_state.leader_y_coord - EB_VIEWPORT_CENTER_Y;
 
     int16_t rel_x = entities.abs_x[ent] - leader_sx;
     int16_t rel_y = entities.abs_y[ent] - leader_sy;
 
     /* Entity is on screen if within [-64, VIEWPORT+64) in both axes */
-    if (rel_x >= -64 && rel_x < (VIEWPORT_WIDTH + 64) && rel_y >= -64 && rel_y < (VIEWPORT_HEIGHT + 96))
+    if (rel_x >= -64 && rel_x < (EB_VIEWPORT_WIDTH + 64) && rel_y >= -64 && rel_y < (EB_VIEWPORT_HEIGHT + 96))
         return -1;  /* on screen */
     return 0;  /* off screen */
 }

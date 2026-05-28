@@ -33,6 +33,7 @@
 #include "platform/platform.h"
 #include "game_main.h"
 
+#include "core/log.h"
 #include <stdio.h>
 #include "data/text_refs.h"
 
@@ -128,7 +129,7 @@ void reload_hotspots(void) {
     if (!hotspot_data) {
         hotspot_data = (const HotspotCoords *)ASSET_DATA(ASSET_DATA_HOTSPOT_COORDINATES_BIN);
         if (!hotspot_data) {
-            fprintf(stderr, "overworld: hotspot_coordinates data not available\n");
+            LOG_WARN("overworld: hotspot_coordinates data not available\n");
             return;
         }
     }

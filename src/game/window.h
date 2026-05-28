@@ -296,10 +296,10 @@ void upload_battle_screen_to_vram(void);
 #define HPPP_WINDOW_WIDTH  7
 
 /* HPPP horizontal centering tile: center of the 32-tile BG3 tilemap (16),
- * shifted right by VIEWPORT_PAD_LEFT/8 so the windows appear more centered
+ * shifted right by EB_VIEWPORT_PAD_LEFT/8 so the windows appear more centered
  * in the expanded viewport during battle. At native 256px this is 16.
  * Clamped to 18 so 4 party members (28 tiles) still fit in the 32-tile tilemap. */
-#define HPPP_CENTER_TILE_IDEAL (16 + VIEWPORT_PAD_LEFT / 8)
+#define HPPP_CENTER_TILE_IDEAL (16 + EB_VIEWPORT_PAD_LEFT / 8)
 #define HPPP_CENTER_TILE_MAX   (32 - (4 * HPPP_WINDOW_WIDTH) / 2)
 #define HPPP_CENTER_TILE (HPPP_CENTER_TILE_IDEAL < HPPP_CENTER_TILE_MAX \
                           ? HPPP_CENTER_TILE_IDEAL : HPPP_CENTER_TILE_MAX)

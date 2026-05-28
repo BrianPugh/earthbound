@@ -37,8 +37,11 @@
 #include "game/display_text_internal.h"
 #include "data/text_refs.h"
 
-/* Verbosity level (0=errors, 1=warnings, 2=trace) */
-int verbose_level = 0;
+/* Verbosity level (0=errors, 1=warnings, 2=trace).
+ * Defaults to 1 so warnings (asset-load failures, etc.) print without -v;
+ * matches the pre-existing behavior of the raw fprintf(stderr, ...) calls
+ * that were folded into LOG_WARN. */
+int verbose_level = 1;
 
 /* Auto-dump flag: set to non-zero to trigger a screenshot + VRAM dump */
 int debug_auto_dump_requested = 0;
@@ -206,11 +209,11 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
     if (text_row >= fps_overlay.n_lines || glyph_y >= h) return;
 
     int overlay_w = 46;
-    int ox = VIEWPORT_WIDTH - overlay_w - 1;
+    int ox = EB_VIEWPORT_WIDTH - overlay_w - 1;
     pixel_t color = fps_overlay.colors[text_row];
 
     /* Black background */
-    for (int x = ox - 1; x < VIEWPORT_WIDTH; x++)
+    for (int x = ox - 1; x < EB_VIEWPORT_WIDTH; x++)
         if (x >= 0) pixels[x] = PIXEL_RGB(0, 0, 0);
 
     /* Stamp glyphs */
@@ -225,7 +228,7 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
             for (int col = 0; col < w && col < 8; col++) {
                 if (!(bits & (0x80 >> col))) { /* 0-bit = drawn */
                     int px = cx + col;
-                    if (px >= 0 && px < VIEWPORT_WIDTH)
+                    if (px >= 0 && px < EB_VIEWPORT_WIDTH)
                         pixels[px] = color;
                 }
             }

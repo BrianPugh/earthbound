@@ -30,8 +30,8 @@ pico_sdk_init()
 
 
 # 240x240 display
-set(VIEWPORT_WIDTH 240 CACHE STRING "Viewport width in pixels")
-set(VIEWPORT_HEIGHT 240 CACHE STRING "Viewport height in pixels")
+set(EB_VIEWPORT_WIDTH 240 CACHE STRING "Viewport width in pixels")
+set(EB_VIEWPORT_HEIGHT 240 CACHE STRING "Viewport height in pixels")
 
 # RP2040 has only 264KB RAM; game BSS alone is ~250KB, leaving no room
 # for the SPC700/DSP emulator's 64KB APU RAM allocation.

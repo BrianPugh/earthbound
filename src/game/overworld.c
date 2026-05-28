@@ -1342,11 +1342,11 @@ void oam_clear(void) {
         sprite_priority[i].offset = 0;
     ert.oam_write_index = 0;
 
-    /* Park sprites off-screen. VIEWPORT_HEIGHT (240) is used instead of
+    /* Park sprites off-screen. EB_VIEWPORT_HEIGHT (240) is used instead of
      * SNES_HEIGHT (224) so sprites are hidden in both 224px and 240px modes. */
     for (int i = 0; i < 128; i++) {
-        ppu.oam[i].y = VIEWPORT_HEIGHT;
-        ppu.oam_full_y[i] = VIEWPORT_HEIGHT;
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
 }
 
@@ -2027,7 +2027,7 @@ static void record_auto_movement_step(uint16_t direction) {
 
     /* Different direction: advance to next entry */
     if (auto_movement_index + 1 >= AUTO_MOVEMENT_BUFFER_SIZE) {
-        fprintf(stderr, "auto_movement_buffer overflow!\n");
+        LOG_WARN("auto_movement_buffer overflow!\n");
         return;
     }
     auto_movement_index++;

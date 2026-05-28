@@ -8,7 +8,7 @@
 #define BATTLEBG_GAS_STATION   295
 
 /* Maximum distortion table entries per scanline */
-#define BATTLEBG_MAX_SCANLINES VIEWPORT_HEIGHT
+#define BATTLEBG_MAX_SCANLINES EB_VIEWPORT_HEIGHT
 
 /* Per-layer runtime animation state */
 typedef struct {

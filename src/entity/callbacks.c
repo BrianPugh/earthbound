@@ -347,9 +347,9 @@ void write_spritemap_to_oam(const uint8_t *spritemap, int16_t base_x,
         int16_t sy = base_y + y_off - 1;
         int16_t sx = base_x + x_off;
 
-        /* Y bounds check: visible if sy in [0, VIEWPORT_HEIGHT) or [-32, -1] (wrap).
-         * Assembly uses 0xE0 (224) for native SNES height; we use VIEWPORT_HEIGHT. */
-        if ((uint16_t)sy >= VIEWPORT_HEIGHT && (uint16_t)sy < 0xFFE0) {
+        /* Y bounds check: visible if sy in [0, EB_VIEWPORT_HEIGHT) or [-32, -1] (wrap).
+         * Assembly uses 0xE0 (224) for native SNES height; we use EB_VIEWPORT_HEIGHT. */
+        if ((uint16_t)sy >= EB_VIEWPORT_HEIGHT && (uint16_t)sy < 0xFFE0) {
             if (flags & 0x80)
                 break;
             idx += 5;
@@ -357,9 +357,9 @@ void write_spritemap_to_oam(const uint8_t *spritemap, int16_t base_x,
         }
 
         /* X bounds check: skip sprites fully off-screen.
-         * For expanded viewports, sprites at X in [256, VIEWPORT_WIDTH+32) are valid.
+         * For expanded viewports, sprites at X in [256, EB_VIEWPORT_WIDTH+32) are valid.
          * Assembly only allowed X high byte == 0 or 0xFF (9-bit SNES OAM range). */
-        if (sx >= VIEWPORT_WIDTH + 32 || sx < -32) {
+        if (sx >= EB_VIEWPORT_WIDTH + 32 || sx < -32) {
             if (flags & 0x80)
                 break;
             idx += 5;
@@ -888,13 +888,13 @@ void build_entity_draw_list(void) {
     while (ent >= 0) {
         /* Screen bounds check (assembly lines 23-41).
          * Assembly uses unsigned CMP + BCC, so we must use uint16_t.
-         * On-screen range: [0, VIEWPORT_HEIGHT) ∪ [0xFFC0, 0xFFFF] (y < VH or y >= -64).
-         * Off-screen: [VIEWPORT_HEIGHT, 0xFFBF] — entities in this range are skipped.
-         * Same logic for X with threshold VIEWPORT_WIDTH+64. */
+         * On-screen range: [0, EB_VIEWPORT_HEIGHT) ∪ [0xFFC0, 0xFFFF] (y < VH or y >= -64).
+         * Off-screen: [EB_VIEWPORT_HEIGHT, 0xFFBF] — entities in this range are skipped.
+         * Same logic for X with threshold EB_VIEWPORT_WIDTH+64. */
         uint16_t sy = (uint16_t)entities.screen_y[ent];
         uint16_t sx = (uint16_t)entities.screen_x[ent];
-        if ((sy < (VIEWPORT_HEIGHT + 32) || sy >= 0xFFC0) &&
-            (sx < (VIEWPORT_WIDTH + 64) || sx >= 0xFFC0)) {
+        if ((sy < (EB_VIEWPORT_HEIGHT + 32) || sy >= 0xFFC0) &&
+            (sx < (EB_VIEWPORT_WIDTH + 64) || sx >= 0xFFC0)) {
             if (entities.draw_priority[ent] == 1) {
                 /* Priority 1: add to sorting linked list (front-insert).
                  * Assembly lines 51-54: ENTITY_DRAW_SORTING[offset] = prev head;

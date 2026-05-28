@@ -283,14 +283,14 @@ bool map_loader_init(void) {
     tilesetpalette_data = ASSET_DATA(ASSET_DATA_GLOBAL_MAP_TILESETPALETTE_DATA_BIN);
     tilesetpalette_size = ASSET_SIZE(ASSET_DATA_GLOBAL_MAP_TILESETPALETTE_DATA_BIN);
     if (!tilesetpalette_data) {
-        fprintf(stderr, "map_loader: failed to load global_map_tilesetpalette_data.bin\n");
+        LOG_WARN("map_loader: failed to load global_map_tilesetpalette_data.bin\n");
         return false;
     }
 
     tileset_table_data = ASSET_DATA(ASSET_DATA_TILESET_TABLE_BIN);
     tileset_table_size = ASSET_SIZE(ASSET_DATA_TILESET_TABLE_BIN);
     if (!tileset_table_data) {
-        fprintf(stderr, "map_loader: failed to load tileset_table.bin\n");
+        LOG_WARN("map_loader: failed to load tileset_table.bin\n");
         tilesetpalette_data = NULL;
         return false;
     }
@@ -308,14 +308,14 @@ bool map_loader_init(void) {
         npc_config_table_count = npc_config_bytes / sizeof(NpcConfig);
     }
     if (!sprite_placement_ptr_table || !sprite_placement_table || !npc_config_table) {
-        fprintf(stderr, "map_loader: NPC data tables not available (non-fatal)\n");
+        LOG_WARN("map_loader: NPC data tables not available (non-fatal)\n");
     }
 
     /* Load sector attributes table (non-fatal if missing) */
     sector_attributes_data = ASSET_DATA(ASSET_DATA_PER_SECTOR_ATTRIBUTES_BIN);
     sector_attributes_size = ASSET_SIZE(ASSET_DATA_PER_SECTOR_ATTRIBUTES_BIN);
     if (!sector_attributes_data) {
-        fprintf(stderr, "map_loader: sector attributes not available (non-fatal)\n");
+        LOG_WARN("map_loader: sector attributes not available (non-fatal)\n");
     }
 
     /* Load collision data tables */
@@ -324,7 +324,7 @@ bool map_loader_init(void) {
     collision_pointers_blob = ASSET_DATA(ASSET_DATA_MAP_COLLISION_POINTERS_BLOB_BIN);
     collision_pointers_blob_size = ASSET_SIZE(ASSET_DATA_MAP_COLLISION_POINTERS_BLOB_BIN);
     if (!collision_arrangement_table || !collision_pointers_blob) {
-        fprintf(stderr, "map_loader: collision data not available (non-fatal)\n");
+        LOG_WARN("map_loader: collision data not available (non-fatal)\n");
     }
 
     /* Load entity collision geometry tables */
@@ -340,7 +340,7 @@ bool map_loader_init(void) {
     tile_event_data = ASSET_DATA(ASSET_MAPS_TILE_EVENT_CONTROL_TABLE_BIN);
     tile_event_data_size = ASSET_SIZE(ASSET_MAPS_TILE_EVENT_CONTROL_TABLE_BIN);
     if (!event_control_ptr_table_data || !tile_event_data) {
-        fprintf(stderr, "map_loader: event control tables not available (non-fatal)\n");
+        LOG_WARN("map_loader: event control tables not available (non-fatal)\n");
     }
 
     /* Load map music data tables (non-fatal if missing) */
@@ -351,7 +351,7 @@ bool map_loader_init(void) {
     event_music_table = ASSET_DATA(ASSET_DATA_OVERWORLD_EVENT_MUSIC_TABLE_BIN);
     event_music_table_size = ASSET_SIZE(ASSET_DATA_OVERWORLD_EVENT_MUSIC_TABLE_BIN);
     if (!per_sector_music_data || !event_music_ptr_table || !event_music_table) {
-        fprintf(stderr, "map_loader: music data not available (non-fatal)\n");
+        LOG_WARN("map_loader: music data not available (non-fatal)\n");
     }
 
     return true;
@@ -729,7 +729,7 @@ static size_t load_and_decompress(AssetId id, uint8_t *dst, size_t dst_max) {
     const uint8_t *compressed = ASSET_DATA(id);
     size_t compressed_size = ASSET_SIZE(id);
     if (!compressed) {
-        fprintf(stderr, "map_loader: failed to load asset %d\n", (int)id);
+        LOG_WARN("map_loader: failed to load asset %d\n", (int)id);
         return 0;
     }
 
@@ -799,13 +799,13 @@ void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
     const uint8_t *pal_data = ASSET_DATA(ASSET_MAPS_PALETTES(tileset_combo));
     size_t pal_size = ASSET_SIZE(ASSET_MAPS_PALETTES(tileset_combo));
     if (!pal_data) {
-        fprintf(stderr, "map_loader: failed to load palette %d\n", tileset_combo);
+        LOG_WARN("map_loader: failed to load palette %d\n", tileset_combo);
         return;
     }
 
     size_t offset = (size_t)palette_index * (BPP4PALETTE_SIZE * 6);
     if (offset + BPP4PALETTE_SIZE * 6 > pal_size) {
-        fprintf(stderr, "map_loader: palette %d too small for index %d "
+        LOG_WARN("map_loader: palette %d too small for index %d "
                 "(offset=%zu, size=%zu)\n", tileset_combo, palette_index, offset, pal_size);
         return;
     }
@@ -915,12 +915,12 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
         const uint8_t *pal_data = ASSET_DATA(ASSET_MAPS_PALETTES(file_num));
         size_t pal_size = ASSET_SIZE(ASSET_MAPS_PALETTES(file_num));
         if (!pal_data) {
-            fprintf(stderr, "map_loader: failed to load palette %d\n", file_num);
+            LOG_WARN("map_loader: failed to load palette %d\n", file_num);
             return;
         }
 
         if (byte_offset + BPP4PALETTE_SIZE * 6 > pal_size) {
-            fprintf(stderr, "map_loader: palette %d too small for offset %zu "
+            LOG_WARN("map_loader: palette %d too small for offset %zu "
                     "(size=%zu)\n", file_num, byte_offset, pal_size);
             return;
         }
@@ -948,7 +948,7 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
         uint16_t override_low = read_u16_le(&pal_set[32]);
 
         if (!resolve_palette_rom_address(override_low, &file_num, &byte_offset)) {
-            fprintf(stderr, "map_loader: failed to resolve palette override "
+            LOG_WARN("map_loader: failed to resolve palette override "
                     "0x%04X\n", override_low);
             break;
         }
@@ -1421,7 +1421,7 @@ static void load_special_sprite_palette(void) {
  * sector_y: Y sector index (0-79) */
 void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     if (!tilesetpalette_data || !tileset_table_data) {
-        fprintf(stderr, "map_loader: data tables not loaded\n");
+        LOG_WARN("map_loader: data tables not loaded\n");
         return;
     }
 
@@ -1434,7 +1434,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     /* Look up sector data */
     size_t sector_index = (size_t)sector_y * 32 + sector_x;
     if (sector_index >= tilesetpalette_size) {
-        fprintf(stderr, "map_loader: sector (%d, %d) out of range (size=%zu)\n",
+        LOG_WARN("map_loader: sector (%d, %d) out of range (size=%zu)\n",
                 sector_x, sector_y, tilesetpalette_size);
         return;
     }
@@ -1609,7 +1609,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     uint16_t sector_y = v1 >> 4;
     size_t tp_index = (size_t)sector_y * 32 + sector_x;
     if (tp_index >= tilesetpalette_size) {
-        fprintf(stderr, "load_your_sanctuary_location: sector (%u,%u) out of range\n",
+        LOG_WARN("load_your_sanctuary_location: sector (%u,%u) out of range\n",
                 sector_x, sector_y);
         return;
     }
@@ -1656,7 +1656,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
                                            SHARED_SCRATCH_SIZE);
     arrangement_loaded = (arrangement_size > 0);
     if (!arrangement_loaded) {
-        fprintf(stderr, "load_your_sanctuary_location: failed to load arrangement for tileset %u\n", tileset_id);
+        LOG_WARN("load_your_sanctuary_location: failed to load arrangement for tileset %u\n", tileset_id);
         return;
     }
 
@@ -1764,7 +1764,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
                                           decomp_staging,
                                           SHARED_SCRATCH_SIZE);
     if (gfx_size == 0) {
-        fprintf(stderr, "load_your_sanctuary_location: failed to load gfx for tileset %u\n", tileset_id);
+        LOG_WARN("load_your_sanctuary_location: failed to load gfx for tileset %u\n", tileset_id);
         return;
     }
 
@@ -1924,8 +1924,8 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
              * screen to prevent visible pop-in. Attract mode (enabled=1) skips
              * this check. */
             if (ow.npc_spawns_enabled != 1) {
-                bool on_screen_x = (uint16_t)screen_rel_x < VIEWPORT_WIDTH;
-                bool on_screen_y = (uint16_t)screen_rel_y < VIEWPORT_HEIGHT;
+                bool on_screen_x = (uint16_t)screen_rel_x < EB_VIEWPORT_WIDTH;
+                bool on_screen_y = (uint16_t)screen_rel_y < EB_VIEWPORT_HEIGHT;
                 if (on_screen_x && on_screen_y) {
                     continue;
                 }
@@ -1938,10 +1938,10 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
              * i.e., when screen_rel < -65 (= screen_rel <= -66).
              * Value -65 gives result 0 which does NOT trigger JUMPGTS (not strictly > 0).
              * Only spawn NPCs within (-65, 320) i.e., screen_rel must be >= -65. */
-            if (screen_rel_x < -65 || screen_rel_x >= (VIEWPORT_WIDTH + 64)) {
+            if (screen_rel_x < -65 || screen_rel_x >= (EB_VIEWPORT_WIDTH + 64)) {
                 continue;
             }
-            if (screen_rel_y < -65 || screen_rel_y >= (VIEWPORT_HEIGHT + 96)) {
+            if (screen_rel_y < -65 || screen_rel_y >= (EB_VIEWPORT_HEIGHT + 96)) {
                 continue;
             }
         }
@@ -2008,8 +2008,8 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 
     /* Fill tilemaps from chunk data + arrangement table.
      * Center the view on the player position. */
-    int16_t view_x_tile = (int16_t)x_tile - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)y_tile - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 
@@ -2019,12 +2019,12 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 
     /* Set BG scroll positions to center on player BEFORE spawning NPCs.
      * spawn_npcs_at_sector's screen bounds check reads ppu.bg_hofs/bg_vofs
-     * to filter NPCs outside [-65, VIEWPORT_WIDTH+64) pixels of camera.
+     * to filter NPCs outside [-65, EB_VIEWPORT_WIDTH+64) pixels of camera.
      * Screen center offset: VIEWPORT_CENTER pixels. */
-    ppu.bg_hofs[0] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_hofs[1] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_vofs[0] = y_pixels - VIEWPORT_CENTER_Y;
-    ppu.bg_vofs[1] = y_pixels - VIEWPORT_CENTER_Y;
+    ppu.bg_hofs[0] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_hofs[1] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_vofs[0] = y_pixels - EB_VIEWPORT_CENTER_Y;
+    ppu.bg_vofs[1] = y_pixels - EB_VIEWPORT_CENTER_Y;
 
     /* Normalize ow.npc_spawns_enabled to 1 before initial spawn.
      * Assembly lines 130-133: if NPC_SPAWNS_ENABLED != 0, set to 1.
@@ -2062,12 +2062,12 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     }
 
     /* Assembly lines 165-182: Spawn enemies across the initial visible area.
-     * Calls SPAWN_HORIZONTAL for each row from -8 to (VIEWPORT_HEIGHT/8+12),
+     * Calls SPAWN_HORIZONTAL for each row from -8 to (EB_VIEWPORT_HEIGHT/8+12),
      * covering the full vertical extent of the screen plus margin. */
     {
-        int16_t init_screen_x = (int16_t)(x_tile - (VIEWPORT_CENTER_X / 8));
-        int16_t init_screen_y = (int16_t)(y_tile - (VIEWPORT_CENTER_Y / 8));
-        for (int row = -8; row < (VIEWPORT_HEIGHT / 8 + 12); row++) {
+        int16_t init_screen_x = (int16_t)(x_tile - (EB_VIEWPORT_CENTER_X / 8));
+        int16_t init_screen_y = (int16_t)(y_tile - (EB_VIEWPORT_CENTER_Y / 8));
+        for (int row = -8; row < (EB_VIEWPORT_HEIGHT / 8 + 12); row++) {
             spawn_horizontal((uint16_t)(init_screen_x - 8),
                              (uint16_t)(init_screen_y + row));
         }
@@ -2076,8 +2076,8 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     /* Initialize scroll tracking state.
      * Assembly lines 188-191: SCREEN_LEFT_X = x_tile - VIEWPORT_CENTER/8,
      * SCREEN_TOP_Y = y_tile - VIEWPORT_CENTER/8. */
-    ml.screen_left_x = (int16_t)(x_tile - (VIEWPORT_CENTER_X / 8));
-    ml.screen_top_y = (int16_t)(y_tile - (VIEWPORT_CENTER_Y / 8));
+    ml.screen_left_x = (int16_t)(x_tile - (EB_VIEWPORT_CENTER_X / 8));
+    ml.screen_top_y = (int16_t)(y_tile - (EB_VIEWPORT_CENTER_Y / 8));
 
     /* Enable layers: BG1 + BG2 + BG3 + OBJ (assembly skips in photograph mode) */
     if (!photograph_map_loading_mode)
@@ -2111,8 +2111,8 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     load_map_at_sector(sector_x, sector_y);
 
     /* Assembly lines 42-59: compute view offsets */
-    int16_t view_x_tile = (int16_t)x_tile - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)y_tile - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
 
     /* Assembly lines 60-110: invalidate streaming cache, fill tilemaps + collision */
     fill_tilemaps(view_x_tile, view_y_tile);
@@ -2122,10 +2122,10 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     wait_for_fade_complete();
 
     /* Assembly lines 133-142: set BG scroll positions */
-    ppu.bg_hofs[0] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_hofs[1] = x_pixels - VIEWPORT_CENTER_X;
-    ppu.bg_vofs[0] = y_pixels - VIEWPORT_CENTER_Y;
-    ppu.bg_vofs[1] = y_pixels - VIEWPORT_CENTER_Y;
+    ppu.bg_hofs[0] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_hofs[1] = x_pixels - EB_VIEWPORT_CENTER_X;
+    ppu.bg_vofs[0] = y_pixels - EB_VIEWPORT_CENTER_Y;
+    ppu.bg_vofs[1] = y_pixels - EB_VIEWPORT_CENTER_Y;
 
     /* Assembly lines 143-146: set scroll tracking state */
     ml.screen_left_x = view_x_tile;
@@ -2142,8 +2142,8 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
  * centers the 64-tile grid on the player. */
 void load_initial_map_data(void) {
     /* BG1_X_POS = ppu.bg_hofs[0], BG1_Y_POS = ppu.bg_vofs[0] */
-    uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - VIEWPORT_CENTER_X) >> 3;
-    uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - VIEWPORT_CENTER_Y) >> 3;
+    uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - EB_VIEWPORT_CENTER_X) >> 3;
+    uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - EB_VIEWPORT_CENTER_Y) >> 3;
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 }
@@ -2162,7 +2162,7 @@ static void spawn_npcs_in_column(int16_t x_tile, int16_t y_tile_start) {
 
     uint16_t npc_sector_x = (uint16_t)x_tile >> 5;
     uint16_t prev_sector_y = 0x8000;  /* sentinel: impossible sector */
-    int16_t limit = y_tile_start + (VIEWPORT_HEIGHT / 8 + 4);
+    int16_t limit = y_tile_start + (EB_VIEWPORT_HEIGHT / 8 + 4);
 
     for (int16_t y = y_tile_start; y != limit; y++) {
         if (y < 0) continue;
@@ -2189,7 +2189,7 @@ static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile) {
     uint16_t npc_sector_y = (uint16_t)row_y_tile >> 5;
     uint16_t prev_sector_x = 0x8000;  /* sentinel */
     int16_t start_x = left_x_tile - 2;
-    int16_t limit = left_x_tile + (VIEWPORT_WIDTH / 8 + 4);
+    int16_t limit = left_x_tile + (EB_VIEWPORT_WIDTH / 8 + 4);
 
     for (int16_t x = start_x; x != limit; x++) {
         if (x < 0) continue;
@@ -2217,8 +2217,8 @@ static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile) {
 void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     /* Step 1: Compute BG scroll positions and update PPU registers.
      * Assembly lines 14-20: BG1/2_X/Y_POS = scroll params. */
-    int16_t scroll_x = (int16_t)(cam_x_pixels - VIEWPORT_CENTER_X);
-    int16_t scroll_y = (int16_t)(cam_y_pixels - VIEWPORT_CENTER_Y);
+    int16_t scroll_x = (int16_t)(cam_x_pixels - EB_VIEWPORT_CENTER_X);
+    int16_t scroll_y = (int16_t)(cam_y_pixels - EB_VIEWPORT_CENTER_Y);
     ppu.bg_hofs[0] = (uint16_t)scroll_x;
     ppu.bg_hofs[1] = (uint16_t)scroll_x;
     ppu.bg_vofs[0] = (uint16_t)scroll_y;
@@ -2237,15 +2237,15 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling RIGHT: SCREEN_LEFT_X < target.
              * Assembly lines 58-97. */
             ml.screen_left_x++;
-            spawn_npcs_in_column(ml.screen_left_x + (VIEWPORT_WIDTH / 8 + 2 + VIEWPORT_PAD_LEFT / 8), target_y_tile - 1);
+            spawn_npcs_in_column(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 2 + EB_VIEWPORT_PAD_LEFT / 8), target_y_tile - 1);
             /* Assembly lines 89-96: SPAWN_VERTICAL */
-            spawn_vertical((uint16_t)(ml.screen_left_x + (VIEWPORT_WIDTH / 8 + 8)),
+            spawn_vertical((uint16_t)(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 8)),
                            (uint16_t)(target_y_tile - 8));
         } else {
             /* Scrolling LEFT: SCREEN_LEFT_X > target.
              * Assembly lines 99-137. */
             ml.screen_left_x--;
-            spawn_npcs_in_column(ml.screen_left_x - 3 - VIEWPORT_PAD_LEFT / 8, target_y_tile - 1);
+            spawn_npcs_in_column(ml.screen_left_x - 3 - EB_VIEWPORT_PAD_LEFT / 8, target_y_tile - 1);
             /* Assembly lines 130-137: SPAWN_VERTICAL */
             spawn_vertical((uint16_t)(ml.screen_left_x - 8),
                            (uint16_t)(target_y_tile - 8));
@@ -2260,15 +2260,15 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling DOWN: SCREEN_TOP_Y < target.
              * Assembly lines 147-188. */
             ml.screen_top_y++;
-            spawn_npcs_in_row(target_x_tile, ml.screen_top_y + (VIEWPORT_HEIGHT / 8 + 1 + VIEWPORT_PAD_TOP / 8));
+            spawn_npcs_in_row(target_x_tile, ml.screen_top_y + (EB_VIEWPORT_HEIGHT / 8 + 1 + EB_VIEWPORT_PAD_TOP / 8));
             /* Assembly lines 181-188: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
-                             (uint16_t)(ml.screen_top_y + (VIEWPORT_HEIGHT / 8 + 8)));
+                             (uint16_t)(ml.screen_top_y + (EB_VIEWPORT_HEIGHT / 8 + 8)));
         } else {
             /* Scrolling UP: SCREEN_TOP_Y > target.
              * Assembly lines 191-228. */
             ml.screen_top_y--;
-            spawn_npcs_in_row(target_x_tile, ml.screen_top_y - 1 - VIEWPORT_PAD_TOP / 8);
+            spawn_npcs_in_row(target_x_tile, ml.screen_top_y - 1 - EB_VIEWPORT_PAD_TOP / 8);
             /* Assembly lines 221-228: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
                              (uint16_t)(ml.screen_top_y - 8));
@@ -2278,8 +2278,8 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     /* Step 5: Refill tilemaps centered on camera.
      * The assembly streams individual columns/rows via LOAD_MAP_COLUMN_TO_VRAM /
      * LOAD_MAP_ROW_TO_VRAM. The C port refills the entire tilemap instead. */
-    int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (VIEWPORT_CENTER_X / 8);
-    int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (VIEWPORT_CENTER_Y / 8);
+    int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (EB_VIEWPORT_CENTER_X / 8);
+    int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile);
     fill_collision_tiles(view_x_tile, view_y_tile);
 }

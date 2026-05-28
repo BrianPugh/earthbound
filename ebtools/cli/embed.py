@@ -393,11 +393,19 @@ def embed_registry(
         "",
         f'#include "{inc_path.resolve().as_posix()}"',
         "",
+        "/* Section attribute for the asset index tables. Default: empty.",
+        " * Embedded ports (e.g. STM32 Game & Watch) override via -D to place",
+        " * the tables in a specific linker section so a runtime relocation",
+        " * pass can fix up their data/size_ptr fields. */",
+        "#ifndef EBASSET_TABLE_ATTR",
+        "#define EBASSET_TABLE_ATTR",
+        "#endif",
+        "",
     ]
 
     # Global array: const-initialized with {data_ptr, &size_ptr} pairs.
     # Both are link-time constants, so no runtime init needed.
-    array_lines.append("const AssetEntry embedded_assets[ASSET_COUNT] = {")
+    array_lines.append("EBASSET_TABLE_ATTR const AssetEntry embedded_assets[ASSET_COUNT] = {")
     for enum_name, _comment in enum_entries:
         incbin_id = enum_to_incbin.get(enum_name)
         if incbin_id is not None:
@@ -413,7 +421,7 @@ def embed_registry(
         count = max_idx - min_idx + 1
         array_name = f"asset_family_{macro_name.lower()[6:]}"
 
-        array_lines.append(f"const AssetFamilyEntry {array_name}[{count}] = {{")
+        array_lines.append(f"EBASSET_TABLE_ATTR const AssetFamilyEntry {array_name}[{count}] = {{")
         for idx, _path, incbin_id in entries:
             if incbin_id is not None:
                 array_lines.append(f"    {{ {incbin_id}Data, &{incbin_id}Size }}, /* {idx} */")

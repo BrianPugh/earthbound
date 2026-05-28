@@ -32,6 +32,7 @@
 #include "include/binary.h"
 #include "include/constants.h"
 #include "core/memory.h"
+#include "core/log.h"
 #include "game_main.h"
 #include <string.h>
 #include <stdlib.h>
@@ -57,7 +58,7 @@ bool ensure_delivery_tables(void) {
         for_sale_signs = ASSET_DATA(ASSET_DATA_FOR_SALE_SIGN_SPRITE_TABLE_BIN);
         fs_size = ASSET_SIZE(ASSET_DATA_FOR_SALE_SIGN_SPRITE_TABLE_BIN);
         if (!delivery_table || !for_sale_signs) {
-            fprintf(stderr, "overworld: delivery table data not available\n");
+            LOG_WARN("overworld: delivery table data not available\n");
             return false;
         }
     }

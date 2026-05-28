@@ -22,7 +22,7 @@ bool platform_video_init(void) {
     window = SDL_CreateWindow(
         "EarthBound",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        VIEWPORT_WIDTH * WINDOW_SCALE, VIEWPORT_HEIGHT * WINDOW_SCALE,
+        EB_VIEWPORT_WIDTH * WINDOW_SCALE, EB_VIEWPORT_HEIGHT * WINDOW_SCALE,
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
     if (!window) return false;
@@ -35,14 +35,14 @@ bool platform_video_init(void) {
     SDL_RenderSetVSync(renderer, 1);
 
     /* Integer scaling for crisp pixels */
-    SDL_RenderSetLogicalSize(renderer, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    SDL_RenderSetLogicalSize(renderer, EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT);
     SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
     texture = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_BGR565,
         SDL_TEXTUREACCESS_STREAMING,
-        VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+        EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT);
     if (!texture) return false;
 
     return true;
@@ -75,7 +75,7 @@ void platform_video_begin_frame(void) {
 void platform_video_send_scanline(int y, const pixel_t *pixels) {
     if (!locked_pixels) return;
     uint8_t *dst = (uint8_t *)locked_pixels + y * locked_pitch;
-    memcpy(dst, pixels, VIEWPORT_WIDTH * sizeof(pixel_t));
+    memcpy(dst, pixels, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
 }
 
 pixel_t *platform_video_get_framebuffer(void) {

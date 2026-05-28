@@ -221,8 +221,8 @@ static void render_battle_sprite_row(uint16_t row) {
             (BATTLE_SPRITEMAP_ENTRIES * BATTLE_SPRITEMAP_ENTRY_BYTES);
 
         /* Screen position adjusted for screen shake offsets.
-         * VIEWPORT_PAD_LEFT centers sprites when BGs fill the wider viewport. */
-        int16_t sx = (int16_t)b->sprite_x - bt.screen_effect_horizontal_offset + VIEWPORT_PAD_LEFT;
+         * EB_VIEWPORT_PAD_LEFT centers sprites when BGs fill the wider viewport. */
+        int16_t sx = (int16_t)b->sprite_x - bt.screen_effect_horizontal_offset + EB_VIEWPORT_PAD_LEFT;
         int16_t sy = (int16_t)b->sprite_y - bt.screen_effect_vertical_offset;
 
         /* Shake timer — attack animation bob.
@@ -708,7 +708,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
      * Sprite Y offset centers SNES-coordinate sprites vertically. */
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_FILL;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
-    ppu.sprite_y_offset = VIEWPORT_PAD_TOP;
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
 
     /* Clear screen effect globals (assembly lines 24-29) */
     bt.red_flash_duration = 0;

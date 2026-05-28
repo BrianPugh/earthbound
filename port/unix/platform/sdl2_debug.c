@@ -61,10 +61,10 @@ void platform_debug_dump_ppu(const pixel_t *framebuffer) {
     /* Screenshot — convert RGB565 framebuffer to RGB888 for BMP */
     snprintf(path, sizeof(path), "debug/screenshot_%03d.bmp", debug_dump_counter);
     {
-        static uint32_t screenshot_rgb888[VIEWPORT_WIDTH * VIEWPORT_HEIGHT];
-        for (int i = 0; i < VIEWPORT_WIDTH * VIEWPORT_HEIGHT; i++)
+        static uint32_t screenshot_rgb888[EB_VIEWPORT_WIDTH * EB_VIEWPORT_HEIGHT];
+        for (int i = 0; i < EB_VIEWPORT_WIDTH * EB_VIEWPORT_HEIGHT; i++)
             screenshot_rgb888[i] = pixel_to_rgb888(framebuffer[i]);
-        write_bmp(path, screenshot_rgb888, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+        write_bmp(path, screenshot_rgb888, EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT);
     }
     printf("Debug: wrote %s\n", path);
 

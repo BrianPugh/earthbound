@@ -257,7 +257,7 @@ void emit_tile_run(
 
 /* Render a single BG layer scanline, merging directly into the priority
  * buffers via BGRenderCtx.  render_width controls how many screen pixels
- * to process (may be VIEWPORT_WIDTH or SNES_WIDTH). */
+ * to process (may be EB_VIEWPORT_WIDTH or SNES_WIDTH). */
 static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp,
                                          const BGRenderCtx *ctx, int render_width) {
     /* BG tilemap base address (word address from register, *2 for byte) */
@@ -455,7 +455,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         int size_bit = (hi_bits >> 1) & 1;
 
         /* Use full 16-bit X coordinate for expanded viewport support.
-         * The SNES 9-bit OAM X can't represent X in [256, VIEWPORT_WIDTH). */
+         * The SNES 9-bit OAM X can't represent X in [256, EB_VIEWPORT_WIDTH). */
         int spr_x = ppu.oam_full_x[i] + ppu.sprite_x_offset;
         /* Use full 16-bit Y coordinate, mirroring the oam_full_x approach.
          * This eliminates 8-bit wrap issues on 240-line viewports. */
@@ -665,7 +665,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             w2_right = ppu.wh3;
         }
 
-        int wx_offset = wide_mode ? -VIEWPORT_PAD_LEFT : 0;
+        int wx_offset = wide_mode ? -EB_VIEWPORT_PAD_LEFT : 0;
 
         /* Use pre-classified layer batches (computed once per frame) */
         uint8_t tm_w1_noninv = wc->tm_w1_noninv, ts_w1_noninv = wc->ts_w1_noninv;
@@ -769,7 +769,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             w2_right = ppu.wh3;
         }
 
-        int wx_offset = wide_mode ? -VIEWPORT_PAD_LEFT : 0;
+        int wx_offset = wide_mode ? -EB_VIEWPORT_PAD_LEFT : 0;
 
         if (!cm_w1_en && !cm_w2_en) {
             memset(cm_prevented_line, (prevent_mode == 1) ? 1 : 0, render_width);
@@ -834,7 +834,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
  * Promoted from stack to static so both cores have independent working memory.
  * When PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
  * with no runtime overhead vs. the old stack allocation. */
-static pixel_t  line_out_ctx[PPU_NUM_RENDER_CONTEXTS][VIEWPORT_WIDTH];
+static pixel_t  line_out_ctx[PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH];
 static uint16_t best_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
 static uint16_t best_bg_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
 static uint16_t sub_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH];
@@ -871,7 +871,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Check force blank */
     if (ppu.inidisp & 0x80) {
         for (int y = y_start; y < y_end; y += y_stride) {
-            memset(line_out, 0, VIEWPORT_WIDTH * sizeof(pixel_t));
+            memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
             send_scanline(y, line_out);
         }
         return;
@@ -928,10 +928,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
      * render_bg_scanline() regardless of wide_mode.
      *
      * Wide mode is enabled for ANY non-native viewport (both larger AND
-     * smaller than SNES) so that filling layers render at VIEWPORT_WIDTH
+     * smaller than SNES) so that filling layers render at EB_VIEWPORT_WIDTH
      * while non-filling layers are centered/cropped correctly. */
     bool wide_mode = false;
-    if (VIEWPORT_WIDTH != SNES_WIDTH || VIEWPORT_HEIGHT != SNES_HEIGHT) {
+    if (EB_VIEWPORT_WIDTH != SNES_WIDTH || EB_VIEWPORT_HEIGHT != SNES_HEIGHT) {
         for (int bg = 0; bg < 4 && !wide_mode; bg++) {
             if (!(layers_needed & (1 << bg))) continue;
             if (bg_bpp[bg] == 0) continue;
@@ -940,19 +940,19 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         }
     }
 
-    int render_height = VIEWPORT_HEIGHT;
-    int render_width = VIEWPORT_WIDTH;
+    int render_height = EB_VIEWPORT_HEIGHT;
+    int render_width = EB_VIEWPORT_WIDTH;
     int fb_x_offset = 0;
     int fb_y_offset = 0;
 
-    if (!wide_mode && (VIEWPORT_WIDTH != SNES_WIDTH || VIEWPORT_HEIGHT != SNES_HEIGHT)) {
+    if (!wide_mode && (EB_VIEWPORT_WIDTH != SNES_WIDTH || EB_VIEWPORT_HEIGHT != SNES_HEIGHT)) {
         /* No filling layers — render at SNES resolution, centered/cropped.
          * Always render SNES_WIDTH pixels into line buffers, then crop/pad
          * when writing to the output. */
-        render_height = VIEWPORT_HEIGHT < SNES_HEIGHT ? VIEWPORT_HEIGHT : SNES_HEIGHT;
+        render_height = EB_VIEWPORT_HEIGHT < SNES_HEIGHT ? EB_VIEWPORT_HEIGHT : SNES_HEIGHT;
         render_width = SNES_WIDTH;
-        fb_x_offset = VIEWPORT_PAD_LEFT;  /* negative when viewport < SNES */
-        fb_y_offset = VIEWPORT_HEIGHT > SNES_HEIGHT ? (VIEWPORT_HEIGHT - SNES_HEIGHT) / 2 : 0;
+        fb_x_offset = EB_VIEWPORT_PAD_LEFT;  /* negative when viewport < SNES */
+        fb_y_offset = EB_VIEWPORT_HEIGHT > SNES_HEIGHT ? (EB_VIEWPORT_HEIGHT - SNES_HEIGHT) / 2 : 0;
     }
 
 #ifdef PPU_PROFILE
@@ -1047,7 +1047,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
         /* Border scanline — outside the renderable area */
         if (out_y < render_y_start || out_y >= render_y_end) {
-            memset(line_out, 0, VIEWPORT_WIDTH * sizeof(pixel_t));
+            memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
             send_scanline(out_y, line_out);
             continue;
         }
@@ -1065,7 +1065,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             memset(obj_prio, 0, LINE_BUF_WIDTH);
 
         /* Clear output line (handles left/right black borders) */
-        memset(line_out, 0, VIEWPORT_WIDTH * sizeof(pixel_t));
+        memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
         PROF_END(clear, prof_clear);
 
         /* SNES-space scanline for scenes using explicit viewport fill. */
@@ -1170,7 +1170,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
             if (layer_fills) {
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
-                                   &ctx, VIEWPORT_WIDTH);
+                                   &ctx, EB_VIEWPORT_WIDTH);
             } else if (wide_mode) {
                 /* Non-filling layer in wide mode: render SNES_WIDTH into
                  * temp buffers, then merge visible portion into main. */
@@ -1204,12 +1204,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                                    &temp_ctx, SNES_WIDTH);
 
                 /* Copy visible portion into main merged buffers */
-                int pad = VIEWPORT_PAD_LEFT;
+                int pad = EB_VIEWPORT_PAD_LEFT;
                 int src_start = pad < 0 ? -pad : 0;
                 int dst_start = pad > 0 ?  pad : 0;
                 int count = SNES_WIDTH - src_start;
-                if (dst_start + count > VIEWPORT_WIDTH)
-                    count = VIEWPORT_WIDTH - dst_start;
+                if (dst_start + count > EB_VIEWPORT_WIDTH)
+                    count = EB_VIEWPORT_WIDTH - dst_start;
                 for (int i = 0; i < count; i++) {
                     int sx = src_start + i;
                     int dx = dst_start + i;
@@ -1241,7 +1241,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                             best_bg_color[x] = left_c;
                         }
                     }
-                    for (int x = dst_start + count; x < VIEWPORT_WIDTH; x++) {
+                    for (int x = dst_start + count; x < EB_VIEWPORT_WIDTH; x++) {
                         if (GP_LM_GP(right_packed) > GP_LM_GP(best_bg_gp_lm[x])) {
                             best_bg_gp_lm[x] = right_packed;
                             best_bg_color[x] = right_c;
@@ -1259,13 +1259,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 int block = mosaic_size + 1;
                 uint8_t gp0 = bg_gp[bg][0];
                 uint8_t gp1 = bg_gp[bg][1];
-                for (int x = 0; x < VIEWPORT_WIDTH; x += block) {
+                for (int x = 0; x < EB_VIEWPORT_WIDTH; x += block) {
                     uint16_t ref_color = best_bg_color[x];
                     uint8_t ref_gp = GP_LM_GP(best_bg_gp_lm[x]);
                     /* Only replicate if this pixel belongs to this layer */
                     if (ref_gp != gp0 && ref_gp != gp1) continue;
                     uint16_t ref_packed = ref_gp | ((uint16_t)layer_bit << 8);
-                    for (int dx = 1; dx < block && (x + dx) < VIEWPORT_WIDTH; dx++) {
+                    for (int dx = 1; dx < block && (x + dx) < EB_VIEWPORT_WIDTH; dx++) {
                         best_bg_gp_lm[x + dx] = ref_packed;
                         best_bg_color[x + dx] = ref_color;
                     }
@@ -1289,8 +1289,8 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * line_out is pre-cleared to black, so border pixels are already set. */
             int x_start = fb_x_offset < 0 ? -fb_x_offset : 0;
             int x_end = render_width;
-            if (fb_x_offset + x_end > VIEWPORT_WIDTH)
-                x_end = VIEWPORT_WIDTH - fb_x_offset;
+            if (fb_x_offset + x_end > EB_VIEWPORT_WIDTH)
+                x_end = EB_VIEWPORT_WIDTH - fb_x_offset;
 
             /* Hoist loop-invariant OBJ enable check */
             bool obj_main_en = no_windows ? (base_tm & LAYER_OBJ) != 0 : false;
@@ -1380,5 +1380,5 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
 void ppu_render_frame(scanline_callback_t send_scanline) {
     ppu_prepare_palette();
-    ppu_render_frame_ex(0, 0, VIEWPORT_HEIGHT, 1, send_scanline);
+    ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 1, send_scanline);
 }

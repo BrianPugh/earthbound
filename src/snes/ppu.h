@@ -35,7 +35,7 @@ END_PACKED_STRUCT
 /* Per-layer viewport mode (C port extension) */
 typedef enum {
     BG_VIEWPORT_CENTER = 0, /* render at SNES_WIDTH centered (default) */
-    BG_VIEWPORT_FILL   = 1, /* render at VIEWPORT_WIDTH with tilemap wrapping */
+    BG_VIEWPORT_FILL   = 1, /* render at EB_VIEWPORT_WIDTH with tilemap wrapping */
     BG_VIEWPORT_CLAMP  = 2, /* render at SNES_WIDTH centered, edge-extend borders */
 } BGViewportMode;
 
@@ -86,22 +86,22 @@ typedef struct {
     uint16_t oam_addr;
 
     /* Per-scanline window positions (HDMA emulation for oval window) */
-    uint8_t wh0_table[VIEWPORT_HEIGHT]; /* window 1 left per scanline */
-    uint8_t wh1_table[VIEWPORT_HEIGHT]; /* window 1 right per scanline */
+    uint8_t wh0_table[EB_VIEWPORT_HEIGHT]; /* window 1 left per scanline */
+    uint8_t wh1_table[EB_VIEWPORT_HEIGHT]; /* window 1 right per scanline */
     bool window_hdma_active;        /* use per-scanline tables instead of static wh0/wh1 */
 
-    uint8_t wh2_table[VIEWPORT_HEIGHT]; /* window 2 left per scanline */
-    uint8_t wh3_table[VIEWPORT_HEIGHT]; /* window 2 right per scanline */
+    uint8_t wh2_table[EB_VIEWPORT_HEIGHT]; /* window 2 left per scanline */
+    uint8_t wh3_table[EB_VIEWPORT_HEIGHT]; /* window 2 right per scanline */
     bool window2_hdma_active;       /* use per-scanline tables instead of static wh2/wh3 */
 
     /* Per-scanline TM/TS override (HDMA emulation for letterbox effect) */
-    uint8_t tm_per_scanline[VIEWPORT_HEIGHT];
-    uint8_t ts_per_scanline[VIEWPORT_HEIGHT];
+    uint8_t tm_per_scanline[EB_VIEWPORT_HEIGHT];
+    uint8_t ts_per_scanline[EB_VIEWPORT_HEIGHT];
     bool tm_hdma_active;
 
     /* Per-layer viewport mode (C port extension, not real SNES hardware).
      * Controls how each BG layer fills the extended viewport area.
-     * Has no effect when VIEWPORT_WIDTH equals SNES_WIDTH.
+     * Has no effect when EB_VIEWPORT_WIDTH equals SNES_WIDTH.
      * 64-tile-wide tilemaps always fill regardless. */
     BGViewportMode bg_viewport_fill[4];
 
@@ -148,7 +148,7 @@ void ppu_cgram_dma(const uint8_t *src, uint8_t start_color, uint16_t byte_count)
 void ppu_oam_dma(const uint8_t *src, uint16_t byte_count);
 
 /* Render the current PPU state, calling send_scanline for each output row.
- * The callback receives the scanline Y coordinate and a VIEWPORT_WIDTH-pixel
+ * The callback receives the scanline Y coordinate and a EB_VIEWPORT_WIDTH-pixel
  * buffer.  No persistent framebuffer is needed. */
 typedef void (*scanline_callback_t)(int y, const pixel_t *pixels);
 void ppu_render_frame(scanline_callback_t send_scanline);

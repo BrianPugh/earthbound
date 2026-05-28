@@ -774,7 +774,7 @@ static void update_transition_scroll(void) {
     /* Assembly calls SCROLL_MAP_TO_POSITION(BG1_X_POS, BG1_Y_POS) here
      * to update tilemap streaming. For now this just updates the scroll
      * registers; map_refresh_tilemaps handles tile streaming separately. */
-    map_refresh_tilemaps(new_x + VIEWPORT_CENTER_X, new_y + VIEWPORT_CENTER_Y);
+    map_refresh_tilemaps(new_x + EB_VIEWPORT_CENTER_X, new_y + EB_VIEWPORT_CENTER_Y);
 }
 
 /* ---- SCREEN_TRANSITION (port of asm/overworld/screen_transition.asm) ----

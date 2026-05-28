@@ -73,7 +73,7 @@ void platform_video_end_frame(void);
 The PPU renders one scanline at a time. Each frame:
 
 1. `begin_frame()` — prepare for a new frame (lock texture, assert CS, etc.)
-2. `send_scanline(y, pixels)` — called for y = 0 to VIEWPORT_HEIGHT-1. `pixels` is an array of VIEWPORT_WIDTH `pixel_t` values (RGB565).
+2. `send_scanline(y, pixels)` — called for y = 0 to EB_VIEWPORT_HEIGHT-1. `pixels` is an array of EB_VIEWPORT_WIDTH `pixel_t` values (RGB565).
 3. `end_frame()` — present the frame (unlock texture, release CS, flip buffer, etc.)
 
 `get_framebuffer()` returns a pointer to a contiguous pixel buffer (for desktop ports that need post-processing like FPS overlay), or `NULL` on embedded targets that stream scanlines directly. If you return NULL, the FPS overlay and debug dump features are automatically disabled.
@@ -209,8 +209,8 @@ project(earthbound_myplatform C)
 set(CMAKE_C_STANDARD 11)
 
 # Viewport — defaults to SNES native 256x224
-set(VIEWPORT_WIDTH 256 CACHE STRING "Viewport width")
-set(VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height")
+set(EB_VIEWPORT_WIDTH 256 CACHE STRING "Viewport width")
+set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height")
 
 # Build the game library
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src
@@ -229,8 +229,8 @@ target_link_libraries(earthbound_myplatform earthbound_game)
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `VIEWPORT_WIDTH` | 256 | Pixel width of rendered frame |
-| `VIEWPORT_HEIGHT` | 224 | Pixel height of rendered frame |
+| `EB_VIEWPORT_WIDTH` | 256 | Pixel width of rendered frame |
+| `EB_VIEWPORT_HEIGHT` | 224 | Pixel height of rendered frame |
 | `ENABLE_AUDIO` | ON | Compile lakesnes SPC700/DSP emulator |
 | `ENABLE_VERIFY` | OFF | Side-by-side ROM verification (debug) |
 | `ENABLE_ASAN` | OFF | AddressSanitizer (debug builds) |
@@ -244,17 +244,17 @@ If your display expects a different byte order (e.g. big-endian RGB565 for SPI d
 
 ```c
 void platform_video_send_scanline(int y, const pixel_t *pixels) {
-    for (int x = 0; x < VIEWPORT_WIDTH; x++) {
+    for (int x = 0; x < EB_VIEWPORT_WIDTH; x++) {
         uint16_t c = pixels[x];
         display_buf[x] = (c >> 8) | (c << 8);  // LE → BE
     }
-    dma_transfer(display_buf, VIEWPORT_WIDTH);
+    dma_transfer(display_buf, EB_VIEWPORT_WIDTH);
 }
 ```
 
 ## Viewport Sizing
 
-The SNES renders at 256x224. The viewport can be larger (for borders, debug overlays, etc.) via the `VIEWPORT_WIDTH`/`VIEWPORT_HEIGHT` CMake variables. The game image is centered in the viewport with `VIEWPORT_PAD_LEFT` and `VIEWPORT_PAD_TOP` offsets (defined in `core/types.h`).
+The SNES renders at 256x224. The viewport can be larger (for borders, debug overlays, etc.) via the `EB_VIEWPORT_WIDTH`/`EB_VIEWPORT_HEIGHT` CMake variables. The game image is centered in the viewport with `EB_VIEWPORT_PAD_LEFT` and `EB_VIEWPORT_PAD_TOP` offsets (defined in `core/types.h`).
 
 For displays smaller than 256x224, you'll need to implement scaling/cropping in `send_scanline()`.
 

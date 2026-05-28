@@ -114,7 +114,7 @@ void execute_movement_script(int16_t script_offset) {
             break;
 
         if (++iterations > 50000) {
-            fprintf(stderr, "SCRIPT HANG: entity=%d script=%d pc=%u bank=%u opcode=0x%02X after %d iters\n",
+            LOG_WARN("SCRIPT HANG: entity=%d script=%d pc=%u bank=%u opcode=0x%02X after %d iters\n",
                     ert.current_entity_offset, script_offset, pc, bank, opcode, iterations);
             scripts.sleep_frames[script_offset] = 1;
             break;

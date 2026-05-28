@@ -9,11 +9,11 @@ void ppu_init(void) {
     ppu.inidisp = 0x80; /* force blank on */
 
     /* The game's OAM_CLEAR runs early in boot to hide all sprites
-       off-screen (Y=VIEWPORT_HEIGHT, below the visible display). Since the port
+       off-screen (Y=EB_VIEWPORT_HEIGHT, below the visible display). Since the port
        skips the boot sequence, pre-apply OAM_CLEAR state here. */
     for (int i = 0; i < 128; i++) {
-        ppu.oam[i].y = VIEWPORT_HEIGHT;
-        ppu.oam_full_y[i] = VIEWPORT_HEIGHT;
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
     ppu.oam_hi[0] = 0x80;
 }

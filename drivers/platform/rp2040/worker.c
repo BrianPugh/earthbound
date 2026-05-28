@@ -17,7 +17,7 @@
 
 /* Per-core double buffers for scanline DMA.
  * Each core renders into one buffer while the previous DMA runs from the other. */
-static pixel_t dma_buf[2][2][VIEWPORT_WIDTH];  /* [core][active_buf][pixels] */
+static pixel_t dma_buf[2][2][EB_VIEWPORT_WIDTH];  /* [core][active_buf][pixels] */
 
 /* Shared DMA channel + sequence counter.
  * next_dma_y enforces strict ordering: y=0,1,2,...height-1.
@@ -38,7 +38,7 @@ static void __not_in_flash_func(core_send_scanline)(int core_id, int y,
     /* Copy to this core's idle DMA buffer */
     static int active[2];  /* per-core active buffer index */
     int buf = active[core_id] ^ 1;
-    memcpy(dma_buf[core_id][buf], pixels, VIEWPORT_WIDTH * sizeof(pixel_t));
+    memcpy(dma_buf[core_id][buf], pixels, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
 
     /* Wait for our turn in the output sequence */
     while (next_dma_y != y)
@@ -49,7 +49,7 @@ static void __not_in_flash_func(core_send_scanline)(int core_id, int y,
 
     /* Start DMA from our buffer */
     st7789_rp2040_dma_start(worker_dma_chan,
-        dma_buf[core_id][buf], VIEWPORT_WIDTH);
+        dma_buf[core_id][buf], EB_VIEWPORT_WIDTH);
     active[core_id] = buf;
 
     /* Signal next scanline can send */
@@ -73,7 +73,7 @@ static void core1_entry(void) {
     for (;;) {
         multicore_fifo_pop_blocking();
 
-        ppu_render_frame_ex(1, 1, VIEWPORT_HEIGHT, 2, core1_send);
+        ppu_render_frame_ex(1, 1, EB_VIEWPORT_HEIGHT, 2, core1_send);
 
         multicore_fifo_push_blocking(1);
     }
@@ -101,7 +101,7 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb) {
     platform_video_begin_frame();
 
     /* Core 0 renders even scanlines */
-    ppu_render_frame_ex(0, 0, VIEWPORT_HEIGHT, 2, core0_send);
+    ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 2, core0_send);
 
     /* Wait for core 1 to finish */
     multicore_fifo_pop_blocking();

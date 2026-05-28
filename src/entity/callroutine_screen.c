@@ -101,7 +101,7 @@ void render_entity_hdma_window(int16_t entity_offset,
     int16_t screen_x = (int16_t)((uint16_t)ent_x - ppu.bg_hofs[0]);
 
     /* Fill entire table with "no window" (left > right) */
-    for (int s = 0; s < VIEWPORT_HEIGHT; s++) {
+    for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
         wh_left_table[s] = 128;
         wh_right_table[s] = 127;
     }
@@ -112,9 +112,9 @@ void render_entity_hdma_window(int16_t entity_offset,
 
     /* Convert viewport-space X to SNES coordinate space.
      * WH table values are compared against SNES-space wx in pixel_is_window_masked. */
-    screen_x -= VIEWPORT_PAD_LEFT;
-    hdr_left -= VIEWPORT_PAD_LEFT;
-    hdr_right -= VIEWPORT_PAD_LEFT;
+    screen_x -= EB_VIEWPORT_PAD_LEFT;
+    hdr_left -= EB_VIEWPORT_PAD_LEFT;
+    hdr_right -= EB_VIEWPORT_PAD_LEFT;
     uint8_t beam_l, beam_r;
 
     if ((uint16_t)hdr_left < 256) {
@@ -132,7 +132,7 @@ void render_entity_hdma_window(int16_t entity_offset,
      * Assembly writes count = (screen_y+4+1) = screen_y+5 scanlines. */
     if ((uint16_t)screen_y < 0x8000) {
         int hdr_end = screen_y + 4;
-        if (hdr_end >= VIEWPORT_HEIGHT) hdr_end = VIEWPORT_HEIGHT - 1;
+        if (hdr_end >= EB_VIEWPORT_HEIGHT) hdr_end = EB_VIEWPORT_HEIGHT - 1;
         for (int s = 0; s <= hdr_end; s++) {
             wh_left_table[s]  = beam_l;
             wh_right_table[s] = beam_r;
@@ -152,7 +152,7 @@ void render_entity_hdma_window(int16_t entity_offset,
 
     for (int i = 0; i <= visible_count; i++) {
         int s = oval_start + i;
-        if (s < 0 || s >= VIEWPORT_HEIGHT)
+        if (s < 0 || s >= EB_VIEWPORT_HEIGHT)
             continue;
 
         int half_w = entity_hdma_scanline_width[table_start + i];
@@ -423,15 +423,15 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
 
         /* Convert viewport-space X to SNES coordinate space for WH values.
          * Y stays in viewport space since top/bottom are table indices. */
-        screen_x -= VIEWPORT_PAD_LEFT;
+        screen_x -= EB_VIEWPORT_PAD_LEFT;
 
         int16_t top    = 0;  /* assembly reads uninitialized stack → 0 on SNES */
-        int16_t bottom = clamp_to_range(screen_y + var0, VIEWPORT_HEIGHT);
+        int16_t bottom = clamp_to_range(screen_y + var0, EB_VIEWPORT_HEIGHT);
         int16_t left   = clamp_to_range(screen_x - var0, 256);
         int16_t right  = clamp_to_range(screen_x + var0, 256);
 
         /* Fill per-scanline window tables */
-        for (int s = 0; s < VIEWPORT_HEIGHT; s++) {
+        for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
             if (s >= top && s < bottom) {
                 ppu.wh0_table[s] = (uint8_t)left;
                 ppu.wh1_table[s] = (uint8_t)right;
@@ -467,7 +467,7 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
         int16_t ent_y = (int16_t)entities.abs_y[entity_offset];
 
         /* Center camera on this entity (assembly: STA BG1_Y_POS) */
-        int16_t camera_y = ent_y - VIEWPORT_CENTER_Y;
+        int16_t camera_y = ent_y - EB_VIEWPORT_CENTER_Y;
         ppu.bg_vofs[0] = (uint16_t)camera_y;
 
         /* Compute party leader's screen-relative Y (viewport space) */
@@ -479,12 +479,12 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
          *   bottom = rel_y + 96
          *   left   = 16
          *   right  = 240 */
-        int16_t top    = clamp_to_range(rel_y - 96, VIEWPORT_HEIGHT);
-        int16_t bottom = clamp_to_range(rel_y + 96, VIEWPORT_HEIGHT);
+        int16_t top    = clamp_to_range(rel_y - 96, EB_VIEWPORT_HEIGHT);
+        int16_t bottom = clamp_to_range(rel_y + 96, EB_VIEWPORT_HEIGHT);
         int16_t left   = clamp_to_range(16, 256);
         int16_t right  = clamp_to_range(240, 256);
 
-        for (int s = 0; s < VIEWPORT_HEIGHT; s++) {
+        for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
             if (s >= top && s < bottom) {
                 ppu.wh0_table[s] = (uint8_t)left;
                 ppu.wh1_table[s] = (uint8_t)right;
@@ -840,10 +840,10 @@ int16_t cr_is_entity_near_leader(int16_t entity_offset, int16_t script_offset,
     *out_pc = pc;
     int16_t ent_off = ENT(ert.current_entity_slot);
     int16_t rel_x = entities.abs_x[ent_off] -
-                     ((int16_t)game_state.leader_x_coord - VIEWPORT_CENTER_X);
+                     ((int16_t)game_state.leader_x_coord - EB_VIEWPORT_CENTER_X);
     int16_t rel_y = entities.abs_y[ent_off] -
-                     ((int16_t)game_state.leader_y_coord - VIEWPORT_CENTER_Y);
-    if (rel_x >= -64 && rel_x < (VIEWPORT_WIDTH + 64) && rel_y >= -64 && rel_y < (VIEWPORT_HEIGHT + 96))
+                     ((int16_t)game_state.leader_y_coord - EB_VIEWPORT_CENTER_Y);
+    if (rel_x >= -64 && rel_x < (EB_VIEWPORT_WIDTH + 64) && rel_y >= -64 && rel_y < (EB_VIEWPORT_HEIGHT + 96))
         return -1;  /* on screen */
     return 0;       /* off screen */
 }

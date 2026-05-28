@@ -2058,8 +2058,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         uint16_t y_param = scripts.tempvar[script_offset];
         /* Reconstruct camera center from scroll position for map_refresh_tilemaps.
          * BG1 scroll = camera - viewport_center, so camera = scroll + viewport_center. */
-        uint16_t cam_x = ppu.bg_hofs[0] + VIEWPORT_CENTER_X;
-        uint16_t cam_y = ppu.bg_vofs[0] + VIEWPORT_CENTER_Y;
+        uint16_t cam_x = ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X;
+        uint16_t cam_y = ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y;
         map_refresh_tilemaps(cam_x, cam_y);
         return y_param;
     }
