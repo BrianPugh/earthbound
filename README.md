@@ -107,6 +107,38 @@ EarthBound was designed for comfortable one-handed play — many buttons are int
 
 ---
 
+## Debug Hotkeys
+
+| Key | Action |
+|-----|--------|
+| F1  | Screenshot + VRAM/tile dump to `debug/` (BMP) |
+| F2  | VRAM tile visualization dump (4bpp + 2bpp BMPs) |
+| F3  | Toggle FPS / profiling overlay |
+| F4  | Dump full game state to `debug/state_NNN.bin` (~190KB, diff with `cmp`) |
+| F5  | Toggle in-game debug mode (`ow.debug_flag`) — enables debug menus |
+
+### FPS Overlay (F3)
+
+A scanline-stamped overlay drawn in the in-game TINY font in the top-right corner. Because it writes directly into the rendered scanline buffer, it works identically on every port regardless of BG/tilemap state and uses integer-only math (shift-based IIR smoothing — no floating point).
+
+**Default rows** — `XX.X` values are in milliseconds; the FPS row is frames/second:
+
+| Row | Color  | Meaning |
+|-----|--------|---------|
+| FPS | Green  | Frames per second over the recent window (target 60.0) |
+| LOG | Yellow | Game logic time per frame — fade, palette sync, script VM, NMI-equivalent work |
+| PPU | Orange | Software PPU render time per frame (BG/OBJ/window/composite) |
+| IDL | Gray   | Idle headroom remaining in the frame budget (`16.7ms − LOG − PPU`) |
+
+`LOG + PPU + IDL ≈ 16.7ms` at 60 FPS. If `IDL` trends to 0 the port is CPU-bound for that frame; if `FPS` drops below 60 you're either CPU-bound or vsync is stalling.
+
+**Optional rows:**
+
+- **SKP** (red when active, gray when idle) — appears only when the port is built with `MAX_FRAME_SKIP > 0` (e.g. the Pico port, `MAX_FRAME_SKIP=2`). Shows the length of the most recent run of skipped render frames. Dynamic frame-skipping drops PPU rendering while keeping game logic at real-time when the port falls behind schedule.
+- **CLR / BG / OBJ / WIN / CMP / SND** (cyan) — appear only in builds compiled with `-DPPU_PROFILE`. Per-section render time in tenths of a millisecond (so `BG 310` = 31.0 ms): clear, backgrounds, sprites, window/HDMA, BG/OBJ compositing, and the final scanline send to the platform.
+
+---
+
 ## Building the Assembly ROM
 
 If you want a reassembled SNES ROM for use with an emulator or flash cart, you'll need additional tools.
