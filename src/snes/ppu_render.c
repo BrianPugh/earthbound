@@ -287,6 +287,48 @@ void emit_tile_run(
 #undef EMIT_PIXELS
 }
 
+/* BG tilemap-row plan cache.
+ *
+ * Vertical scroll is constant within a frame, so the (up to) 8 output scanlines
+ * that share a tile row read the *identical* tilemap entries and produce the same
+ * per-column plan {tile, palette, prio, flip, screen_x, run length}. The column
+ * loop below (tilemap address arithmetic + ppu.vram reads + field extraction)
+ * therefore recomputes the same plan ~7/8 of the time. We decode the plan once per
+ * tile row and replay it for that row's other scanlines; per-scanline pixel
+ * decode/compositing (emit_tile_run) still runs every line since it depends on the
+ * row-within-tile. Measured ~11% off BG on the overworld.
+ *
+ * Correctness: keyed on (tile_row_map, scroll_x, render_width) and invalidated at
+ * frame start, so a replay can only occur for scanlines of the same frame that map
+ * to the same tile row at the same scroll — exactly when the plan is identical.
+ * 8x8 tiles only; 16x16 and bg2 HDMA distortion (per-scanline scroll) fall back to
+ * the full loop. Assumes a single render context (the cache is global, not per
+ * ctx_id) — auto-disabled otherwise. */
+#ifndef PPU_BG_ROW_CACHE
+#define PPU_BG_ROW_CACHE 1
+#endif
+#if PPU_BG_ROW_CACHE && PPU_NUM_RENDER_CONTEXTS != 1
+#undef PPU_BG_ROW_CACHE
+#define PPU_BG_ROW_CACHE 0
+#endif
+
+#if PPU_BG_ROW_CACHE
+#define BG_ROW_PLAN_MAXCOL 48   /* >= max tile columns across render_width (~42) */
+typedef struct {
+    uint16_t tile_num;
+    uint8_t  x_in_tile, pixels, prio_bit, palette;
+    bool     hflip, vflip;
+    uint16_t screen_x;
+} BGRowPlanEntry;
+static BGRowPlanEntry bg_row_plan[4][BG_ROW_PLAN_MAXCOL];
+static struct {
+    int row;       /* cached tile_row_map; -1 = invalid */
+    int scroll_x;  /* plan is valid only for this horizontal scroll ... */
+    int width;     /* ... and this render_width */
+    int count;     /* number of entries in bg_row_plan[bg] */
+} bg_row_cache[4];
+#endif
+
 /* Render a single BG layer scanline, merging directly into the priority
  * buffers via BGRenderCtx.  render_width controls how many screen pixels
  * to process (may be EB_VIEWPORT_WIDTH or SNES_WIDTH). */
@@ -346,6 +388,29 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
         tile_row_local -= 32;
     }
 
+#if PPU_BG_ROW_CACHE
+    /* Replay the cached column plan when this scanline shares its tile row with an
+     * already-decoded scanline of this frame (the common case: 7 of every 8). */
+    bool row_cacheable = !big_tiles
+                         && !(bg_index == 1 && bg2_distortion_active)
+                         && render_width <= 8 * BG_ROW_PLAN_MAXCOL;
+    if (row_cacheable
+        && bg_row_cache[bg_index].row == tile_row_map
+        && bg_row_cache[bg_index].scroll_x == scroll_x
+        && bg_row_cache[bg_index].width == render_width) {
+        const BGRowPlanEntry *pl = bg_row_plan[bg_index];
+        int n = bg_row_cache[bg_index].count;
+        for (int i = 0; i < n; i++) {
+            int eff_py = pl[i].vflip ? (7 - pixel_y_in_tile) : pixel_y_in_tile;
+            emit_tile_run(pl[i].tile_num, eff_py, pl[i].x_in_tile, pl[i].pixels,
+                          pl[i].hflip, pl[i].screen_x, pl[i].prio_bit, pl[i].palette,
+                          bpp, tile_data_base, bytes_per_tile, ctx);
+        }
+        return;
+    }
+    int plan_n = 0;
+#endif
+
     /* Tile-column loop: tilemaps wrap naturally via % world_width. */
     int screen_x = 0;
     while (screen_x < render_width) {
@@ -386,6 +451,19 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
             emit_tile_run(tile_num, eff_py, x_in_tile, pixels_this_tile,
                          hflip, screen_x, prio_bit, palette,
                          bpp, tile_data_base, bytes_per_tile, ctx);
+#if PPU_BG_ROW_CACHE
+            if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
+                BGRowPlanEntry *e = &bg_row_plan[bg_index][plan_n++];
+                e->tile_num  = tile_num;
+                e->x_in_tile = (uint8_t)x_in_tile;
+                e->pixels    = (uint8_t)pixels_this_tile;
+                e->prio_bit  = prio_bit;
+                e->palette   = palette;
+                e->hflip     = hflip;
+                e->vflip     = vflip;
+                e->screen_x  = (uint16_t)screen_x;
+            }
+#endif
         } else {
             /* 16x16 tile: split across up to 2 horizontal sub-tiles */
             int sub_y_screen = pixel_y_in_tile >> 3;
@@ -418,6 +496,17 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
 
         screen_x += pixels_this_tile;
     }
+#if PPU_BG_ROW_CACHE
+    /* Commit the plan for replay by this row's other scanlines. Only when it fit
+     * (plan_n < MAXCOL); if it ever overflowed we leave the cache invalid and just
+     * recompute — correct, only slower. */
+    if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
+        bg_row_cache[bg_index].row      = tile_row_map;
+        bg_row_cache[bg_index].scroll_x = scroll_x;
+        bg_row_cache[bg_index].width    = render_width;
+        bg_row_cache[bg_index].count    = plan_n;
+    }
+#endif
 }
 
 /* Blend two BGR565 colors for color math (add/subtract, optionally halved).
@@ -901,6 +990,13 @@ static uint8_t  temp_tm_all_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF
 
 void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                          int y_stride, scanline_callback_t send_scanline) {
+#if PPU_BG_ROW_CACHE
+    /* Invalidate the tilemap-row plan cache at frame start. Within a frame scroll
+     * is constant, so keying replays on tile_row_map (+scroll_x/width) is correct;
+     * across frames the plan may be stale, hence this reset. */
+    bg_row_cache[0].row = bg_row_cache[1].row =
+        bg_row_cache[2].row = bg_row_cache[3].row = -1;
+#endif
     pixel_t  *line_out        = line_out_ctx[ctx_id];
     uint16_t *best_bg_color   = best_bg_color_ctx[ctx_id];
     uint16_t *best_bg_gp_lm   = best_bg_gp_lm_ctx[ctx_id];
