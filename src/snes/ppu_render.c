@@ -1066,6 +1066,16 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     int render_y_start = fb_y_offset;
     int render_y_end = fb_y_offset + render_height;
 
+    /* #4: when the compositor covers the entire output line (wide mode — no
+     * left/right black borders) it overwrites every line_out pixel each
+     * scanline, so the per-scanline clear is dead work. This mirrors the
+     * composite loop's coverage exactly: it writes line_out[x + fb_x_offset]
+     * for x in [x_start, render_width), so full coverage ⟺ fb_x_offset == 0
+     * && render_width == EB_VIEWPORT_WIDTH. Skipping it removes ~150 KB/frame
+     * of memset (640 B × 240 lines). Loop-invariant, hoisted here. */
+    const bool line_out_full_cover =
+        (fb_x_offset == 0 && render_width == EB_VIEWPORT_WIDTH);
+
     PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
         /* Border scanline — outside the renderable area */
@@ -1087,8 +1097,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         if (layers_needed & LAYER_OBJ)
             memset(obj_prio, 0, LINE_BUF_WIDTH);
 
-        /* Clear output line (handles left/right black borders) */
-        memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
+        /* Clear output line (handles left/right black borders). Skipped in
+         * wide mode where the compositor overwrites every pixel (see #4). */
+        if (!line_out_full_cover)
+            memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
         PROF_END(clear, prof_clear);
 
         /* SNES-space scanline for scenes using explicit viewport fill. */
