@@ -1602,7 +1602,7 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
         if (div == 0) div = 1;
         printf("BGPROF/%lufr: lines=%lu layers/line=%lu.%02lu emit=%lu blank=%lu "
                "decode=%lu hit=%lu%% px=%lu (px/line=%lu) elided=%lu | "
-               "CLR=%lu BG=%lu SND=%lu TOTAL=%lu (0.1ms)\n",
+               "CLR=%lu BG=%lu OBJ=%lu WIN=%lu COMP=%lu SND=%lu TOTAL=%lu (0.1ms)\n",
                (unsigned long)f,
                (unsigned long)(g_bgc.scanlines / f),
                (unsigned long)(g_bgc.layers * 100u / sl / 100u),
@@ -1616,6 +1616,9 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
                (unsigned long)(g_bgc.elided_tiles / f),
                (unsigned long)(ppu_profile.clear / div),
                (unsigned long)(ppu_profile.bg / div),
+               (unsigned long)(ppu_profile.obj / div),
+               (unsigned long)(ppu_profile.win / div),
+               (unsigned long)(ppu_profile.composite / div),
                (unsigned long)(ppu_profile.send / div),
                (unsigned long)(ppu_profile.total / div));
         BGCounters z = {0};
