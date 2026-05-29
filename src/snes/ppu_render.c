@@ -53,6 +53,7 @@ typedef struct {
     uint32_t cache_hits;
     uint32_t cache_misses;/* == tile-row decodes */
     uint32_t pixels;      /* sum of per-call pixel counts */
+    uint32_t elided_tiles;/* fully-transparent tiles elided from the row plan */
 } BGCounters;
 static BGCounters g_bgc;
 #define BGC_INC(field)        (g_bgc.field++)
@@ -329,6 +330,22 @@ static struct {
 } bg_row_cache[4];
 #endif
 
+#if PPU_BG_ROW_CACHE
+/* A tile whose entire graphic (all bytes_per_tile bytes) is zero is palette
+ * index 0 everywhere — fully transparent on every row (emit_tile_run would skip
+ * every pixel via `if (_cidx == 0) continue`). Detected once while building the
+ * row plan and elided from it, so it costs nothing on any of the tile row's
+ * scanlines, not just the per-row blank-skip. On the overworld ~80% of BG tiles
+ * are fully transparent, so this roughly doubles the row cache's gain. */
+static inline bool tile_fully_blank(uint32_t tile_addr, int bytes_per_tile) {
+    if (tile_addr + bytes_per_tile > VRAM_SIZE) return false;
+    const uint8_t *p = &ppu.vram[tile_addr];
+    uint8_t any = 0;
+    for (int i = 0; i < bytes_per_tile; i++) any |= p[i];
+    return any == 0;
+}
+#endif
+
 /* Render a single BG layer scanline, merging directly into the priority
  * buffers via BGRenderCtx.  render_width controls how many screen pixels
  * to process (may be EB_VIEWPORT_WIDTH or SNES_WIDTH). */
@@ -448,21 +465,34 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
         if (!big_tiles) {
             /* 8x8 tile: decode once, emit up to 8 pixels */
             int eff_py = vflip ? (7 - pixel_y_in_tile) : pixel_y_in_tile;
+#if PPU_BG_ROW_CACHE
+            /* While building the plan, elide fully-transparent tiles (see
+             * tile_fully_blank): they emit nothing on any row, so dropping them
+             * from the plan saves their emit overhead on the whole tile row. */
+            if (row_cacheable && tile_fully_blank(
+                    tile_data_base + (uint32_t)tile_num * bytes_per_tile,
+                    bytes_per_tile)) {
+                BGC_INC(elided_tiles);
+            } else {
+                emit_tile_run(tile_num, eff_py, x_in_tile, pixels_this_tile,
+                             hflip, screen_x, prio_bit, palette,
+                             bpp, tile_data_base, bytes_per_tile, ctx);
+                if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
+                    BGRowPlanEntry *e = &bg_row_plan[bg_index][plan_n++];
+                    e->tile_num  = tile_num;
+                    e->x_in_tile = (uint8_t)x_in_tile;
+                    e->pixels    = (uint8_t)pixels_this_tile;
+                    e->prio_bit  = prio_bit;
+                    e->palette   = palette;
+                    e->hflip     = hflip;
+                    e->vflip     = vflip;
+                    e->screen_x  = (uint16_t)screen_x;
+                }
+            }
+#else
             emit_tile_run(tile_num, eff_py, x_in_tile, pixels_this_tile,
                          hflip, screen_x, prio_bit, palette,
                          bpp, tile_data_base, bytes_per_tile, ctx);
-#if PPU_BG_ROW_CACHE
-            if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
-                BGRowPlanEntry *e = &bg_row_plan[bg_index][plan_n++];
-                e->tile_num  = tile_num;
-                e->x_in_tile = (uint8_t)x_in_tile;
-                e->pixels    = (uint8_t)pixels_this_tile;
-                e->prio_bit  = prio_bit;
-                e->palette   = palette;
-                e->hflip     = hflip;
-                e->vflip     = vflip;
-                e->screen_x  = (uint16_t)screen_x;
-            }
 #endif
         } else {
             /* 16x16 tile: split across up to 2 horizontal sub-tiles */
@@ -1571,7 +1601,7 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
         uint32_t div = (uint32_t)(platform_timer_ticks_per_sec() / 10000);
         if (div == 0) div = 1;
         printf("BGPROF/%lufr: lines=%lu layers/line=%lu.%02lu emit=%lu blank=%lu "
-               "decode=%lu hit=%lu%% px=%lu (px/line=%lu) | "
+               "decode=%lu hit=%lu%% px=%lu (px/line=%lu) elided=%lu | "
                "CLR=%lu BG=%lu SND=%lu TOTAL=%lu (0.1ms)\n",
                (unsigned long)f,
                (unsigned long)(g_bgc.scanlines / f),
@@ -1583,6 +1613,7 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
                (unsigned long)hitpct,
                (unsigned long)(g_bgc.pixels / f),
                (unsigned long)(g_bgc.pixels / sl),
+               (unsigned long)(g_bgc.elided_tiles / f),
                (unsigned long)(ppu_profile.clear / div),
                (unsigned long)(ppu_profile.bg / div),
                (unsigned long)(ppu_profile.send / div),
