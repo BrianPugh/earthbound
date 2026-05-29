@@ -38,9 +38,30 @@
 PPUProfile ppu_profile;
 #define PROF_SECTION(name) uint64_t _prof_##name = platform_timer_ticks()
 #define PROF_END(name, acc) (acc) += (uint32_t)(platform_timer_ticks() - _prof_##name)
+
+/* Cheap per-call BG work counters (increments only — no timers in the inner
+ * loop, so they don't distort the PROF section timings).  Accumulated across
+ * BG_PROF_FRAMES frames, then printf'd (with the last frame's phase timings)
+ * and reset.  Purely diagnostic; no effect on rendering. */
+#define BG_PROF_FRAMES 60
+typedef struct {
+    uint32_t frames;
+    uint32_t scanlines;   /* BG-phase scanlines entered */
+    uint32_t layers;      /* layer-scanlines actually rendered */
+    uint32_t emit_calls;  /* emit_tile_run entries past the VRAM bounds check */
+    uint32_t blank_skips; /* blank-row early returns (no decode, no emit) */
+    uint32_t cache_hits;
+    uint32_t cache_misses;/* == tile-row decodes */
+    uint32_t pixels;      /* sum of per-call pixel counts */
+} BGCounters;
+static BGCounters g_bgc;
+#define BGC_INC(field)        (g_bgc.field++)
+#define BGC_ADD(field, n)     (g_bgc.field += (uint32_t)(n))
 #else
 #define PROF_SECTION(name) ((void)0)
 #define PROF_END(name, acc) ((void)0)
+#define BGC_INC(field)        ((void)0)
+#define BGC_ADD(field, n)     ((void)0)
 #endif
 
 /* Layer bit masks for TM/TS registers */
@@ -184,6 +205,8 @@ void emit_tile_run(
 {
     uint32_t tile_addr = tile_data_base + (uint32_t)tile_num * bytes_per_tile;
     if (tile_addr + bytes_per_tile > VRAM_SIZE) return;
+    BGC_INC(emit_calls);
+    BGC_ADD(pixels, count);
 
     const uint8_t *tile_data = &ppu.vram[tile_addr];
 
@@ -194,7 +217,7 @@ void emit_tile_run(
         uint8_t any = bp[0] | bp[1];
         if (bpp >= 4) { any |= bp[16] | bp[17]; }
         if (bpp == 8) { any |= bp[32] | bp[33] | bp[48] | bp[49]; }
-        if (!any) return;
+        if (!any) { BGC_INC(blank_skips); return; }
     }
 
     /* Tile row cache lookup — avoids redundant decode across scanlines,
@@ -207,9 +230,11 @@ void emit_tile_run(
         TileRowCacheEntry *cache = ctx->tile_cache;
         if (cache[cache_idx].key == cache_key) {
             /* Cache hit */
+            BGC_INC(cache_hits);
             indices = cache[cache_idx].indices;
         } else {
             /* Cache miss — decode and store */
+            BGC_INC(cache_misses);
             uint8_t *dest = cache[cache_idx].indices;
             if (bpp == 8)
                 decode_8bpp_row(tile_data, pixel_y, dest);
@@ -1172,6 +1197,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
         /* Render BG layers — merge directly into priority buffers */
         PROF_SECTION(bg);
+        BGC_INC(scanlines);
         for (int bg = 0; bg < 4; bg++) {
             if (!(layers_needed & (1 << bg))) continue;
             if (bg_bpp[bg] == 0) continue;
@@ -1181,6 +1207,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             if (no_windows && !(base_tm & layer_bit) &&
                 !(need_sub && (base_ts & layer_bit)))
                 continue;
+            BGC_INC(layers);
 
             bool fills_via_tilemap = (ppu.bg_sc[bg] & 0x01) != 0;
             bool fills_explicit = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_FILL);
@@ -1435,4 +1462,37 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 void ppu_render_frame(scanline_callback_t send_scanline) {
     ppu_prepare_palette();
     ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 1, send_scanline);
+
+#ifdef PPU_PROFILE
+    /* Periodic BG work report — averaged over BG_PROF_FRAMES frames, with the
+     * last frame's phase timings folded in (0.1 ms units, same scale as the
+     * on-screen overlay) so the monitor line is self-contained. Diagnostic only. */
+    if (++g_bgc.frames >= BG_PROF_FRAMES) {
+        uint32_t f   = g_bgc.frames;
+        uint32_t lookups = g_bgc.cache_hits + g_bgc.cache_misses;
+        uint32_t hitpct  = lookups ? (g_bgc.cache_hits * 100u) / lookups : 0;
+        uint32_t sl  = g_bgc.scanlines ? g_bgc.scanlines : 1;
+        uint32_t div = (uint32_t)(platform_timer_ticks_per_sec() / 10000);
+        if (div == 0) div = 1;
+        printf("BGPROF/%lufr: lines=%lu layers/line=%lu.%02lu emit=%lu blank=%lu "
+               "decode=%lu hit=%lu%% px=%lu (px/line=%lu) | "
+               "CLR=%lu BG=%lu SND=%lu TOTAL=%lu (0.1ms)\n",
+               (unsigned long)f,
+               (unsigned long)(g_bgc.scanlines / f),
+               (unsigned long)(g_bgc.layers * 100u / sl / 100u),
+               (unsigned long)(g_bgc.layers * 100u / sl % 100u),
+               (unsigned long)(g_bgc.emit_calls / f),
+               (unsigned long)(g_bgc.blank_skips / f),
+               (unsigned long)(g_bgc.cache_misses / f),
+               (unsigned long)hitpct,
+               (unsigned long)(g_bgc.pixels / f),
+               (unsigned long)(g_bgc.pixels / sl),
+               (unsigned long)(ppu_profile.clear / div),
+               (unsigned long)(ppu_profile.bg / div),
+               (unsigned long)(ppu_profile.send / div),
+               (unsigned long)(ppu_profile.total / div));
+        BGCounters z = {0};
+        g_bgc = z;
+    }
+#endif
 }
