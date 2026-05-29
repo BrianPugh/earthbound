@@ -1076,6 +1076,21 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     const bool line_out_full_cover =
         (fb_x_offset == 0 && render_width == EB_VIEWPORT_WIDTH);
 
+    /* eff_tm_line/eff_ts_line drive emit_tile_run's per-pixel layer-enable
+     * check, and are refilled with base_tm/base_ts every scanline below. But
+     * with no windows at all and no per-scanline TM/TS HDMA, base_tm/base_ts
+     * are frame-constant (ppu.tm/ppu.ts) and nothing mutates these buffers
+     * mid-frame (precompute_window_masks only runs when windows are active;
+     * emit only reads them) — so the per-scanline fill is identical 240×/frame.
+     * Fill once here and skip it in the loop. Removes ~2 × 320 × 240 ≈ 150
+     * KB/frame of memset (each fill is render_width bytes). Frame-constant
+     * predicate, hoisted. */
+    const bool eff_lines_frame_constant = !has_windows && !ppu.tm_hdma_active;
+    if (eff_lines_frame_constant) {
+        memset(eff_tm_line, ppu.tm, render_width);
+        memset(eff_ts_line, ppu.ts, render_width);
+    }
+
     PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
         /* Border scanline — outside the renderable area */
@@ -1129,7 +1144,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
          * and layers not in TS must not write to sub screen. */
         PROF_SECTION(win);
         bool no_windows = !has_windows;
-        if (!has_layer_windows) {
+        /* Skip the fill when it was hoisted out of the loop (see
+         * eff_lines_frame_constant above). */
+        if (!has_layer_windows && !eff_lines_frame_constant) {
             memset(eff_tm_line, base_tm, render_width);
             memset(eff_ts_line, base_ts, render_width);
         }
