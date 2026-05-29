@@ -674,6 +674,14 @@ void PPU_HOT_FUNC(precompute_window_masks)(
 
         int wx_offset = wide_mode ? -EB_VIEWPORT_PAD_LEFT : 0;
 
+        /* Outer bounds for inverted (outside-the-window) spans.  In wide mode
+         * these extend to the full viewport (in SNES-space coordinates) so the
+         * padding columns outside the native 0-255 range are also masked —
+         * otherwise the blanking region (e.g. the oval window spotlight) stops
+         * short of the viewport edges and the filling BG shows through. */
+        int inv_lo = wide_mode ? wx_offset : 0;
+        int inv_hi = wide_mode ? (render_width - 1 + wx_offset) : 255;
+
         /* Use pre-classified layer batches (computed once per frame) */
         uint8_t tm_w1_noninv = wc->tm_w1_noninv, ts_w1_noninv = wc->ts_w1_noninv;
         uint8_t tm_w1_inv = wc->tm_w1_inv, ts_w1_inv = wc->ts_w1_inv;
@@ -702,20 +710,20 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             BATCH_SPAN(w1_left, w1_right, tm_w1_noninv, ts_w1_noninv);
 
         if (tm_w1_inv | ts_w1_inv) {
-            if (w1_left > 0)
-                BATCH_SPAN(0, w1_left - 1, tm_w1_inv, ts_w1_inv);
-            if (w1_right < 255)
-                BATCH_SPAN(w1_right + 1, 255, tm_w1_inv, ts_w1_inv);
+            if (w1_left - 1 >= inv_lo)
+                BATCH_SPAN(inv_lo, w1_left - 1, tm_w1_inv, ts_w1_inv);
+            if (w1_right + 1 <= inv_hi)
+                BATCH_SPAN(w1_right + 1, inv_hi, tm_w1_inv, ts_w1_inv);
         }
 
         if (tm_w2_noninv | ts_w2_noninv)
             BATCH_SPAN(w2_left, w2_right, tm_w2_noninv, ts_w2_noninv);
 
         if (tm_w2_inv | ts_w2_inv) {
-            if (w2_left > 0)
-                BATCH_SPAN(0, w2_left - 1, tm_w2_inv, ts_w2_inv);
-            if (w2_right < 255)
-                BATCH_SPAN(w2_right + 1, 255, tm_w2_inv, ts_w2_inv);
+            if (w2_left - 1 >= inv_lo)
+                BATCH_SPAN(inv_lo, w2_left - 1, tm_w2_inv, ts_w2_inv);
+            if (w2_right + 1 <= inv_hi)
+                BATCH_SPAN(w2_right + 1, inv_hi, tm_w2_inv, ts_w2_inv);
         }
         #undef BATCH_SPAN
 
@@ -727,9 +735,14 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             bool d_w2_inv = sel & 0x04;
             for (int x = 0; x < render_width; x++) {
                 int wx = x + wx_offset;
-                if (wx < 0 || wx >= 256) continue;
-                bool in_w1 = ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
-                bool in_w2 = ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
+                /* Padding columns outside the native 0-255 range are outside
+                 * both window spans.  Treat them as not-in-window (false) rather
+                 * than skipping, so inverted windows still mask them — otherwise
+                 * the blanking (e.g. the oval window) leaves the viewport edge
+                 * columns showing the underlying BG. */
+                bool in_range = (wx >= 0 && wx < 256);
+                bool in_w1 = in_range && ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
+                bool in_w2 = in_range && ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
                 if (d_w1_inv) in_w1 = !in_w1;
                 if (d_w2_inv) in_w2 = !in_w2;
                 bool masked;
@@ -777,6 +790,8 @@ void PPU_HOT_FUNC(precompute_window_masks)(
         }
 
         int wx_offset = wide_mode ? -EB_VIEWPORT_PAD_LEFT : 0;
+        int inv_lo = wide_mode ? wx_offset : 0;
+        int inv_hi = wide_mode ? (render_width - 1 + wx_offset) : 255;
 
         if (!cm_w1_en && !cm_w2_en) {
             memset(cm_prevented_line, (prevent_mode == 1) ? 1 : 0, render_width);
@@ -797,26 +812,25 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 if (!cm_w1_inv) {
                     CM_SPAN(w1_left, w1_right, val_inside);
                 } else {
-                    if (w1_left > 0) CM_SPAN(0, w1_left - 1, val_inside);
-                    if (w1_right < 255) CM_SPAN(w1_right + 1, 255, val_inside);
+                    if (w1_left - 1 >= inv_lo) CM_SPAN(inv_lo, w1_left - 1, val_inside);
+                    if (w1_right + 1 <= inv_hi) CM_SPAN(w1_right + 1, inv_hi, val_inside);
                 }
             } else if (!cm_w1_en && cm_w2_en) {
                 memset(cm_prevented_line, val_outside, render_width);
                 if (!cm_w2_inv) {
                     CM_SPAN(w2_left, w2_right, val_inside);
                 } else {
-                    if (w2_left > 0) CM_SPAN(0, w2_left - 1, val_inside);
-                    if (w2_right < 255) CM_SPAN(w2_right + 1, 255, val_inside);
+                    if (w2_left - 1 >= inv_lo) CM_SPAN(inv_lo, w2_left - 1, val_inside);
+                    if (w2_right + 1 <= inv_hi) CM_SPAN(w2_right + 1, inv_hi, val_inside);
                 }
             } else {
                 for (int x = 0; x < render_width; x++) {
                     int wx = x + wx_offset;
-                    if (wx < 0 || wx >= 256) {
-                        cm_prevented_line[x] = val_outside;
-                        continue;
-                    }
-                    bool in_w1 = ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
-                    bool in_w2 = ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
+                    /* Padding columns are outside both window spans (see the
+                     * dual-window layer loop above for rationale). */
+                    bool in_range = (wx >= 0 && wx < 256);
+                    bool in_w1 = in_range && ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
+                    bool in_w2 = in_range && ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
                     if (cm_w1_inv) in_w1 = !in_w1;
                     if (cm_w2_inv) in_w2 = !in_w2;
                     bool in_cw;
