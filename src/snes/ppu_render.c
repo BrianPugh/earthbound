@@ -958,8 +958,14 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             } \
         } while(0)
 
-        if (tm_w1_noninv | ts_w1_noninv)
-            BATCH_SPAN(w1_left, w1_right, tm_w1_noninv, ts_w1_noninv);
+        if (tm_w1_noninv | ts_w1_noninv) {
+            /* Extend a non-inverted window into the wide-mode gutters when it
+             * touches a native edge, so the mask is continuous past 0/255
+             * (mirrors the inverted branch's inv_lo/inv_hi extension). */
+            int _l = (wide_mode && w1_left  <= 0)   ? inv_lo : (int)w1_left;
+            int _r = (wide_mode && w1_right >= 255) ? inv_hi : (int)w1_right;
+            BATCH_SPAN(_l, _r, tm_w1_noninv, ts_w1_noninv);
+        }
 
         if (tm_w1_inv | ts_w1_inv) {
             if (w1_left - 1 >= inv_lo)
@@ -968,8 +974,12 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 BATCH_SPAN(w1_right + 1, inv_hi, tm_w1_inv, ts_w1_inv);
         }
 
-        if (tm_w2_noninv | ts_w2_noninv)
-            BATCH_SPAN(w2_left, w2_right, tm_w2_noninv, ts_w2_noninv);
+        if (tm_w2_noninv | ts_w2_noninv) {
+            /* Same gutter extension for the window-2 non-inverted group. */
+            int _l = (wide_mode && w2_left  <= 0)   ? inv_lo : (int)w2_left;
+            int _r = (wide_mode && w2_right >= 255) ? inv_hi : (int)w2_right;
+            BATCH_SPAN(_l, _r, tm_w2_noninv, ts_w2_noninv);
+        }
 
         if (tm_w2_inv | ts_w2_inv) {
             if (w2_left - 1 >= inv_lo)
@@ -987,14 +997,15 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             bool d_w2_inv = sel & 0x04;
             for (int x = 0; x < render_width; x++) {
                 int wx = x + wx_offset;
-                /* Padding columns outside the native 0-255 range are outside
-                 * both window spans.  Treat them as not-in-window (false) rather
-                 * than skipping, so inverted windows still mask them — otherwise
-                 * the blanking (e.g. the oval window) leaves the viewport edge
-                 * columns showing the underlying BG. */
-                bool in_range = (wx >= 0 && wx < 256);
-                bool in_w1 = in_range && ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
-                bool in_w2 = in_range && ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
+                /* Wide-mode gutter columns (wx<0 or wx>255) have no native
+                 * window coordinate. Clamp to the nearest native edge so the
+                 * window's state at the edge extends continuously into the
+                 * gutter, for both inverted (e.g. oval window blanking) and
+                 * non-inverted windows. Matches the color-math dual path and
+                 * the single-window inv_lo/inv_hi extensions above. */
+                int cwx = wx < 0 ? 0 : (wx > 255 ? 255 : wx);
+                bool in_w1 = ((uint8_t)cwx >= w1_left && (uint8_t)cwx <= w1_right);
+                bool in_w2 = ((uint8_t)cwx >= w2_left && (uint8_t)cwx <= w2_right);
                 if (d_w1_inv) in_w1 = !in_w1;
                 if (d_w2_inv) in_w2 = !in_w2;
                 bool masked;
@@ -1062,7 +1073,12 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             if (cm_w1_en && !cm_w2_en) {
                 memset(cm_prevented_line, val_outside, render_width);
                 if (!cm_w1_inv) {
-                    CM_SPAN(w1_left, w1_right, val_inside);
+                    /* Extend the inside-span into the gutters when the window
+                     * touches a native edge, so wide-mode padding columns get
+                     * the same color-math treatment (mirrors the inverted branch). */
+                    int _l = (wide_mode && w1_left  <= 0)   ? inv_lo : (int)w1_left;
+                    int _r = (wide_mode && w1_right >= 255) ? inv_hi : (int)w1_right;
+                    CM_SPAN(_l, _r, val_inside);
                 } else {
                     if (w1_left - 1 >= inv_lo) CM_SPAN(inv_lo, w1_left - 1, val_inside);
                     if (w1_right + 1 <= inv_hi) CM_SPAN(w1_right + 1, inv_hi, val_inside);
@@ -1070,7 +1086,10 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             } else if (!cm_w1_en && cm_w2_en) {
                 memset(cm_prevented_line, val_outside, render_width);
                 if (!cm_w2_inv) {
-                    CM_SPAN(w2_left, w2_right, val_inside);
+                    /* Same gutter extension for the window-2 single-window case. */
+                    int _l = (wide_mode && w2_left  <= 0)   ? inv_lo : (int)w2_left;
+                    int _r = (wide_mode && w2_right >= 255) ? inv_hi : (int)w2_right;
+                    CM_SPAN(_l, _r, val_inside);
                 } else {
                     if (w2_left - 1 >= inv_lo) CM_SPAN(inv_lo, w2_left - 1, val_inside);
                     if (w2_right + 1 <= inv_hi) CM_SPAN(w2_right + 1, inv_hi, val_inside);
@@ -1078,11 +1097,16 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             } else {
                 for (int x = 0; x < render_width; x++) {
                     int wx = x + wx_offset;
-                    /* Padding columns are outside both window spans (see the
-                     * dual-window layer loop above for rationale). */
-                    bool in_range = (wx >= 0 && wx < 256);
-                    bool in_w1 = in_range && ((uint8_t)wx >= w1_left && (uint8_t)wx <= w1_right);
-                    bool in_w2 = in_range && ((uint8_t)wx >= w2_left && (uint8_t)wx <= w2_right);
+                    /* The battle swirl uses BOTH color windows (wobjsel=0xA0 ->
+                     * cm_w1_en && cm_w2_en), so it lands here. Window coords are
+                     * native 0-255; wide-mode gutter columns (wx<0 or wx>255)
+                     * have no native coordinate. Clamp to the nearest native
+                     * edge so the window's state at the edge extends continuously
+                     * into the gutter — equivalent to the inv_lo/inv_hi gutter
+                     * extension in the single-window branches above. */
+                    int cwx = wx < 0 ? 0 : (wx > 255 ? 255 : wx);
+                    bool in_w1 = ((uint8_t)cwx >= w1_left && (uint8_t)cwx <= w1_right);
+                    bool in_w2 = ((uint8_t)cwx >= w2_left && (uint8_t)cwx <= w2_right);
                     if (cm_w1_inv) in_w1 = !in_w1;
                     if (cm_w2_inv) in_w2 = !in_w2;
                     bool in_cw;
