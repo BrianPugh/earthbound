@@ -154,21 +154,33 @@ static void gas_station_load(void) {
     ppu.cgwsel = 0x02;
     ppu.cgadsub = 0x03;
 
+    /* Expand the BG2 noise/static to fill the entire (wide) viewport.
+     * BG2 uses a 32-tile tilemap; FILL wraps it across the full viewport
+     * width and height so the red Giygas static covers the gutters too,
+     * not just the 256x224 native area. BG1 (the gas station image) stays
+     * centered. In a native 256x224 viewport these flags are inert.
+     * Matches the file-select starfield (file_select.c), another battle-BG
+     * effect layer rendered with BG_VIEWPORT_FILL. */
+    ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
+    ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
+
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 }
 
 /*
- * Port of GAS_STATION from asm/intro/gas_station.asm
- * + RUN_GAS_STATION_CREDITS from asm/overworld/run_gas_station_credits.asm.
+ * Phase 1 of RUN_GAS_STATION_CREDITS — the "red Giygas static" intro.
  *
- * Returns: 0 = timed out, 1 = button pressed
+ * 236 frames of battle-BG noise animation (BG2 palette cycling) while the
+ * screen brightness fades in ($80 -> $01 -> ... -> $0F over ~180 frames).
+ * CGRAM groups 0-1 (the gas station image) are still all-zero, so only the
+ * BG2 static is visible.
+ *
+ * ROM: RUN_GAS_STATION_CREDITS phase-1 loop —
+ *      UPDATE_BATTLE_SCREEN_EFFECTS + NMI brightness fade + WAIT_UNTIL_NEXT_FRAME.
+ *
+ * Returns 1 if interrupted by quit/button, 0 if it ran to completion.
  */
-uint16_t gas_station(void) {
-    /* ROM: JSL INIT_ENTITY_SYSTEM */
-    entity_system_init();
-
-    gas_station_load();
-
+static uint16_t gas_station_phase1_static_intro(void) {
     /*
      * NMI-driven brightness fade.
      * ROM: FADE_IN stores step=1, delay=11.
@@ -177,12 +189,6 @@ uint16_t gas_station(void) {
     int fade_delay_left = 11;
     bool brightness_fading = true;
 
-    /*
-     * Phase 1: 236 frames.
-     * ROM: UPDATE_BATTLE_SCREEN_EFFECTS + WAIT_UNTIL_NEXT_FRAME.
-     * Battle BG animates (palette cycling), brightness fades in.
-     * CGRAM groups 0-1 still all-zero so gas station image is invisible.
-     */
     for (int i = 0; i < 236; i++) {
         if (platform_input_quit_requested()) return 1;
         if (platform_input_get_pad_new()) return 1;
@@ -209,6 +215,25 @@ uint16_t gas_station(void) {
         sync_palettes_to_cgram();
         wait_for_vblank();
     }
+    return 0;
+}
+
+/*
+ * Port of GAS_STATION from asm/intro/gas_station.asm
+ * + RUN_GAS_STATION_CREDITS from asm/overworld/run_gas_station_credits.asm.
+ *
+ * Returns: 0 = timed out, 1 = button pressed
+ */
+uint16_t gas_station(void) {
+    /* ROM: JSL INIT_ENTITY_SYSTEM */
+    entity_system_init();
+
+    gas_station_load();
+
+    /*
+     * Phase 1: red Giygas static intro (236 frames, brightness fade-in).
+     */
+    if (gas_station_phase1_static_intro()) return 1;
 
     /*
      * Phase 2: 480 frames — palette interpolation + battle BG animation.
@@ -344,6 +369,10 @@ uint16_t gas_station(void) {
     memset(ert.palettes, 0, sizeof(ert.palettes));
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
     sync_palettes_to_cgram();
+
+    /* Restore BG2 to centered so the wide-viewport fill doesn't leak into
+     * whatever screen follows. */
+    ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
 
     wait_frames_or_button(30, 0);
 

@@ -1359,6 +1359,17 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     const bool line_out_full_cover =
         (fb_x_offset == 0 && render_width == EB_VIEWPORT_WIDTH);
 
+    /* Wide-mode gutter bounds (in line_out columns). A centered main layer
+     * leaves only backdrop in [0,gutter_lo) and [gutter_hi,WIDTH); a filling
+     * sub-screen layer (e.g. the gas station's BG2 static) writes there but,
+     * since color math doesn't target the backdrop, would be invisible. The
+     * composite loop extends color math onto the gutter backdrop so the sub
+     * layer shows through — mirroring precompute_window_masks()'s gutter
+     * extension. In non-wide mode these collapse to the full width (no gutter). */
+    const int gutter_lo = wide_mode ? EB_VIEWPORT_PAD_LEFT : 0;
+    const int gutter_hi = wide_mode ? EB_VIEWPORT_PAD_LEFT + SNES_WIDTH
+                                    : EB_VIEWPORT_WIDTH;
+
     /* eff_tm_line/eff_ts_line drive emit_tile_run's per-pixel layer-enable
      * check, and are refilled with base_tm/base_ts every scanline below. But
      * with no windows at all and no per-scanline TM/TS HDMA, base_tm/base_ts
@@ -1664,8 +1675,27 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     main_layer = 0x20;
                 }
 
+                /* Wide-mode gutter columns have no centered main content. Treat
+                 * them as black letterbox rather than inheriting the screen
+                 * backdrop (cgram[0]); otherwise a gutter takes on the backdrop
+                 * colour, e.g. the gas station sky fading from black to teal as
+                 * the image fades in. A filling sub-screen layer still draws
+                 * here via color math below (blended onto black), so the gas
+                 * station static fills the gutters and fades cleanly to black. */
+                bool gutter_backdrop = (main_layer & 0x20) &&
+                    (x < gutter_lo || x >= gutter_hi);
+                if (gutter_backdrop)
+                    color = 0;
+
                 /* Color math */
-                if (color_math_active && (main_layer & math_layers) &&
+                bool math_eligible = (main_layer & math_layers) != 0;
+                /* Make the black gutter math-eligible so a filling sub-screen
+                 * layer blends onto it. The native screen (opaque main layer)
+                 * is unaffected; a gutter with no sub pixel blends zero onto
+                 * black and stays black. */
+                if (!math_eligible && gutter_backdrop && need_sub)
+                    math_eligible = true;
+                if (color_math_active && math_eligible &&
                     (no_windows || !cm_prevented_line[x])) {
                     uint16_t sub_color;
                     if (need_sub) {
