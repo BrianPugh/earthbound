@@ -566,6 +566,99 @@ uint16_t blend_colors(uint16_t main_c, uint16_t sub_c,
     return (uint16_t)(r | (g << 6) | (b << 11));
 }
 
+/* Object sizes based on OBSEL: {small_w, small_h}, {large_w, large_h}. */
+static const int obj_sizes[8][2][2] = {
+    {{8, 8}, {16, 16}},
+    {{8, 8}, {32, 32}},
+    {{8, 8}, {64, 64}},
+    {{16, 16}, {32, 32}},
+    {{16, 16}, {64, 64}},
+    {{32, 32}, {64, 64}},
+    {{16, 32}, {32, 64}},
+    {{16, 32}, {32, 32}},
+};
+
+/* ---- OBJ per-frame sprite bucketing (Candidate 2) -------------------------
+ * render_obj_scanline previously rescanned all 128 OAM sprites on EVERY
+ * scanline (128 x ~224 = ~28.7k sprite-tests/frame, the vast majority rejected
+ * by the row<0||row>=h test).  Instead, bucket sprite geometry once per frame
+ * by the 8-scanline band(s) each sprite covers; each scanline then iterates
+ * only the sprites whose band it falls in.  Build is O(128) once per frame;
+ * per-scanline cost drops from 128 to (#sprites overlapping that band).  Same
+ * redundancy shape as bg_row_cache.  Priority (lower OAM index wins) is
+ * preserved by appending in 127->0 order so the low index is emitted last.
+ * Global arrays => single render context only, auto-disabled otherwise. */
+#ifndef PPU_OBJ_BUCKET
+#define PPU_OBJ_BUCKET 1
+#endif
+#if PPU_OBJ_BUCKET && PPU_NUM_RENDER_CONTEXTS != 1
+#undef PPU_OBJ_BUCKET
+#define PPU_OBJ_BUCKET 0
+#endif
+
+#if PPU_OBJ_BUCKET
+#define OBJ_BAND_SHIFT 3                               /* 8-scanline bands */
+#define OBJ_NUM_BANDS  ((256 >> OBJ_BAND_SHIFT) + 1)   /* covers scanline 0..255 */
+
+/* Per-sprite geometry, precomputed for sprites that intersect the rendered
+ * scanline range. Mirrors the values render_obj_scanline used to recompute. */
+typedef struct {
+    int16_t  x;          /* spr_x (screen space, incl. sprite_x_offset) */
+    int16_t  y;          /* spr_y (scanline space, incl. sprite_y_offset) */
+    uint8_t  w, h;
+    uint8_t  attr;       /* raw OAM attr (vflip/hflip/prio/pal/tile-hi) */
+    uint16_t tile_num;   /* spr->tile | ((attr & 1) << 8) */
+} ObjActive;
+static ObjActive obj_active[128];
+static uint8_t   obj_band[OBJ_NUM_BANDS][128]; /* slot indices, priority order */
+static uint8_t   obj_band_count[OBJ_NUM_BANDS];
+
+/* Build the per-frame sprite buckets. Call once per frame before the scanline
+ * loop (OAM/obsel are frame-constant in this renderer). */
+static void PPU_HOT_FUNC(build_obj_buckets)(void) {
+    for (int b = 0; b < OBJ_NUM_BANDS; b++) obj_band_count[b] = 0;
+
+    int size_sel = (ppu.obsel >> 5) & 0x07;
+
+    /* 127->0 so each band list is ordered high-index-first; the inner emit
+     * overwrites, so the last (lowest-index) sprite wins — matching HW. */
+    int n = 0;
+    for (int i = 127; i >= 0; i--) {
+        int hi_byte = i / 4;
+        int hi_shift = (i % 4) * 2;
+        uint8_t hi_bits = (ppu.oam_hi[hi_byte] >> hi_shift) & 0x03;
+        int size_bit = (hi_bits >> 1) & 1;
+
+        int spr_x = ppu.oam_full_x[i] + ppu.sprite_x_offset;
+        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset;
+        int w = obj_sizes[size_sel][size_bit][0];
+        int h = obj_sizes[size_sel][size_bit][1];
+
+        /* Cull sprites that touch no rendered pixel. Horizontal: fully off
+         * either edge of the line buffer. Vertical: outside [0, banded range). */
+        if (spr_x >= LINE_BUF_WIDTH || spr_x + w <= 0) continue;
+        int y0 = spr_y;
+        int y1 = spr_y + h;                            /* exclusive */
+        if (y1 <= 0 || y0 >= (OBJ_NUM_BANDS << OBJ_BAND_SHIFT)) continue;
+
+        OAMEntry *spr = &ppu.oam[i];
+        int slot = n++;
+        obj_active[slot].x        = (int16_t)spr_x;
+        obj_active[slot].y        = (int16_t)spr_y;
+        obj_active[slot].w        = (uint8_t)w;
+        obj_active[slot].h        = (uint8_t)h;
+        obj_active[slot].attr     = spr->attr;
+        obj_active[slot].tile_num = spr->tile | ((uint16_t)(spr->attr & 1) << 8);
+
+        int bstart = y0 < 0 ? 0 : (y0 >> OBJ_BAND_SHIFT);
+        int bend = (y1 - 1) >> OBJ_BAND_SHIFT;
+        if (bend >= OBJ_NUM_BANDS) bend = OBJ_NUM_BANDS - 1;
+        for (int b = bstart; b <= bend; b++)
+            obj_band[b][obj_band_count[b]++] = (uint8_t)slot;
+    }
+}
+#endif /* PPU_OBJ_BUCKET */
+
 /* Render OBJ (sprites) for one scanline into separate color/prio arrays. */
 static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
     /* When vertical centering is active, sprites only render within the
@@ -578,22 +671,36 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
             return;
     }
 
-    /* Object sizes based on OBSEL */
-    static const int obj_sizes[8][2][2] = {
-        /* {small_w, small_h}, {large_w, large_h} */
-        {{8, 8}, {16, 16}},
-        {{8, 8}, {32, 32}},
-        {{8, 8}, {64, 64}},
-        {{16, 16}, {32, 32}},
-        {{16, 16}, {64, 64}},
-        {{32, 32}, {64, 64}},
-        {{16, 32}, {32, 64}},
-        {{16, 32}, {32, 32}},
-    };
-
-    int size_sel = (ppu.obsel >> 5) & 0x07;
     uint32_t obj_base = (uint32_t)(ppu.obsel & 0x07) * 0x4000; /* byte address */
     uint32_t obj_gap = (uint32_t)((ppu.obsel >> 3) & 0x03) * 0x2000 + 0x2000;
+
+#if PPU_OBJ_BUCKET
+    int band = scanline >> OBJ_BAND_SHIFT;
+    if (band < 0 || band >= OBJ_NUM_BANDS) return;
+    uint8_t bcnt = obj_band_count[band];
+    const uint8_t *blist = obj_band[band];
+
+    /* Iterate only sprites that overlap this band (priority order preserved). */
+    for (int k = 0; k < bcnt; k++) {
+        const ObjActive *a = &obj_active[blist[k]];
+
+        int spr_x = a->x;
+        int spr_y = a->y;
+        int w = a->w;
+        int h = a->h;
+
+        /* Band is 8 scanlines wide; precise per-scanline overlap still tested. */
+        int row = scanline - spr_y;
+        if (row < 0 || row >= h) continue;
+
+        uint8_t attr = a->attr;
+        uint16_t tile_num = a->tile_num;
+        bool vflip = (attr >> 7) & 1;
+        bool hflip = (attr >> 6) & 1;
+        uint8_t spr_prio = (attr >> 4) & 3;
+        uint8_t spr_pal = (attr >> 1) & 7;
+#else
+    int size_sel = (ppu.obsel >> 5) & 0x07;
 
     /* Scan sprites in reverse order (lower index = higher priority) */
     for (int i = 127; i >= 0; i--) {
@@ -624,6 +731,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         uint8_t spr_prio = (spr->attr >> 4) & 3;
         uint8_t spr_pal = (spr->attr >> 1) & 7;
         uint16_t tile_num = spr->tile | ((uint16_t)(spr->attr & 1) << 8);
+#endif /* PPU_OBJ_BUCKET */
 
         if (vflip) row = h - 1 - row;
 
@@ -1241,6 +1349,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         memset(eff_tm_line, ppu.tm, render_width);
         memset(eff_ts_line, ppu.ts, render_width);
     }
+
+#if PPU_OBJ_BUCKET
+    /* Bucket sprites by scanline band once per frame; render_obj_scanline then
+     * iterates only the sprites overlapping each scanline (see build_obj_buckets). */
+    build_obj_buckets();
+#endif
 
     PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
