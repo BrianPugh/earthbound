@@ -1650,6 +1650,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             bool obj_main_en = no_windows ? (base_tm & LAYER_OBJ) != 0 : false;
             bool obj_sub_en = no_windows ? (base_ts & LAYER_OBJ) != 0 : false;
 
+            /* Whole-row gutter: a scanline outside the centered SNES content
+             * band (top/bottom letterbox in a taller viewport) has no centered
+             * main layer at any column, so every pixel is a gutter pixel. */
+            bool row_is_vgutter = wide_mode &&
+                (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT);
+
             for (int x = x_start; x < x_end; x++) {
                 uint16_t color;
                 uint8_t main_layer;
@@ -1683,7 +1689,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * here via color math below (blended onto black), so the gas
                  * station static fills the gutters and fades cleanly to black. */
                 bool gutter_backdrop = (main_layer & 0x20) &&
-                    (x < gutter_lo || x >= gutter_hi);
+                    (row_is_vgutter || x < gutter_lo || x >= gutter_hi);
                 if (gutter_backdrop)
                     color = 0;
 

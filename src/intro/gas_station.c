@@ -164,6 +164,13 @@ static void gas_station_load(void) {
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
 
+    /* Vertically center the SNES-space content in the (taller) viewport while
+     * BG2's fill keeps wide mode active. Without this the wide-mode path uses
+     * a stale sprite_y_offset (top-aligned), then the image jumps down by
+     * EB_VIEWPORT_PAD_TOP when the static is removed and rendering falls back
+     * to the centered non-wide path. Matches file_select.c / battle_ui.c. */
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
+
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 }
 
@@ -373,6 +380,7 @@ uint16_t gas_station(void) {
     /* Restore BG2 to centered so the wide-viewport fill doesn't leak into
      * whatever screen follows. */
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
+    ppu.sprite_y_offset = 0;
 
     wait_frames_or_button(30, 0);
 
