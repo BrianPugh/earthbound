@@ -291,6 +291,16 @@ void host_process_frame(void) {
         do_render = (frame_skip_counter == 0);
         frame_skip_counter = (frame_skip_counter + 1) % FAST_FORWARD_MULTIPLIER;
     } else {
+#ifdef PLATFORM_HOST_PACED_FRAMESKIP
+        /* The platform paces the loop against an external clock and owns the
+         * skip decision (e.g. G&W locks to its audio DMA). should_render()
+         * records this frame's skip state for the matching sleep_until() and
+         * returns whether to render. The deadline-based logic below is bypassed
+         * — the deadline computed in the timing block is then ignored by the
+         * platform's sleep_until(). */
+        do_render = platform_timer_should_render();
+        frame_skip_counter = 0;
+#else
         /* Dynamic frame-skipping: when behind schedule, skip renders to
          * keep game logic at real-time speed. */
         uint64_t now = platform_timer_ticks();
@@ -307,6 +317,7 @@ void host_process_frame(void) {
             consecutive_skips = 0;
         }
         frame_skip_counter = 0;
+#endif
     }
 
     /* Compute aux button edges (newly pressed this frame) */

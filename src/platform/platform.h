@@ -156,4 +156,21 @@ uint64_t platform_timer_ticks(void);
 uint64_t platform_timer_ticks_per_sec(void);
 uint32_t platform_timer_get_fps_tenths(void);
 
+/*
+ * Optional host-paced frame-skip hook.
+ *
+ * When PLATFORM_HOST_PACED_FRAMESKIP is defined, host_process_frame() delegates
+ * the per-frame render/skip decision to the platform instead of using its own
+ * deadline-based dynamic frame-skip. Platforms that pace the game loop against
+ * an external clock implement this — e.g. the Game & Watch port locks the loop
+ * to its audio DMA: platform_timer_should_render() runs the shared retro-go
+ * frame-loop controller (which records this frame's skip state so the matching
+ * platform_timer_sleep_until() can rate-match and phase-lock audio), and
+ * returns whether this frame should be rendered. Called once per frame, at the
+ * top of host_process_frame(), in place of the built-in skip logic.
+ */
+#ifdef PLATFORM_HOST_PACED_FRAMESKIP
+bool platform_timer_should_render(void);
+#endif
+
 #endif /* PLATFORM_H */
