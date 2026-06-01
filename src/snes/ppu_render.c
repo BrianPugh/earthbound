@@ -54,6 +54,8 @@ typedef struct {
     uint32_t cache_misses;/* == tile-row decodes */
     uint32_t pixels;      /* sum of per-call pixel counts */
     uint32_t elided_tiles;/* fully-transparent tiles elided from the row plan */
+    uint32_t opaque_runs; /* emit runs whose tile row is fully opaque (no transparent px) */
+    uint32_t sub_emit_calls;/* emit runs that also rendered the sub-screen (color math on) */
 } BGCounters;
 static BGCounters g_bgc;
 #define BGC_INC(field)        (g_bgc.field++)
@@ -76,6 +78,9 @@ static BGCounters g_bgc;
 typedef struct {
     uint32_t key;       /* tile_addr | (pixel_y << 17), 0xFFFFFFFF = invalid */
     uint8_t indices[8]; /* decoded palette indices for this tile row */
+#ifdef PPU_PROFILE
+    uint8_t opaque;     /* 1 = no transparent pixel in this row (diagnostic only) */
+#endif
 } TileRowCacheEntry;
 
 /* Context for merge-during-render: BG layers write directly into the
@@ -96,6 +101,12 @@ typedef struct {
     const uint8_t *ts_line; /* per-pixel sub screen mask (always valid when sub active) */
     uint16_t gp0_lm, gp1_lm; /* packed gp|layer_bit<<8 for tile prio 0 and 1 */
     uint8_t layer_bit;       /* layer bitmask (LAYER_BG1..BG4) — for window checks */
+    /* No-window fast path: when windows are globally inactive, eff_tm_line/
+     * eff_ts_line are uniform, so the per-pixel window mask collapses to these
+     * loop-invariant booleans and the per-pixel tm_line/ts_line loads drop out. */
+    uint8_t no_window;       /* 1 = use the window-mask-free emit variant */
+    uint8_t main_on;         /* (base_tm & layer_bit)!=0; valid when no_window */
+    uint8_t sub_on;          /* (base_ts & layer_bit)!=0; valid when no_window */
     TileRowCacheEntry *tile_cache; /* per-context tile cache (may be in fast SRAM) */
 } BGRenderCtx;
 
@@ -245,8 +256,16 @@ void emit_tile_run(
                 decode_2bpp_row(tile_data, pixel_y, dest);
             cache[cache_idx].key = cache_key;
             indices = dest;
+#ifdef PPU_PROFILE
+            uint8_t _opq = 1;
+            for (int _k = 0; _k < 8; _k++) if (dest[_k] == 0) { _opq = 0; break; }
+            cache[cache_idx].opaque = _opq;
+#endif
         }
     }
+#ifdef PPU_PROFILE
+    if (ctx->tile_cache[cache_idx].opaque) BGC_INC(opaque_runs);
+#endif
 
     int pal_base = (bpp == 8) ? 0 : (bpp == 4) ? palette * 16 : palette * 4;
     uint16_t gp_lm = prio_bit ? ctx->gp1_lm : ctx->gp0_lm;
@@ -281,11 +300,46 @@ void emit_tile_run(
     } \
 } while(0)
 
-    if (ctx->sub_gp)
-        EMIT_PIXELS(1);
-    else
-        EMIT_PIXELS(0);
+    /* No-window variant: windows globally inactive, so eff_tm_line/eff_ts_line
+     * are uniform. The per-pixel `tm_line[_sx] & layer_bit` load+AND collapses
+     * to the loop-invariant booleans main_on/sub_on — one memory load removed
+     * from the critical path of every emitted pixel. */
+#define EMIT_PIXELS_NW(HAS_SUB) do { \
+    for (int _i = 0; _i < count; _i++) { \
+        int _px = hflip ? (7 - (start_px + _i)) : (start_px + _i); \
+        uint8_t _cidx = indices[_px]; \
+        if (_cidx == 0) continue; \
+        uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
+                                    : cgram_render[pal_base + _cidx]; \
+        int _sx = screen_x + _i; \
+        if (main_on && gp > GP_LM_GP(ctx->main_gp_lm[_sx])) { \
+            ctx->main_gp_lm[_sx] = gp_lm; \
+            ctx->main_color[_sx] = _rgb; \
+        } \
+        if (HAS_SUB && sub_on && gp > ctx->sub_gp[_sx]) { \
+            ctx->sub_gp[_sx] = gp; \
+            ctx->sub_color[_sx] = _rgb; \
+        } \
+    } \
+} while(0)
+
+    if (ctx->sub_gp) BGC_INC(sub_emit_calls);
+
+    if (ctx->no_window) {
+        const bool main_on = ctx->main_on;
+        const bool sub_on  = ctx->sub_on;
+        if (ctx->sub_gp)
+            EMIT_PIXELS_NW(1);
+        else
+            EMIT_PIXELS_NW(0);
+    } else {
+        if (ctx->sub_gp)
+            EMIT_PIXELS(1);
+        else
+            EMIT_PIXELS(0);
+    }
 #undef EMIT_PIXELS
+#undef EMIT_PIXELS_NW
 }
 
 /* BG tilemap-row plan cache.
@@ -1532,6 +1586,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 .gp0_lm = bg_gp[bg][0] | ((uint16_t)layer_bit << 8),
                 .gp1_lm = bg_gp[bg][1] | ((uint16_t)layer_bit << 8),
                 .layer_bit = layer_bit,
+                /* eff_tm_line/eff_ts_line are uniform (= base_tm/base_ts) when
+                 * no windows are active, so the per-pixel window mask reduces to
+                 * these constants — enables the window-mask-free emit variant. */
+                .no_window = no_windows,
+                .main_on = (base_tm & layer_bit) != 0,
+                .sub_on  = (base_ts & layer_bit) != 0,
                 .tile_cache = tile_cache,
             };
 
@@ -1563,9 +1623,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 temp_ctx.main_gp_lm = temp_gp_lm;
                 temp_ctx.sub_color = need_sub ? temp_sub_color : NULL;
                 temp_ctx.sub_gp = need_sub ? temp_sub_gp : NULL;
-                /* No window masking in temp — apply when merging */
+                /* No window masking in temp — apply when merging. temp_tm_all
+                 * is all-0xFF, so the layer always writes both screens here;
+                 * use the window-mask-free emit variant. */
                 temp_ctx.tm_line = temp_tm_all;
                 temp_ctx.ts_line = temp_tm_all;
+                temp_ctx.no_window = 1;
+                temp_ctx.main_on = 1;
+                temp_ctx.sub_on = 1;
 
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &temp_ctx, SNES_WIDTH);
@@ -1788,6 +1853,7 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
         uint32_t div = (uint32_t)(platform_timer_ticks_per_sec() / 10000);
         if (div == 0) div = 1;
         printf("BGPROF/%lufr: lines=%lu layers/line=%lu.%02lu emit=%lu blank=%lu "
+               "opaque=%lu sub=%lu "
                "decode=%lu hit=%lu%% px=%lu (px/line=%lu) elided=%lu | "
                "CLR=%lu BG=%lu OBJ=%lu WIN=%lu COMP=%lu SND=%lu TOTAL=%lu (0.1ms)\n",
                (unsigned long)f,
@@ -1796,6 +1862,8 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
                (unsigned long)(g_bgc.layers * 100u / sl % 100u),
                (unsigned long)(g_bgc.emit_calls / f),
                (unsigned long)(g_bgc.blank_skips / f),
+               (unsigned long)(g_bgc.opaque_runs / f),
+               (unsigned long)(g_bgc.sub_emit_calls / f),
                (unsigned long)(g_bgc.cache_misses / f),
                (unsigned long)hitpct,
                (unsigned long)(g_bgc.pixels / f),
