@@ -107,6 +107,12 @@ typedef struct {
     uint8_t no_window;       /* 1 = use the window-mask-free emit variant */
     uint8_t main_on;         /* (base_tm & layer_bit)!=0; valid when no_window */
     uint8_t sub_on;          /* (base_ts & layer_bit)!=0; valid when no_window */
+    /* 1 = target merge buffer is known-empty (freshly cleared) for every pixel
+     * this layer writes, so the per-pixel priority load+compare is dead — the
+     * write always wins. Set for the first BG layer into best_bg and for every
+     * temp-buffer layer (temp_gp_lm is memset per layer). Requires no_window +
+     * main_on; falls back to the windowed/NW path otherwise. */
+    uint8_t uncond;
     TileRowCacheEntry *tile_cache; /* per-context tile cache (may be in fast SRAM) */
 } BGRenderCtx;
 
@@ -323,9 +329,37 @@ void emit_tile_run(
     } \
 } while(0)
 
+    /* Unconditional variant: the merge buffer is known-empty for this layer's
+     * pixels (uncond), so the priority load+compare is dropped — the write
+     * always wins. main is written unconditionally (selection guarantees
+     * main_on); sub is gated by the loop-invariant sub_on. Each screen_x is
+     * written at most once per layer, so no intra-layer overwrite hazard. */
+#define EMIT_PIXELS_UNCOND(HAS_SUB) do { \
+    for (int _i = 0; _i < count; _i++) { \
+        int _px = hflip ? (7 - (start_px + _i)) : (start_px + _i); \
+        uint8_t _cidx = indices[_px]; \
+        if (_cidx == 0) continue; \
+        uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
+                                    : cgram_render[pal_base + _cidx]; \
+        int _sx = screen_x + _i; \
+        ctx->main_gp_lm[_sx] = gp_lm; \
+        ctx->main_color[_sx] = _rgb; \
+        if (HAS_SUB && sub_on) { \
+            ctx->sub_gp[_sx] = gp; \
+            ctx->sub_color[_sx] = _rgb; \
+        } \
+    } \
+} while(0)
+
     if (ctx->sub_gp) BGC_INC(sub_emit_calls);
 
-    if (ctx->no_window) {
+    if (ctx->uncond && ctx->main_on) {
+        const bool sub_on = ctx->sub_on;
+        if (ctx->sub_gp)
+            EMIT_PIXELS_UNCOND(1);
+        else
+            EMIT_PIXELS_UNCOND(0);
+    } else if (ctx->no_window) {
         const bool main_on = ctx->main_on;
         const bool sub_on  = ctx->sub_on;
         if (ctx->sub_gp)
@@ -340,6 +374,7 @@ void emit_tile_run(
     }
 #undef EMIT_PIXELS
 #undef EMIT_PIXELS_NW
+#undef EMIT_PIXELS_UNCOND
 }
 
 /* BG tilemap-row plan cache.
@@ -727,8 +762,11 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
 }
 #endif /* PPU_OBJ_BUCKET */
 
-/* Render OBJ (sprites) for one scanline into separate color/prio arrays. */
-static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
+/* Render OBJ (sprites) for one scanline into separate color/prio arrays.
+ * Returns true if any sprite overlapped this scanline (i.e. obj_prio may hold
+ * nonzero entries). When false, the compositor skips its per-pixel obj_prio
+ * load entirely. */
+static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
     /* When vertical centering is active, sprites only render within the
      * SNES-visible scanline range. The border scanlines (above/below the
      * centered area) show only BG content — no sprites. This prevents
@@ -736,15 +774,17 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
     if (ppu.sprite_y_offset) {
         int snes_sl = scanline - ppu.sprite_y_offset;
         if (snes_sl < 0 || snes_sl >= SNES_HEIGHT)
-            return;
+            return false;
     }
+
+    bool any = false;
 
     uint32_t obj_base = (uint32_t)(ppu.obsel & 0x07) * 0x4000; /* byte address */
     uint32_t obj_gap = (uint32_t)((ppu.obsel >> 3) & 0x03) * 0x2000 + 0x2000;
 
 #if PPU_OBJ_BUCKET
     int band = scanline >> OBJ_BAND_SHIFT;
-    if (band < 0 || band >= OBJ_NUM_BANDS) return;
+    if (band < 0 || band >= OBJ_NUM_BANDS) return false;
     uint8_t bcnt = obj_band_count[band];
     const uint8_t *blist = obj_band[band];
 
@@ -760,6 +800,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         /* Band is 8 scanlines wide; precise per-scanline overlap still tested. */
         int row = scanline - spr_y;
         if (row < 0 || row >= h) continue;
+        any = true;
 
         uint8_t attr = a->attr;
         uint16_t tile_num = a->tile_num;
@@ -793,6 +834,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         /* Check if sprite is on this scanline */
         int row = scanline - spr_y;
         if (row < 0 || row >= h) continue;
+        any = true;
 
         bool vflip = (spr->attr >> 7) & 1;
         bool hflip = (spr->attr >> 6) & 1;
@@ -864,6 +906,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
             }
         }
     }
+    return any;
 }
 
 /* Layer bit masks for window iteration (file scope to avoid .rodata
@@ -1540,6 +1583,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         /* Render BG layers — merge directly into priority buffers */
         PROF_SECTION(bg);
         BGC_INC(scanlines);
+        /* best_bg_* was just cleared, so the first BG layer to write it can skip
+         * the per-pixel priority compare (uncond). Cleared once a layer writes. */
+        bool merged_empty = true;
         for (int bg = 0; bg < 4; bg++) {
             if (!(layers_needed & (1 << bg))) continue;
             if (bg_bpp[bg] == 0) continue;
@@ -1592,6 +1638,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 .no_window = no_windows,
                 .main_on = (base_tm & layer_bit) != 0,
                 .sub_on  = (base_ts & layer_bit) != 0,
+                /* First layer into the just-cleared best_bg writes unconditionally.
+                 * Only valid window-free (uncond bypasses the per-pixel mask). */
+                .uncond = (uint8_t)(no_windows && merged_empty),
                 .tile_cache = tile_cache,
             };
 
@@ -1631,6 +1680,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 temp_ctx.no_window = 1;
                 temp_ctx.main_on = 1;
                 temp_ctx.sub_on = 1;
+                /* temp_gp_lm is memset to 0 above and each screen_x is written
+                 * once per layer, so every temp write is into an empty slot. */
+                temp_ctx.uncond = 1;
 
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &temp_ctx, SNES_WIDTH);
@@ -1685,6 +1737,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                                    &ctx, render_width);
             }
 
+            /* This layer has now written best_bg, so later layers must use the
+             * priority compare. (The off-screen goto above skips this, keeping
+             * merged_empty true for the next real layer.) */
+            merged_empty = false;
+
             /* Mosaic: horizontal — replicate leftmost pixel in each block.
              * Operates on the merged buffer for this layer's pixels. */
             if (bg_mosaic) {
@@ -1709,8 +1766,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
         /* Render sprites if needed on either screen */
         PROF_SECTION(obj);
+        bool scanline_has_obj = false;
         if (layers_needed & LAYER_OBJ) {
-            render_obj_scanline(scanline, obj_color, obj_prio, tile_cache);
+            scanline_has_obj = render_obj_scanline(scanline, obj_color, obj_prio, tile_cache);
         }
         PROF_END(obj, prof_obj);
 
@@ -1724,9 +1782,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             if (fb_x_offset + x_end > EB_VIEWPORT_WIDTH)
                 x_end = EB_VIEWPORT_WIDTH - fb_x_offset;
 
-            /* Hoist loop-invariant OBJ enable check */
-            bool obj_main_en = no_windows ? (base_tm & LAYER_OBJ) != 0 : false;
-            bool obj_sub_en = no_windows ? (base_ts & LAYER_OBJ) != 0 : false;
+            /* Hoist loop-invariant OBJ enable check. When no sprite overlapped
+             * this scanline (obj_prio all-0), drop the per-pixel obj_prio load
+             * entirely — scanline_has_obj folds into the enable flags. */
+            bool obj_main_en = scanline_has_obj && (no_windows ? (base_tm & LAYER_OBJ) != 0 : false);
+            bool obj_sub_en = scanline_has_obj && (no_windows ? (base_ts & LAYER_OBJ) != 0 : false);
 
             /* Whole-row gutter: a scanline outside the centered SNES content
              * band (top/bottom letterbox in a taller viewport) has no centered
@@ -1739,12 +1799,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 uint16_t color;
                 uint8_t main_layer;
 
-                /* OBJ check: window-masked or constant */
+                /* OBJ check: window-masked or constant. scanline_has_obj gates
+                 * the load on both paths (no_windows folds into obj_main_en). */
                 uint8_t obj_pk;
                 if (no_windows)
                     obj_pk = obj_main_en ? obj_prio[x] : 0;
                 else
-                    obj_pk = (eff_tm_line[x] & LAYER_OBJ) ? obj_prio[x] : 0;
+                    obj_pk = (scanline_has_obj && (eff_tm_line[x] & LAYER_OBJ)) ? obj_prio[x] : 0;
 
                 uint16_t bg_packed = best_bg_gp_lm[x];
                 uint8_t bg_gp_val = GP_LM_GP(bg_packed);
@@ -1787,7 +1848,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                         if (no_windows)
                             sub_obj_pk = obj_sub_en ? obj_prio[x] : 0;
                         else
-                            sub_obj_pk = (eff_ts_line[x] & LAYER_OBJ) ? obj_prio[x] : 0;
+                            sub_obj_pk = (scanline_has_obj && (eff_ts_line[x] & LAYER_OBJ)) ? obj_prio[x] : 0;
                         uint8_t sub_gp_val = sub_bg_gp[x];
                         if (sub_obj_pk > 0 && sub_gp_val < obj_thresh[sub_obj_pk])
                             sub_color = obj_color[x];
