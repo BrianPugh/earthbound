@@ -42,6 +42,22 @@
 static uint16_t map_palette_backup[16];
 
 /*
+ * Sync palettes to CGRAM, then force the screen backdrop (cgram[0]) black.
+ *
+ * The gas station never shows cgram[0] as visible content — BG1 covers the
+ * centered SNES area opaquely. In a wide viewport, though, the letterbox
+ * gutters inherit cgram[0], which the palette fade drives from black up to
+ * the gas-station background colour, tinting the gutters. Pinning cgram[0]
+ * to black keeps the gutters a clean black letterbox without the global
+ * compositor needing a gutter-forcing special case. Self-heals on scene
+ * exit: the next scene's palette sync overwrites cgram[0].
+ */
+static void gas_station_sync_palettes(void) {
+    sync_palettes_to_cgram();
+    ppu.cgram[0] = 0;
+}
+
+/*
  * Port of GAS_STATION_LOAD from asm/intro/gas_station_load.asm.
  *
  * Sets up BG1 (gas station image) and BG2 (battle BG 295 noise effect):
@@ -134,7 +150,7 @@ static void gas_station_load(void) {
     prepare_palette_fade_slopes(480, 0xFFFF);
 
     /* Sync initial (zeroed) ert.palettes to CGRAM */
-    sync_palettes_to_cgram();
+    gas_station_sync_palettes();
 
     /* ROM: TM_MIRROR=$01 (BG1 main), TD_MIRROR=$02 (BG2 sub-screen) */
     ppu.tm = 0x01;
@@ -154,13 +170,14 @@ static void gas_station_load(void) {
     ppu.cgwsel = 0x02;
     ppu.cgadsub = 0x03;
 
-    /* Expand the BG2 noise/static to fill the entire (wide) viewport.
-     * BG2 uses a 32-tile tilemap; FILL wraps it across the full viewport
-     * width and height so the red Giygas static covers the gutters too,
-     * not just the 256x224 native area. BG1 (the gas station image) stays
-     * centered. In a native 256x224 viewport these flags are inert.
-     * Matches the file-select starfield (file_select.c), another battle-BG
-     * effect layer rendered with BG_VIEWPORT_FILL. */
+    /* Mark BG2 (the red Giygas static) as a viewport-filling layer so its
+     * 32-tile noise tilemap wraps across the full viewport width and height,
+     * putting a sub-screen static pixel in the gutters. The compositor's
+     * wide-mode gutter fill then blends that sub layer over the black backdrop
+     * gutters (cgram[0] is pinned black by gas_station_sync_palettes()), so the
+     * static covers the entire screen, not just the centered 256x224 band. BG1
+     * (the gas station image) stays centered. In a native 256x224 viewport
+     * these flags are inert. Matches the file-select starfield. */
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
 
@@ -219,7 +236,7 @@ static uint16_t gas_station_phase1_static_intro(void) {
             }
         }
 
-        sync_palettes_to_cgram();
+        gas_station_sync_palettes();
         wait_for_vblank();
     }
     return 0;
@@ -281,7 +298,7 @@ uint16_t gas_station(void) {
         /* UPDATE_BATTLE_SCREEN_EFFECTS — animates battle BG (palette cycling) */
         battle_bg_update();
 
-        sync_palettes_to_cgram();
+        gas_station_sync_palettes();
         wait_for_vblank();
     }
 
@@ -294,12 +311,20 @@ uint16_t gas_station(void) {
     PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
     memcpy(ert.palettes, fade->target, sizeof(fade->target));
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    sync_palettes_to_cgram();
+    gas_station_sync_palettes();
 
     ppu.cgadsub = 0x00;
     ppu.cgwsel = 0x00;
     ppu.tm = 0x01;
-    ppu.ts = 0x00;
+    /* ROM sets TS=0 here (256-wide hardware has no gutters to worry about).
+     * The C port keeps BG2 in the sub screen so the renderer stays in WIDE
+     * mode for the rest of the scene: wide mode is detected from FILL layers
+     * present in TM|TS, and BG2 carries the BG_VIEWPORT_FILL flag. With color
+     * math now disabled (CGADSUB=0) the sub screen is never composited, so BG2
+     * is invisible — only its presence in TS matters, to hold wide mode. This
+     * lets the closing phase-5 fade-to-white reach the gutters via the backdrop
+     * (cgram[0]); a non-wide scene would letterbox them to hard black instead. */
+    ppu.ts = 0x02;
 
     /*
      * Phase 3: Wait 120 frames (gas station visible at full brightness).
@@ -328,7 +353,7 @@ uint16_t gas_station(void) {
     while (entity_offset >= 0 &&
            entities.script_table[entity_offset] != ENTITY_NONE) {
         run_actionscript_frame();
-        sync_palettes_to_cgram();
+        gas_station_sync_palettes();
         wait_for_vblank();
 
         if (platform_input_quit_requested()) {
@@ -350,6 +375,15 @@ uint16_t gas_station(void) {
      * Then PREPARE_PALETTE_FADE(330, $FFFF) sets up the fade slopes.
      */
     {
+        /* The backdrop (palette index 0) still holds the gas-station
+         * background colour (teal). It's invisible under the centered, opaque
+         * BG1 image but fills the wide-mode gutters, which phases 3-4 pinned to
+         * black via cgram[0] (without touching ert.palettes[0]). The fade below
+         * starts each color from its current ert.palettes[] value, so leaving
+         * index 0 teal would flash the gutters teal before they whiten. Reset
+         * it to black so the gutters fade cleanly from black to white. */
+        ert.palettes[0] = 0;
+
         /* Set fade target to all-white (0x7FFF) */
         PaletteFadeBuffer *wfade = buf_palette_fade(ert.buffer);
         for (int i = 0; i < BUF_FADE_COLOR_COUNT; i++) {
@@ -363,6 +397,10 @@ uint16_t gas_station(void) {
         if (platform_input_get_pad_new()) return 1;
 
         update_map_palette_animation();
+        /* Plain sync (NOT gas_station_sync_palettes): let the backdrop
+         * cgram[0] fade to white along with everything else so the wide-mode
+         * gutters fade to white too. Color math is off in this phase, so the
+         * gutter fill is inactive and the gutters simply follow the backdrop. */
         sync_palettes_to_cgram();
         wait_for_vblank();
     }
@@ -378,9 +416,11 @@ uint16_t gas_station(void) {
     sync_palettes_to_cgram();
 
     /* Restore BG2 to centered so the wide-viewport fill doesn't leak into
-     * whatever screen follows. */
+     * whatever screen follows, and drop BG2 from the sub screen (FINALIZE set
+     * TS=2 only to hold wide mode; ROM leaves TS=0 here). */
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
     ppu.sprite_y_offset = 0;
+    ppu.ts = 0x00;
 
     wait_frames_or_button(30, 0);
 

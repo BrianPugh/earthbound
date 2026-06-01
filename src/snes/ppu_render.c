@@ -378,10 +378,24 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
     int scroll_x = ppu.bg_hofs[bg_index] & 0x3FF;
     int scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
 
-    /* Per-scanline horizontal offset for BG2 (HDMA distortion emulation) */
-    if (bg_index == 1 && bg2_distortion_active &&
-        scanline >= 0 && scanline < BATTLEBG_MAX_SCANLINES) {
-        scroll_x = (scroll_x + bg2_scanline_hoffset[scanline]) & 0x3FF;
+    /* Per-scanline horizontal offset for BG2 (HDMA distortion emulation).
+     * The distortion table only covers the native content rows. In a wide
+     * viewport a FILL layer (e.g. the gas station's Giygas static) also renders
+     * the letterbox gutter rows (scanline < 0 or >= the content height). Those
+     * have no table entry, so leaving them undistorted made the gutter render
+     * as a rigid block while the content churned. Reflect an out-of-range
+     * scanline back into the table so every gutter row gets its own ripple
+     * offset and churns like the content; reflection (vs. clamp/wrap) keeps the
+     * offset continuous across the gutter/content seam. */
+    if (bg_index == 1 && bg2_distortion_active) {
+        int dist_y = scanline;
+        if (dist_y < 0)
+            dist_y = -dist_y;                                  /* reflect at top edge */
+        else if (dist_y >= BATTLEBG_MAX_SCANLINES)
+            dist_y = 2 * (BATTLEBG_MAX_SCANLINES - 1) - dist_y; /* reflect at bottom edge */
+        if (dist_y < 0) dist_y = 0;                            /* safety clamp */
+        else if (dist_y >= BATTLEBG_MAX_SCANLINES) dist_y = BATTLEBG_MAX_SCANLINES - 1;
+        scroll_x = (scroll_x + bg2_scanline_hoffset[dist_y]) & 0x3FF;
     }
 
     int world_width = sc_size_h * 8;
@@ -1270,7 +1284,6 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     uint16_t bm = brightness * 17; /* 0→0, 1→17, ... 14→238, 15→255 */
     bool bg3prio = (ppu.bgmode & BGMODE_BG3_PRIO) && mode == 1;
     uint16_t backdrop = cgram_render[0];
-    bool backdrop_has_math = color_math_active && (0x20 & math_layers);
 
     /* Fast composite path: merge BG layers into a single priority-ordered
      * buffer during rendering, then compositing is just OBJ-vs-merged-BG
@@ -1360,12 +1373,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         (fb_x_offset == 0 && render_width == EB_VIEWPORT_WIDTH);
 
     /* Wide-mode gutter bounds (in line_out columns). A centered main layer
-     * leaves only backdrop in [0,gutter_lo) and [gutter_hi,WIDTH); a filling
-     * sub-screen layer (e.g. the gas station's BG2 static) writes there but,
-     * since color math doesn't target the backdrop, would be invisible. The
-     * composite loop extends color math onto the gutter backdrop so the sub
-     * layer shows through — mirroring precompute_window_masks()'s gutter
-     * extension. In non-wide mode these collapse to the full width (no gutter). */
+     * leaves only backdrop in [0,gutter_lo) and [gutter_hi,WIDTH). Where active
+     * color math has a sub-screen layer, the composite loop forces such a
+     * backdrop gutter to a black, math-eligible base so the filling sub layer
+     * (e.g. the gas station's BG2 static) blends onto it and covers the full
+     * screen. Self-limiting: scenes without sub-screen color math never trigger
+     * it. In non-wide mode these collapse to the full width (no gutter). */
     const int gutter_lo = wide_mode ? EB_VIEWPORT_PAD_LEFT : 0;
     const int gutter_hi = wide_mode ? EB_VIEWPORT_PAD_LEFT + SNES_WIDTH
                                     : EB_VIEWPORT_WIDTH;
@@ -1652,8 +1665,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
             /* Whole-row gutter: a scanline outside the centered SNES content
              * band (top/bottom letterbox in a taller viewport) has no centered
-             * main layer at any column, so every pixel is a gutter pixel. */
-            bool row_is_vgutter = wide_mode &&
+             * main layer at any column, so every pixel is a gutter pixel. Only
+             * relevant when a sub-screen color-math layer can fill it. */
+            bool row_is_vgutter = wide_mode && need_sub &&
                 (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT);
 
             for (int x = x_start; x < x_end; x++) {
@@ -1681,26 +1695,25 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     main_layer = 0x20;
                 }
 
-                /* Wide-mode gutter columns have no centered main content. Treat
-                 * them as black letterbox rather than inheriting the screen
-                 * backdrop (cgram[0]); otherwise a gutter takes on the backdrop
-                 * colour, e.g. the gas station sky fading from black to teal as
-                 * the image fades in. A filling sub-screen layer still draws
-                 * here via color math below (blended onto black), so the gas
-                 * station static fills the gutters and fades cleanly to black. */
-                bool gutter_backdrop = (main_layer & 0x20) &&
-                    (row_is_vgutter || x < gutter_lo || x >= gutter_hi);
-                if (gutter_backdrop)
+                /* Color math eligibility */
+                bool math_eligible = (main_layer & math_layers) != 0;
+
+                /* Wide-mode gutter fill: a backdrop-only gutter column/row has
+                 * no centered main content for a sub-screen color-math layer to
+                 * blend onto, so the layer would stop at the native edge. When
+                 * color math is active with a sub-screen layer, force the gutter
+                 * to a black, math-eligible base so the filling sub layer (e.g.
+                 * the gas station's BG2 static) blends onto it and covers the
+                 * full screen. Gated on color_math_active, so non-math phases
+                 * (e.g. the closing fade-to-white) leave the gutter on the
+                 * backdrop, which then follows the palette. */
+                if (color_math_active && need_sub && (main_layer & 0x20) &&
+                    (row_is_vgutter || x < gutter_lo || x >= gutter_hi)) {
                     color = 0;
+                    math_eligible = true;
+                }
 
                 /* Color math */
-                bool math_eligible = (main_layer & math_layers) != 0;
-                /* Make the black gutter math-eligible so a filling sub-screen
-                 * layer blends onto it. The native screen (opaque main layer)
-                 * is unaffected; a gutter with no sub pixel blends zero onto
-                 * black and stays black. */
-                if (!math_eligible && gutter_backdrop && need_sub)
-                    math_eligible = true;
                 if (color_math_active && math_eligible &&
                     (no_windows || !cm_prevented_line[x])) {
                     uint16_t sub_color;
