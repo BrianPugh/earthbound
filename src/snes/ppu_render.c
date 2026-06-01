@@ -1519,8 +1519,18 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         memset(best_bg_gp_lm, 0, render_width * sizeof(uint16_t));
         if (need_sub)
             memset(sub_bg_gp, 0, render_width);
-        if (layers_needed & LAYER_OBJ)
-            memset(obj_prio, 0, LINE_BUF_WIDTH);
+        if (layers_needed & LAYER_OBJ) {
+#if PPU_OBJ_BUCKET
+            /* Skip the clear when no sprite touches this scanline's band: nothing
+             * writes obj_prio this line and the compositor skips reading it
+             * (render_obj_scanline returns false -> scanline_has_obj false), so
+             * stale contents are never observed. Conservative — an occupied band
+             * with no exact-scanline overlap still clears, which is harmless. */
+            int _oband = scanline >> OBJ_BAND_SHIFT;
+            if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_count[_oband] > 0)
+#endif
+                memset(obj_prio, 0, LINE_BUF_WIDTH);
+        }
 
         /* Clear output line (handles left/right black borders). Skipped in
          * wide mode where the compositor overwrites every pixel (see #4). */
