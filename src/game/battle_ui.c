@@ -655,7 +655,7 @@ void load_enemy_battle_sprites(void) {
     ppu.obsel = 0x61;
 
     /* Clear BG3 tilemap: fixed-source DMA of 0x800 bytes at VRAM word $7C00 */
-    memset(&ppu.vram[0x7C00 * 2], 0, 0x800);
+    vram_memset(0x7C00 * 2, 0, 0x800);
 }
 
 
@@ -675,17 +675,17 @@ void upload_text_tiles_to_vram(uint16_t param) {
 
     /* param 1 or 2: Copy large block (BUFFER+$2000 → TEXT_LAYER_TILES+$1000) */
     if (param == 1 || param == 2) {
-        memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x1000) * 2],
-               &ert.buffer[BUF_TEXT_LAYER2_TILES], 0x1800);
+        vram_write((VRAM_TEXT_LAYER_TILES + 0x1000) * 2,
+                   &ert.buffer[BUF_TEXT_LAYER2_TILES], 0x1800);
     }
 
     /* All valid params: Copy 6 scattered blocks from ert.buffer to VRAM */
-    memcpy(&ppu.vram[VRAM_TEXT_LAYER_TILES * 2],                   &ert.buffer[BUF_TEXT_TILES_BLOCK1], 0x0450);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0278) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK2], 0x0060);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x02F8) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK3], 0x00B0);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0380) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK4], 0x00A0);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0400) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK5], 0x0010);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0480) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK6], 0x0010);
+    vram_write(VRAM_TEXT_LAYER_TILES * 2,                   &ert.buffer[BUF_TEXT_TILES_BLOCK1], 0x0450);
+    vram_write((VRAM_TEXT_LAYER_TILES + 0x0278) * 2,        &ert.buffer[BUF_TEXT_TILES_BLOCK2], 0x0060);
+    vram_write((VRAM_TEXT_LAYER_TILES + 0x02F8) * 2,        &ert.buffer[BUF_TEXT_TILES_BLOCK3], 0x00B0);
+    vram_write((VRAM_TEXT_LAYER_TILES + 0x0380) * 2,        &ert.buffer[BUF_TEXT_TILES_BLOCK4], 0x00A0);
+    vram_write((VRAM_TEXT_LAYER_TILES + 0x0400) * 2,        &ert.buffer[BUF_TEXT_TILES_BLOCK5], 0x0010);
+    vram_write((VRAM_TEXT_LAYER_TILES + 0x0480) * 2,        &ert.buffer[BUF_TEXT_TILES_BLOCK6], 0x0010);
 }
 
 
@@ -764,16 +764,18 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
             ppu.bg_sc[1] = 0x5C;
             ppu.bg_nba[0] = (ppu.bg_nba[0] & 0x0F) | 0x30;
             decomp(gfx_comp, gfx_comp_size, &ppu.vram[0x3000 * 2], 0x5000);
+            vram_dirty(0x3000 * 2, 0x5000);
         } else {
             /* Normal: VRAM $1000 (assembly line 99) */
             decomp(gfx_comp, gfx_comp_size, &ppu.vram[0x1000 * 2], 0x2000);
+            vram_dirty(0x1000 * 2, 0x2000);
         }
     }
 
     /* Clear BG3/BG4 tilemaps (assembly lines 101-110):
      * Zero 0x800 bytes at VRAM $5800 and 0x800 bytes at VRAM $0000 */
-    memset(&ppu.vram[0x5800 * 2], 0, 0x800);
-    memset(&ppu.vram[0x0000 * 2], 0, 0x800);
+    vram_memset(0x5800 * 2, 0, 0x800);
+    vram_memset(0x0000 * 2, 0, 0x800);
 
     /* Load and decompress arrangement directly to VRAM $5C00 (assembly lines 112-133).
      * Both 4bpp and 2bpp paths write to the same VRAM address with in-place fixup. */
@@ -897,6 +899,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
         bt.letterbox_visible_screen_value = 0x0817;
         bt.letterbox_nonvisible_screen_value = 0x0013;
     }
+    vram_dirty(0x5C00 * 2, 0x800);
 
     /* === Layer 2 setup === */
     if (layer2_id != 0) {
@@ -914,6 +917,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
             size_t l2_gfx_comp_size = ASSET_SIZE(ASSET_BATTLE_BGS_GRAPHICS(l2_gfx_index));
             if (l2_gfx_comp) {
                 decomp(l2_gfx_comp, l2_gfx_comp_size, &ppu.vram[0x0000 * 2], 0x2000);
+                vram_dirty(0x0000 * 2, 0x2000);
             }
 
             /* Load and decompress layer 2 arrangement directly to VRAM $5800 (lines 296-330) */
@@ -927,6 +931,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
                 for (size_t i = 1; i < l2_arr_size && i < 0x800; i += 2) {
                     l2_arr_dst[i] = (l2_arr_dst[i] & 0xDF) | 0x10;
                 }
+                vram_dirty(0x5800 * 2, 0x800);
             }
 
             /* Load BG config for layer 2 (lines 332-349) */
@@ -983,6 +988,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
             size_t l2_gfx_comp_size = ASSET_SIZE(ASSET_BATTLE_BGS_GRAPHICS(l2_gfx_index));
             if (l2_gfx_comp) {
                 decomp(l2_gfx_comp, l2_gfx_comp_size, &ppu.vram[0x3000 * 2], 0x1800);
+                vram_dirty(0x3000 * 2, 0x1800);
             }
 
             /* Load and decompress layer 2 arrangement directly to VRAM $0C00 (lines 582-616) */
@@ -996,6 +1002,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
                 for (size_t i = 1; i < l2_arr_size && i < 0x800; i += 2) {
                     l2_arr_dst[i] = l2_arr_dst[i] & 0xDF;
                 }
+                vram_dirty(0x0C00 * 2, 0x800);
             }
 
             /* Load BG config for layer 2 (lines 618-635) */

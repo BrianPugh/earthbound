@@ -4,6 +4,70 @@
 
 PPUState ppu;
 
+/* ---- VRAM write barrier (see ppu.h) --------------------------------------
+ * vram_gen[b] bumps whenever any byte in 64-byte block b is written.  The
+ * renderer records the generation at decode time and re-decodes only when it
+ * no longer matches — so the decode cache survives across frames for the
+ * (overwhelming) majority of tiles whose graphics never change. */
+uint32_t vram_gen[VRAM_GEN_BLOCKS];
+
+void vram_dirty(uint32_t byte_off, uint32_t n) {
+    if (n == 0) return;
+    uint32_t end = byte_off + n - 1;
+    if (end >= VRAM_SIZE) end = VRAM_SIZE - 1;          /* defensive clamp */
+    for (uint32_t b = byte_off >> VRAM_GEN_SHIFT; b <= (end >> VRAM_GEN_SHIFT); b++)
+        vram_gen[b]++;
+}
+
+void vram_dirty_all(void) {
+    for (uint32_t b = 0; b < VRAM_GEN_BLOCKS; b++) vram_gen[b]++;
+}
+
+/* These mirror the bare memcpy/memset the call sites used before, plus the
+ * dirty stamp.  No bounds check is added (matching prior semantics); callers
+ * that wrote in-range still do, and vram_dirty() clamps its block range. */
+void vram_write(uint32_t byte_off, const void *src, uint32_t n) {
+    memcpy(&ppu.vram[byte_off], src, n);
+    vram_dirty(byte_off, n);
+}
+
+void vram_memset(uint32_t byte_off, uint8_t val, uint32_t n) {
+    memset(&ppu.vram[byte_off], val, n);
+    vram_dirty(byte_off, n);
+}
+
+void vram_write_u16(uint32_t byte_off, uint16_t val) {
+    ppu.vram[byte_off]     = (uint8_t)val;
+    ppu.vram[byte_off + 1] = (uint8_t)(val >> 8);
+    vram_dirty(byte_off, 2);
+}
+
+#ifdef PPU_VRAM_VERIFY
+#include <stdio.h>
+/* Per-block FNV hash of last frame's VRAM + the generation we last saw, so we
+ * can detect a block that changed content without its generation bumping —
+ * i.e. a write that bypassed the barrier.  8 KB of state, debug builds only. */
+static uint32_t vram_hash_prev[VRAM_GEN_BLOCKS];
+static uint32_t vram_gen_prev[VRAM_GEN_BLOCKS];
+static bool     vram_verify_primed;
+void vram_verify_frame(void) {
+    for (uint32_t b = 0; b < VRAM_GEN_BLOCKS; b++) {
+        const uint8_t *p = &ppu.vram[b << VRAM_GEN_SHIFT];
+        uint32_t h = 2166136261u;
+        for (uint32_t i = 0; i < (1u << VRAM_GEN_SHIFT); i++) h = (h ^ p[i]) * 16777619u;
+        bool changed = (h != vram_hash_prev[b]);
+        bool bumped  = (vram_gen[b] != vram_gen_prev[b]);
+        if (vram_verify_primed && changed && !bumped) {
+            printf("VRAM-BARRIER MISS: block %lu (byte 0x%lx) changed without vram_dirty()\n",
+                   (unsigned long)b, (unsigned long)(b << VRAM_GEN_SHIFT));
+        }
+        vram_hash_prev[b] = h;
+        vram_gen_prev[b]  = vram_gen[b];
+    }
+    vram_verify_primed = true;
+}
+#endif
+
 void ppu_init(void) {
     memset(&ppu, 0, sizeof(ppu));
     ppu.inidisp = 0x80; /* force blank on */
@@ -72,6 +136,7 @@ void ppu_vram_write(uint16_t data) {
     uint16_t addr = ppu.vram_addr;
     if (addr < VRAM_SIZE / 2) {
         write_u16_le(&ppu.vram[addr * 2], data);
+        vram_dirty((uint32_t)addr * 2, 2);
     }
     /* Increment based on vmain setting */
     uint8_t inc = ppu.vmain & 0x03;
@@ -92,6 +157,7 @@ void ppu_vram_dma(const uint8_t *src, uint16_t vram_word_addr, uint16_t byte_cou
     uint32_t byte_addr = (uint32_t)vram_word_addr * 2;
     if (byte_addr + count <= VRAM_SIZE) {
         memcpy(&ppu.vram[byte_addr], src, count);
+        vram_dirty(byte_addr, count);
     }
 }
 

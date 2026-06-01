@@ -120,7 +120,7 @@ void overworld_initialize(void) {
 
     /* Assembly: COPY_TO_VRAM1P with size=0 and fixed-source DMA mode 3.
      * On SNES, DMA size 0 means 0x10000 (65536) bytes — clears ALL VRAM. */
-    memset(ppu.vram, 0, sizeof(ppu.vram));
+    vram_memset(0, 0, sizeof(ppu.vram));
 
     /* Reset tracking variables — invalidate both overworld.c caches and
      * the tileset combo cache in map_loader.c so next sector load reloads GFX. */

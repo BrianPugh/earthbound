@@ -141,6 +141,30 @@ void ppu_cgram_write(uint8_t index, uint16_t color);
 /* Bulk VRAM write (simulates DMA) */
 void ppu_vram_dma(const uint8_t *src, uint16_t vram_word_addr, uint16_t byte_count);
 
+/* ---- VRAM write barrier / dirty-tracking ---------------------------------
+ * Every write to ppu.vram MUST go through these helpers (or call vram_dirty()
+ * directly for the rare hand-rolled write).  VRAM is partitioned into 64-byte
+ * blocks; each carries a generation counter that bumps on write.  The renderer
+ * uses this to invalidate only the tiles whose bitplane data actually changed,
+ * letting its decode cache persist across frames instead of being wiped each
+ * frame.  A debug build (PPU_VRAM_VERIFY) cross-checks that no writer bypasses
+ * the barrier.  See vram_dirty() in ppu.c. */
+#define VRAM_GEN_SHIFT  6                            /* 64-byte blocks (>= max tile size) */
+#define VRAM_GEN_BLOCKS (VRAM_SIZE >> VRAM_GEN_SHIFT) /* 1024 */
+extern uint32_t vram_gen[VRAM_GEN_BLOCKS];
+
+void vram_dirty(uint32_t byte_off, uint32_t n);                  /* mark [off, off+n) written */
+void vram_dirty_all(void);                                      /* bump every block (full clear) */
+void vram_write(uint32_t byte_off, const void *src, uint32_t n);/* memcpy into VRAM + dirty */
+void vram_memset(uint32_t byte_off, uint8_t val, uint32_t n);   /* memset VRAM + dirty */
+void vram_write_u16(uint32_t byte_off, uint16_t val);           /* little-endian word + dirty */
+
+#ifdef PPU_VRAM_VERIFY
+/* Debug: assert every VRAM block that changed since last frame had its
+ * generation bumped (i.e. no writer bypassed the barrier). Call at frame start. */
+void vram_verify_frame(void);
+#endif
+
 /* Bulk CGRAM write (simulates DMA) */
 void ppu_cgram_dma(const uint8_t *src, uint8_t start_color, uint16_t byte_count);
 

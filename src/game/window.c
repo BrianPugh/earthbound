@@ -1430,11 +1430,9 @@ uint16_t selection_menu(uint16_t allow_cancel) {
                 uint16_t lower = cursor_frame ? CURSOR_FRAME1_LOWER : CURSOR_FRAME0_LOWER;
 
                 /* Upper cursor tile */
-                ppu.vram[vram_byte]     = (uint8_t)(upper & 0xFF);
-                ppu.vram[vram_byte + 1] = (uint8_t)(upper >> 8);
+                vram_write_u16(vram_byte, upper);
                 /* Lower cursor tile (next row = +32 words = +64 bytes) */
-                ppu.vram[vram_byte + 64] = (uint8_t)(lower & 0xFF);
-                ppu.vram[vram_byte + 65] = (uint8_t)(lower >> 8);
+                vram_write_u16(vram_byte + 64, lower);
             }
         }
 
@@ -1665,7 +1663,7 @@ void render_hppp_window_header(void) {
 void copy_hppp_window_to_vram(void) {
     uint16_t bg2_offset = (ACTIVE_HPPP_WINDOW_Y_OFFSET * 32) * 2;
     uint32_t vram_byte_addr = (VRAM_TEXT_LAYER_TILEMAP + ACTIVE_HPPP_WINDOW_Y_OFFSET * 32) * 2;
-    memcpy(&ppu.vram[vram_byte_addr], &win.bg2_buffer[bg2_offset], 0x240);
+    vram_write(vram_byte_addr, &win.bg2_buffer[bg2_offset], 0x240);
 }
 
 /*
@@ -1681,11 +1679,11 @@ void copy_hppp_window_to_vram(void) {
 void upload_battle_screen_to_vram(void) {
     /* Copy 0x700 bytes of BG2_BUFFER to VRAM at word address $7C00 */
     uint32_t vram_dest = VRAM_TEXT_LAYER_TILEMAP * 2;  /* $7C00 * 2 = $F800 */
-    memcpy(&ppu.vram[vram_dest], win.bg2_buffer, 0x700);
+    vram_write(vram_dest, win.bg2_buffer, 0x700);
 
     /* Clear 0x40 bytes at VRAM word address $7F80 (blank tile) */
     uint32_t blank_dest = 0x7F80 * 2;  /* $FF00 */
-    memset(&ppu.vram[blank_dest], 0, 0x40);
+    vram_memset(blank_dest, 0, 0x40);
 }
 
 /*
@@ -2441,13 +2439,13 @@ void update_hppp_meter_tiles(void) {
         /* Set up VRAM copies if not already bulk-uploaded */
         if (!win.upload_hppp_meter_tiles) {
             /* Copy HP top row (3 entries = 6 bytes) to VRAM */
-            memcpy(&ppu.vram[vram_addr * 2],
-                   win.hppp_window_buffer[member_index].hp1,
-                   HPPP_DIGIT_COUNT * 2);
+            vram_write(vram_addr * 2,
+                       win.hppp_window_buffer[member_index].hp1,
+                       HPPP_DIGIT_COUNT * 2);
             /* Copy HP bottom row to VRAM (next tilemap row = +32 entries) */
-            memcpy(&ppu.vram[(vram_addr + 32) * 2],
-                   win.hppp_window_buffer[member_index].hp2,
-                   HPPP_DIGIT_COUNT * 2);
+            vram_write((vram_addr + 32) * 2,
+                       win.hppp_window_buffer[member_index].hp2,
+                       HPPP_DIGIT_COUNT * 2);
         }
 
         /* Copy HP top tiles to win.bg2_buffer */
@@ -2484,13 +2482,13 @@ void update_hppp_meter_tiles(void) {
         /* Set up VRAM copies if not already bulk-uploaded */
         if (!win.upload_hppp_meter_tiles) {
             /* Copy PP top row to VRAM (+64 entries from HP top = 2 rows down) */
-            memcpy(&ppu.vram[(vram_addr + 64) * 2],
-                   win.hppp_window_buffer[member_index].pp1,
-                   HPPP_DIGIT_COUNT * 2);
+            vram_write((vram_addr + 64) * 2,
+                       win.hppp_window_buffer[member_index].pp1,
+                       HPPP_DIGIT_COUNT * 2);
             /* Copy PP bottom row to VRAM (+96 entries = 3 rows down) */
-            memcpy(&ppu.vram[(vram_addr + 96) * 2],
-                   win.hppp_window_buffer[member_index].pp2,
-                   HPPP_DIGIT_COUNT * 2);
+            vram_write((vram_addr + 96) * 2,
+                       win.hppp_window_buffer[member_index].pp2,
+                       HPPP_DIGIT_COUNT * 2);
         }
 
         /* Copy PP top tiles to win.bg2_buffer */

@@ -142,16 +142,17 @@ static void load_town_map_data(uint16_t map_index) {
     ppu.ts = 0x00;
 
     /* Upload tilemap: BUFFER+$40 → VRAM $3000, $800 bytes */
-    memcpy(&ppu.vram[0x3000 * 2], ert.buffer + 0x40, 0x800);
+    vram_write(0x3000 * 2, ert.buffer + 0x40, 0x800);
 
     /* Upload tile data: BUFFER+$840 → VRAM $0000, $4000 bytes */
-    memcpy(&ppu.vram[0x0000], ert.buffer + 0x840, 0x4000);
+    vram_write(0x0000, ert.buffer + 0x840, 0x4000);
 
     /* Decompress label GFX directly to VRAM $6000 */
     size_t label_size = ASSET_SIZE(ASSET_TOWN_MAPS_LABEL_GFX_LZHAL);
     const uint8_t *label_data = ASSET_DATA(ASSET_TOWN_MAPS_LABEL_GFX_LZHAL);
     if (label_data) {
         decomp(label_data, label_size, &ppu.vram[0x6000 * 2], TOWN_MAP_LABEL_GFX_SIZE);
+        vram_dirty(0x6000 * 2, TOWN_MAP_LABEL_GFX_SIZE);
     }
 
     ert.palette_upload_mode = 24;

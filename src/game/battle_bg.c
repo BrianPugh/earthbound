@@ -111,6 +111,7 @@ void battle_bg_load_at(uint16_t bg_id, uint16_t gfx_vram_addr,
     if (gfx_compressed) {
         uint8_t *vram_dst = &ppu.vram[(uint32_t)gfx_vram_addr * 2];
         decomp(gfx_compressed, gfx_compressed_size, vram_dst, 0x2000);
+        vram_dirty((uint32_t)gfx_vram_addr * 2, 0x2000);
     }
 
     /* Load arrangement — decompress directly to ppu.vram, fixup in-place */
@@ -129,6 +130,7 @@ void battle_bg_load_at(uint16_t bg_id, uint16_t gfx_vram_addr,
                 vram_dst[i] = (vram_dst[i] & 0xDF) | 0x08;
             }
         }
+        vram_dirty((uint32_t)arr_vram_addr * 2, 0x800);
     }
 
     /* For gas station: call load_bg_layer_config() BEFORE palette loading,

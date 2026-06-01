@@ -1224,7 +1224,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * Assembly: COPY_TO_VRAM1 BLANK_TILE_DATA, VRAM::TEXT_LAYER_TILEMAP, $0800, 3 */
         *out_pc = pc;
         memset(win.bg2_buffer, 0, BG2_BUFFER_SIZE);
-        memset(ppu.vram + VRAM_TEXT_LAYER_TILEMAP * 2, 0, 0x800);
+        vram_memset(VRAM_TEXT_LAYER_TILEMAP * 2, 0, 0x800);
         return 0;
 
     case ROM_ADDR_DISABLE_OTHER_ENTITY_CALLBACKS:
@@ -2289,7 +2289,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
         /* Copy tilemap from BUFFER slot 0 to VRAM at $3800
          * (0x780 bytes = 30 rows x 32 words = 960 tilemap entries) */
-        memcpy(&ppu.vram[0x3800 * 2], &ert.buffer[BUF_SANCTUARY_TILEMAPS], 0x0780);
+        vram_write(0x3800 * 2, &ert.buffer[BUF_SANCTUARY_TILEMAPS], 0x0780);
 
         /* Copy palette from BUFFER slot 0 to CGRAM.
          * Assembly: LDX #BPP4PALETTE_SIZE * 8 = 256 bytes (8 BG sub-palettes). */
@@ -2516,8 +2516,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
                     uint16_t vram_word = vram_base + y * 32 + x;
                     uint16_t vram_byte = vram_word * 2;
                     if (ataf_si + 1 < BUFFER_SIZE && vram_byte + 1 < VRAM_SIZE) {
-                        ppu.vram[vram_byte] = ert.buffer[ataf_si];
-                        ppu.vram[vram_byte + 1] = ert.buffer[ataf_si + 1];
+                        vram_write(vram_byte, &ert.buffer[ataf_si], 2);
                     }
                     ataf_si += 2;
                 }
@@ -2578,7 +2577,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             uint16_t lasf_len = lasf_tile_size;
             if (lasf_vram + lasf_len > VRAM_SIZE)
                 lasf_len = VRAM_SIZE - lasf_vram;
-            memcpy(&ppu.vram[lasf_vram], &ert.buffer[0], lasf_len);
+            vram_write(lasf_vram, &ert.buffer[0], lasf_len);
         }
 
         /* Load palette (BPP2PALETTE_SIZE = 8 bytes) after tile data */
@@ -2625,7 +2624,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             uint16_t dasf_len = 1792;
             if (dasf_vram + dasf_len > VRAM_SIZE)
                 dasf_len = VRAM_SIZE - dasf_vram;
-            memcpy(&ppu.vram[dasf_vram], &ert.buffer[dasf_frame_off], dasf_len);
+            vram_write(dasf_vram, &ert.buffer[dasf_frame_off], dasf_len);
         }
 
         /* Check if last frame: frame_count is at metadata byte [2] */

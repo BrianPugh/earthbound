@@ -64,6 +64,7 @@ void load_title_screen_graphics(void) {
         uint8_t *vram_dst = &ppu.vram[0x0000 * 2];
         memset(vram_dst, 0, 0xB000);
         decomp(comp_data, comp_size, vram_dst, 0xB000);
+        vram_dirty(0x0000 * 2, 0xB000);
     }
 
     /* ROM: DECOMP TITLE_SCREEN_ARRANGEMENT → BUFFER
@@ -74,6 +75,7 @@ void load_title_screen_graphics(void) {
         uint8_t *vram_dst = &ppu.vram[0x5800 * 2];
         memset(vram_dst, 0, 0x1000);
         decomp(comp_data, comp_size, vram_dst, 0x1000);
+        vram_dirty(0x5800 * 2, 0x1000);
     }
 
     /* ROM: DECOMP TITLE_SCREEN_LETTER_GFX → BUFFER
@@ -84,6 +86,7 @@ void load_title_screen_graphics(void) {
         uint8_t *vram_dst = &ppu.vram[0x6000 * 2];
         memset(vram_dst, 0, 0x4000);
         decomp(comp_data, comp_size, vram_dst, 0x4000);
+        vram_dirty(0x6000 * 2, 0x4000);
     }
 }
 

@@ -114,17 +114,19 @@ void cc_halt(int show_triangle, int skip_text_speed) {
         /* Calculate VRAM position: bottom-right of window border.
          * Assembly: (y + height) * 32 + (x + width) + TEXT_LAYER_TILEMAP + 32
          * where asm height/width are content dims (C port's height/width minus 2). */
-        uint16_t *tilemap = (uint16_t *)&ppu.vram[VRAM_TEXT_LAYER_TILEMAP * 2];
         uint16_t tri_pos = (uint16_t)((w->y + w->height - 1) * 32 + (w->x + w->width - 2));
+        /* Byte offset of this tilemap cell; written via vram_write_u16 so the
+         * VRAM write barrier's generation map stays accurate (see ppu.h). */
+        uint32_t tri_off = (uint32_t)(VRAM_TEXT_LAYER_TILEMAP + tri_pos) * 2;
 
         bool done = false;
         while (!done) {
             /* Frame 0: big triangle, 15 ticks (assembly lines 64-100) */
-            tilemap[tri_pos] = TRIANGLE_TILE_BIG;
+            vram_write_u16(tri_off, TRIANGLE_TILE_BIG);
             for (int i = 15; i > 0; i--) {
                 if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
                     /* Button during frame 0: clear tile (assembly lines 138-162) */
-                    tilemap[tri_pos] = TRIANGLE_TILE_CLEAR;
+                    vram_write_u16(tri_off, TRIANGLE_TILE_CLEAR);
                     done = true;
                     break;
                 }
@@ -134,7 +136,7 @@ void cc_halt(int show_triangle, int skip_text_speed) {
             if (done) break;
 
             /* Frame 1: small triangle, 10 ticks (assembly lines 101-136) */
-            tilemap[tri_pos] = TRIANGLE_TILE_SMALL;
+            vram_write_u16(tri_off, TRIANGLE_TILE_SMALL);
             for (int i = 10; i > 0; i--) {
                 if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
                     done = true;

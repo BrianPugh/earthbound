@@ -1055,14 +1055,12 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
             /* BG1 tilemap at byte $7000 */
             size_t bg1_addr = 0x7000 + word_offset * 2;
             if (bg1_addr + 1 < sizeof(ppu.vram)) {
-                ppu.vram[bg1_addr]     = bg1_tile & 0xFF;
-                ppu.vram[bg1_addr + 1] = bg1_tile >> 8;
+                vram_write_u16(bg1_addr, bg1_tile);
             }
             /* BG2 tilemap at byte $B000 */
             size_t bg2_addr = 0xB000 + word_offset * 2;
             if (bg2_addr + 1 < sizeof(ppu.vram)) {
-                ppu.vram[bg2_addr]     = bg2_tile & 0xFF;
-                ppu.vram[bg2_addr + 1] = bg2_tile >> 8;
+                vram_write_u16(bg2_addr, bg2_tile);
             }
         }
     }
@@ -1145,8 +1143,8 @@ void animate_tileset(void) {
 
         if (src_offset + size <= sizeof(ml.animated_tileset_buffer) &&
             vram_byte_offset + size <= sizeof(ppu.vram)) {
-            memcpy(&ppu.vram[vram_byte_offset],
-                   ml.animated_tileset_buffer + src_offset, size);
+            vram_write(vram_byte_offset,
+                       ml.animated_tileset_buffer + src_offset, size);
         }
 
         /* Advance source offset and frame counter */
@@ -1488,6 +1486,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
      * assembly to avoid ert.buffer dependency. */
     if (tileset_combo != ml.loaded_tileset_combo) {
         load_and_decompress(ASSET_MAPS_GFX(tileset_id), ppu.vram, sizeof(ppu.vram));
+        vram_dirty(0, sizeof(ppu.vram));
         /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
          * so any cell not overwritten by fill_collision_tiles() blocks movement.
          * This prevents walking into out-of-bounds areas at map edges. */
@@ -1816,7 +1815,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
         uint16_t next_idx = ml.next_your_sanctuary_location_tile_index;
         uint32_t vram_byte = (uint32_t)0xC000 + (uint32_t)next_idx * 32;
         if (vram_byte + 32 <= sizeof(ppu.vram)) {
-            memcpy(&ppu.vram[vram_byte], &decomp_staging[src_off], 32);
+            vram_write(vram_byte, &decomp_staging[src_off], 32);
         }
 
         /* Record the new VRAM tile index in loaded_map_blocks for remapping */

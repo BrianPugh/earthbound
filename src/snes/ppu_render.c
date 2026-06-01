@@ -130,7 +130,14 @@ void ppu_prepare_palette(void) {
 #define TILE_CACHE_MASK  (TILE_CACHE_SIZE - 1)
 #define TILE_CACHE_EMPTY 0xFFFFFFFF
 
+#ifdef PPU_PERSIST_DECODE
+/* The persistent whole-tile cache (below) replaces the per-frame-wiped per-row
+ * cache; the latter is reduced to a 1-entry stub so the #else code paths and
+ * the BGRenderCtx.tile_cache plumbing still compile. */
+static TileRowCacheEntry tile_row_cache[PPU_NUM_RENDER_CONTEXTS][1];
+#else
 static TileRowCacheEntry tile_row_cache[PPU_NUM_RENDER_CONTEXTS][TILE_CACHE_SIZE];
+#endif
 
 /* Decode a single 2bpp tile row (8 pixels) — unrolled, no loop.
  * Not force-inlined: keeping as regular functions reduces render_bg_scanline
@@ -194,6 +201,59 @@ static void PPU_HOT_FUNC(decode_8bpp_row)(const uint8_t *tile_data, int row,
                    | ((b4 << 4) & 0x10) | ((b5 << 5) & 0x20) | ((b6 << 6) & 0x40) | ((b7 << 7) & 0x80);
 }
 
+#ifdef PPU_PERSIST_DECODE
+/* ---- Persistent whole-tile decode cache ----------------------------------
+ * Unlike tile_row_cache (direct-mapped per-row, wiped every frame), this
+ * survives across frames and is invalidated per-tile by the VRAM write
+ * barrier's generation map (vram_gen[] in ppu.c).  ~99.6% of decodes reproduce
+ * byte-identical bitplane data frame-to-frame, so persistence skips them.
+ *
+ * Direct-mapped, keyed on (tile_addr | bppcode<<24).  Each entry holds all 8
+ * rows of one 8x8 tile, decoded LAZILY (per-row valid bitmask, matching the
+ * old on-demand behaviour) and validated against the generation of the 64-byte
+ * VRAM block the tile occupies.  When that block is written, gen changes, key/
+ * gen no longer match, and the entry's rows are re-decoded on next use.
+ *
+ * 1024 entries * 76 B ~= 76 KB.  Working set is ~825-1500 tiles, so HW should
+ * confirm conflict rate via the BGPROF hit%/decode counters before trusting
+ * the size; PERSIST_BITS is the knob. */
+#define PERSIST_BITS 10
+#define PERSIST_SIZE (1u << PERSIST_BITS)
+typedef struct {
+    uint32_t key;      /* tile_addr | (bppcode<<24); key 0 == empty (no real key is 0) */
+    uint32_t gen;      /* vram_gen[] snapshot for this tile's 64-byte block */
+    uint8_t  valid;    /* bit r set => rows[r*8..] is a decoded row for this key/gen */
+    uint8_t  rows[64]; /* 8 rows x 8 palette indices */
+} PersistTile;
+static PersistTile persist_cache[PERSIST_SIZE];
+
+/* Look up (or lazily decode) one tile row from the persistent cache.
+ * count: fold-in flag — only the BG path increments the BGPROF hit/miss
+ * counters, keeping `decode=` comparable to the non-persistent build (which
+ * counted BG decodes only). */
+static inline __attribute__((always_inline))
+const uint8_t *persist_decode_row(uint32_t tile_addr, int pixel_y, int bpp, bool count) {
+    uint32_t key = tile_addr | ((uint32_t)(bpp >> 1) << 24); /* bpp 2/4/8 -> code 1/2/4 */
+    uint32_t g   = vram_gen[tile_addr >> VRAM_GEN_SHIFT];
+    PersistTile *e = &persist_cache[(key * 2654435761u) >> (32 - PERSIST_BITS)];
+    if (e->key != key || e->gen != g) {        /* cold, conflict, or invalidated */
+        e->key = key; e->gen = g; e->valid = 0;
+    }
+    uint8_t *row = &e->rows[pixel_y * 8];
+    if (e->valid & (uint8_t)(1u << pixel_y)) {
+        if (count) BGC_INC(cache_hits);
+    } else {
+        if (count) BGC_INC(cache_misses);
+        const uint8_t *tile_data = &ppu.vram[tile_addr];
+        if (bpp == 8)      decode_8bpp_row(tile_data, pixel_y, row);
+        else if (bpp == 4) decode_4bpp_row(tile_data, pixel_y, row);
+        else               decode_2bpp_row(tile_data, pixel_y, row);
+        e->valid |= (uint8_t)(1u << pixel_y);
+    }
+    return row;
+}
+#endif /* PPU_PERSIST_DECODE */
+
 /* Emit a run of pixels from a single decoded 8x8 tile row.
  * Writes directly to merged priority buffers via BGRenderCtx, applying
  * window masks and global priority comparison in one pass. */
@@ -223,10 +283,12 @@ void emit_tile_run(
 
     /* Tile row cache lookup — avoids redundant decode across scanlines,
      * horizontal tile repeats, and cross-layer tile sharing. */
+    const uint8_t *indices;
+#ifdef PPU_PERSIST_DECODE
+    indices = persist_decode_row(tile_addr, pixel_y, bpp, true);
+#else
     uint32_t cache_key = tile_addr | ((uint32_t)pixel_y << 17);
     uint32_t cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
-    const uint8_t *indices;
-
     {
         TileRowCacheEntry *cache = ctx->tile_cache;
         if (cache[cache_idx].key == cache_key) {
@@ -247,6 +309,7 @@ void emit_tile_run(
             indices = dest;
         }
     }
+#endif
 
     int pal_base = (bpp == 8) ? 0 : (bpp == 4) ? palette * 16 : palette * 4;
     uint16_t gp_lm = prio_bit ? ctx->gp1_lm : ctx->gp0_lm;
@@ -762,9 +825,12 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
                 continue;
 
             /* Tile row cache lookup for OBJ tiles (same cache as BG) */
+            const uint8_t *indices;
+#ifdef PPU_PERSIST_DECODE
+            indices = persist_decode_row(tile_addr, pixel_y, 4, false);
+#else
             uint32_t obj_cache_key = tile_addr | ((uint32_t)pixel_y << 17);
             uint32_t obj_cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
-            const uint8_t *indices;
             {
                 TileRowCacheEntry *cache = tile_cache;
                 if (cache[obj_cache_idx].key == obj_cache_key) {
@@ -776,6 +842,7 @@ static void PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
                     indices = dest;
                 }
             }
+#endif
 
             /* Emit 8 pixels from the decoded tile row */
             for (int px = 0; px < 8; px++) {
@@ -1183,8 +1250,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
     uint8_t brightness = ppu.inidisp & 0x0F;
 
-    /* Invalidate tile row cache for this context — VRAM may have changed. */
+#ifndef PPU_PERSIST_DECODE
+    /* Invalidate tile row cache for this context — VRAM may have changed.
+     * (Persistent build skips this: invalidation is per-tile via vram_gen[].) */
     memset(tile_cache, 0xFF, TILE_CACHE_SIZE * sizeof(TileRowCacheEntry));
+#endif
 
     /* Shadow palette: built by ppu_prepare_palette() before this call.
      * In single-core mode, ppu_render_frame() calls it automatically.
@@ -1760,6 +1830,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 }
 
 void ppu_render_frame(scanline_callback_t send_scanline) {
+#ifdef PPU_VRAM_VERIFY
+    /* Debug: confirm no writer bypassed the VRAM barrier last frame. */
+    vram_verify_frame();
+#endif
     ppu_prepare_palette();
     ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 1, send_scanline);
 

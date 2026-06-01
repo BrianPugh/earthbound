@@ -75,7 +75,7 @@ static void file_select_init(void) {
     ppu.bgmode = 0x09;
 
     /* Step 4: Clear VRAM */
-    memset(ppu.vram, 0, VRAM_SIZE);
+    vram_memset(0, 0, VRAM_SIZE);
 
     /* Step 5: Initialize text system (load fonts) */
     text_system_init();
@@ -103,7 +103,7 @@ static void file_select_init(void) {
     uint32_t tilemap_offset = VRAM_TEXT_LAYER_TILEMAP * 2;
     uint32_t tilemap_size = 32 * 32 * 2;
     if (tilemap_offset + tilemap_size <= VRAM_SIZE) {
-        memset(ppu.vram + tilemap_offset, 0, tilemap_size);
+        vram_memset(tilemap_offset, 0, tilemap_size);
     }
 
     /* Step 10: Load flavour palette (default = plain/0) */

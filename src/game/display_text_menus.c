@@ -221,6 +221,7 @@ uint16_t use_sound_stone(uint16_t cancellable) {
     /* Decompress sound stone graphics directly to VRAM at word address 0x2000 (byte 0x4000).
      * Assembly: DECOMP, then COPY_TO_VRAM1P @VIRTUAL06, VRAM::SOUND_STONE_GFX, $2C00, 0 */
     decomp(gfx_comp, gfx_size, &ppu.vram[0x2000 * 2], 0x2C00);
+    vram_dirty(0x2000 * 2, 0x2C00);
 
     /* Copy 6 ert.palettes (192 bytes) to palette RAM at sub-palette 8.
      * Assembly: MEMCPY16 src=SOUND_STONE_PALETTE, size=BPP4PALETTE_SIZE*6,

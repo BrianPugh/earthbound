@@ -181,7 +181,7 @@ void text_upload_font_tiles(void) {
 
         uint32_t vram_offset = vram_base + tile_idx * 16;
         if (vram_offset + 16 <= VRAM_SIZE) {
-            memcpy(ppu.vram + vram_offset, tile_2bpp, 16);
+            vram_write(vram_offset, tile_2bpp, 16);
         }
     }
 }
@@ -379,15 +379,15 @@ void text_load_window_gfx(void) {
     uint32_t vram_base = VRAM_TEXT_LAYER_TILES * 2; /* $C000 byte address */
 
     /* Mode 1: border/window tiles from BUFFER+$2000 */
-    memcpy(ppu.vram + vram_base + 0x2000, ert.buffer + BUF_TEXT_LAYER2_TILES, 0x1800);
+    vram_write(vram_base + 0x2000, ert.buffer + BUF_TEXT_LAYER2_TILES, 0x1800);
 
     /* Mode 0 fallthrough: scattered text/UI tile uploads */
-    memcpy(ppu.vram + vram_base + 0x0000, ert.buffer + BUF_TEXT_TILES_BLOCK1, 0x0450);
-    memcpy(ppu.vram + vram_base + 0x04F0, ert.buffer + BUF_TEXT_TILES_BLOCK2, 0x0060);
-    memcpy(ppu.vram + vram_base + 0x05F0, ert.buffer + BUF_TEXT_TILES_BLOCK3, 0x00B0);
-    memcpy(ppu.vram + vram_base + 0x0700, ert.buffer + BUF_TEXT_TILES_BLOCK4, 0x00A0);
-    memcpy(ppu.vram + vram_base + 0x0800, ert.buffer + BUF_TEXT_TILES_BLOCK5, 0x0010);
-    memcpy(ppu.vram + vram_base + 0x0900, ert.buffer + BUF_TEXT_TILES_BLOCK6, 0x0010);
+    vram_write(vram_base + 0x0000, ert.buffer + BUF_TEXT_TILES_BLOCK1, 0x0450);
+    vram_write(vram_base + 0x04F0, ert.buffer + BUF_TEXT_TILES_BLOCK2, 0x0060);
+    vram_write(vram_base + 0x05F0, ert.buffer + BUF_TEXT_TILES_BLOCK3, 0x00B0);
+    vram_write(vram_base + 0x0700, ert.buffer + BUF_TEXT_TILES_BLOCK4, 0x00A0);
+    vram_write(vram_base + 0x0800, ert.buffer + BUF_TEXT_TILES_BLOCK5, 0x0010);
+    vram_write(vram_base + 0x0900, ert.buffer + BUF_TEXT_TILES_BLOCK6, 0x0010);
 }
 
 void text_load_flavour_palette(uint8_t flavour) {
@@ -3246,12 +3246,12 @@ static void upload_vwf_tile_to_vram(uint16_t vwf_tile_index,
     /* Upper 8x8 tile: first 16 bytes of VWF tile */
     uint32_t upper_off = tile_data_base + upper_tile * 16;
     if (upper_off + 16 <= VRAM_SIZE)
-        memcpy(ppu.vram + upper_off, src, 16);
+        vram_write(upper_off, src, 16);
 
     /* Lower 8x8 tile: next 16 bytes of VWF tile */
     uint32_t lower_off = tile_data_base + lower_tile * 16;
     if (lower_off + 16 <= VRAM_SIZE)
-        memcpy(ppu.vram + lower_off, src + 16, 16);
+        vram_write(lower_off, src + 16, 16);
 }
 
 /*
@@ -3393,19 +3393,19 @@ static void vwf_flush_line(uint16_t x_tile, uint16_t y_tile, bool is_tall) {
             uint16_t upper_idx = vram_base + t * 2;
             uint32_t upper_off = tile_data_base + upper_idx * 16;
             if (upper_off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + upper_off, src, 16);
+                vram_write(upper_off, src, 16);
 
             /* Lower 8x8 tile: next 16 bytes of VWF tile */
             uint16_t lower_idx = vram_base + t * 2 + 1;
             uint32_t lower_off = tile_data_base + lower_idx * 16;
             if (lower_off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + lower_off, src + 16, 16);
+                vram_write(lower_off, src + 16, 16);
         } else {
             /* Single 8x8 tile: first 16 bytes */
             uint16_t tile_idx = vram_base + t;
             uint32_t off = tile_data_base + tile_idx * 16;
             if (off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + off, src, 16);
+                vram_write(off, src, 16);
         }
     }
 
@@ -3533,17 +3533,17 @@ int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
             uint16_t upper_idx = vram_tile_base + t * 2;
             uint32_t upper_off = tile_data_base + upper_idx * 16;
             if (upper_off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + upper_off, src, 16);
+                vram_write(upper_off, src, 16);
 
             uint16_t lower_idx = vram_tile_base + t * 2 + 1;
             uint32_t lower_off = tile_data_base + lower_idx * 16;
             if (lower_off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + lower_off, src + 16, 16);
+                vram_write(lower_off, src + 16, 16);
         } else {
             uint16_t tile_idx = vram_tile_base + t;
             uint32_t off = tile_data_base + tile_idx * 16;
             if (off + 16 <= VRAM_SIZE)
-                memcpy(ppu.vram + off, src, 16);
+                vram_write(off, src, 16);
         }
     }
 
