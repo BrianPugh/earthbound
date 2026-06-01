@@ -213,12 +213,12 @@ uint16_t upload_sprite_to_vram(uint16_t width, uint16_t height, uint16_t hint) {
             /* Clear 0x20 words = 64 bytes at both upper and lower halves */
             uint32_t byte_off = (uint32_t)vram_addr * 2;
             if (byte_off + 64 <= sizeof(ppu.vram)) {
-                vram_memset(byte_off, 0, 64);
+                memset(&ppu.vram[byte_off], 0, 64);
             }
             /* Lower half is at + 64*4*2 = +512 bytes */
             uint32_t byte_off2 = byte_off + 512;
             if (byte_off2 + 64 <= sizeof(ppu.vram)) {
-                vram_memset(byte_off2, 0, 64);
+                memset(&ppu.vram[byte_off2], 0, 64);
             }
         }
     }
@@ -285,12 +285,12 @@ uint16_t load_sprite_tiles_to_vram(uint16_t sprite_id, uint16_t sub_palette_idx,
     /* Copy upper half to VRAM at vram_base (PREPARE_VRAM_COPY mode 0) */
     uint32_t vram_byte = (uint32_t)vram_base * 2;
     if (vram_byte + width_bytes <= sizeof(ppu.vram))
-        vram_write(vram_byte, &bank_data[data_ptr], width_bytes);
+        memcpy(&ppu.vram[vram_byte], &bank_data[data_ptr], width_bytes);
 
     /* Copy lower half to VRAM at vram_base + 256 words */
     uint32_t vram_byte2 = ((uint32_t)vram_base + 256) * 2;
     if (vram_byte2 + width_bytes <= sizeof(ppu.vram))
-        vram_write(vram_byte2, &bank_data[data_ptr + width_bytes], width_bytes);
+        memcpy(&ppu.vram[vram_byte2], &bank_data[data_ptr + width_bytes], width_bytes);
 
     /* Return next VRAM position: vram_base + raw_width */
     return vram_base + raw_width;
@@ -462,7 +462,7 @@ uint16_t vram_copy_row_safe(uint16_t dest, const uint8_t *src, uint16_t size) {
         /* Copy first part: dest to boundary */
         uint32_t byte_addr1 = (uint32_t)dest * 2;
         if (byte_addr1 + first_bytes <= sizeof(ppu.vram)) {
-            vram_write(byte_addr1, src, first_bytes);
+            memcpy(&ppu.vram[byte_addr1], src, first_bytes);
         }
 
         /* Copy second part: boundary + 0x100 (skips lower half region) */
@@ -470,13 +470,13 @@ uint16_t vram_copy_row_safe(uint16_t dest, const uint8_t *src, uint16_t size) {
         uint16_t second_bytes = size - first_bytes;
         uint32_t byte_addr2 = (uint32_t)second_dest * 2;
         if (byte_addr2 + second_bytes <= sizeof(ppu.vram)) {
-            vram_write(byte_addr2, src + first_bytes, second_bytes);
+            memcpy(&ppu.vram[byte_addr2], src + first_bytes, second_bytes);
         }
     } else {
         /* No split needed — contiguous copy */
         uint32_t byte_addr = (uint32_t)dest * 2;
         if (byte_addr + size <= sizeof(ppu.vram)) {
-            vram_write(byte_addr, src, size);
+            memcpy(&ppu.vram[byte_addr], src, size);
         }
     }
 

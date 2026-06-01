@@ -141,7 +141,6 @@ void logo_screen_load(uint16_t logo_id) {
     comp_data = ASSET_DATA(gfx_id);
     if (comp_data) {
         decomp(comp_data, comp_size, &ppu.vram[0x0000 * 2], 0x8000);
-        vram_dirty(0x0000 * 2, 0x8000);
     }
 
     /* Arrangement (tilemap) -> VRAM $4000
@@ -151,7 +150,6 @@ void logo_screen_load(uint16_t logo_id) {
     comp_data = ASSET_DATA(arr_id);
     if (comp_data) {
         decomp(comp_data, comp_size, &ppu.vram[0x4000 * 2], 0x800);
-        vram_dirty(0x4000 * 2, 0x800);
     }
 
     /* Palette -> PALETTES -> CGRAM (via NMI sync)

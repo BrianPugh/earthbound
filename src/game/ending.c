@@ -102,10 +102,9 @@ static void vram_copy(const uint8_t *src, uint16_t vram_word_addr,
                 ppu.vram[byte_addr + i + 1] = hi;
             }
         }
-        vram_dirty(byte_addr, size_bytes);
     } else {
         if (byte_addr + size_bytes <= VRAM_SIZE) {
-            vram_write(byte_addr, src, size_bytes);
+            memcpy(&ppu.vram[byte_addr], src, size_bytes);
         }
     }
 }
@@ -265,7 +264,6 @@ static void render_cast_name_text(const uint8_t *str_addr, uint16_t tile_count,
         src_tile++;
         tile_idx++;
     }
-    vram_dirty(VRAM_CAST_TILES * 2, 0x8000);
 }
 
 /* =====================================================================
@@ -1032,7 +1030,6 @@ static void load_cast_scene(void) {
             decomp(data, data_size, &cast_vram[BUF_CREDITS_GFX_2], 32768 - BUF_CREDITS_GFX_2);
         }
     }
-    vram_dirty(VRAM_CAST_TILES * 2, 0x8000);
 
     /* Render dynamic cast name text (party names + guardian texts) directly to VRAM */
     prepare_dynamic_cast_name_text();
@@ -1169,7 +1166,6 @@ static void initialize_credits_scene(void) {
         for (int i = 0; i < 2048; i++) {
             ppu.vram[byte_addr + i * 2 + 1] = 0x24;
         }
-        vram_dirty(byte_addr, 2048 * 2);
     }
 
     /* Decompress tilemap/font data (CREDITS_BG2_TILEMAP_AND_TILES → BUFFER) */

@@ -714,7 +714,6 @@ void show_psi_animation(uint16_t anim_id) {
          * Assembly: COPY_TO_VRAM3P @VIRTUAL06, $0000, $1000, 0 (line 36).
          * Intentional divergence: assembly stages through BUFFER+$8000. */
         decomp(gfx_compressed, gfx_compressed_size, &ppu.vram[0x0000], 0x1000);
-        vram_dirty(0x0000, 0x1000); /* decomp wrote VRAM directly */
         displayed_pal_base = 3 * 16; /* BPP4PALETTE_SIZE * 3 = palette group 3 */
     } else {
         /* 4bpp mode: decompress 2bpp to VRAM, then expand in-place to 4bpp.
@@ -731,7 +730,6 @@ void show_psi_animation(uint16_t anim_id) {
             memset(&ppu.vram[t * 32 + 16], 0, 16);     /* zero planes 2-3 */
             memmove(&ppu.vram[t * 32], &ppu.vram[t * 16], 16); /* move planes 0-1 */
         }
-        vram_dirty(0x0000, 0x2000); /* decomp + in-place 2bpp->4bpp expansion */
         displayed_pal_base = 4 * 16; /* BPP4PALETTE_SIZE * 4 = palette group 4 */
     }
 
@@ -881,7 +879,7 @@ void update_psi_animation(void) {
                 /* All frames done: clear entire tilemap region ($800 bytes at VRAM $5800).
                  * Assembly: COPY_TO_VRAM1 PSI_ANIMATION_FILL_DATA+1, $5800, $800, $03
                  * Mode $03 = fixed source {$00,$00}, word-pair writes. */
-                vram_memset(0x5800 * 2, 0, 0x800);
+                memset(&ppu.vram[0x5800 * 2], 0, 0x800);
                 restore_bg_palette_backups();
             } else {
                 /* Reset frame hold timer */
@@ -926,7 +924,6 @@ void update_psi_animation(void) {
                     ppu.vram[0x5800 * 2 + i * 2]     = frame_src[i];
                     ppu.vram[0x5800 * 2 + i * 2 + 1] = 0x30;
                 }
-                vram_dirty(0x5800 * 2, PSI_FRAME_SIZE * 2);
 
                 /* Advance frame index and decrement remaining frames */
                 psi_animation_state.frame_data++;

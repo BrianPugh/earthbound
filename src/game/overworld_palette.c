@@ -551,7 +551,6 @@ void initialize_game_over_screen(void) {
              * Assembly: if party_members[0] == JEFF, use offset $8000. */
             if ((game_state.party_members[0] & 0xFF) == PARTY_MEMBER_JEFF)
                 memmove(vram_dst, vram_dst + 0x8000, 0x8000);
-            vram_dirty(VRAM_GAME_OVER_L1_TILES * 2, 0x10000);
         }
     }
 
@@ -563,7 +562,6 @@ void initialize_game_over_screen(void) {
         if (comp_data) {
             uint8_t *vram_dst = &ppu.vram[VRAM_GAME_OVER_L1_TILEMAP * 2];
             decomp(comp_data, comp_size, vram_dst, 2048);
-            vram_dirty(VRAM_GAME_OVER_L1_TILEMAP * 2, 2048);
         }
     }
 

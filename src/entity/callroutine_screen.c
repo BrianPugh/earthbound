@@ -666,7 +666,6 @@ int16_t cr_decomp_itoi_production(int16_t entity_offset, int16_t script_offset,
             arr_dst[i * 2] = val & 0xFF;
             arr_dst[i * 2 + 1] = val >> 8;
         }
-        vram_dirty(0x7C00 * 2, 0x800);
     }
 
     /* Step 2: Graphics tiles — decompress directly to VRAM $6000 */
@@ -674,7 +673,6 @@ int16_t cr_decomp_itoi_production(int16_t entity_offset, int16_t script_offset,
     comp = ASSET_DATA(ASSET_INTRO_ATTRACT_PRODUCED_BY_ITOI_GFX_LZHAL);
     if (comp) {
         decomp(comp, comp_sz, &ppu.vram[0x6000 * 2], 0x400);
-        vram_dirty(0x6000 * 2, 0x400);
     }
 
     /* Step 3: Shared palette */
@@ -706,7 +704,6 @@ int16_t cr_decomp_nintendo_presentation(int16_t entity_offset, int16_t script_of
             arr_dst[i * 2] = val & 0xFF;
             arr_dst[i * 2 + 1] = val >> 8;
         }
-        vram_dirty(0x7C00 * 2, 0x800);
     }
 
     /* Step 2: Graphics tiles — decompress directly to VRAM $6000 */
@@ -714,7 +711,6 @@ int16_t cr_decomp_nintendo_presentation(int16_t entity_offset, int16_t script_of
     comp = ASSET_DATA(ASSET_INTRO_ATTRACT_NINTENDO_PRESENTATION_GFX_LZHAL);
     if (comp) {
         decomp(comp, comp_sz, &ppu.vram[0x6000 * 2], 0x400);
-        vram_dirty(0x6000 * 2, 0x400);
     }
 
     /* Step 3: Shared palette */

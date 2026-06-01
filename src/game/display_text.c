@@ -232,10 +232,10 @@ void render_pagination_arrows(void) {
     uint16_t tile_offset = (w->y * 32) + w->x + (w->width - 2) - 3;
     uint32_t vram_word_addr = VRAM_TEXT_LAYER_TILEMAP + tile_offset;
 
-    /* Write 4 tilemap entries (8 bytes) via the VRAM write barrier so the
-     * generation map stays accurate (see ppu.h). */
+    /* Write 4 tilemap entries (8 bytes) directly to ppu.vram. */
+    uint16_t *vram = (uint16_t *)&ppu.vram[vram_word_addr * 2];
     for (int i = 0; i < 4; i++) {
-        vram_write_u16((vram_word_addr + i) * 2, pagination_tiles[frame][i]);
+        vram[i] = pagination_tiles[frame][i];
     }
 }
 

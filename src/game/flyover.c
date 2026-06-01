@@ -238,7 +238,7 @@ static void flyover_init_screen(void) {
     set_bg3_vram_location(0, VRAM_TEXT_LAYER_TILEMAP, VRAM_TEXT_LAYER_TILES);
 
     /* Clear all tile data: COPY_TO_VRAM1P ert.buffer(=0), TEXT_LAYER_TILES, $3800 bytes */
-    vram_memset(VRAM_TEXT_LAYER_TILES * 2, 0, 0x3800);
+    memset(&ppu.vram[VRAM_TEXT_LAYER_TILES * 2], 0, 0x3800);
 
     /* Load flyover palette: MOVEMENT_TEXT_STRING_PALETTE → PALETTES[0..3] (8 bytes) */
     {
@@ -288,7 +288,7 @@ static void flyover_init_screen(void) {
     }
 
     /* Upload tilemap to VRAM: COPY_TO_VRAM1P win.bg2_buffer, TEXT_LAYER_TILEMAP, $800 */
-    vram_write(VRAM_TEXT_LAYER_TILEMAP * 2, win.bg2_buffer, 0x800);
+    memcpy(&ppu.vram[VRAM_TEXT_LAYER_TILEMAP * 2], win.bg2_buffer, 0x800);
 
     /* Initialize flyover state */
     flyover_tiles_per_row = 26;
@@ -327,7 +327,7 @@ static void flyover_upload_vwf_to_vram(void) {
         if (first_part > 0) {
             uint32_t vram_dest = (uint32_t)(vram_tile_start * 2) +
                                  (uint32_t)(flyover_screen_offset * 208 * 2);
-            vram_write(vram_dest, flyover_vwf, first_part);
+            memcpy(&ppu.vram[vram_dest], flyover_vwf, first_part);
         }
 
         uint16_t second_part = upload_size - first_part;
@@ -335,13 +335,13 @@ static void flyover_upload_vwf_to_vram(void) {
             /* Wrapped portion goes to start of VRAM tile area */
             uint32_t wrap_src_offset = FLYOVER_VRAM_TOTAL - row_start;
             uint32_t vram_dest = (uint32_t)(vram_tile_start * 2);
-            vram_write(vram_dest, flyover_vwf + wrap_src_offset, second_part);
+            memcpy(&ppu.vram[vram_dest], flyover_vwf + wrap_src_offset, second_part);
         }
     } else {
         /* No wrap: straight copy */
         uint32_t vram_dest = (uint32_t)(vram_tile_start * 2) +
                              (uint32_t)(flyover_screen_offset * 208 * 2);
-        vram_write(vram_dest, flyover_vwf, upload_size);
+        memcpy(&ppu.vram[vram_dest], flyover_vwf, upload_size);
     }
 
     flyover_dirty_min = 0xFFFF;

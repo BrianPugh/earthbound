@@ -68,7 +68,6 @@ static void gas_station_load(void) {
         uint8_t *vram_dst = &ppu.vram[VRAM_GAS_STATION_L1_TILES * 2];
         memset(vram_dst, 0, 0xC000);
         decomp(comp_data, comp_size, vram_dst, 0xC000);
-        vram_dirty(VRAM_GAS_STATION_L1_TILES * 2, 0xC000);
     }
 
     /* Arrangement -> VRAM $7800
@@ -78,7 +77,6 @@ static void gas_station_load(void) {
     if (comp_data) {
         uint8_t *vram_dst = &ppu.vram[VRAM_GAS_STATION_L1_TILEMAP * 2];
         decomp(comp_data, comp_size, vram_dst, 0x800);
-        vram_dirty(VRAM_GAS_STATION_L1_TILEMAP * 2, 0x800);
     }
 
     /* Palette -> PALETTES (groups 0-1 = gas station image palette)
