@@ -167,20 +167,74 @@ static void PPU_HOT_FUNC(decode_2bpp_row)(const uint8_t *tile_data, int row,
     out_indices[7] = (b0 & 1)        | ((b1 << 1) & 2);
 }
 
+/* spread_nyb[b]: byte -> u32 placing input bit (7-i) at bit 4*i (the low bit of
+ * output nibble i). OR'ing spread[b0] | spread[b1]<<1 | spread[b2]<<2 |
+ * spread[b3]<<3 then yields a u32 whose nibble i is the full 4bpp index for
+ * pixel i (pixel 0 = MSB of each plane). File-scope const so it stays in flash
+ * rodata when decode_4bpp_row is RAM-placed (cf. win_layer_bits). 1KB. */
+static const uint32_t spread_nyb[256] = {
+    0x00000000u, 0x10000000u, 0x01000000u, 0x11000000u, 0x00100000u, 0x10100000u, 0x01100000u, 0x11100000u,
+    0x00010000u, 0x10010000u, 0x01010000u, 0x11010000u, 0x00110000u, 0x10110000u, 0x01110000u, 0x11110000u,
+    0x00001000u, 0x10001000u, 0x01001000u, 0x11001000u, 0x00101000u, 0x10101000u, 0x01101000u, 0x11101000u,
+    0x00011000u, 0x10011000u, 0x01011000u, 0x11011000u, 0x00111000u, 0x10111000u, 0x01111000u, 0x11111000u,
+    0x00000100u, 0x10000100u, 0x01000100u, 0x11000100u, 0x00100100u, 0x10100100u, 0x01100100u, 0x11100100u,
+    0x00010100u, 0x10010100u, 0x01010100u, 0x11010100u, 0x00110100u, 0x10110100u, 0x01110100u, 0x11110100u,
+    0x00001100u, 0x10001100u, 0x01001100u, 0x11001100u, 0x00101100u, 0x10101100u, 0x01101100u, 0x11101100u,
+    0x00011100u, 0x10011100u, 0x01011100u, 0x11011100u, 0x00111100u, 0x10111100u, 0x01111100u, 0x11111100u,
+    0x00000010u, 0x10000010u, 0x01000010u, 0x11000010u, 0x00100010u, 0x10100010u, 0x01100010u, 0x11100010u,
+    0x00010010u, 0x10010010u, 0x01010010u, 0x11010010u, 0x00110010u, 0x10110010u, 0x01110010u, 0x11110010u,
+    0x00001010u, 0x10001010u, 0x01001010u, 0x11001010u, 0x00101010u, 0x10101010u, 0x01101010u, 0x11101010u,
+    0x00011010u, 0x10011010u, 0x01011010u, 0x11011010u, 0x00111010u, 0x10111010u, 0x01111010u, 0x11111010u,
+    0x00000110u, 0x10000110u, 0x01000110u, 0x11000110u, 0x00100110u, 0x10100110u, 0x01100110u, 0x11100110u,
+    0x00010110u, 0x10010110u, 0x01010110u, 0x11010110u, 0x00110110u, 0x10110110u, 0x01110110u, 0x11110110u,
+    0x00001110u, 0x10001110u, 0x01001110u, 0x11001110u, 0x00101110u, 0x10101110u, 0x01101110u, 0x11101110u,
+    0x00011110u, 0x10011110u, 0x01011110u, 0x11011110u, 0x00111110u, 0x10111110u, 0x01111110u, 0x11111110u,
+    0x00000001u, 0x10000001u, 0x01000001u, 0x11000001u, 0x00100001u, 0x10100001u, 0x01100001u, 0x11100001u,
+    0x00010001u, 0x10010001u, 0x01010001u, 0x11010001u, 0x00110001u, 0x10110001u, 0x01110001u, 0x11110001u,
+    0x00001001u, 0x10001001u, 0x01001001u, 0x11001001u, 0x00101001u, 0x10101001u, 0x01101001u, 0x11101001u,
+    0x00011001u, 0x10011001u, 0x01011001u, 0x11011001u, 0x00111001u, 0x10111001u, 0x01111001u, 0x11111001u,
+    0x00000101u, 0x10000101u, 0x01000101u, 0x11000101u, 0x00100101u, 0x10100101u, 0x01100101u, 0x11100101u,
+    0x00010101u, 0x10010101u, 0x01010101u, 0x11010101u, 0x00110101u, 0x10110101u, 0x01110101u, 0x11110101u,
+    0x00001101u, 0x10001101u, 0x01001101u, 0x11001101u, 0x00101101u, 0x10101101u, 0x01101101u, 0x11101101u,
+    0x00011101u, 0x10011101u, 0x01011101u, 0x11011101u, 0x00111101u, 0x10111101u, 0x01111101u, 0x11111101u,
+    0x00000011u, 0x10000011u, 0x01000011u, 0x11000011u, 0x00100011u, 0x10100011u, 0x01100011u, 0x11100011u,
+    0x00010011u, 0x10010011u, 0x01010011u, 0x11010011u, 0x00110011u, 0x10110011u, 0x01110011u, 0x11110011u,
+    0x00001011u, 0x10001011u, 0x01001011u, 0x11001011u, 0x00101011u, 0x10101011u, 0x01101011u, 0x11101011u,
+    0x00011011u, 0x10011011u, 0x01011011u, 0x11011011u, 0x00111011u, 0x10111011u, 0x01111011u, 0x11111011u,
+    0x00000111u, 0x10000111u, 0x01000111u, 0x11000111u, 0x00100111u, 0x10100111u, 0x01100111u, 0x11100111u,
+    0x00010111u, 0x10010111u, 0x01010111u, 0x11010111u, 0x00110111u, 0x10110111u, 0x01110111u, 0x11110111u,
+    0x00001111u, 0x10001111u, 0x01001111u, 0x11001111u, 0x00101111u, 0x10101111u, 0x01101111u, 0x11101111u,
+    0x00011111u, 0x10011111u, 0x01011111u, 0x11011111u, 0x00111111u, 0x10111111u, 0x01111111u, 0x11111111u,
+};
+
+/* LUT-based bitplane spread: builds all 8 nibbles in parallel via spread_nyb,
+ * then expands the packed nibbles to one byte per pixel. Bit-identical to the
+ * scalar version (verified exhaustively per-plane + 5M random fuzz on host). */
 static void PPU_HOT_FUNC(decode_4bpp_row)(const uint8_t *tile_data, int row,
                             uint8_t *out_indices) {
     const uint8_t *bp01 = tile_data + row * 2;
     const uint8_t *bp23 = tile_data + 16 + row * 2;
-    uint8_t b0 = bp01[0], b1 = bp01[1];
-    uint8_t b2 = bp23[0], b3 = bp23[1];
-    out_indices[0] = (b0 >> 7)       | ((b1 >> 6) & 2) | ((b2 >> 5) & 4) | ((b3 >> 4) & 8);
-    out_indices[1] = ((b0 >> 6) & 1) | ((b1 >> 5) & 2) | ((b2 >> 4) & 4) | ((b3 >> 3) & 8);
-    out_indices[2] = ((b0 >> 5) & 1) | ((b1 >> 4) & 2) | ((b2 >> 3) & 4) | ((b3 >> 2) & 8);
-    out_indices[3] = ((b0 >> 4) & 1) | ((b1 >> 3) & 2) | ((b2 >> 2) & 4) | ((b3 >> 1) & 8);
-    out_indices[4] = ((b0 >> 3) & 1) | ((b1 >> 2) & 2) | ((b2 >> 1) & 4) | (b3 & 8);
-    out_indices[5] = ((b0 >> 2) & 1) | ((b1 >> 1) & 2) | (b2 & 4)        | ((b3 << 1) & 8);
-    out_indices[6] = ((b0 >> 1) & 1) | (b1 & 2)        | ((b2 << 1) & 4) | ((b3 << 2) & 8);
-    out_indices[7] = (b0 & 1)        | ((b1 << 1) & 2) | ((b2 << 2) & 4) | ((b3 << 3) & 8);
+    uint32_t packed = spread_nyb[bp01[0]]
+                    | (spread_nyb[bp01[1]] << 1)
+                    | (spread_nyb[bp23[0]] << 2)
+                    | (spread_nyb[bp23[1]] << 3);
+    /* Expand the 8 packed nibbles (4-bit, stride 4) to one byte per pixel, in
+     * two u32 halves (low = pixels 0-3, high = pixels 4-7). Kept as u32 (not a
+     * u64) so the stores stay register->memory; memcpy of constant size 4 is
+     * lowered to a single aligned str (out_indices is 4-byte aligned). */
+    uint32_t lo = packed & 0xFFFFu;
+    lo = (lo | (lo << 8)) & 0x00FF00FFu;
+    lo = (lo | (lo << 4)) & 0x0F0F0F0Fu;
+    uint32_t hi = packed >> 16;
+    hi = (hi | (hi << 8)) & 0x00FF00FFu;
+    hi = (hi | (hi << 4)) & 0x0F0F0F0Fu;
+    /* Two word stores (no memcpy call). out_indices is always &cache[].indices[0]
+     * which is 4-byte aligned (indices sits at offset 4 after the u32 key), so a
+     * plain aligned store is safe; may_alias avoids strict-aliasing UB.
+     * Little-endian: byte i of each half = pixel i. */
+    typedef uint32_t __attribute__((may_alias)) u32_alias;
+    ((u32_alias *)out_indices)[0] = lo;
+    ((u32_alias *)out_indices)[1] = hi;
 }
 
 static void PPU_HOT_FUNC(decode_8bpp_row)(const uint8_t *tile_data, int row,
