@@ -352,6 +352,121 @@ void set_current_item(uint8_t item) {
  * Now shared via window.h — display_menu_header_text() and close_menu_header_window().
  */
 
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_CHAR_SELECT — battle-style HP/PP character column selection.
+ *
+ * Run-to-completion port of char_select_prompt()'s battle path (mode 0/2). The
+ * two-level render/input loop becomes a three-phase machine (CharSelectPhase),
+ * mirroring GAME_MODE_NUMBER_SELECT: CSP_PRIME reproduces the original's second
+ * post-render yield so input timing is frame-identical. The on_change/check_valid
+ * function-pointer callbacks are stored as IDs (see cs_invoke_* in text.c) so the
+ * state stays serializable. See docs/plans/savestate-unified-loop.md.
+ * ------------------------------------------------------------------------- */
+
+/* CSP_RENDER body: highlight the current character (mode 0), run one non-yielding
+ * window frame, draw pagination arrows, reset the input poll counter. */
+static void cs_render(CharSelectState *st) {
+    if (st->mode == 0)
+        select_battle_menu_character(st->current_index);
+    clear_instant_printing();
+    window_tick_work();
+    render_pagination_arrows();
+    st->counter = 0;
+}
+
+StepResult mode_step_char_select(ModeState *ms) {
+    CharSelectState *st = &ms->char_select;
+
+    switch ((CharSelectPhase)st->phase) {
+    case CSP_RENDER:
+        cs_render(st);
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+
+    case CSP_PRIME:
+        /* One HP/PP-meter frame before the first input read, matching the
+         * original inner loop's first update_hppp_meter_and_render() yield. */
+        update_hppp_meter_work();
+        st->phase = CSP_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case CSP_INPUT:
+    default: {
+        int16_t  direction_step = 0;
+        uint16_t nav_sfx = 0;
+
+        if (core.pad1_pressed & PAD_LEFT) {
+            direction_step = -1;
+            nav_sfx = (st->mode == 0) ? 27 : 2;   /* MENU_OPEN_CLOSE : CURSOR2 */
+            dt.pagination_animation_frame = 2;
+        } else if (core.pad1_pressed & PAD_RIGHT) {
+            direction_step = 1;
+            nav_sfx = (st->mode == 0) ? 27 : 2;
+            dt.pagination_animation_frame = 3;
+        } else if (core.pad1_pressed & PAD_CONFIRM) {
+            uint16_t result = game_state.party_members[st->current_index] & 0xFF;
+            play_sfx(1);  /* SFX::CURSOR1 */
+            dt.pagination_animation_frame = -1;
+            set_argument_memory(st->saved_argument_memory);
+            return STEP_RESULT_POP(result);
+        } else if ((core.pad1_pressed & PAD_CANCEL) && st->allow_cancel == 1) {
+            play_sfx((st->mode == 0) ? 27 : 2);
+            clear_battle_menu_character_indicator();
+            dt.pagination_animation_frame = -1;
+            set_argument_memory(st->saved_argument_memory);
+            return STEP_RESULT_POP(0);
+        } else {
+            /* No actionable input this frame (includes a disallowed cancel). */
+            st->counter++;
+            if (st->counter >= st->delay) {
+                /* Poll window expired: toggle pagination arrow animation, reset
+                 * the longer delay, and re-render for the next outer iteration. */
+                dt.pagination_animation_frame =
+                    (dt.pagination_animation_frame != 0) ? 0 : 1;
+                st->delay = 10;
+                cs_render(st);
+                st->phase = CSP_PRIME;
+                return STEP_RESULT_CONTINUE();
+            }
+            update_hppp_meter_work();
+            return STEP_RESULT_CONTINUE();
+        }
+
+        /* Direction pressed: find the next valid character in that direction with
+         * wrap-around; play SFX + on_change only if the selection actually moved. */
+        int16_t new_index = (int16_t)st->current_index + direction_step;
+        uint8_t party_count = game_state.player_controlled_party_count & 0xFF;
+        for (;;) {
+            if (new_index >= (int16_t)party_count)
+                new_index = 0;
+            else if (new_index < 0)
+                new_index = (int16_t)(party_count - 1);
+
+            if (st->check_valid_id != CS_CHECKVALID_NONE) {
+                uint8_t mid = game_state.party_members[new_index];
+                if (cs_invoke_check_valid(st->check_valid_id, mid & 0xFF) == 0) {
+                    new_index += direction_step;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        if ((uint16_t)new_index != st->current_index) {
+            play_sfx(nav_sfx);
+            st->current_index = (uint16_t)new_index;
+            uint8_t mid = game_state.party_members[st->current_index];
+            cs_invoke_on_change(st->on_change_id, mid & 0xFF);
+        }
+
+        st->delay = 4;   /* shorter poll window right after navigating */
+        cs_render(st);
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+    }
+}
+
 /*
  * CHAR_SELECT_PROMPT — Port of asm/text/character_select_prompt.asm (~418 lines).
  *
@@ -419,152 +534,46 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
 
         close_window(window_id);
         restore_window_text_attributes();
-    } else {
-        /* --- Battle-style path (assembly lines 127-405) ---
-         * HPPP column selection with LEFT/RIGHT navigation. */
 
-        /* Determine initial character index (lines 128-139).
-         * If BATTLE_MENU_CURRENT_CHARACTER_ID == -1 or mode == 2: start at 0.
-         * Otherwise use the stored current character. */
-        uint16_t current_index;
-        if (win.battle_menu_current_character_id == -1 || mode == 2) {
-            current_index = 0;
-        } else {
-            current_index = (uint16_t)win.battle_menu_current_character_id;
-        }
-
-        /* Call on_change for initial character (lines 141-158). */
-        if (on_change) {
-            uint8_t member_id = game_state.party_members[current_index];
-            on_change(member_id & 0xFF);
-        }
-
-        /* Initialize animation state (lines 160-163). */
-        dt.pagination_animation_frame = 0;
-        uint16_t delay = 10;
-
-        /* Main loop (@SELECTION_LOOP, lines 164-405). */
-        for (;;) {
-            /* If mode == 0, highlight current character in HPPP (lines 165-168). */
-            if (mode == 0) {
-                select_battle_menu_character(current_index);
-            }
-
-            /* Lines 169-171: CLEAR_INSTANT_PRINTING, WINDOW_TICK. */
-            clear_instant_printing();
-            window_tick();
-
-            /* Lines 173-228: Pagination animation rendering. */
-            render_pagination_arrows();
-
-            /* Input polling loop (@INPUT_TICK, lines 230-309). */
-            uint16_t counter = 0;
-            int input_result = 0;  /* 0=timeout, 1=direction, 2=done */
-            int16_t direction_step = 0;
-            uint16_t nav_sfx = 0;
-
-            while (counter < delay) {
-                update_hppp_meter_and_render();
-
-                if (core.pad1_pressed & PAD_LEFT) {
-                    /* LEFT: move to previous character (lines 236-251). */
-                    direction_step = -1;
-                    nav_sfx = (mode == 0) ? 27 : 2;  /* MENU_OPEN_CLOSE : CURSOR2 */
-                    dt.pagination_animation_frame = 2;
-                    input_result = 1;
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_RIGHT) {
-                    /* RIGHT: move to next character (lines 252-268). */
-                    direction_step = 1;
-                    nav_sfx = (mode == 0) ? 27 : 2;
-                    dt.pagination_animation_frame = 3;
-                    input_result = 1;
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_CONFIRM) {
-                    /* A/L: confirm selection (lines 270-281). */
-                    result = game_state.party_members[current_index] & 0xFF;
-                    play_sfx(1);  /* SFX::CURSOR1 */
-                    input_result = 2;
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_CANCEL) {
-                    /* B/SELECT: cancel if allowed (lines 282-301). */
-                    if (allow_cancel == 1) {
-                        result = 0;
-                        play_sfx((mode == 0) ? 27 : 2);
-                        clear_battle_menu_character_indicator();
-                        input_result = 2;
-                        break;
-                    }
-                }
-
-                /* No input: increment counter (lines 302-305). */
-                counter++;
-            }
-
-            if (input_result == 2) {
-                break;  /* Confirm or cancel — exit main loop. */
-            }
-
-            if (input_result == 1) {
-                /* Direction change handling (@HANDLE_DIRECTION_CHANGE, lines 323-405).
-                 * Find next valid character in direction_step, with wrap-around. */
-                int16_t new_index = (int16_t)current_index + direction_step;
-                uint8_t party_count = game_state.player_controlled_party_count & 0xFF;
-
-                /* Validation loop: clamp and check validity (lines 329-375). */
-                for (;;) {
-                    /* Clamp with wrap-around. */
-                    if (new_index >= (int16_t)party_count) {
-                        new_index = 0;
-                    } else if (new_index < 0) {
-                        new_index = (int16_t)(party_count - 1);
-                    }
-
-                    /* Check validity if callback exists (lines 351-375). */
-                    if (check_valid) {
-                        uint8_t mid = game_state.party_members[new_index];
-                        if (check_valid(mid & 0xFF) == 0) {
-                            /* Invalid: skip to next in same direction. */
-                            new_index += direction_step;
-                            continue;
-                        }
-                    }
-                    break;
-                }
-
-                /* If character changed, play SFX and call on_change (lines 376-401). */
-                if ((uint16_t)new_index != current_index) {
-                    play_sfx(nav_sfx);
-                    current_index = (uint16_t)new_index;
-
-                    if (on_change) {
-                        uint8_t mid = game_state.party_members[current_index];
-                        on_change(mid & 0xFF);
-                    }
-                }
-
-                /* Shorter delay after navigation (lines 402-404). */
-                delay = 4;
-                continue;  /* Back to main loop (@SELECTION_LOOP). */
-            }
-
-            /* Counter expired: toggle pagination animation (lines 311-322). */
-            dt.pagination_animation_frame = (dt.pagination_animation_frame != 0) ? 0 : 1;
-            delay = 10;
-        }
+        /* Cleanup (@CLEANUP_AND_RETURN, lines 406-417). */
+        dt.pagination_animation_frame = -1;
+        set_argument_memory(saved_argument_memory);
+        return result;
     }
 
-    /* Cleanup (@CLEANUP_AND_RETURN, lines 406-417). */
-    dt.pagination_animation_frame = -1;
-    set_argument_memory(saved_argument_memory);
+    /* --- Battle-style path (assembly lines 127-405): HP/PP column selection,
+     * now run as GAME_MODE_CHAR_SELECT (run-to-completion). The input loop lives
+     * in mode_step_char_select(). --- */
 
-    return result;
+    /* Initial character index (lines 128-139): start at 0 for mode 2 or when no
+     * character was previously selected, else resume the stored one. */
+    uint16_t current_index;
+    if (win.battle_menu_current_character_id == -1 || mode == 2)
+        current_index = 0;
+    else
+        current_index = (uint16_t)win.battle_menu_current_character_id;
+
+    /* Pre-loop, one-shot, no yield (lines 141-163): initial on_change + reset
+     * pagination animation. char_select_prompt still holds the raw function
+     * pointers here, so the first on_change is invoked directly. */
+    if (on_change)
+        on_change(game_state.party_members[current_index] & 0xFF);
+    dt.pagination_animation_frame = 0;
+
+    ModeState init = {0};
+    init.char_select.phase                 = CSP_RENDER;
+    init.char_select.mode                  = (uint8_t)mode;
+    init.char_select.allow_cancel          = (uint8_t)allow_cancel;
+    init.char_select.on_change_id          = cs_onchange_id(on_change);
+    init.char_select.check_valid_id        = cs_checkvalid_id(check_valid);
+    init.char_select.current_index         = current_index;
+    init.char_select.delay                 = 10;
+    init.char_select.counter               = 0;
+    init.char_select.saved_argument_memory = saved_argument_memory;
+
+    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
+     * pagination_animation_frame = -1) before it pops. */
+    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
 }
 
 /*

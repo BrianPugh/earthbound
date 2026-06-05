@@ -9,6 +9,7 @@
 #include "game/map_loader.h"
 #include "core/memory.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "core/embedded.h"
 #include "entity/entity.h"
 #include "entity/buffer_layout.h"
@@ -1051,6 +1052,55 @@ static void get_weapon_item_name_callback(uint16_t char_id) {
 static void get_body_item_name_callback(uint16_t char_id) {
     if (char_id == 0) return;
     inventory_get_item_name(char_id, WINDOW_OVERWORLD_CHAR_SELECT);
+}
+
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_CHAR_SELECT callback dispatch.
+ *
+ * char_select_prompt() still takes raw function pointers from its callers, but
+ * the run-to-completion step (mode_step_char_select) needs to invoke them from a
+ * serializable ModeState that cannot hold pointers. These helpers map between
+ * the known callback function pointers and stable IDs, and invoke a callback by
+ * ID. All char-select callbacks (battle-style path) are enumerated here; mode 1
+ * callers pass NULL and never reach this mode. Defined in text.c because four of
+ * the six callbacks are static to this file. See docs/plans/savestate-unified-loop.md.
+ * ------------------------------------------------------------------------- */
+uint8_t cs_onchange_id(void (*fn)(uint16_t)) {
+    if (fn == NULL)                              return CS_ONCHANGE_NONE;
+    if (fn == show_equipment_and_stats_callback) return CS_ONCHANGE_EQUIPMENT;
+    if (fn == display_character_psi_list)        return CS_ONCHANGE_PSI_LIST;
+    if (fn == display_status_window)             return CS_ONCHANGE_STATUS;
+    if (fn == get_weapon_item_name_callback)     return CS_ONCHANGE_WEAPON_NAME;
+    if (fn == get_body_item_name_callback)       return CS_ONCHANGE_BODY_NAME;
+    LOG_WARN("char_select: unknown on_change callback, ignoring");
+    return CS_ONCHANGE_NONE;
+}
+
+uint8_t cs_checkvalid_id(uint16_t (*fn)(uint16_t)) {
+    if (fn == NULL)                            return CS_CHECKVALID_NONE;
+    if (fn == check_character_psi_availability) return CS_CHECKVALID_PSI;
+    LOG_WARN("char_select: unknown check_valid callback, treating as none");
+    return CS_CHECKVALID_NONE;
+}
+
+void cs_invoke_on_change(uint8_t id, uint16_t char_id) {
+    switch (id) {
+    case CS_ONCHANGE_EQUIPMENT:   show_equipment_and_stats_callback(char_id); break;
+    case CS_ONCHANGE_PSI_LIST:    display_character_psi_list(char_id);        break;
+    case CS_ONCHANGE_STATUS:      display_status_window(char_id);             break;
+    case CS_ONCHANGE_WEAPON_NAME: get_weapon_item_name_callback(char_id);     break;
+    case CS_ONCHANGE_BODY_NAME:   get_body_item_name_callback(char_id);       break;
+    case CS_ONCHANGE_NONE:
+    default:                                                                  break;
+    }
+}
+
+uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id) {
+    switch (id) {
+    case CS_CHECKVALID_PSI: return check_character_psi_availability(char_id);
+    case CS_CHECKVALID_NONE:
+    default:                return 1;  /* no callback → all characters valid */
+    }
 }
 
 /* PREVIEW_WEAPON_EQUIP_STATS — Port of asm/battle/preview_weapon_equip_stats.asm (35 lines).

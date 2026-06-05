@@ -29,6 +29,7 @@ typedef enum {
     GAME_MODE_NONE = 0,
     GAME_MODE_FADE_WAIT,       /* pilot A: wait for a brightness fade to finish */
     GAME_MODE_NUMBER_SELECT,   /* pilot B: interactive multi-digit number entry */
+    GAME_MODE_CHAR_SELECT,     /* battle-style HP/PP character column selection */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -82,6 +83,43 @@ typedef struct {
     int32_t  place_value;  /* multiplier for the selected digit (@LOCAL03) */
 } NumberSelectState;
 
+/* GAME_MODE_CHAR_SELECT — battle-style HP/PP character column selection
+ * (char_select_prompt, battle.c, mode 0/2; mode 1 keeps the blocking
+ * selection_menu path). Its on_change/check_valid callbacks were function
+ * pointers, which cannot live in a serializable ModeState, so they are stored as
+ * IDs and dispatched via cs_invoke_*() (defined in text.c). */
+typedef enum {
+    CS_ONCHANGE_NONE = 0,
+    CS_ONCHANGE_EQUIPMENT,    /* show_equipment_and_stats_callback */
+    CS_ONCHANGE_PSI_LIST,     /* display_character_psi_list */
+    CS_ONCHANGE_STATUS,       /* display_status_window */
+    CS_ONCHANGE_WEAPON_NAME,  /* get_weapon_item_name_callback */
+    CS_ONCHANGE_BODY_NAME,    /* get_body_item_name_callback */
+} CharSelectOnChangeId;
+
+typedef enum {
+    CS_CHECKVALID_NONE = 0,
+    CS_CHECKVALID_PSI,        /* check_character_psi_availability */
+} CharSelectCheckValidId;
+
+typedef enum {
+    CSP_RENDER = 0,  /* highlight char + window_tick_work + pagination arrows */
+    CSP_PRIME,       /* first update_hppp frame before the input read */
+    CSP_INPUT,       /* poll input within the `delay` counter window */
+} CharSelectPhase;
+
+typedef struct {
+    uint8_t  phase;          /* CharSelectPhase */
+    uint8_t  mode;           /* 0 or 2 (battle-style) */
+    uint8_t  allow_cancel;
+    uint8_t  on_change_id;   /* CharSelectOnChangeId */
+    uint8_t  check_valid_id; /* CharSelectCheckValidId */
+    uint16_t current_index;  /* selected party slot (0-based) */
+    uint16_t delay;          /* input poll frames before pagination toggle */
+    uint16_t counter;        /* frames elapsed in the current poll window */
+    uint32_t saved_argument_memory; /* restored on pop (focus window arg memory) */
+} CharSelectState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -89,6 +127,7 @@ typedef struct {
 typedef union {
     FadeWaitState     fade_wait;
     NumberSelectState number_select;
+    CharSelectState   char_select;
     uint8_t           _raw[64];
 } ModeState;
 
@@ -111,6 +150,11 @@ StepResult mode_dispatch_step(GameMode mode, ModeState *st);
  * up. Init via ModeState.number_select before pump_mode(GAME_MODE_NUMBER_SELECT).
  * Pops the entered value, or -1 on cancel. */
 StepResult mode_step_number_select(ModeState *st);
+
+/* GAME_MODE_CHAR_SELECT step (defined in battle.c). Init via
+ * ModeState.char_select before pump_mode(GAME_MODE_CHAR_SELECT). Pops the 1-based
+ * party member ID, or 0 on cancel. */
+StepResult mode_step_char_select(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

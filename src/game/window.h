@@ -252,6 +252,16 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
                             void (*on_change)(uint16_t),
                             uint16_t (*check_valid)(uint16_t));
 
+/* Serializable callback dispatch for GAME_MODE_CHAR_SELECT. char_select_prompt's
+ * on_change/check_valid function pointers cannot live in a savestate-able
+ * ModeState, so they are mapped to CharSelectOnChangeId/CharSelectCheckValidId
+ * (cs_*_id) and invoked from the step function by ID (cs_invoke_*). Defined in
+ * text.c, where the callbacks (mostly static there) are visible. */
+uint8_t  cs_onchange_id(void (*fn)(uint16_t));
+uint8_t  cs_checkvalid_id(uint16_t (*fn)(uint16_t));
+void     cs_invoke_on_change(uint8_t id, uint16_t char_id);
+uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id);
+
 /* CLEAR_FOCUS_WINDOW_MENU_OPTIONS: Port of asm/text/window/clear_focus_window_menu_options.asm.
  * Resets the menu item count of the focus window to 0. */
 void clear_focus_window_menu_options(void);
