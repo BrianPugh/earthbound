@@ -1,14 +1,14 @@
 /*
  * Unix/SDL2 save data implementation — file-backed persistent storage.
  *
- * Save data is stored in a single file (default "earthbound.sav").
+ * Save data is stored in a single file (default "earthbound.srm").
  * The file path can be overridden via --save on the command line.
  */
 #include "platform/platform.h"
 #include <stdio.h>
 #include <string.h>
 
-static const char *save_file_path = "earthbound.sav";
+static const char *save_file_path = "earthbound.srm";
 
 void platform_save_set_path(const char *path) {
     save_file_path = path;
