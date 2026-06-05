@@ -90,12 +90,16 @@ int main(int argc, char *argv[]) {
     (void)verify_rom_path;
 #endif
 
-    /* Start frame timer and run game logic directly.
-     * game_logic_entry() returns on game-over Continue; loop to restart. */
+    /* Start frame timer, then run the single top-level game loop:
+     * advance the game one frame (game_loop_step), then perform the one
+     * per-frame host yield (host_process_frame). Restart-on-game-over is
+     * handled inside the step machine, so there is no restart wrapper.
+     * See docs/plans/savestate-unified-loop.md. */
     platform_timer_frame_start();
 
-    for (;;) {
-        game_logic_entry();
+    while (!platform_input_quit_requested()) {
+        game_loop_step();
+        host_process_frame();
     }
 
 #ifdef ENABLE_VERIFY

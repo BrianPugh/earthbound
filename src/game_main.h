@@ -7,9 +7,16 @@
  * Call once before game_logic_entry(). */
 void game_init(void);
 
-/* Game logic entry point — called from main().
- * Contains intro, initialization, and the main game loop.
- * Returns on game-over Continue (main re-calls for restart). */
+/* Advance the game by one frame's worth of pre-yield work, then return.
+ * The host's single top-level loop calls this once per frame and performs the
+ * one host_process_frame() yield afterward. Restart-on-game-over is handled
+ * internally (transition back to the BOOT state), so no restart wrapper is
+ * needed. See docs/plans/savestate-unified-loop.md. */
+void game_loop_step(void);
+
+/* Legacy per-frame entry point: one game_loop_step() plus one
+ * host_process_frame() yield. Retained for ports that drive the game with
+ * `for (;;) game_logic_entry();` (snes, waveshare, gw_retro_go). */
 void game_logic_entry(void);
 
 /* Host-side per-frame processing (rendering, input, audio, timing).
