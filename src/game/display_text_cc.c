@@ -83,13 +83,16 @@ void cc_pause(ScriptReader *r) {
      * Both paths call RENDER_FRAME_TICK internally.
      * Using update_hppp_meter_and_render() for HP/PP roller animation. */
     /* Assembly: JSR CLEAR_INSTANT_PRINTING; JSL WINDOW_TICK.
-     * WINDOW_TICK leaves dt.instant_printing=0 (no re-enable). */
+     * WINDOW_TICK leaves dt.instant_printing=0 (no re-enable). Run-to-completion
+     * via GAME_MODE_TEXT_DELAY with a leading window_tick_work frame (lead_window)
+     * and the non-cancelable delay. */
     clear_instant_printing();
-    window_tick();
-    for (int i = 0; i < (int)frames; i++) {
-        update_hppp_meter_and_render();
-        if (platform_input_quit_requested()) break;
-    }
+    ModeState init = {0};
+    init.text_delay.remaining   = frames;
+    init.text_delay.cancelable  = 0;
+    init.text_delay.primed      = 0;
+    init.text_delay.lead_window = 1;
+    pump_mode(GAME_MODE_TEXT_DELAY, &init);
 }
 
 
@@ -544,6 +547,12 @@ StepResult mode_step_number_select(ModeState *ms) {
 StepResult mode_step_text_delay(ModeState *ms) {
     TextDelayState *st = &ms->text_delay;
 
+    if (st->lead_window) {
+        /* cc_pause's leading WINDOW_TICK frame, separate from the delay frames. */
+        st->lead_window = 0;
+        window_tick_work();
+        return STEP_RESULT_CONTINUE();
+    }
     if (st->primed && st->cancelable && (core.pad1_pressed & PAD_TEXT_ADVANCE))
         return STEP_RESULT_POP(0);
     if (st->remaining == 0)

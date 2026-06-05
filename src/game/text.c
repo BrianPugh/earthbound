@@ -1090,6 +1090,15 @@ void cs_invoke_on_change(uint8_t id, uint16_t char_id) {
     case CS_ONCHANGE_STATUS:      display_status_window(char_id);             break;
     case CS_ONCHANGE_WEAPON_NAME: get_weapon_item_name_callback(char_id);     break;
     case CS_ONCHANGE_BODY_NAME:   get_body_item_name_callback(char_id);       break;
+    case CS_ONCHANGE_PARTY_SELECT_SCRIPT:
+        /* party_character_selector battle path: display the selected member's
+         * text script (1-based char_id; KING / id 0 have no script). */
+        if (char_id >= 1 && char_id <= 4) {
+            uint32_t script_addr = dt.party_member_selection_scripts[char_id - 1];
+            if (script_addr != 0)
+                display_text_from_addr(script_addr);
+        }
+        break;
     case CS_ONCHANGE_NONE:
     default:                                                                  break;
     }

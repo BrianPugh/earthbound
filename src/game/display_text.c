@@ -35,6 +35,7 @@
 #include "platform/platform.h"
 #include "core/math.h"
 #include "core/decomp.h"
+#include "core/mode_stack.h"
 #include "game/battle_bg.h"
 #include "game/door.h"
 #include "game/flyover.h"
@@ -1000,187 +1001,63 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
         result = selection_menu(allow_cancel);
         close_window(window_id);
         restore_window_text_attributes();
+
+        /* Lines 370-378: Cleanup — restore pagination and argument_memory. */
+        dt.pagination_animation_frame = -1;
+        set_argument_memory(saved_argument_memory);
+        return result;
+    }
+
+    /* --- Battle mode (assembly lines 112-369): HPPP column selection with
+     * LEFT/RIGHT navigation, now run as GAME_MODE_CHAR_SELECT (run-to-completion).
+     * The input loop is shared with char_select_prompt's battle path
+     * (mode_step_char_select in battle.c); the only difference is the per-character
+     * on_change action, which here displays the member's text script via the
+     * CS_ONCHANGE_PARTY_SELECT_SCRIPT dispatch (cs_invoke_on_change in text.c). --- */
+
+    /* Lines 112-132: Copy 4 script pointers to the global array the on_change
+     * dispatch reads from. */
+    for (int i = 0; i < 4; i++) {
+        dt.party_member_selection_scripts[i] = script_ptrs[i];
+    }
+
+    /* Lines 133-140: Initial character index (no mode 2 here). */
+    uint16_t current_index;
+    if (win.battle_menu_current_character_id == -1) {
+        current_index = 0;
     } else {
-        /* --- Battle mode (assembly lines 112-369) ---
-         * Mode != 1 → HPPP column selection with LEFT/RIGHT navigation.
-         * Uses BATTLE_MENU_CURRENT_CHARACTER_ID for initial cursor position.
-         * Displays per-character text scripts when switching characters. */
+        current_index = (uint16_t)win.battle_menu_current_character_id;
+    }
 
-        /* Lines 112-132: Copy 4 script pointers to global array.
-         * Assembly: loop X=0..3, copy script_ptrs[X] → PARTY_MEMBER_SELECTION_SCRIPTS[X]. */
-        for (int i = 0; i < 4; i++) {
-            dt.party_member_selection_scripts[i] = script_ptrs[i];
-        }
-
-        /* Lines 133-140: Determine initial character index.
-         * If BATTLE_MENU_CURRENT_CHARACTER_ID == -1 → start at 0, else use it. */
-        uint16_t current_index;
-        if (win.battle_menu_current_character_id == -1) {
-            current_index = 0;
-        } else {
-            current_index = (uint16_t)win.battle_menu_current_character_id;
-        }
-
-        /* Lines 141-156: Display initial character's text script.
-         * Looks up party_members[current_index], gets 0-based char ID,
-         * loads script_ptrs[char_id], calls DISPLAY_TEXT if non-null. */
-        {
-            uint8_t member_id = game_state.party_members[current_index];
-            if (member_id > 0 && member_id <= 4) {
-                uint32_t script_addr = dt.party_member_selection_scripts[member_id - 1];
-                if (script_addr != 0) {
-                    display_text_from_addr(script_addr);
-                }
+    /* Lines 141-156: Pre-loop one-shot — display the initial character's script
+     * (mirrors char_select_prompt's direct initial on_change call). */
+    {
+        uint8_t member_id = game_state.party_members[current_index];
+        if (member_id > 0 && member_id <= 4) {
+            uint32_t script_addr = dt.party_member_selection_scripts[member_id - 1];
+            if (script_addr != 0) {
+                display_text_from_addr(script_addr);
             }
-        }
-
-        /* Lines 157-160: Initialize animation state.
-         * PAGINATION_ANIMATION_FRAME = 0, delay = 10. */
-        dt.pagination_animation_frame = 0;
-        uint16_t delay = 10;
-
-        /* Main loop: handle character indicator, animation, input.
-         * Assembly: @MULTI_PARTY_WINDOW4 through @CHAR_LOOP_CHECK2. */
-        for (;;) {
-            /* Lines 161-166: If mode == 0, highlight current character's HPPP column.
-             * Assembly: LDA @LOCAL09; BNE skip; JSL SELECT_BATTLE_MENU_CHARACTER */
-            if (mode == 0) {
-                select_battle_menu_character(current_index);
-            }
-
-            /* Lines 167-168: CLEAR_INSTANT_PRINTING, WINDOW_TICK */
-            clear_instant_printing();
-            window_tick();
-
-            /* Lines 171-229: Pagination arrow animation. */
-            render_pagination_arrows();
-
-            /* Lines 230-309: Input polling loop.
-             * Runs UPDATE_HPPP_METER_AND_RENDER each frame, checks buttons.
-             * Counter increments until >= delay, then toggles animation. */
-            uint16_t counter = 0;
-            int input_handled = 0;
-
-            while (counter < delay) {
-                update_hppp_meter_and_render();
-
-                if (core.pad1_pressed & PAD_LEFT) {
-                    /* Lines 236-251: LEFT pressed — move to previous character.
-                     * SFX depends on mode: 0 → MENU_OPEN_CLOSE (27), else → CURSOR2 (2). */
-                    int16_t new_index = (int16_t)current_index - 1;
-                    uint16_t sfx = (mode == 0) ? 27 : 2;
-                    dt.pagination_animation_frame = 2;
-
-                    /* Lines 322-342: Boundary check with wrap-around.
-                     * new_index < 0 → wrap to party_count - 1.
-                     * new_index >= party_count → wrap to 0. */
-                    uint8_t pcount = game_state.player_controlled_party_count;
-                    if (new_index < 0) {
-                        new_index = (int16_t)(pcount - 1);
-                    } else if ((uint16_t)new_index >= pcount) {
-                        new_index = 0;
-                    }
-
-                    /* Lines 344-364: If changed, play SFX and display new text. */
-                    if ((uint16_t)new_index != current_index) {
-                        play_sfx(sfx);
-                        current_index = (uint16_t)new_index;
-                        uint8_t mid = game_state.party_members[current_index];
-                        if (mid > 0 && mid <= 4) {
-                            uint32_t sa = dt.party_member_selection_scripts[mid - 1];
-                            if (sa != 0) {
-                                display_text_from_addr(sa);
-                            }
-                        }
-                    }
-
-                    /* Line 366-368: Shorter delay after character change. */
-                    delay = 4;
-                    input_handled = 1;
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_RIGHT) {
-                    /* Lines 252-268: RIGHT pressed — move to next character. */
-                    int16_t new_index = (int16_t)current_index + 1;
-                    uint16_t sfx = (mode == 0) ? 27 : 2;
-                    dt.pagination_animation_frame = 3;
-
-                    uint8_t pcount = game_state.player_controlled_party_count;
-                    if ((uint16_t)new_index >= pcount) {
-                        new_index = 0;
-                    } else if (new_index < 0) {
-                        new_index = (int16_t)(pcount - 1);
-                    }
-
-                    if ((uint16_t)new_index != current_index) {
-                        play_sfx(sfx);
-                        current_index = (uint16_t)new_index;
-                        uint8_t mid = game_state.party_members[current_index];
-                        if (mid > 0 && mid <= 4) {
-                            uint32_t sa = dt.party_member_selection_scripts[mid - 1];
-                            if (sa != 0) {
-                                display_text_from_addr(sa);
-                            }
-                        }
-                    }
-
-                    delay = 4;
-                    input_handled = 1;
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_CONFIRM) {
-                    /* Lines 269-280: A/L pressed — confirm selection.
-                     * Returns party_members[current_index] (1-based character ID). */
-                    uint8_t member_id = game_state.party_members[current_index];
-                    result = (uint16_t)(member_id & 0xFF);
-                    play_sfx(1);  /* SFX::CURSOR1 */
-                    input_handled = 2;  /* done */
-                    break;
-                }
-
-                if (core.pad1_pressed & PAD_CANCEL) {
-                    /* Lines 281-300: B/SELECT pressed — cancel (if allowed).
-                     * Returns 0. Clears battle menu character indicator. */
-                    if (allow_cancel == 1) {
-                        result = 0;
-                        uint16_t sfx = (mode == 0) ? 27 : 2;
-                        play_sfx(sfx);
-                        clear_battle_menu_character_indicator();
-                        input_handled = 2;  /* done */
-                        break;
-                    }
-                }
-
-                /* Lines 301-304: No meaningful input — increment counter. */
-                counter++;
-            }
-
-            if (input_handled == 2) {
-                break;  /* A/L confirm or B/SELECT cancel — exit outer loop */
-            }
-
-            if (input_handled == 1) {
-                continue;  /* LEFT/RIGHT — restart outer loop with new character */
-            }
-
-            /* Lines 310-321: Counter expired — toggle animation frame (0↔1).
-             * Reset delay to 10. Assembly: @MULTI_PARTY_WINDOW6 re-entry. */
-            if (dt.pagination_animation_frame != 0) {
-                dt.pagination_animation_frame = 0;
-            } else {
-                dt.pagination_animation_frame = 1;
-            }
-            delay = 10;
         }
     }
 
-    /* Lines 370-378: Cleanup — restore pagination and argument_memory. */
-    dt.pagination_animation_frame = -1;
-    set_argument_memory(saved_argument_memory);
+    /* Lines 157-160: Reset pagination animation. */
+    dt.pagination_animation_frame = 0;
 
-    return result;
+    ModeState init = {0};
+    init.char_select.phase                 = CSP_RENDER;
+    init.char_select.mode                  = (uint8_t)mode;
+    init.char_select.allow_cancel          = (uint8_t)allow_cancel;
+    init.char_select.on_change_id          = CS_ONCHANGE_PARTY_SELECT_SCRIPT;
+    init.char_select.check_valid_id        = CS_CHECKVALID_NONE;
+    init.char_select.current_index         = current_index;
+    init.char_select.delay                 = 10;
+    init.char_select.counter               = 0;
+    init.char_select.saved_argument_memory = saved_argument_memory;
+
+    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
+     * pagination_animation_frame = -1) before it pops. */
+    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
 }
 
 

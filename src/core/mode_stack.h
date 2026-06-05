@@ -98,6 +98,7 @@ typedef enum {
     CS_ONCHANGE_STATUS,       /* display_status_window */
     CS_ONCHANGE_WEAPON_NAME,  /* get_weapon_item_name_callback */
     CS_ONCHANGE_BODY_NAME,    /* get_body_item_name_callback */
+    CS_ONCHANGE_PARTY_SELECT_SCRIPT, /* party_character_selector: show per-member text script */
 } CharSelectOnChangeId;
 
 typedef enum {
@@ -128,11 +129,16 @@ typedef struct {
  * of the CC 0x1F 0x60 TEXT_SPEED_DELAY loop: the blocking loop checks the input
  * break AFTER each update_hppp_meter_and_render() (i.e. post-yield), so the check
  * sits at the TOP of each step and `primed` suppresses it on the very first frame
- * (no yield has happened yet inside this mode). */
+ * (no yield has happened yet inside this mode).
+ *
+ * cc_pause (CC 0x10) reuses this mode with lead_window=1: it renders one leading
+ * window_tick_work() frame (the caller has already cleared instant-printing)
+ * before the non-cancelable delay, matching TICK_HPPP_METER_N_FRAMES. */
 typedef struct {
     uint16_t remaining;    /* frames left to render */
     uint8_t  cancelable;   /* break on PAD_TEXT_ADVANCE */
     uint8_t  primed;       /* 0 on the first frame (skip the pre-work input check) */
+    uint8_t  lead_window;  /* do one leading window_tick_work frame before the delay */
 } TextDelayState;
 
 /* GAME_MODE_ACTIONSCRIPT_WAIT — port of CC 0x1F 0x61 WAIT_FOR_ACTIONSCRIPT. An
