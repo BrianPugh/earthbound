@@ -54,6 +54,7 @@ typedef struct {
 typedef enum {
     FADE_TICK_OVERWORLD_RENDER = 0, /* oam_clear; run_actionscript_frame; update_screen; fade_update */
     FADE_TICK_BATTLE_EFFECTS,       /* update_battle_screen_effects() */
+    FADE_TICK_WINDOW,               /* window_tick_work() — battle/menu fades with live windows */
 } FadeTickKind;
 
 typedef struct {

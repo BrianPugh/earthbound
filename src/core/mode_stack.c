@@ -7,6 +7,7 @@
 #include "game/fade.h"
 #include "game/overworld.h"
 #include "game/battle.h"
+#include "game/display_text.h"
 #include "entity/entity.h"
 
 ModeStack g_mode_stack = {
@@ -44,6 +45,15 @@ static StepResult mode_step_fade_wait(ModeState *st) {
          * now runs one frame earlier in each iteration. That is a harmless
          * one-frame phase shift of a brief battle-exit fade-out animation. */
         update_battle_screen_effects();
+        break;
+    case FADE_TICK_WINDOW:
+        /* Body of the former while(fade_active()) loop in
+         * wait_for_fade_with_tick() (battle/menu fades that keep windows and
+         * HP/PP meters animating). window_tick() yielded internally via
+         * render_frame_tick; window_tick_work() does the same work without the
+         * yield, which the pump now owns. Work-then-yield matches the original
+         * ordering exactly (no phase shift). */
+        window_tick_work();
         break;
     }
     return STEP_RESULT_CONTINUE();
