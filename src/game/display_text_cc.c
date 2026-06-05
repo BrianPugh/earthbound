@@ -62,98 +62,16 @@ void cc_clear_event_flag(ScriptReader *r) {
  * CC 0x14 (HALT_WITH_PROMPT_ALWAYS): show_triangle=1, skip_text_speed=1
  */
 void cc_halt(int show_triangle, int skip_text_speed) {
-    /* Wait for dt.text_prompt_waiting_for_input to clear (assembly lines 26-27) */
-    while (dt.text_prompt_waiting_for_input) {
-        render_frame_tick();
-        if (platform_input_quit_requested()) return;
-    }
-
-    /* Assembly (halt.asm:29-30): CLEAR_INSTANT_PRINTING then WINDOW_TICK.
-     * Must call window_tick() (not render_frame_tick()) so that windows
-     * are rendered to win.bg2_buffer before the frame is presented. */
-    clear_instant_printing();
-    window_tick();
-
-    /* Text speed shortcut (assembly lines 31-39):
-     * If not forced to wait, and triangle flag is set, and text speed is non-zero,
-     * do the text speed delay and return without waiting for button press.
-     * This is the "auto-advance" behavior for non-instant text speed. */
-    if (!skip_text_speed && dt.blinking_triangle_flag && dt.text_speed_based_wait) {
-        uint16_t frames = dt.text_speed_based_wait;
-        for (uint16_t i = 0; i < frames; i++) {
-            update_hppp_meter_and_render();
-            if (platform_input_quit_requested()) return;
-            if (core.pad1_pressed & PAD_TEXT_ADVANCE) break;
-        }
-        return;
-    }
-
-    /* PAUSE_MUSIC effect (assembly lines 41-43):
-     * If triangle flag is set, disable HPPP rolling during the wait. */
-    if (dt.blinking_triangle_flag) {
-        bt.disable_hppp_rolling = 1;
-    }
-
-    WindowInfo *w = get_focus_window_info();
-
-    if (!show_triangle || !w) {
-        /* No triangle — wait for button press (assembly lines 57-63) */
-        do {
-            update_hppp_meter_and_render();
-            if (platform_input_quit_requested()) break;
-        } while (!(core.pad1_pressed & PAD_TEXT_ADVANCE));
-    } else {
-        /* Blinking triangle animation (assembly lines 64-162).
-         * Triangle tilemap entries from asm/data/text/blinking_triangle_tiles.asm:
-         *   Frame 0 (big):   0x3C14 — priority 1, palette 6, tile 0x14
-         *   Frame 1 (small): 0x3C15 — priority 1, palette 6, tile 0x15
-         *   Clear:           0xBC11 — priority 1, palette 6, vflip, tile 0x11 */
-        #define TRIANGLE_TILE_BIG   0x3C14
-        #define TRIANGLE_TILE_SMALL 0x3C15
-        #define TRIANGLE_TILE_CLEAR 0xBC11
-
-        /* Calculate VRAM position: bottom-right of window border.
-         * Assembly: (y + height) * 32 + (x + width) + TEXT_LAYER_TILEMAP + 32
-         * where asm height/width are content dims (C port's height/width minus 2). */
-        uint16_t *tilemap = (uint16_t *)&ppu.vram[VRAM_TEXT_LAYER_TILEMAP * 2];
-        uint16_t tri_pos = (uint16_t)((w->y + w->height - 1) * 32 + (w->x + w->width - 2));
-
-        bool done = false;
-        while (!done) {
-            /* Frame 0: big triangle, 15 ticks (assembly lines 64-100) */
-            tilemap[tri_pos] = TRIANGLE_TILE_BIG;
-            for (int i = 15; i > 0; i--) {
-                if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
-                    /* Button during frame 0: clear tile (assembly lines 138-162) */
-                    tilemap[tri_pos] = TRIANGLE_TILE_CLEAR;
-                    done = true;
-                    break;
-                }
-                update_hppp_meter_and_render();
-                if (platform_input_quit_requested()) { done = true; break; }
-            }
-            if (done) break;
-
-            /* Frame 1: small triangle, 10 ticks (assembly lines 101-136) */
-            tilemap[tri_pos] = TRIANGLE_TILE_SMALL;
-            for (int i = 10; i > 0; i--) {
-                if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
-                    done = true;
-                    break;
-                }
-                update_hppp_meter_and_render();
-                if (platform_input_quit_requested()) { done = true; break; }
-            }
-        }
-
-        #undef TRIANGLE_TILE_BIG
-        #undef TRIANGLE_TILE_SMALL
-        #undef TRIANGLE_TILE_CLEAR
-    }
-
-    /* RESUME_MUSIC (assembly lines 163-164): clear meter speed flags */
-    bt.half_hppp_meter_speed = 0;
-    bt.disable_hppp_rolling = 0;
+    /* Run-to-completion via GAME_MODE_TEXT_PROMPT (mode_step_text_prompt). The
+     * former blocking sequence — drain text_prompt_waiting_for_input, window_tick,
+     * then the text-speed shortcut / no-triangle wait / blinking-triangle wait —
+     * is now a phase machine whose locals live in TextPromptState. pump_mode owns
+     * the single yield. */
+    ModeState init = {0};
+    init.text_prompt.phase           = TP_WAIT_PROMPT;
+    init.text_prompt.show_triangle   = (uint8_t)(show_triangle != 0);
+    init.text_prompt.skip_text_speed = (uint8_t)(skip_text_speed != 0);
+    pump_mode(GAME_MODE_TEXT_PROMPT, &init);
 }
 
 
@@ -614,6 +532,176 @@ StepResult mode_step_number_select(ModeState *ms) {
     }
 }
 
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_TEXT_DELAY — fixed frame-count typing pause (CC 0x1F 0x60).
+ *
+ * Run-to-completion port of the TEXT_SPEED_DELAY loop: render
+ * dt.text_speed_based_wait frames via update_hppp_meter_work(), breaking early
+ * on a text-advance press. The blocking loop checked the break AFTER each
+ * update_hppp_meter_and_render() (post-yield), so the check sits at the top of
+ * the step and `primed` suppresses it on the first frame.
+ * ------------------------------------------------------------------------- */
+StepResult mode_step_text_delay(ModeState *ms) {
+    TextDelayState *st = &ms->text_delay;
+
+    if (st->primed && st->cancelable && (core.pad1_pressed & PAD_TEXT_ADVANCE))
+        return STEP_RESULT_POP(0);
+    if (st->remaining == 0)
+        return STEP_RESULT_POP(0);
+
+    update_hppp_meter_work();
+    st->remaining--;
+    st->primed = 1;
+    return STEP_RESULT_CONTINUE();
+}
+
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_ACTIONSCRIPT_WAIT — wait for an entity actionscript (CC 0x1F 0x61).
+ *
+ * Run-to-completion port of WAIT_FOR_ACTIONSCRIPT: an initial window_tick_work()
+ * frame renders open windows, then render_frame_tick_work() runs each frame until
+ * ert.actionscript_state becomes non-zero. The completion check sits at the top
+ * of AS_RENDER (post-yield) so the frame that sets the state still yields,
+ * matching the blocking while-loop's yield count. ert.actionscript_state is
+ * reset by the caller before push and again here on completion.
+ * ------------------------------------------------------------------------- */
+StepResult mode_step_actionscript_wait(ModeState *ms) {
+    ActionscriptWaitState *st = &ms->actionscript_wait;
+
+    switch ((ActionscriptWaitPhase)st->phase) {
+    case AS_INIT:
+        window_tick_work();
+        st->phase = AS_RENDER;
+        return STEP_RESULT_CONTINUE();
+
+    case AS_RENDER:
+    default:
+        if (ert.actionscript_state != 0) {
+            ert.actionscript_state = 0;
+            return STEP_RESULT_POP(0);
+        }
+        render_frame_tick_work();
+        return STEP_RESULT_CONTINUE();
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_TEXT_PROMPT — text-advance wait with optional blinking triangle.
+ *
+ * Run-to-completion port of cc_halt (halt.asm). See TextPromptPhase /
+ * TextPromptState in mode_stack.h for the phase breakdown and the `primed`
+ * convention. The triangle tilemap entries come from
+ * asm/data/text/blinking_triangle_tiles.asm.
+ * ------------------------------------------------------------------------- */
+#define TRIANGLE_TILE_BIG   0x3C14
+#define TRIANGLE_TILE_SMALL 0x3C15
+#define TRIANGLE_TILE_CLEAR 0xBC11
+
+/* TP_WAIT_PROMPT's tail: one window_tick frame, then pick the wait branch.
+ * Mirrors halt.asm lines 29-56 (CLEAR_INSTANT_PRINTING; WINDOW_TICK; branch). */
+static StepResult tp_window_and_decide(TextPromptState *st) {
+    clear_instant_printing();
+    window_tick_work();
+
+    /* Text-speed auto-advance shortcut (halt.asm 31-39): returns WITHOUT the
+     * resume-music teardown — it never set those flags. */
+    if (!st->skip_text_speed && dt.blinking_triangle_flag && dt.text_speed_based_wait) {
+        st->remaining = dt.text_speed_based_wait;
+        st->primed = 0;
+        st->phase = TP_TEXTSPEED;
+        return STEP_RESULT_CONTINUE();
+    }
+
+    /* PAUSE_MUSIC (halt.asm 41-43): disable HPPP rolling during the wait. */
+    if (dt.blinking_triangle_flag)
+        bt.disable_hppp_rolling = 1;
+
+    WindowInfo *w = get_focus_window_info();
+    if (!st->show_triangle || !w) {
+        st->primed = 0;
+        st->phase = TP_WAIT_BUTTON;
+    } else {
+        /* (y + height) * 32 + (x + width) + 32, with C content dims = asm + 2. */
+        st->tri_pos = (uint16_t)((w->y + w->height - 1) * 32 + (w->x + w->width - 2));
+        st->tri_big = 1;
+        st->tri_ticks = 15;
+        st->tri_need_tile = 1;
+        st->phase = TP_TRIANGLE;
+    }
+    return STEP_RESULT_CONTINUE();
+}
+
+/* RESUME_MUSIC teardown (halt.asm 163-164), then pop. */
+static StepResult tp_pop_teardown(void) {
+    bt.half_hppp_meter_speed = 0;
+    bt.disable_hppp_rolling = 0;
+    return STEP_RESULT_POP(0);
+}
+
+StepResult mode_step_text_prompt(ModeState *ms) {
+    TextPromptState *st = &ms->text_prompt;
+
+    switch ((TextPromptPhase)st->phase) {
+    case TP_WAIT_PROMPT:
+        /* Drain dt.text_prompt_waiting_for_input (halt.asm 26-27). The frame that
+         * clears it is a full render_frame_tick frame; the window_tick frame is a
+         * separate frame after it. */
+        if (dt.text_prompt_waiting_for_input) {
+            render_frame_tick_work();
+            return STEP_RESULT_CONTINUE();
+        }
+        return tp_window_and_decide(st);
+
+    case TP_TEXTSPEED:
+        if (st->primed && (core.pad1_pressed & PAD_TEXT_ADVANCE))
+            return STEP_RESULT_POP(0);   /* early return: no teardown */
+        if (st->remaining == 0)
+            return STEP_RESULT_POP(0);
+        update_hppp_meter_work();
+        st->remaining--;
+        st->primed = 1;
+        return STEP_RESULT_CONTINUE();
+
+    case TP_WAIT_BUTTON:
+        if (st->primed && (core.pad1_pressed & PAD_TEXT_ADVANCE))
+            return tp_pop_teardown();
+        update_hppp_meter_work();
+        st->primed = 1;
+        return STEP_RESULT_CONTINUE();
+
+    case TP_TRIANGLE:
+    default: {
+        uint16_t *tilemap = (uint16_t *)&ppu.vram[VRAM_TEXT_LAYER_TILEMAP * 2];
+
+        /* Write the current sub-frame's tile once, at its start. */
+        if (st->tri_need_tile) {
+            tilemap[st->tri_pos] = st->tri_big ? TRIANGLE_TILE_BIG : TRIANGLE_TILE_SMALL;
+            st->tri_need_tile = 0;
+        }
+
+        /* Pre-work input check every tick (halt.asm 66/103): a big-frame break
+         * clears the tile; a small-frame break leaves it. */
+        if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
+            if (st->tri_big)
+                tilemap[st->tri_pos] = TRIANGLE_TILE_CLEAR;
+            return tp_pop_teardown();
+        }
+
+        update_hppp_meter_work();
+        if (--st->tri_ticks == 0) {
+            st->tri_big = (uint8_t)!st->tri_big;
+            st->tri_ticks = st->tri_big ? 15 : 10;  /* big = 15 ticks, small = 10 */
+            st->tri_need_tile = 1;
+        }
+        return STEP_RESULT_CONTINUE();
+    }
+    }
+}
+
+#undef TRIANGLE_TILE_BIG
+#undef TRIANGLE_TILE_SMALL
+#undef TRIANGLE_TILE_CLEAR
+
 void cc_1f_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
 
@@ -992,12 +1080,11 @@ void cc_1f_dispatch(ScriptReader *r) {
          * Button press (B/SELECT/A/L) cancels the remaining delay.
          * dt.text_speed_based_wait is set during file select from game_state.text_speed. */
         if (!dt.text_prompt_waiting_for_input) {
-            uint16_t frames = dt.text_speed_based_wait;
-            for (uint16_t i = 0; i < frames; i++) {
-                update_hppp_meter_and_render();
-                if (platform_input_quit_requested()) break;
-                if (core.pad1_pressed & PAD_TEXT_ADVANCE) break;
-            }
+            ModeState init = {0};
+            init.text_delay.remaining  = dt.text_speed_based_wait;
+            init.text_delay.cancelable = 1;
+            init.text_delay.primed     = 0;
+            pump_mode(GAME_MODE_TEXT_DELAY, &init);
         }
         break;
     }
@@ -1015,12 +1102,7 @@ void cc_1f_dispatch(ScriptReader *r) {
          * to win.bg2_buffer so text is visible while waiting for entity scripts. */
         ert.actionscript_state = 0;
         clear_instant_printing();
-        window_tick();
-        while (ert.actionscript_state == 0) {
-            render_frame_tick();
-            if (platform_input_quit_requested()) break;
-        }
-        ert.actionscript_state = 0;
+        pump_mode(GAME_MODE_ACTIONSCRIPT_WAIT, NULL);
         break;
     case 0x62: {
         /* ENABLE_BLINKING_TRIANGLE: 1 arg byte.

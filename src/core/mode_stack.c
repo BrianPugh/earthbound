@@ -68,6 +68,9 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_FADE_WAIT]     = mode_step_fade_wait,
     [GAME_MODE_NUMBER_SELECT] = mode_step_number_select,   /* defined in display_text_cc.c */
     [GAME_MODE_CHAR_SELECT]   = mode_step_char_select,     /* defined in battle.c */
+    [GAME_MODE_TEXT_DELAY]    = mode_step_text_delay,         /* defined in display_text_cc.c */
+    [GAME_MODE_ACTIONSCRIPT_WAIT] = mode_step_actionscript_wait, /* defined in display_text_cc.c */
+    [GAME_MODE_TEXT_PROMPT]   = mode_step_text_prompt,        /* defined in display_text_cc.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
