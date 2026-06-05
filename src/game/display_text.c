@@ -273,18 +273,23 @@ static uint16_t check_last_member_status_change(void) {
  *   7. upload_battle_screen_to_vram() — sync win.bg2_buffer to VRAM
  *   8. render_frame_tick() — process one frame
  */
-void window_tick(void) {
+/* Window-tick body up to (but not including) the frame render. Returns true if
+ * a frame render should follow, false on an early exit (early_tick_exit or
+ * instant_printing) where the original window_tick() returns without yielding.
+ * Shared by window_tick() (blocking) and window_tick_work() (run-to-completion);
+ * keeps both byte-identical save for which render half they invoke. */
+static bool window_tick_prepare(void) {
     rng_next_byte();  /* Assembly line 4: JSL RAND (advance PRNG) */
 
     /* Assembly lines 5-10: early exit if flagged (set by print_menu_items) */
     if (dt.early_tick_exit) {
         dt.early_tick_exit = 0;
-        return;
+        return false;
     }
 
     /* Assembly lines 13-15: skip rendering if dt.instant_printing */
     if (dt.instant_printing)
-        return;
+        return false;
 
     /* Assembly lines 16-28: render windows into win.bg2_buffer.
      * Assembly: if ow.redraw_all_windows → RENDER_ALL_WINDOWS;
@@ -320,7 +325,20 @@ void window_tick(void) {
     win.hppp_meter_area_needs_update = 0;
     upload_battle_screen_to_vram();
     render_pagination_arrows();
-    render_frame_tick();
+    return true;
+}
+
+void window_tick(void) {
+    if (window_tick_prepare())
+        render_frame_tick();
+}
+
+/* Run-to-completion form of window_tick(): identical work, but the frame render
+ * uses render_frame_tick_work() (no internal wait_for_vblank). The caller owns
+ * the yield. Used by mode-stack step functions during the savestate migration. */
+void window_tick_work(void) {
+    if (window_tick_prepare())
+        render_frame_tick_work();
 }
 
 void window_tick_without_instant_printing(void) {

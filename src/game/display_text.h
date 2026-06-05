@@ -233,6 +233,11 @@ void render_pagination_arrows(void);
  * calls render_frame_tick. */
 void window_tick(void);
 
+/* Run-to-completion form of window_tick(): same work, but the frame render uses
+ * render_frame_tick_work() (no internal wait_for_vblank) so the caller owns the
+ * yield. Used by mode-stack step functions during the savestate migration. */
+void window_tick_work(void);
+
 /* WINDOW_TICK_WITHOUT_INSTANT_PRINTING: Port of
  * asm/text/window_tick_without_instant_printing.asm.
  * Temporarily clears instant_printing, calls window_tick, re-enables it. */

@@ -23,6 +23,7 @@
 #include "core/math.h"
 #include "core/memory.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "snes/ppu.h"
 #include "include/binary.h"
 #include "include/pad.h"
@@ -495,6 +496,124 @@ static void cc_1f_set_sprite_movement(ScriptReader *r) {
  *   Audio (0x00-0x07), Party (0x11-0x14), Entity (0x15-0x1F),
  *   Teleport (0x20-0x21), Window/font (0x30-0x31), Event/input (0x41, 0x50-0x52),
  *   Map/movement (0x60-0x69), Combat (0x23), E-range (0xE1-0xF4). */
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_NUMBER_SELECT — interactive multi-digit number entry.
+ *
+ * Run-to-completion port of the former blocking loop in CC 0x52 (NUM_SELECT_
+ * PROMPT). The two-level render/input loop becomes a three-phase state machine
+ * (see NumberSelectPhase): one render frame, one "prime" frame, then per-frame
+ * input handling. pump_mode owns the single yield. The phase split reproduces
+ * the original's exact input timing (a render is followed by two yields — the
+ * window_tick yield and the first input-loop yield — before the first read).
+ * ------------------------------------------------------------------------- */
+
+/* NS_RENDER body: draw the digits at the saved cursor position, then run one
+ * non-yielding window frame. Mirrors the head of the former outer loop. */
+static void ns_draw(NumberSelectState *st) {
+    set_instant_printing();
+    set_focus_text_cursor(st->start_x, st->start_y);
+
+    /* NUMBER_TO_TEXT_BUFFER inline: 32-bit value → 7-digit decimal string. */
+    char digits[8];
+    int32_t tmp = st->value;
+    for (int d = 6; d >= 0; d--) {
+        digits[d] = (char)(tmp % 10);
+        tmp /= 10;
+    }
+    digits[7] = '\0';
+
+    /* Print digits right-to-left from the max_digits position. Prefix tile 16
+     * marks the selected digit, 48 the rest; the digit value (0-9) is added. */
+    int start_digit = 7 - (int)st->max_digits;
+    for (int i = start_digit; i < 7; i++) {
+        uint16_t digit_pos = (uint16_t)(7 - i);  /* position from right, 1-based */
+        uint16_t prefix = (digit_pos == st->cursor_pos) ? 16 : 48;
+        uint16_t tile = prefix + (uint16_t)digits[i];
+        print_char_with_sound(tile);
+    }
+
+    clear_instant_printing();
+    window_tick_work();
+}
+
+StepResult mode_step_number_select(ModeState *ms) {
+    NumberSelectState *st = &ms->number_select;
+
+    switch ((NumberSelectPhase)st->phase) {
+    case NS_RENDER:
+        ns_draw(st);
+        st->phase = NS_PRIME;
+        return STEP_RESULT_CONTINUE();
+
+    case NS_PRIME:
+        /* One HP/PP-meter frame before the first input read, matching the
+         * original inner loop's first update_hppp_meter_and_render() yield. */
+        update_hppp_meter_work();
+        st->phase = NS_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case NS_INPUT:
+    default:
+        /* Input latched by the previous frame's yield. LEFT/RIGHT move the digit
+         * cursor; UP/DOWN (autorepeat) change the selected digit, wrapping 0-9;
+         * any of these re-render. A/L confirm, B/SELECT cancel (returns -1). */
+        if (core.pad1_pressed & PAD_LEFT) {
+            if (st->cursor_pos < st->max_digits) {
+                play_sfx(2);  /* SFX::CURSOR2 */
+                st->cursor_pos++;
+                st->place_value *= 10;
+            }
+            ns_draw(st);
+            st->phase = NS_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (core.pad1_pressed & PAD_RIGHT) {
+            if (st->cursor_pos > 1) {
+                play_sfx(2);  /* SFX::CURSOR2 */
+                st->cursor_pos--;
+                st->place_value /= 10;
+            }
+            ns_draw(st);
+            st->phase = NS_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (core.pad1_autorepeat & PAD_UP) {
+            play_sfx(3);  /* SFX::CURSOR3 */
+            int32_t current_digit = (st->value / st->place_value) % 10;
+            if (current_digit == 9)
+                st->value -= st->place_value * 9;
+            else
+                st->value += st->place_value;
+            ns_draw(st);
+            st->phase = NS_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (core.pad1_autorepeat & PAD_DOWN) {
+            play_sfx(3);  /* SFX::CURSOR3 */
+            int32_t current_digit = (st->value / st->place_value) % 10;
+            if (current_digit == 0)
+                st->value += st->place_value * 9;
+            else
+                st->value -= st->place_value;
+            ns_draw(st);
+            st->phase = NS_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (core.pad1_pressed & PAD_CONFIRM) {
+            play_sfx(1);  /* SFX::CURSOR1 */
+            return STEP_RESULT_POP(st->value);
+        }
+        if (core.pad1_pressed & PAD_CANCEL) {
+            play_sfx(2);  /* SFX::CURSOR2 */
+            return STEP_RESULT_POP(-1);
+        }
+
+        /* No input: run one HP/PP-meter frame and keep waiting. */
+        update_hppp_meter_work();
+        return STEP_RESULT_CONTINUE();
+    }
+}
+
 void cc_1f_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
 
@@ -832,116 +951,27 @@ void cc_1f_dispatch(ScriptReader *r) {
         uint8_t max_digits_arg = script_read_byte(r);
         uint16_t max_digits = max_digits_arg;
 
-        /* NUM_SELECT_PROMPT: save cursor position, run input loop */
+        /* NUM_SELECT_PROMPT: save cursor position, then run the interactive
+         * number entry as GAME_MODE_NUMBER_SELECT (run-to-completion; the input
+         * loop lives in mode_step_number_select). pump_mode returns the entered
+         * value, or -1 on cancel. */
         WindowInfo *w = get_focus_window_info();
         if (!w || win.current_focus_window == WINDOW_ID_NONE) {
             set_working_memory(0);
             break;
         }
 
-        uint16_t start_x = w->text_x;
-        uint16_t start_y = w->text_y;
-        int32_t value = 0;       /* current number (@LOCAL05) */
-        uint16_t cursor_pos = 1; /* digit position from right, 1-based (@LOCAL04) */
-        int32_t place_value = 1; /* multiplier for current digit (@LOCAL03) */
+        ModeState init = {0};
+        init.number_select.phase       = NS_RENDER;
+        init.number_select.start_x     = w->text_x;
+        init.number_select.start_y     = w->text_y;
+        init.number_select.max_digits  = max_digits;
+        init.number_select.cursor_pos  = 1;  /* digit position from right, 1-based */
+        init.number_select.value       = 0;
+        init.number_select.place_value = 1;
 
-        for (;;) {
-            /* Render the number at the saved cursor position */
-            set_instant_printing();
-            set_focus_text_cursor(start_x, start_y);
+        int32_t value = pump_mode(GAME_MODE_NUMBER_SELECT, &init);
 
-            /* Convert value to digits.
-             * NUMBER_TO_TEXT_BUFFER: assembly converts a 32-bit value to
-             * a 7-digit decimal string in a ert.buffer. We do it inline. */
-            char digits[8];
-            {
-                int32_t tmp = value;
-                for (int d = 6; d >= 0; d--) {
-                    digits[d] = (char)(tmp % 10);
-                    tmp /= 10;
-                }
-            }
-            digits[7] = '\0';
-
-            /* Print digits right-to-left from max_digits position.
-             * Leading digits: printed as prefix tile (16=selected, 48=normal).
-             * All digits: prefix + digit value → PRINT_CHAR_WITH_SOUND. */
-            int num_significant = 0;
-            {
-                int32_t tmp = value;
-                while (tmp > 0) { num_significant++; tmp /= 10; }
-                if (num_significant == 0) num_significant = 1;
-            }
-            int start_digit = 7 - max_digits;
-
-            for (int i = start_digit; i < 7; i++) {
-                uint16_t digit_pos = (uint16_t)(7 - i);  /* position from right, 1-based */
-                uint16_t prefix = (digit_pos == cursor_pos) ? 16 : 48;
-                uint16_t tile = prefix + (uint16_t)digits[i];
-                print_char_with_sound(tile);
-            }
-
-            clear_instant_printing();
-            window_tick();
-
-            /* Input loop: wait for button press */
-            for (;;) {
-                update_hppp_meter_and_render();
-
-                if (core.pad1_pressed & PAD_LEFT) {
-                    /* Move cursor left (higher digit) */
-                    if (cursor_pos < max_digits) {
-                        play_sfx(2);  /* SFX::CURSOR2 */
-                        cursor_pos++;
-                        place_value *= 10;
-                    }
-                    break;
-                }
-                if (core.pad1_pressed & PAD_RIGHT) {
-                    /* Move cursor right (lower digit) */
-                    if (cursor_pos > 1) {
-                        play_sfx(2);  /* SFX::CURSOR2 */
-                        cursor_pos--;
-                        place_value /= 10;
-                    }
-                    break;
-                }
-                if (core.pad1_autorepeat & PAD_UP) {
-                    /* Increment current digit (wraps 9→0) */
-                    play_sfx(3);  /* SFX::CURSOR3 */
-                    int32_t current_digit = (value / place_value) % 10;
-                    if (current_digit == 9) {
-                        value -= place_value * 9;
-                    } else {
-                        value += place_value;
-                    }
-                    break;
-                }
-                if (core.pad1_autorepeat & PAD_DOWN) {
-                    /* Decrement current digit (wraps 0→9) */
-                    play_sfx(3);  /* SFX::CURSOR3 */
-                    int32_t current_digit = (value / place_value) % 10;
-                    if (current_digit == 0) {
-                        value += place_value * 9;
-                    } else {
-                        value -= place_value;
-                    }
-                    break;
-                }
-                if (core.pad1_pressed & PAD_CONFIRM) {
-                    /* Confirm selection */
-                    play_sfx(1);  /* SFX::CURSOR1 */
-                    goto num_select_done;
-                }
-                if (core.pad1_pressed & PAD_CANCEL) {
-                    /* Cancel: return -1 → working_memory=0, argument_memory=0 */
-                    play_sfx(2);  /* SFX::CURSOR2 */
-                    value = -1;
-                    goto num_select_done;
-                }
-            }
-        }
-    num_select_done:
         if (value == -1) {
             /* Cancelled: set both working_memory and argument_memory to 0 */
             set_working_memory(0);

@@ -54,8 +54,9 @@ static StepResult mode_step_fade_wait(ModeState *st) {
 typedef StepResult (*ModeStepFn)(ModeState *st);
 
 static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
-    [GAME_MODE_NONE]      = NULL,
-    [GAME_MODE_FADE_WAIT] = mode_step_fade_wait,
+    [GAME_MODE_NONE]          = NULL,
+    [GAME_MODE_FADE_WAIT]     = mode_step_fade_wait,
+    [GAME_MODE_NUMBER_SELECT] = mode_step_number_select,   /* defined in display_text_cc.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

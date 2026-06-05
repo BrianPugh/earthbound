@@ -2361,7 +2361,9 @@ void hide_hppp_windows(void) {
  *   3. UPDATE_HPPP_METER_TILES — update individual digit tiles
  *   4. RENDER_FRAME_TICK — process one frame
  */
-void update_hppp_meter_and_render(void) {
+/* HP/PP meter update work shared by update_hppp_meter_and_render() (blocking)
+ * and update_hppp_meter_work() (run-to-completion) — everything but the render. */
+static void update_hppp_meter_prepare(void) {
     hp_pp_roller();
 
     if (win.hppp_meter_area_needs_update) {
@@ -2371,7 +2373,19 @@ void update_hppp_meter_and_render(void) {
     }
 
     update_hppp_meter_tiles();
+}
+
+void update_hppp_meter_and_render(void) {
+    update_hppp_meter_prepare();
     render_frame_tick();
+}
+
+/* Run-to-completion form of update_hppp_meter_and_render(): same work, but the
+ * frame render uses render_frame_tick_work() (no internal wait_for_vblank) so
+ * the caller owns the yield. Used by mode-stack step functions. */
+void update_hppp_meter_work(void) {
+    update_hppp_meter_prepare();
+    render_frame_tick_work();
 }
 
 /*

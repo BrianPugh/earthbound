@@ -1441,6 +1441,32 @@ void render_frame_tick(void) {
     wait_for_vblank();
 }
 
+/* ---- RENDER_FRAME_TICK_WORK (run-to-completion half of render_frame_tick) ----
+ *
+ * Identical to render_frame_tick() but WITHOUT the trailing wait_for_vblank() —
+ * the yield is owned by the caller (pump_mode today, the root loop at cutover).
+ * Used by the mode-stack step functions and the non-yielding window_tick_work()/
+ * update_hppp_meter_work() wrappers. See docs/plans/savestate-unified-loop.md.
+ *
+ * NOTE the one-frame phase shift in battle mode: the blocking render_frame_tick()
+ * yields BEFORE update_battle_screen_effects(); the run-to-completion form runs
+ * the effects first, then the caller yields. This matches the shift already
+ * accepted for GAME_MODE_FADE_WAIT's FADE_TICK_BATTLE_EFFECTS and is imperceptible
+ * (the effects animate a frame earlier within the same fade/menu). */
+void render_frame_tick_work(void) {
+    if (ow.render_hppp_windows & 0xFF)
+        update_text_window_palette();
+
+    if (bt.battle_mode_flag) {
+        update_battle_screen_effects();
+        return;
+    }
+
+    oam_clear();
+    run_actionscript_frame();
+    update_screen();
+}
+
 /* ---- ALLOC_SPRITE_MEM (port of asm/system/alloc_sprite_mem.asm) ---- */
 void alloc_sprite_mem(uint16_t id, uint16_t param) {
     /* When id == 0x8000, clear the entire sprite VRAM table.

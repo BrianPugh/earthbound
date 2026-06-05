@@ -27,7 +27,8 @@
 
 typedef enum {
     GAME_MODE_NONE = 0,
-    GAME_MODE_FADE_WAIT,   /* pilot A: wait for a brightness fade to finish */
+    GAME_MODE_FADE_WAIT,       /* pilot A: wait for a brightness fade to finish */
+    GAME_MODE_NUMBER_SELECT,   /* pilot B: interactive multi-digit number entry */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -59,13 +60,35 @@ typedef struct {
     uint8_t tick_kind;   /* FadeTickKind */
 } FadeWaitState;
 
+/* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
+ * PROMPT) was a two-level loop where each rendered frame was followed by two
+ * yields before the first input read (window_tick's yield, then the input
+ * loop's first update_hppp yield). NS_PRIME reproduces that second yield so the
+ * input timing is frame-identical to the blocking version. */
+typedef enum {
+    NS_RENDER = 0,  /* draw digits + window_tick_work, then yield */
+    NS_PRIME,       /* one update_hppp_meter_work frame before reading input */
+    NS_INPUT,       /* read fresh input; act; idle frames run update_hppp_meter_work */
+} NumberSelectPhase;
+
+typedef struct {
+    uint8_t  phase;        /* NumberSelectPhase */
+    uint16_t start_x;      /* saved focus-window text cursor (@LOCAL: start col) */
+    uint16_t start_y;      /* saved focus-window text cursor (@LOCAL: start row) */
+    uint16_t max_digits;   /* number of digit positions (CC arg) */
+    uint16_t cursor_pos;   /* selected digit, 1-based from the right (@LOCAL04) */
+    int32_t  value;        /* current number (@LOCAL05) */
+    int32_t  place_value;  /* multiplier for the selected digit (@LOCAL03) */
+} NumberSelectState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
  * ModeStack layout for already-shipped modes. */
 typedef union {
-    FadeWaitState fade_wait;
-    uint8_t       _raw[64];
+    FadeWaitState     fade_wait;
+    NumberSelectState number_select;
+    uint8_t           _raw[64];
 } ModeState;
 
 #define MODE_STACK_MAX 8
@@ -81,6 +104,12 @@ extern ModeStack g_mode_stack;
 
 /* Run one frame of `mode`'s step function. */
 StepResult mode_dispatch_step(GameMode mode, ModeState *st);
+
+/* GAME_MODE_NUMBER_SELECT step (defined in display_text_cc.c, where the text/
+ * window helpers it needs live). Declared here so the dispatch table can wire it
+ * up. Init via ModeState.number_select before pump_mode(GAME_MODE_NUMBER_SELECT).
+ * Pops the entered value, or -1 on cancel. */
+StepResult mode_step_number_select(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

@@ -313,6 +313,12 @@ void clear_map_entities(void);
  * RENDER_FRAME_TICK (or WAIT_UNTIL_NEXT_FRAME) rather than WINDOW_TICK. */
 void render_frame_tick(void);
 
+/* Run-to-completion half of render_frame_tick(): the same work WITHOUT the
+ * trailing wait_for_vblank(). The caller owns the yield. Used by mode-stack
+ * step functions and the non-yielding window_tick_work()/update_hppp_meter_work()
+ * wrappers during the savestate-anywhere migration. */
+void render_frame_tick_work(void);
+
 /* Allocate/clear sprite VRAM table.
  * Port of ALLOC_SPRITE_MEM (asm/system/alloc_sprite_mem.asm).
  * id=0x8000 clears the entire table. */
