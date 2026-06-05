@@ -30,6 +30,7 @@
 #include "data/assets.h"
 #include "core/math.h"
 #include "core/memory.h"
+#include "core/mode_stack.h"
 #include "include/binary.h"
 #include "include/pad.h"
 #include "snes/ppu.h"
@@ -4457,9 +4458,12 @@ battle_ending:
 
     /* Fade out */
     fade_out(1, 0);
-    while (fade_active()) {
-        wait_for_vblank();
-        update_battle_screen_effects();
+    /* Run-to-completion form: the former loop body (update_battle_screen_effects)
+     * is now the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick.
+     * pump_mode owns the single yield. See docs/plans/savestate-unified-loop.md. */
+    {
+        ModeState init = { .fade_wait = { .tick_kind = FADE_TICK_BATTLE_EFFECTS } };
+        pump_mode(GAME_MODE_FADE_WAIT, &init);
     }
 
     clear_hppp_window_header();

@@ -41,6 +41,7 @@
 #include "core/memory.h"
 #include "core/decomp.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "platform/platform.h"
 #include "include/binary.h"
 #include "include/constants.h"
@@ -1405,14 +1406,13 @@ void wait_frames_with_updates(uint16_t count) {
  * (fade_parameters::step == 0). Called after fade_in/fade_out to block
  * until the brightness transition is done. */
 void run_frames_until_fade_done(void) {
-    while (fade_active()) {
-        if (platform_input_quit_requested()) return;
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
-        fade_update();
-        wait_for_vblank();
-    }
+    /* Run-to-completion form: the former loop body (oam_clear → ... →
+     * fade_update) is now the GAME_MODE_FADE_WAIT step's FADE_TICK_OVERWORLD_RENDER
+     * tick, driven one frame at a time. pump_mode owns the single yield (formerly
+     * the trailing wait_for_vblank) and bails on quit. See
+     * docs/plans/savestate-unified-loop.md. */
+    ModeState init = { .fade_wait = { .tick_kind = FADE_TICK_OVERWORLD_RENDER } };
+    pump_mode(GAME_MODE_FADE_WAIT, &init);
 }
 
 /* ---- RENDER_FRAME_TICK (port of asm/system/render_frame_tick.asm) ----

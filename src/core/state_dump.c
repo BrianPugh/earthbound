@@ -15,6 +15,7 @@ bool state_dump_save(const char *path) {
 
 #include "core/memory.h"
 #include "core/math.h"
+#include "core/mode_stack.h"
 #include "game/game_state.h"
 #include "game/overworld.h"
 #include "game/battle.h"
@@ -51,6 +52,7 @@ enum {
     SECTION_RNG              = 0x0012,
     SECTION_AUDIO            = 0x0013,
     SECTION_PSI_ANIMATION    = 0x0014,
+    SECTION_MODE_STACK       = 0x0015,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -95,6 +97,7 @@ bool state_dump_save(const char *path) {
     write_section(f, SECTION_AUDIO,            &audio_state,         sizeof(audio_state));
 #endif
     write_section(f, SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state));
+    write_section(f, SECTION_MODE_STACK,        &g_mode_stack,        sizeof(g_mode_stack));
 
     /* Terminator */
     uint16_t term = SECTION_TERMINATOR;
