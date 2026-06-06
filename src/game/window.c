@@ -20,6 +20,7 @@
 #include <stdio.h>
 
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "game_main.h"
 
 /* Window configuration table: position/size for each window ID.
@@ -1320,14 +1321,51 @@ static int16_t resolve_cursor_move(WindowInfo *w, int16_t packed) {
     return -1;
 }
 
-/*
- * Run a selection menu in the focus window.
- * Draws cursor, handles input, returns selected userdata.
- */
-uint16_t selection_menu(uint16_t allow_cancel) {
-    WindowInfo *w = get_window(win.current_focus_window);
-    if (!w || w->menu_count == 0) return 0;
+/* Draw (or re-draw) the blinking selection cursor for the current option,
+ * matching assembly @CURSOR_BLINK_LOOP / PREPARE_VRAM_COPY (lines 189-250).
+ * Toggles the blink sub-frame and writes the two cursor tiles directly to VRAM. */
+static void sm_draw_cursor(WindowInfo *w, SelectionMenuState *st) {
+    st->cursor_frame ^= 1;
+    st->redraw_cursor = 0;
+    st->frame_counter = 0;
 
+    /* Write cursor tiles directly to ppu.vram at the correct tilemap
+     * position, matching assembly's PREPARE_VRAM_COPY (lines 220-249).
+     *
+     * VRAM word address = TEXT_LAYER_TILEMAP + TILEMAP_COORDS(0,1)
+     *   + (text_y*2 + window_y) * 32 + (window_x + text_x)
+     *
+     * Note: cursor is placed at window_x + text_x (ON the border column when
+     * text_x==0), not content_x. The +1 row from TILEMAP_COORDS(0,1) accounts
+     * for the top border row. */
+    if (w->current_option < w->menu_count) {
+        MenuItem *item = &w->menu_items[w->current_option];
+        /* Assembly: SETUP_MENU_OPTION_VWF sets window_stats::text_x to
+         * menu_option::text_x, then SET_TILE_ATTRIBUTE_AND_REDRAW(33) calls
+         * WRITE_TILE_TO_WINDOW which writes a marker tile and advances text_x
+         * by 1.  The cursor blink reads the advanced text_x from window_stats,
+         * so the cursor sits one column right of the marker dot (text_x + 1). */
+        uint16_t vram_word = VRAM_TEXT_LAYER_TILEMAP + 32
+            + (item->text_y * 2 + w->y) * 32
+            + w->x + item->text_x + 1;
+        uint32_t vram_byte = (uint32_t)vram_word * 2;
+
+        uint16_t upper = st->cursor_frame ? CURSOR_FRAME1_UPPER : CURSOR_FRAME0_UPPER;
+        uint16_t lower = st->cursor_frame ? CURSOR_FRAME1_LOWER : CURSOR_FRAME0_LOWER;
+
+        /* Upper cursor tile */
+        ppu.vram[vram_byte]     = (uint8_t)(upper & 0xFF);
+        ppu.vram[vram_byte + 1] = (uint8_t)(upper >> 8);
+        /* Lower cursor tile (next row = +32 words = +64 bytes) */
+        ppu.vram[vram_byte + 64] = (uint8_t)(lower & 0xFF);
+        ppu.vram[vram_byte + 65] = (uint8_t)(lower >> 8);
+    }
+}
+
+/* SM_SETUP body (assembly lines 38-186): restore persisted selection, clear the
+ * previous highlight, run the initial hover script + cursor_move_callback, then
+ * one window_tick_work() render. Non-yielding; the caller owns the yield. */
+static void sm_setup(WindowInfo *w) {
     /* Restore persisted selection if valid, otherwise start at 0.
      * Assembly (selection_menu.asm lines 38-46, USA only): if RESTORE_MENU_BACKUP
      * is set, override current_option/selected_option from backup variables,
@@ -1383,246 +1421,269 @@ uint16_t selection_menu(uint16_t allow_cancel) {
     }
 
     /* Assembly line 186: JSL WINDOW_TICK — render all windows, upload
-     * win.bg2_buffer to VRAM, run one full frame (OAM_CLEAR + actionscript +
-     * UPDATE_SCREEN + WAIT). This is the ONLY place windows are rendered
-     * in the selection loop; the per-frame loop just does HP/PP + frame tick. */
+     * win.bg2_buffer to VRAM, run one full frame. This is the ONLY place
+     * windows are rendered in the selection loop; the per-frame loop just does
+     * HP/PP + frame tick. window_tick_work() omits the yield (caller owns it). */
     clear_instant_printing();
-    window_tick();
+    window_tick_work();
+}
 
-    /* Assembly line 188: cursor_frame starts at 1, then immediately
-     * toggles to 0 at @CURSOR_BLINK_LOOP. */
-    uint16_t cursor_frame = 1;
-    bool redraw_cursor = true;
-    uint16_t frame_counter = 0;
+/* SM_MAIN input handling (assembly @CURSOR_BLINK_LOOP body after the per-frame
+ * tick). Reads directional/confirm/cancel input and mutates `st`/`w`. Returns
+ * the StepResult; *handled is set true if the result should be returned to the
+ * pump (a move/page-flip CONTINUE, or a POP), false to fall through to render. */
+static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *handled) {
+    *handled = true;
 
-    while (!platform_input_quit_requested()) {
-        /* --- Cursor blink (assembly @CURSOR_BLINK_LOOP, lines 189-250) ---
-         * Every CURSOR_TOGGLE_FRAMES, toggle cursor_frame and write cursor
-         * tiles directly to VRAM (matching assembly's PREPARE_VRAM_COPY). */
-        if (redraw_cursor) {
-            cursor_frame ^= 1;
-            redraw_cursor = false;
-            frame_counter = 0;
+    /* --- Directional input (pressed and held) ---
+       Assembly checks PAD_PRESS first (with MOVE_CURSOR for wrap-around),
+       then PAD_HELD (with FIND_NEXT_MENU_OPTION directly, no wrap). */
+    uint16_t pressed = platform_input_get_pad_new();
+    int16_t move_result = -1;
+    int16_t text_x = (w->current_option < w->menu_count)
+                     ? w->menu_items[w->current_option].text_x : 0;
+    int16_t text_y = (w->current_option < w->menu_count)
+                     ? w->menu_items[w->current_option].text_y : 0;
+    int16_t content_w = (int16_t)(w->width - 2);
+    int16_t max_rows  = (int16_t)((w->height - 2) / 2);
 
-            /* Write cursor tiles directly to ppu.vram at the correct tilemap
-             * position, matching assembly's PREPARE_VRAM_COPY (lines 220-249).
-             *
-             * VRAM word address = TEXT_LAYER_TILEMAP + TILEMAP_COORDS(0,1)
-             *   + (text_y*2 + window_y) * 32 + (window_x + text_x)
-             *
-             * Note: cursor is placed at window_x + text_x (ON the border
-             * column when text_x==0), not content_x. The +1 row from
-             * TILEMAP_COORDS(0,1) accounts for the top border row. */
-            if (w->current_option < w->menu_count) {
-                MenuItem *item = &w->menu_items[w->current_option];
-                /* Assembly: SETUP_MENU_OPTION_VWF sets window_stats::text_x
-                 * to menu_option::text_x, then SET_TILE_ATTRIBUTE_AND_REDRAW(33)
-                 * calls WRITE_TILE_TO_WINDOW which writes a marker tile and
-                 * advances text_x by 1.  The cursor blink reads the advanced
-                 * text_x from window_stats, so the cursor sits one column
-                 * right of the marker dot (i.e., at text_x + 1). */
-                uint16_t vram_word = VRAM_TEXT_LAYER_TILEMAP + 32
-                    + (item->text_y * 2 + w->y) * 32
-                    + w->x + item->text_x + 1;
-                uint32_t vram_byte = (uint32_t)vram_word * 2;
+    /* Pressed buttons: MOVE_CURSOR (with wrap-around) */
+    if (pressed & PAD_UP) {
+        move_result = move_cursor(w, text_x, text_y,
+                                  /*delta_y=*/-1, /*direction=*/0,
+                                  /*wrap_x=*/text_x, /*wrap_y=*/max_rows,
+                                  /*sfx=*/3);  /* SFX::CURSOR3 */
+    } else if (pressed & PAD_LEFT) {
+        move_result = move_cursor(w, text_x, text_y,
+                                  /*delta_y=*/0, /*direction=*/-1,
+                                  /*wrap_x=*/content_w, /*wrap_y=*/text_y,
+                                  /*sfx=*/2);  /* SFX::CURSOR2 */
+    } else if (pressed & PAD_DOWN) {
+        move_result = move_cursor(w, text_x, text_y,
+                                  /*delta_y=*/1, /*direction=*/0,
+                                  /*wrap_x=*/text_x, /*wrap_y=*/-1,
+                                  /*sfx=*/3);  /* SFX::CURSOR3 */
+    } else if (pressed & PAD_RIGHT) {
+        move_result = move_cursor(w, text_x, text_y,
+                                  /*delta_y=*/0, /*direction=*/1,
+                                  /*wrap_x=*/-1, /*wrap_y=*/text_y,
+                                  /*sfx=*/2);  /* SFX::CURSOR2 */
+    }
 
-                uint16_t upper = cursor_frame ? CURSOR_FRAME1_UPPER : CURSOR_FRAME0_UPPER;
-                uint16_t lower = cursor_frame ? CURSOR_FRAME1_LOWER : CURSOR_FRAME0_LOWER;
-
-                /* Upper cursor tile */
-                ppu.vram[vram_byte]     = (uint8_t)(upper & 0xFF);
-                ppu.vram[vram_byte + 1] = (uint8_t)(upper >> 8);
-                /* Lower cursor tile (next row = +32 words = +64 bytes) */
-                ppu.vram[vram_byte + 64] = (uint8_t)(lower & 0xFF);
-                ppu.vram[vram_byte + 65] = (uint8_t)(lower >> 8);
-            }
+    /* Held buttons: FIND_NEXT_MENU_OPTION directly (no wrap) */
+    if (move_result == -1 && !pressed) {
+        uint16_t held = core.pad1_autorepeat;
+        uint16_t held_sfx = 0;
+        if (held & PAD_UP) {
+            move_result = find_next_menu_option(w, text_x, text_y, -1, 0);
+            held_sfx = 3;  /* SFX::CURSOR3 */
+        } else if (held & PAD_LEFT) {
+            move_result = find_next_menu_option(w, text_x, text_y, 0, -1);
+            held_sfx = 2;  /* SFX::CURSOR2 */
+        } else if (held & PAD_DOWN) {
+            move_result = find_next_menu_option(w, text_x, text_y, 1, 0);
+            held_sfx = 3;  /* SFX::CURSOR3 */
+        } else if (held & PAD_RIGHT) {
+            move_result = find_next_menu_option(w, text_x, text_y, 0, 1);
+            held_sfx = 2;  /* SFX::CURSOR2 */
         }
+        if (move_result != -1)
+            play_sfx(held_sfx);
+    }
 
-        /* --- Per-frame tick (assembly @INPUT_TICK, line 255) ---
-         * Assembly: JSL UPDATE_HPPP_METER_AND_RENDER
-         *   = HP_PP_ROLLER + optionally COPY_HPPP_WINDOW_TO_VRAM
-         *     + UPDATE_HPPP_METER_TILES + RENDER_FRAME_TICK
-         *   (RENDER_FRAME_TICK = OAM_CLEAR + RUN_ACTIONSCRIPT_FRAME
-         *     + UPDATE_SCREEN + WAIT_UNTIL_NEXT_FRAME) */
-        update_hppp_meter_and_render();
-
-        /* --- Directional input (pressed and held) ---
-           Assembly checks PAD_PRESS first (with MOVE_CURSOR for wrap-around),
-           then PAD_HELD (with FIND_NEXT_MENU_OPTION directly, no wrap). */
-        uint16_t pressed = platform_input_get_pad_new();
-        int16_t move_result = -1;
-        int16_t text_x = (w->current_option < w->menu_count)
-                         ? w->menu_items[w->current_option].text_x : 0;
-        int16_t text_y = (w->current_option < w->menu_count)
-                         ? w->menu_items[w->current_option].text_y : 0;
-        int16_t content_w = (int16_t)(w->width - 2);
-        int16_t max_rows  = (int16_t)((w->height - 2) / 2);
-
-        /* Pressed buttons: MOVE_CURSOR (with wrap-around) */
-        if (pressed & PAD_UP) {
-            move_result = move_cursor(w, text_x, text_y,
-                                      /*delta_y=*/-1, /*direction=*/0,
-                                      /*wrap_x=*/text_x, /*wrap_y=*/max_rows,
-                                      /*sfx=*/3);  /* SFX::CURSOR3 */
-        } else if (pressed & PAD_LEFT) {
-            move_result = move_cursor(w, text_x, text_y,
-                                      /*delta_y=*/0, /*direction=*/-1,
-                                      /*wrap_x=*/content_w, /*wrap_y=*/text_y,
-                                      /*sfx=*/2);  /* SFX::CURSOR2 */
-        } else if (pressed & PAD_DOWN) {
-            move_result = move_cursor(w, text_x, text_y,
-                                      /*delta_y=*/1, /*direction=*/0,
-                                      /*wrap_x=*/text_x, /*wrap_y=*/-1,
-                                      /*sfx=*/3);  /* SFX::CURSOR3 */
-        } else if (pressed & PAD_RIGHT) {
-            move_result = move_cursor(w, text_x, text_y,
-                                      /*delta_y=*/0, /*direction=*/1,
-                                      /*wrap_x=*/-1, /*wrap_y=*/text_y,
-                                      /*sfx=*/2);  /* SFX::CURSOR2 */
-        }
-
-        /* Held buttons: FIND_NEXT_MENU_OPTION directly (no wrap) */
-        if (move_result == -1 && !pressed) {
-            uint16_t held = core.pad1_autorepeat;
-            uint16_t held_sfx = 0;
-            if (held & PAD_UP) {
-                move_result = find_next_menu_option(w, text_x, text_y, -1, 0);
-                held_sfx = 3;  /* SFX::CURSOR3 */
-            } else if (held & PAD_LEFT) {
-                move_result = find_next_menu_option(w, text_x, text_y, 0, -1);
-                held_sfx = 2;  /* SFX::CURSOR2 */
-            } else if (held & PAD_DOWN) {
-                move_result = find_next_menu_option(w, text_x, text_y, 1, 0);
-                held_sfx = 3;  /* SFX::CURSOR3 */
-            } else if (held & PAD_RIGHT) {
-                move_result = find_next_menu_option(w, text_x, text_y, 0, 1);
-                held_sfx = 2;  /* SFX::CURSOR2 */
+    /* Resolve move result to menu_items[] index.
+     * Assembly (@PROCESS_CURSOR_MOVE): on cursor move, traverses linked list to
+     * find new option, calls cursor_move_callback, then jumps to
+     * @SETUP_CURRENT_OPTION → WINDOW_TICK → @CURSOR_BLINK_LOOP to re-render. The
+     * window_tick is a CONTINUE here; primed=0 makes the next frame render-only
+     * (no input) so the move's extra yield is reproduced exactly. */
+    if (move_result != -1) {
+        int16_t new_option = resolve_cursor_move(w, move_result);
+        if (new_option >= 0) {
+            w->current_option = (uint16_t)new_option;
+            if (w->cursor_move_callback) {
+                MenuItem *ci = &w->menu_items[w->current_option];
+                uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
+                w->cursor_move_callback(val);
+                /* Assembly line 157-158: restore focus to this window after the
+                 * callback might have changed it. */
+                set_window_focus(w->id);
             }
-            if (move_result != -1)
-                play_sfx(held_sfx);
-        }
-
-        /* Resolve move result to menu_items[] index.
-         * Assembly (@PROCESS_CURSOR_MOVE): on cursor move, traverses
-         * linked list to find new option, calls cursor_move_callback,
-         * then jumps to @SETUP_CURRENT_OPTION → WINDOW_TICK →
-         * @CURSOR_BLINK_LOOP to re-render and redraw cursor. */
-        if (move_result != -1) {
-            int16_t new_option = resolve_cursor_move(w, move_result);
-            if (new_option >= 0) {
-                w->current_option = (uint16_t)new_option;
-                if (w->cursor_move_callback) {
-                    MenuItem *ci = &w->menu_items[w->current_option];
-                    uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
-                    w->cursor_move_callback(val);
-                    /* Assembly line 157-158: restore focus to this window
-                     * after callback might have changed it. */
-                    set_window_focus(w->id);
-                }
-                /* Assembly @SETUP_CURRENT_OPTION (lines 102-122):
-                 * If menu_option::script is non-NULL, set instant printing
-                 * and call DISPLAY_TEXT on the script (hover preview text).
-                 * Then (line 160): CLEAR_INSTANT_PRINTING, WINDOW_TICK. */
-                if (w->menu_items[w->current_option].script != 0) {
-                    set_instant_printing();
-                    display_text_from_addr(w->menu_items[w->current_option].script);
-                }
-                clear_instant_printing();
-                window_tick();
-                redraw_cursor = true;
-                continue;
-            }
-        }
-
-        if (pressed & PAD_CONFIRM) {
-            MenuItem *sel = &w->menu_items[w->current_option];
-
-            /* Assembly (selection_menu.asm lines 430-537): if the selected
-             * item has page==0, it's the overflow indicator — flip to the
-             * next page instead of returning a selection.
-             * In assembly, LAYOUT_MENU_OPTIONS always sets page>=1 for real
-             * items before SELECTION_MENU runs, so page==0 unambiguously
-             * identifies the overflow indicator.  Detect active pagination
-             * by checking whether any item has page>1. */
-            bool is_overflow = false;
-            if (sel->page == 0) {
-                for (uint16_t i = 0; i < w->menu_count; i++) {
-                    if (w->menu_items[i].page > 1) {
-                        is_overflow = true;
-                        break;
-                    }
-                }
-            }
-
-            if (is_overflow) {
-                play_sfx(2);  /* SFX::CURSOR2 */
-
-                /* Find the last real item's page number to know when to wrap.
-                 * Assembly checks the item before the overflow indicator. */
-                uint16_t last_page = 1;
-                for (uint16_t i = 0; i < w->menu_count; i++) {
-                    if (w->menu_items[i].page > last_page)
-                        last_page = w->menu_items[i].page;
-                }
-
-                /* Cycle: if on last page, wrap to 1; else increment */
-                if (w->menu_page_number >= last_page)
-                    w->menu_page_number = 1;
-                else
-                    w->menu_page_number++;
-
-                /* Re-render: clear window content, redraw items for new page */
-                clear_instant_printing();
-                clear_window_tilemap(w->id);
-                window_tick();
-                print_menu_items();
+            /* Assembly @SETUP_CURRENT_OPTION (lines 102-122): if the option's
+             * script is non-NULL, set instant printing and DISPLAY_TEXT the
+             * script (hover preview). Then (line 160): CLEAR_INSTANT_PRINTING,
+             * WINDOW_TICK. */
+            if (w->menu_items[w->current_option].script != 0) {
                 set_instant_printing();
-
-                /* Reset cursor to first item on the new page */
-                for (uint16_t i = 0; i < w->menu_count; i++) {
-                    if (w->menu_items[i].page == w->menu_page_number) {
-                        w->current_option = i;
-                        break;
-                    }
-                }
-                clear_instant_printing();
-                window_tick();
-                redraw_cursor = true;
-                continue;
+                display_text_from_addr(w->menu_items[w->current_option].script);
             }
-
-            /* Normal confirm: play item's sound_effect (line 433-435) */
-            if (sel->sound_effect)
-                play_sfx(sel->sound_effect);
-            /* Assembly lines 428-485: highlight confirmed option with
-             * palette 6.  SET_FILE_SELECT_TEXT_HIGHLIGHT (lines 24-36)
-             * only operates on 4 specific file-select windows and is a
-             * no-op for all others.  Restrict highlight to those windows. */
-            set_instant_printing();
-            if (w->id == WINDOW_FILE_SELECT_MAIN
-                || w->id == WINDOW_FILE_SELECT_MENU
-                || w->id == WINDOW_FILE_SELECT_TEXT_SPEED
-                || w->id == WINDOW_FILE_SELECT_MUSIC_MODE
-                || w->id == WINDOW_FILE_SELECT_CONFIRM_MSG)
-                highlight_menu_item(w, w->current_option, 6, true);
-            w->selected_option = w->current_option;
             clear_instant_printing();
-            return sel->userdata;
-        }
-        /* Assembly checks B_BUTTON | SELECT_BUTTON for cancel (line 545-546) */
-        if (allow_cancel && (pressed & PAD_CANCEL)) {
-            play_sfx(2);  /* SFX::CURSOR2 */
-            return 0;
-        }
-
-        /* Assembly @FRAME_WAIT_CHECK (line 569-572): increment frame counter,
-         * if < 10 continue inner loop, otherwise toggle cursor (outer loop). */
-        frame_counter++;
-        if (frame_counter >= CURSOR_TOGGLE_FRAMES) {
-            redraw_cursor = true;
+            window_tick_work();
+            st->redraw_cursor = 1;
+            st->primed = 0;
+            return STEP_RESULT_CONTINUE();
         }
     }
-    return 0;
+
+    if (pressed & PAD_CONFIRM) {
+        MenuItem *sel = &w->menu_items[w->current_option];
+
+        /* Assembly (selection_menu.asm lines 430-537): if the selected item has
+         * page==0, it's the overflow indicator — flip to the next page instead
+         * of returning a selection. In assembly, LAYOUT_MENU_OPTIONS always sets
+         * page>=1 for real items before SELECTION_MENU runs, so page==0
+         * unambiguously identifies the overflow indicator. Detect active
+         * pagination by checking whether any item has page>1. */
+        bool is_overflow = false;
+        if (sel->page == 0) {
+            for (uint16_t i = 0; i < w->menu_count; i++) {
+                if (w->menu_items[i].page > 1) {
+                    is_overflow = true;
+                    break;
+                }
+            }
+        }
+
+        if (is_overflow) {
+            play_sfx(2);  /* SFX::CURSOR2 */
+
+            /* Find the last real item's page number to know when to wrap.
+             * Assembly checks the item before the overflow indicator. */
+            uint16_t last_page = 1;
+            for (uint16_t i = 0; i < w->menu_count; i++) {
+                if (w->menu_items[i].page > last_page)
+                    last_page = w->menu_items[i].page;
+            }
+
+            /* Cycle: if on last page, wrap to 1; else increment */
+            if (w->menu_page_number >= last_page)
+                w->menu_page_number = 1;
+            else
+                w->menu_page_number++;
+
+            /* Page-flip first half (assembly): clear content, one window_tick
+             * yield. SM_PAGE2 finishes the re-render after this CONTINUE. */
+            clear_instant_printing();
+            clear_window_tilemap(w->id);
+            window_tick_work();
+            st->phase = SM_PAGE2;
+            st->primed = 0;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        /* Normal confirm: play item's sound_effect (line 433-435) */
+        if (sel->sound_effect)
+            play_sfx(sel->sound_effect);
+        /* Assembly lines 428-485: highlight confirmed option with palette 6.
+         * SET_FILE_SELECT_TEXT_HIGHLIGHT (lines 24-36) only operates on 4
+         * specific file-select windows and is a no-op for all others. Restrict
+         * highlight to those windows. */
+        set_instant_printing();
+        if (w->id == WINDOW_FILE_SELECT_MAIN
+            || w->id == WINDOW_FILE_SELECT_MENU
+            || w->id == WINDOW_FILE_SELECT_TEXT_SPEED
+            || w->id == WINDOW_FILE_SELECT_MUSIC_MODE
+            || w->id == WINDOW_FILE_SELECT_CONFIRM_MSG)
+            highlight_menu_item(w, w->current_option, 6, true);
+        w->selected_option = w->current_option;
+        clear_instant_printing();
+        return STEP_RESULT_POP(sel->userdata);
+    }
+    /* Assembly checks B_BUTTON | SELECT_BUTTON for cancel (line 545-546) */
+    if (st->allow_cancel && (pressed & PAD_CANCEL)) {
+        play_sfx(2);  /* SFX::CURSOR2 */
+        return STEP_RESULT_POP(0);
+    }
+
+    /* Assembly @FRAME_WAIT_CHECK (line 569-572): increment the frame counter; if
+     * it reaches CURSOR_TOGGLE_FRAMES, request a cursor blink on the next draw.
+     * No actionable input — fall through to the render half of this step. */
+    st->frame_counter++;
+    if (st->frame_counter >= CURSOR_TOGGLE_FRAMES)
+        st->redraw_cursor = 1;
+    *handled = false;
+    return STEP_RESULT_CONTINUE();
+}
+
+/*
+ * GAME_MODE_SELECTION_MENU step — run-to-completion port of selection_menu().
+ * One step == one rendered frame; the single yield is owned by the pump (today)
+ * / the root loop (after cutover). See SelectionMenuState in mode_stack.h for the
+ * phase machine and the `primed` frame-timing scheme.
+ */
+StepResult mode_step_selection_menu(ModeState *ms) {
+    SelectionMenuState *st = &ms->selection_menu;
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0)
+        return STEP_RESULT_POP(0);
+
+    switch ((SelectionMenuPhase)st->phase) {
+    case SM_SETUP:
+        sm_setup(w);
+        /* Assembly line 188: cursor_frame starts at 1, then immediately toggles
+         * to 0 at @CURSOR_BLINK_LOOP. */
+        st->cursor_frame  = 1;
+        st->redraw_cursor = 1;
+        st->frame_counter = 0;
+        st->primed        = 0;   /* first SM_MAIN frame renders only (no input) */
+        st->phase         = SM_MAIN;
+        return STEP_RESULT_CONTINUE();   /* yield #1 (the setup window_tick) */
+
+    case SM_PAGE2:
+        /* Second half of an overflow page-flip (assembly): redraw items for the
+         * new page and reset the cursor to its first item, then one window_tick
+         * yield. The following SM_MAIN render-only frame reproduces the blocking
+         * version's trailing render before input resumes. */
+        print_menu_items();
+        set_instant_printing();
+        for (uint16_t i = 0; i < w->menu_count; i++) {
+            if (w->menu_items[i].page == w->menu_page_number) {
+                w->current_option = i;
+                break;
+            }
+        }
+        clear_instant_printing();
+        window_tick_work();
+        st->redraw_cursor = 1;
+        st->primed        = 0;
+        st->phase         = SM_MAIN;
+        return STEP_RESULT_CONTINUE();
+
+    case SM_MAIN:
+    default:
+        if (st->primed) {
+            bool handled;
+            StepResult r = sm_handle_input(w, st, &handled);
+            if (handled)
+                return r;   /* POP, or a move/page-flip CONTINUE */
+            /* else fall through to the render half of this same frame */
+        }
+
+        /* Render half (assembly @CURSOR_BLINK_LOOP draw + @INPUT_TICK):
+         * Per-frame tick = UPDATE_HPPP_METER_AND_RENDER (HP_PP_ROLLER +
+         * COPY_HPPP_WINDOW_TO_VRAM + UPDATE_HPPP_METER_TILES + RENDER_FRAME_TICK).
+         * update_hppp_meter_work() does that minus the yield. */
+        st->primed = 1;
+        if (st->redraw_cursor)
+            sm_draw_cursor(w, st);
+        update_hppp_meter_work();
+        return STEP_RESULT_CONTINUE();
+    }
+}
+
+/*
+ * Run a selection menu in the focus window (blocking wrapper around
+ * GAME_MODE_SELECTION_MENU). Draws cursor, handles input, returns selected
+ * userdata (0 on cancel). The early null/empty-menu exit stays synchronous.
+ */
+uint16_t selection_menu(uint16_t allow_cancel) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0) return 0;
+
+    ModeState init = {0};
+    init.selection_menu.phase        = SM_SETUP;
+    init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    return (uint16_t)pump_mode(GAME_MODE_SELECTION_MENU, &init);
 }
 
 /* ---- BG2 Buffer (Text Layer Tilemap Shadow) ---- */

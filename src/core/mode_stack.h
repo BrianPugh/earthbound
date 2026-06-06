@@ -33,6 +33,7 @@ typedef enum {
     GAME_MODE_TEXT_DELAY,      /* fixed frame-count delay (text-speed typing pause) */
     GAME_MODE_ACTIONSCRIPT_WAIT, /* wait until an entity actionscript signals done */
     GAME_MODE_TEXT_PROMPT,     /* cc_halt: text-advance wait + blinking triangle */
+    GAME_MODE_SELECTION_MENU,  /* keystone menu primitive (selection_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -186,6 +187,45 @@ typedef struct {
     uint16_t remaining;      /* text-speed shortcut frames left */
 } TextPromptState;
 
+/* GAME_MODE_SELECTION_MENU — run-to-completion port of selection_menu()
+ * (window.c), the keystone menu primitive (pause menu, shops, file select,
+ * mode-1 char select, ...). The blocking two-level loop becomes a three-phase
+ * machine. Almost all of the menu's live state already lives in the serializable
+ * WindowInfo (current_option, selected_option, menu_page_number, text_x/y), so
+ * little is hoisted here; `w` is re-fetched via get_window(win.current_focus_
+ * window) at the top of each step (a pointer is not serializable, and the focus
+ * window is stable for the menu's lifetime — restored after each callback).
+ *
+ * The window's cursor_move_callback is invoked directly off the (live, re-
+ * fetchable) WindowInfo; it is NOT hoisted. WindowInfo already stores it as a
+ * raw function pointer (and content_tilemap as a heap pointer) and is serialized
+ * by SECTION_WINDOW today — making those pointers savestate-safe is a pre-
+ * existing serialization-hardening task for the cutover, independent of this
+ * control-flow conversion.
+ *
+ * Frame timing mirrors the original exactly via `primed`: the blocking loop reads
+ * input only AFTER its per-frame update_hppp_meter_and_render() yield, and the
+ * entry path yields twice (setup window_tick, then the first update_hppp) before
+ * the first input read. SM_SETUP is the first yield; an SM_MAIN render-only frame
+ * (primed=0) is the second; thereafter SM_MAIN reads input then renders (primed=1).
+ * A cursor move adds one window_tick_work yield + one render-only frame before the
+ * next input read; a page-flip adds two window_tick_work yields + one render-only
+ * frame — each matching the blocking version's `continue` paths frame for frame. */
+typedef enum {
+    SM_SETUP = 0,  /* one-shot setup; ends with window_tick_work, then yields */
+    SM_MAIN,       /* cursor blink + per-frame HP/PP render + input handling */
+    SM_PAGE2,      /* second half of an overflow page-flip re-render */
+} SelectionMenuPhase;
+
+typedef struct {
+    uint8_t  phase;         /* SelectionMenuPhase */
+    uint8_t  allow_cancel;  /* selection_menu() arg */
+    uint8_t  primed;        /* SM_MAIN: 1 = read input this frame, 0 = render only */
+    uint8_t  redraw_cursor; /* toggle + rewrite the cursor tiles this frame */
+    uint8_t  cursor_frame;  /* blink sub-frame (0/1) */
+    uint16_t frame_counter; /* frames since last cursor toggle */
+} SelectionMenuState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -197,6 +237,7 @@ typedef union {
     TextDelayState        text_delay;
     ActionscriptWaitState actionscript_wait;
     TextPromptState       text_prompt;
+    SelectionMenuState    selection_menu;
     uint8_t               _raw[64];
 } ModeState;
 
@@ -230,6 +271,12 @@ StepResult mode_step_text_prompt(ModeState *st);
  * ModeState.char_select before pump_mode(GAME_MODE_CHAR_SELECT). Pops the 1-based
  * party member ID, or 0 on cancel. */
 StepResult mode_step_char_select(ModeState *st);
+
+/* GAME_MODE_SELECTION_MENU step (defined in window.c, where selection_menu's
+ * helpers and the cursor VRAM layout live). Init via ModeState.selection_menu
+ * (phase = SM_SETUP, allow_cancel) before pump_mode(GAME_MODE_SELECTION_MENU).
+ * Pops the chosen item's userdata, or 0 on cancel. */
+StepResult mode_step_selection_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
