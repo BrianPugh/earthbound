@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include "game_main.h"
 #include "data/text_refs.h"
+#include "core/mode_stack.h"
 
 /* Whether each save slot has data */
 static uint8_t save_files_present[SAVE_COUNT];
@@ -1012,11 +1013,13 @@ static int name_a_character(uint8_t *name_buf, int max_len, const uint8_t *eb_pr
 }
 
 /*
- * RENDER_FRAME_TICK (C1004E.asm) — overworld path.
- * Executes one frame: OAM clear, run scripts, draw, sync, vblank.
- * Used during naming screen wait loops (init_naming_screen_events).
+ * RENDER_FRAME_TICK (C1004E.asm) — overworld path, naming-screen variant.
+ * Executes one frame's WORK (OAM clear, run scripts, draw, sync) WITHOUT the
+ * trailing wait_for_vblank() — the yield belongs to the mode pump (the single
+ * host_process_frame() yield), per the savestate run-to-completion model.
+ * Used by GAME_MODE_NAMING_EVENTS (init_naming_screen_events).
  */
-static void render_frame_tick_naming(void) {
+static void render_frame_tick_naming_work(void) {
     /* OAM_CLEAR — hide all sprites and reset priority queues */
     oam_clear();
 
@@ -1026,11 +1029,10 @@ static void render_frame_tick_naming(void) {
     /* Flush queued sprites to OAM */
     render_all_priority_sprites();
 
-    /* NMI equivalent: win.bg2_buffer sync + palette sync + BG animation + vblank */
+    /* NMI equivalent: win.bg2_buffer sync + palette sync + BG animation */
     upload_battle_screen_to_vram();
     sync_palettes_to_cgram();
     battle_bg_update();
-    wait_for_vblank();
 }
 
 /*
@@ -1044,31 +1046,26 @@ static void render_frame_tick_naming(void) {
  * 3. For each entity: find by sprite_id, reassign to return animation script
  * 4. Wait for all entity scripts (slots 0 to PARTY_LEADER_ENTITY_INDEX-2) to finish
  */
-static void init_naming_screen_events(uint16_t naming_index) {
-    /* Wait for any pending actionscript to complete (assembly lines 12-16) */
-    while (ert.wait_for_naming_screen_actionscript != 0) {
-        render_frame_tick_naming();
-    }
-
-    /* Read the return animation entity list (entries 7 + naming_index).
-     * Same data format as display_animated_naming_sprite, but entries 7-13
-     * contain (sprite_id, script_id) pairs for the walk-out animations. */
+/* Reassign the walk-out animation scripts (assembly lines 17-62): read the
+ * return-animation entity list at entry 7+naming_index and, for each
+ * (sprite_id, script_id) pair, find the live entity and swap its script.
+ * Returns false on the early-out conditions (no data / bad pointer), which the
+ * blocking original handled with a bare `return` (skipping the wait + cleanup). */
+static bool naming_events_reassign_scripts(uint16_t naming_index) {
     uint16_t entry = 7 + naming_index;
     if (!naming_entities_data || entry >= NAMING_SCREEN_ENTITY_COUNT)
-        return;
+        return false;
 
     uint32_t ptr_off = NAMING_ENTITIES_PTR_TABLE_OFF + (uint32_t)entry * 4;
     if (ptr_off + 4 > naming_entities_data_size)
-        return;
+        return false;
 
     uint32_t ptr = read_u32_le(&naming_entities_data[ptr_off]);
 
     uint16_t within_bank = (uint16_t)(ptr & 0xFFFF);
     uint16_t buf_off = within_bank - NAMING_ENTITIES_ROM_BASE;
 
-    /* Walk entity list: .WORD sprite_id, .WORD script_id, terminated by 0.
-     * For each entity: find by sprite_id, reassign to return animation script.
-     * (Assembly lines 26-62) */
+    /* Walk entity list: .WORD sprite_id, .WORD script_id, terminated by 0. */
     while (buf_off + 2 <= naming_entities_data_size) {
         uint16_t sprite_id = read_u16_le(&naming_entities_data[buf_off]);
         if (sprite_id == 0)
@@ -1083,27 +1080,70 @@ static void init_naming_screen_events(uint16_t naming_index) {
 
         buf_off += 4;
     }
+    return true;
+}
 
-    /* Wait for all entity scripts (slots 0 to PARTY_LEADER_ENTITY_INDEX-2)
-     * to complete (script_table == -1 for all).
-     * Assembly (lines 63-84): AND all script_table values; when ALL are -1,
-     * the AND result is -1, and the loop exits. */
-    while (1) {
-        int16_t result = -1;
-        for (int slot = 0; slot < PARTY_LEADER_ENTITY_INDEX - 1; slot++) {
-            result &= entities.script_table[ENT(slot)];
+/* GAME_MODE_NAMING_EVENTS step — run-to-completion port of the two
+ * render_frame_tick_naming() wait loops in init_naming_screen_events(). See the
+ * mode header comment in mode_stack.h for the phase/timing rationale. */
+StepResult mode_step_naming_events(ModeState *st) {
+    NamingEventsState *s = &st->naming_events;
+
+    if (s->phase == NE_WAIT_PENDING) {
+        /* Wait for any pending actionscript to complete (assembly lines 12-16).
+         * Check-before: render+yield while it is still pending. */
+        if (ert.wait_for_naming_screen_actionscript != 0) {
+            render_frame_tick_naming_work();
+            return STEP_RESULT_CONTINUE();
         }
-        render_frame_tick_naming();
-        if (result == -1)
-            break;
+        /* Pending cleared: reassign the walk-out scripts inline (no yield). An
+         * early-out skips the wait + cleanup, exactly like the blocking return. */
+        if (!naming_events_reassign_scripts(s->naming_index))
+            return STEP_RESULT_POP(0);
+        s->phase = NE_WAIT_SCRIPTS;
+        s->done = 0;
+        /* Fall through into the first NE_WAIT_SCRIPTS frame (no extra yield),
+         * matching the blocking code's immediate entry into loop 2. */
     }
 
-    /* All entities are now deactivated.  The assembly achieves a clean VRAM
-     * and spritemap state via per-entity DEALLOCATE_ENTITY_SPRITE calls in
-     * the walk-out scripts.  As a safety net, do a bulk clear here so the
-     * next naming screen starts with a clean slate. */
-    memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
-    clear_overworld_spritemaps();
+    /* NE_WAIT_SCRIPTS: wait for all entity scripts (slots 0 ..
+     * PARTY_LEADER_ENTITY_INDEX-2) to finish (script_table == -1 for all).
+     * The blocking loop renders once more than strictly needed (it computes the
+     * AND before the render and breaks after); `done` reproduces that — the
+     * final render's yield happens, then the next step cleans up and pops. */
+    if (s->done) {
+        /* All entities are now deactivated.  The assembly achieves a clean VRAM
+         * and spritemap state via per-entity DEALLOCATE_ENTITY_SPRITE calls in
+         * the walk-out scripts.  As a safety net, do a bulk clear here so the
+         * next naming screen starts with a clean slate. */
+        memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
+        clear_overworld_spritemaps();
+        return STEP_RESULT_POP(0);
+    }
+
+    int16_t result = -1;
+    for (int slot = 0; slot < PARTY_LEADER_ENTITY_INDEX - 1; slot++) {
+        result &= entities.script_table[ENT(slot)];
+    }
+    render_frame_tick_naming_work();
+    if (result == -1)
+        s->done = 1;
+    return STEP_RESULT_CONTINUE();
+}
+
+/*
+ * INIT_NAMING_SCREEN_EVENTS (C4D830.asm)
+ *
+ * After a character has been named, assigns return animation scripts to the
+ * walk-in entities and waits for all entity scripts to complete. Thin bridge
+ * over GAME_MODE_NAMING_EVENTS (run to completion via pump_mode while the
+ * intro/file-select root chain is still blocking).
+ */
+static void init_naming_screen_events(uint16_t naming_index) {
+    ModeState init = {0};
+    init.naming_events.phase = NE_WAIT_PENDING;
+    init.naming_events.naming_index = naming_index;
+    pump_mode(GAME_MODE_NAMING_EVENTS, &init);
 }
 
 /*

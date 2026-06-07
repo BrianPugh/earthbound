@@ -40,6 +40,7 @@ typedef enum {
     GAME_MODE_BATTLE_WAIT,     /* battle wait loops (PSI/screen-effect/meter/swirl/frames) */
     GAME_MODE_BATTLE_ROW_SELECT,   /* select_battle_row: front/back row targeting */
     GAME_MODE_BATTLE_ENEMY_SELECT, /* select_battle_target: single-battler targeting */
+    GAME_MODE_NAMING_EVENTS,       /* naming-screen walk-out: wait for entity scripts to finish */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -421,6 +422,34 @@ typedef struct {
     uint16_t target_shown;  /* 0 until the target text has been displayed once */
 } BattleEnemySelectState;
 
+/* GAME_MODE_NAMING_EVENTS — run-to-completion port of init_naming_screen_events
+ * (file_select.c): after a character is named, wait for the pending naming
+ * actionscript, reassign the walk-out animation scripts, then wait for every
+ * walk-out entity script to finish before clearing sprite VRAM.
+ *
+ * Two former blocking loops over render_frame_tick_naming():
+ *   NE_WAIT_PENDING - check-before (FADE_WAIT pattern): render until
+ *                     ert.wait_for_naming_screen_actionscript == 0. When it
+ *                     clears, the script-reassign setup runs inline (no yield); an
+ *                     early-out condition pops immediately (no cleanup), otherwise
+ *                     it falls straight into the first NE_WAIT_SCRIPTS frame.
+ *   NE_WAIT_SCRIPTS - the blocking loop computes the AND of script_table BEFORE
+ *                     its render and breaks AFTER it, so it always renders once
+ *                     more than strictly needed. `done` reproduces that: the step
+ *                     computes the result, renders, and sets done when the result
+ *                     is -1; the following step does the cleanup + pop with no
+ *                     extra render (matching break -> cleanup -> return). */
+typedef enum {
+    NE_WAIT_PENDING = 0,
+    NE_WAIT_SCRIPTS,
+} NamingEventsPhase;
+
+typedef struct {
+    uint8_t  phase;        /* NamingEventsPhase */
+    uint8_t  done;         /* NE_WAIT_SCRIPTS: set after the final render; next step pops */
+    uint16_t naming_index; /* init_naming_screen_events() arg */
+} NamingEventsState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -441,6 +470,7 @@ typedef union {
     BattleWaitState       battle_wait;
     BattleRowSelectState  battle_row_select;
     BattleEnemySelectState battle_enemy_select;
+    NamingEventsState     naming_events;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -508,6 +538,12 @@ StepResult mode_step_battle_wait(ModeState *st);
  * 1-based target index (or 0 on cancel). */
 StepResult mode_step_battle_row_select(ModeState *st);
 StepResult mode_step_battle_enemy_select(ModeState *st);
+
+/* GAME_MODE_NAMING_EVENTS step (defined in file_select.c, where the naming-
+ * entity tables and render_frame_tick_naming_work() live). Init via
+ * ModeState.naming_events (phase = NE_WAIT_PENDING, naming_index) before
+ * pump_mode(GAME_MODE_NAMING_EVENTS). Always pops 0. */
+StepResult mode_step_naming_events(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

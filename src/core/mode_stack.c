@@ -78,6 +78,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_BATTLE_WAIT]   = mode_step_battle_wait,        /* defined in battle.c */
     [GAME_MODE_BATTLE_ROW_SELECT]   = mode_step_battle_row_select,   /* battle_targeting.c */
     [GAME_MODE_BATTLE_ENEMY_SELECT] = mode_step_battle_enemy_select, /* battle_targeting.c */
+    [GAME_MODE_NAMING_EVENTS]       = mode_step_naming_events,       /* file_select.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
