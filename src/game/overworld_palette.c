@@ -36,6 +36,7 @@
 #include "include/constants.h"
 #include "core/memory.h"
 #include "core/decomp.h"
+#include "core/mode_stack.h"
 #include "game_main.h"
 #include <string.h>
 #include "data/text_refs.h"
@@ -316,16 +317,75 @@ static int16_t get_map_colour_fade_slope(int16_t current, int16_t target,
     return (int16_t)(diff / frames);
 }
 
+/* ---- GAME_MODE_PALETTE_FADE step ----
+ * Run-to-completion form of the fixed-length palette-fade loops below. The single
+ * yield is owned by the pump; this body never calls wait_for_vblank(). See the
+ * PaletteFadeState comment in mode_stack.h. */
+StepResult mode_step_palette_fade(ModeState *st) {
+    PaletteFadeState *s = &st->palette_fade;
+
+    if (s->phase == 1) {
+        /* PF_TO_WHITE: the frame after the white-fill+upload was yielded. */
+        return STEP_RESULT_POP(0);
+    }
+
+    switch ((PaletteFadeKind)s->kind) {
+    case PF_SKIPPABLE_PAUSE:
+        if (s->remaining == 0)
+            return STEP_RESULT_POP(0);
+        if (core.pad1_pressed)
+            return STEP_RESULT_POP(-1);
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case PF_MAP_CHANGE:
+        if (s->remaining == 0) {
+            /* Copy the staged palette (mf->target, 6 sub-palettes) back to live
+             * ert.palettes groups 2-7. Only on normal completion (not on skip). */
+            MapPaletteFadeBuffer *mf = buf_map_palette_fade(ert.buffer);
+            memcpy(&ert.palettes[PALETTE_GROUP(2)], mf->target, BPP4PALETTE_SIZE * 6);
+            return STEP_RESULT_POP(0);
+        }
+        if (core.pad1_pressed)
+            return STEP_RESULT_POP(-1);
+        update_map_palette_fade();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case PF_TO_WHITE:
+        if (s->remaining == 0) {
+            memset(ert.palettes, 0xFF, 256 * sizeof(uint16_t));
+            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+            s->phase = 1;
+            return STEP_RESULT_CONTINUE();   /* the extra white-fill yield */
+        }
+        update_map_palette_animation();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case PF_WITH_RENDERING:
+        if (s->remaining == 0) {
+            finalize_palette_fade();
+            return STEP_RESULT_POP(0);
+        }
+        update_map_palette_animation();
+        oam_clear();
+        run_actionscript_frame();
+        update_screen();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+    }
+
+    return STEP_RESULT_POP(0);   /* unreachable */
+}
+
 /* ---- SKIPPABLE_PAUSE (port of asm/text/skippable_pause.asm) ----
  * Waits for 'frames' vblanks. Returns -1 if any button pressed, 0 when done. */
 int16_t skippable_pause(uint16_t frames) {
-    while (frames != 0) {
-        if (core.pad1_pressed)
-            return -1;
-        wait_for_vblank();
-        frames--;
-    }
-    return 0;
+    ModeState init = {0};
+    init.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
+    init.palette_fade.remaining = frames;
+    return (int16_t)pump_mode(GAME_MODE_PALETTE_FADE, &init);
 }
 
 /* ---- LOAD_MAP_PALETTE_ANIMATION_FRAME (port of asm/system/palette/load_map_palette_animation_frame.asm) ----
@@ -439,18 +499,12 @@ int16_t animate_map_palette_change(uint16_t frame_index, uint16_t frames) {
     load_map_palette_animation_frame(frame_index);
     initialize_map_palette_fade(frames);
 
-    for (uint16_t f = frames; f != 0; f--) {
-        if (core.pad1_pressed)
-            return -1;
-        update_map_palette_fade();
-        wait_for_vblank();
-    }
-
-    /* Copy staged palette (mf->target, 6 sub-palettes) back to
-     * live ert.palettes groups 2-7. Assembly: MEMCPY16(BUFFER+$7800, PALETTES+64, 192) */
-    MapPaletteFadeBuffer *mf = buf_map_palette_fade(ert.buffer);
-    memcpy(&ert.palettes[PALETTE_GROUP(2)], mf->target, BPP4PALETTE_SIZE * 6);
-    return 0;
+    /* The fade loop + the post-completion copy-back (asm MEMCPY16 BUFFER+$7800,
+     * PALETTES+64, 192) run to completion as PF_MAP_CHANGE. */
+    ModeState init = {0};
+    init.palette_fade.kind      = PF_MAP_CHANGE;
+    init.palette_fade.remaining = frames;
+    return (int16_t)pump_mode(GAME_MODE_PALETTE_FADE, &init);
 }
 
 /* ---- FADE_PALETTE_TO_WHITE (port of asm/system/palette/fade_palette_to_white.asm) ----
@@ -465,19 +519,12 @@ void fade_palette_to_white(uint16_t frames) {
      * Assembly: PREPARE_PALETTE_FADE(frames, $FFFF) */
     prepare_palette_fade_slopes((int16_t)frames, 0xFFFF);
 
-    /* Run the fade */
-    for (uint16_t f = 0; f < frames; f++) {
-        update_map_palette_animation();
-        wait_for_vblank();
-    }
-
-    /* Fill all ert.palettes with white ($FFFF).
-     * Assembly: SEP; LDA #$FF; MEMSET16(PALETTES, BPP4PALETTE_SIZE * 16) */
-    memset(ert.palettes, 0xFF, 256 * sizeof(uint16_t));
-
-    /* Set palette upload mode = 24 (full) */
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    wait_for_vblank();
+    /* The fade loop + the trailing white-fill/upload frame (asm MEMSET16 +
+     * PALETTE_UPLOAD_FULL + one more vblank) run to completion as PF_TO_WHITE. */
+    ModeState init = {0};
+    init.palette_fade.kind      = PF_TO_WHITE;
+    init.palette_fade.remaining = frames;
+    pump_mode(GAME_MODE_PALETTE_FADE, &init);
 }
 
 /* ---- ANIMATE_PALETTE_FADE_WITH_RENDERING (port of asm/system/palette/animate_palette_fade_with_rendering.asm) ----
@@ -488,15 +535,12 @@ void fade_palette_to_white(uint16_t frames) {
 void animate_palette_fade_with_rendering(uint16_t frames) {
     prepare_palette_fade_slopes((int16_t)frames, 0xFFFF);
 
-    for (uint16_t f = 0; f < frames; f++) {
-        update_map_palette_animation();
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
-        wait_for_vblank();
-    }
-
-    finalize_palette_fade();
+    /* The render-fade loop + finalize_palette_fade() run to completion as
+     * PF_WITH_RENDERING. */
+    ModeState init = {0};
+    init.palette_fade.kind      = PF_WITH_RENDERING;
+    init.palette_fade.remaining = frames;
+    pump_mode(GAME_MODE_PALETTE_FADE, &init);
 }
 
 /* ---- INITIALIZE_GAME_OVER_SCREEN (port of asm/misc/initialize_game_over_screen.asm) ----

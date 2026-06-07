@@ -44,6 +44,7 @@ typedef enum {
     GAME_MODE_TEXT_INPUT,          /* on-screen keyboard naming dialog (text_input_dialog) */
     GAME_MODE_NAMING_PROMPT,       /* naming prompt: render name box, wait for any button */
     GAME_MODE_SCREEN_TRANSITION,   /* door/screen fade-in/out transition (screen_transition) */
+    GAME_MODE_PALETTE_FADE,        /* overworld palette-fade loops (skippable_pause et al) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -534,6 +535,44 @@ typedef struct {
     uint16_t duration;   /* eff_duration (exit) / secondary_duration (enter) */
 } ScreenTransitionState;
 
+/* GAME_MODE_PALETTE_FADE — run-to-completion port of the family of fixed-length
+ * "run a palette fade for N frames" loops in overworld_palette.c. The one-shot
+ * setup (load_palette_to_fade_buffer / prepare_palette_fade_slopes /
+ * load_map_palette_animation_frame + initialize_map_palette_fade) stays in each
+ * blocking wrapper; only the per-frame loop (and its finalize) live here. `kind`
+ * selects the per-frame body, whether a button press skips it, and the finalize:
+ *
+ *   PF_SKIPPABLE_PAUSE - no body; pad1_pressed pops -1, else pop 0 when done.
+ *                        (skippable_pause)
+ *   PF_MAP_CHANGE      - body update_map_palette_fade(); pad1_pressed pops -1
+ *                        (no copy-back); on normal completion copies the staged
+ *                        palette back to ert.palettes groups 2-7, pops 0.
+ *                        (animate_map_palette_change)
+ *   PF_TO_WHITE        - body update_map_palette_animation(); not skippable; on
+ *                        completion fills ert.palettes white + sets PALETTE_
+ *                        UPLOAD_FULL, then takes ONE extra yield (phase 1) before
+ *                        popping 0. (fade_palette_to_white)
+ *   PF_WITH_RENDERING  - body update_map_palette_animation()+oam_clear()+run_
+ *                        actionscript_frame()+update_screen(); not skippable; on
+ *                        completion calls finalize_palette_fade() and pops 0 with
+ *                        no extra yield. (animate_palette_fade_with_rendering)
+ *
+ * Each kind follows the blocking loop's ordering: test "done" (remaining==0)
+ * first, then (skippable kinds) the pad, else run the body, decrement, and yield.
+ * The body runs before the yield in every case — frame-identical to the originals. */
+typedef enum {
+    PF_SKIPPABLE_PAUSE = 0,
+    PF_MAP_CHANGE,
+    PF_TO_WHITE,
+    PF_WITH_RENDERING,
+} PaletteFadeKind;
+
+typedef struct {
+    uint8_t  kind;      /* PaletteFadeKind */
+    uint8_t  phase;     /* PF_TO_WHITE: 1 = the post-white-fill final yield, then POP */
+    uint16_t remaining; /* frames left to run */
+} PaletteFadeState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -558,6 +597,7 @@ typedef union {
     TextInputState        text_input;
     NamingPromptState     naming_prompt;
     ScreenTransitionState screen_transition;
+    PaletteFadeState      palette_fade;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -647,6 +687,11 @@ StepResult mode_step_naming_prompt(ModeState *st);
  * ModeState.screen_transition (phase = ST_EXIT_BODY or ST_ENTER_BODY) before
  * pump_mode(GAME_MODE_SCREEN_TRANSITION). Always pops 0. */
 StepResult mode_step_screen_transition(ModeState *st);
+
+/* GAME_MODE_PALETTE_FADE step (defined in overworld_palette.c). Init via
+ * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_
+ * FADE). Pops 0 normally; the skippable kinds pop -1 if a button was pressed. */
+StepResult mode_step_palette_fade(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

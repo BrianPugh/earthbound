@@ -82,6 +82,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_TEXT_INPUT]          = mode_step_text_input,          /* file_select.c */
     [GAME_MODE_NAMING_PROMPT]       = mode_step_naming_prompt,       /* file_select.c */
     [GAME_MODE_SCREEN_TRANSITION]   = mode_step_screen_transition,   /* door.c */
+    [GAME_MODE_PALETTE_FADE]        = mode_step_palette_fade,        /* overworld_palette.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
