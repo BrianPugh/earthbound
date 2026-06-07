@@ -75,6 +75,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_TOWN_MAP]      = mode_step_town_map,           /* defined in town_map.c */
     [GAME_MODE_SOUND_STONE]   = mode_step_sound_stone,        /* defined in display_text_menus.c */
     [GAME_MODE_DEBUG_YMENU]   = mode_step_debug_ymenu,        /* defined in game_main.c */
+    [GAME_MODE_BATTLE_WAIT]   = mode_step_battle_wait,        /* defined in battle.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

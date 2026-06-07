@@ -37,6 +37,7 @@ typedef enum {
     GAME_MODE_TOWN_MAP,        /* town map viewer (display_town_map / run_town_map_menu) */
     GAME_MODE_SOUND_STONE,     /* sound stone melody playback (use_sound_stone) */
     GAME_MODE_DEBUG_YMENU,     /* debug Y-button leaf menus (flag editor, guide counter) */
+    GAME_MODE_BATTLE_WAIT,     /* battle wait loops (PSI/screen-effect/meter/swirl/frames) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -322,6 +323,46 @@ typedef struct {
     uint16_t index;  /* FLAG: current flag index (1-1999) */
 } DebugYMenuState;
 
+/* GAME_MODE_BATTLE_WAIT — run-to-completion port of the family of blocking
+ * "advance one frame until <condition>" loops scattered through the battle code.
+ * Each former loop body funnelled through window_tick() (or, for the swirl-update
+ * variant, wait_for_vblank()+update_swirl_effect()); the single yield now belongs
+ * to the pump. `kind` selects the per-frame body and the exit condition:
+ *
+ *   BW_FRAMES        - run window_tick_work() for `remaining` frames (battle_wait;
+ *                      the 12-frame attacker-bob delay). Check-before (POP at 0).
+ *   BW_PSI_ANIM      - window_tick_work() while is_psi_animation_active().
+ *   BW_SCREEN_EFFECT - window_tick_work() while bt.screen_effect_minimum_wait_frames.
+ *   BW_HPPP_STABLE   - window_tick_work()+reset_hppp_meter_speed_if_stable() until
+ *                      check_all_hppp_meters_stable(). The blocking loop checks the
+ *                      condition AFTER the per-frame work, so `primed` suppresses
+ *                      the exit check on the first step (same scheme as TEXT_DELAY).
+ *   BW_SWIRL_WINDOW  - window_tick_work() while is_battle_swirl_active()
+ *                      (load_battle_scene swirl-in / swirl-out).
+ *   BW_SWIRL_UPDATE  - update_swirl_effect() while is_battle_swirl_active()
+ *                      (init_battle_scripted). The blocking loop yields BEFORE the
+ *                      update, so `primed` defers the update to the step that
+ *                      follows the prior yield, keeping the yield/update interleave
+ *                      frame-identical (no phase shift).
+ *
+ * The check-before kinds (PSI/SCREEN_EFFECT/SWIRL_WINDOW) and BW_FRAMES match the
+ * GAME_MODE_FADE_WAIT pattern: test the exit condition at the top, else do the
+ * frame's work and CONTINUE (the pump yields). */
+typedef enum {
+    BW_FRAMES = 0,
+    BW_PSI_ANIM,
+    BW_SCREEN_EFFECT,
+    BW_HPPP_STABLE,
+    BW_SWIRL_WINDOW,
+    BW_SWIRL_UPDATE,
+} BattleWaitKind;
+
+typedef struct {
+    uint8_t  kind;      /* BattleWaitKind */
+    uint8_t  primed;    /* BW_HPPP_STABLE: 0 skips the exit check; BW_SWIRL_UPDATE: 0 skips the update */
+    uint16_t remaining; /* BW_FRAMES: frames left to render */
+} BattleWaitState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -339,6 +380,7 @@ typedef union {
     TownMapState          town_map;
     SoundStoneState       sound_stone;
     DebugYMenuState       debug_ymenu;
+    BattleWaitState       battle_wait;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -393,6 +435,11 @@ StepResult mode_step_sound_stone(ModeState *st);
  * ModeState.debug_ymenu (phase = DY_DRAW, kind, index) before
  * pump_mode(GAME_MODE_DEBUG_YMENU). Always pops 0. */
 StepResult mode_step_debug_ymenu(ModeState *st);
+
+/* GAME_MODE_BATTLE_WAIT step (defined in battle.c, where the swirl/PSI/meter
+ * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for
+ * BW_FRAMES) before pump_mode(GAME_MODE_BATTLE_WAIT). Always pops 0. */
+StepResult mode_step_battle_wait(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

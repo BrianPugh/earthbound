@@ -1071,8 +1071,9 @@ void fix_target_name(void) {
  */
 void apply_action_to_targets(battle_action_fn action) {
     /* Wait for PSI animation to finish */
-    while (is_psi_animation_active()) {
-        window_tick();
+    {
+        ModeState init = { .battle_wait = { .kind = BW_PSI_ANIM } };
+        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
     }
 
     /* Process enemies first (indices 8 to BATTLER_COUNT-1) */
@@ -1110,9 +1111,77 @@ void apply_action_to_targets(battle_action_fn action) {
  * entity updates, etc.).  The assembly calls WINDOW_TICK.
  */
 void battle_wait(uint16_t frames) {
-    for (uint16_t i = frames; i != 0; i--) {
-        window_tick();
+    /* Run-to-completion form: window_tick() each frame is the GAME_MODE_BATTLE_
+     * WAIT step's BW_FRAMES body (window_tick_work, no internal yield); pump_mode
+     * owns the single yield. See docs/plans/savestate-unified-loop.md. */
+    ModeState init = { .battle_wait = { .kind = BW_FRAMES, .remaining = frames } };
+    pump_mode(GAME_MODE_BATTLE_WAIT, &init);
+}
+
+/* GAME_MODE_BATTLE_WAIT — run-to-completion port of the battle "advance one frame
+ * until <condition>" loops. The single yield belongs to the pump; this step only
+ * does one frame's work and reports CONTINUE/POP. See the header for the per-kind
+ * body/condition table and the `primed` ordering notes. */
+StepResult mode_step_battle_wait(ModeState *ms) {
+    BattleWaitState *s = &ms->battle_wait;
+
+    switch ((BattleWaitKind)s->kind) {
+    case BW_FRAMES:
+        /* for (i = frames; i != 0; i--) window_tick(); */
+        if (s->remaining == 0)
+            return STEP_RESULT_POP(0);
+        window_tick_work();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case BW_PSI_ANIM:
+        /* while (is_psi_animation_active()) window_tick(); */
+        if (!is_psi_animation_active())
+            return STEP_RESULT_POP(0);
+        window_tick_work();
+        return STEP_RESULT_CONTINUE();
+
+    case BW_SCREEN_EFFECT:
+        /* while (bt.screen_effect_minimum_wait_frames) window_tick(); */
+        if (!bt.screen_effect_minimum_wait_frames)
+            return STEP_RESULT_POP(0);
+        window_tick_work();
+        return STEP_RESULT_CONTINUE();
+
+    case BW_HPPP_STABLE:
+        /* while (1) { window_tick(); reset_hppp_meter_speed_if_stable();
+         *             if (check_all_hppp_meters_stable()) break; }
+         * The blocking loop checks the exit AFTER the per-frame work and yield,
+         * so the exit test sits at the top guarded by `primed` (skipped on the
+         * first step, which has not yet yielded). */
+        if (s->primed && check_all_hppp_meters_stable())
+            return STEP_RESULT_POP(0);
+        window_tick_work();
+        reset_hppp_meter_speed_if_stable();
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
+
+    case BW_SWIRL_WINDOW:
+        /* while (is_battle_swirl_active()) window_tick(); */
+        if (!is_battle_swirl_active())
+            return STEP_RESULT_POP(0);
+        window_tick_work();
+        return STEP_RESULT_CONTINUE();
+
+    case BW_SWIRL_UPDATE:
+        /* while (is_battle_swirl_active()) { wait_for_vblank(); update_swirl_effect(); }
+         * The blocking loop yields BEFORE update_swirl_effect(), so the update is
+         * deferred to the step that follows the prior yield (`primed`), preserving
+         * the original yield/update interleave exactly. */
+        if (s->primed)
+            update_swirl_effect();
+        if (!is_battle_swirl_active())
+            return STEP_RESULT_POP(0);
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
     }
+
+    return STEP_RESULT_POP(0);
 }
 
 /* ======================================================================
@@ -4183,8 +4252,9 @@ check_asleep:
 
         /* Animate attacker (12-frame bob) */
         attacker->shake_timer = 12;
-        for (uint16_t f = 0; f < 12; f++) {
-            window_tick();
+        {
+            ModeState init = { .battle_wait = { .kind = BW_FRAMES, .remaining = 12 } };
+            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
         }
 
         /* Display status text for confused/mushroomized */
@@ -4209,8 +4279,9 @@ check_asleep:
         if (attacker->current_action == 0) goto after_action;
 
         /* Wait for PSI animation to complete */
-        while (is_psi_animation_active()) {
-            window_tick();
+        {
+            ModeState init = { .battle_wait = { .kind = BW_PSI_ANIM } };
+            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
         }
 
         /* ---- Target loop: apply action to each targeted battler ---- */
@@ -4268,8 +4339,9 @@ check_asleep:
             }
 
             /* Wait for screen effects */
-            while (bt.screen_effect_minimum_wait_frames) {
-                window_tick();
+            {
+                ModeState init = { .battle_wait = { .kind = BW_SCREEN_EFFECT } };
+                pump_mode(GAME_MODE_BATTLE_WAIT, &init);
             }
         }
 
@@ -4434,10 +4506,9 @@ battle_ending:
     reset_hppp_rolling();
 
     /* Wait for HP/PP meters to stabilize */
-    while (1) {
-        window_tick();
-        reset_hppp_meter_speed_if_stable();
-        if (check_all_hppp_meters_stable()) break;
+    {
+        ModeState init = { .battle_wait = { .kind = BW_HPPP_STABLE } };
+        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
     }
 
     /* Restore mirror if still active */
@@ -5374,10 +5445,11 @@ uint16_t init_battle_scripted(uint16_t battle_group) {
 
     /* Play battle swirl and wait for completion */
     battle_swirl_sequence();
-    while (is_battle_swirl_active()) {
-        /* Assembly: JSL WAIT_UNTIL_NEXT_FRAME; JSL UPDATE_SWIRL_EFFECT */
-        wait_for_vblank();
-        update_swirl_effect();
+    {
+        /* Assembly: JSL WAIT_UNTIL_NEXT_FRAME; JSL UPDATE_SWIRL_EFFECT (yield-
+         * before-update; BW_SWIRL_UPDATE preserves that interleave). */
+        ModeState init = { .battle_wait = { .kind = BW_SWIRL_UPDATE } };
+        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
     }
 
     /* Run the actual battle */

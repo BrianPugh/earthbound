@@ -26,6 +26,7 @@
 #include "snes/ppu.h"
 #include "core/decomp.h"
 #include "core/memory.h"
+#include "core/mode_stack.h"
 #include "include/binary.h"
 #include "include/pad.h"
 #include "platform/platform.h"
@@ -1314,8 +1315,9 @@ void load_battle_scene(uint16_t battle_group, uint16_t music_id) {
     /* Swirl in (if applicable) */
     if (!skip_swirl) {
         start_battle_swirl(6, 1, 30);
-        while (is_battle_swirl_active()) {
-            window_tick();
+        {
+            ModeState init = { .battle_wait = { .kind = BW_SWIRL_WINDOW } };
+            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
         }
     }
 
@@ -1367,8 +1369,9 @@ void load_battle_scene(uint16_t battle_group, uint16_t music_id) {
         fade_in(15, 1);
         if (battle_group != ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) {
             start_battle_swirl(6, 0, 5);
-            while (is_battle_swirl_active()) {
-                window_tick();
+            {
+                ModeState init = { .battle_wait = { .kind = BW_SWIRL_WINDOW } };
+                pump_mode(GAME_MODE_BATTLE_WAIT, &init);
             }
         }
     }
