@@ -698,224 +698,144 @@ static void kb_write_name_tilemap(WindowInfo *nw, int num_cols) {
 
 /*
  * text_input_dialog — shared keyboard input loop for naming screens.
- * Port of TEXT_INPUT_DIALOG (asm/text/text_input_dialog.asm).
- *
- * Creates the keyboard window (0x1C), runs the input loop, closes on done.
- * Name display tiles are rendered in name_display_window_id at text row
- * name_text_y (0 for file select name box, 1 for NAMING_PROMPT where row 0
- * shows the prompt text).
- *
- * name_buf:    output EB-encoded name (must be at least max_len bytes)
- * max_len:     maximum characters to accept
- * naming_index: -1 for standalone (no Don't Care), >=0 for Don't Care cycling
- * name_display_window_id: window where name VWF tiles are shown
- * name_text_y: text row within that window for the name display
- * existing_name: if non-NULL, pre-fill with this EB-encoded name (up to max_len)
- *
- * Returns: 0 = confirmed (name written to name_buf), -1 = cancelled/back
+ * Port of TEXT_INPUT_DIALOG (asm/text/text_input_dialog.asm). Run to completion
+ * as GAME_MODE_TEXT_INPUT; the wrapper at the bottom seeds the state and pumps.
+ * Creates the keyboard window (0x1C), runs the input loop, closes on done. Name
+ * display tiles render in name_display_window_id at text row name_text_y (0 for
+ * the file-select name box, 1 for NAMING_PROMPT where row 0 shows the prompt).
  */
-int text_input_dialog(uint8_t *name_buf, int max_len, int naming_index,
-                      uint16_t name_display_window_id, int name_text_y,
-                      const uint8_t *existing_name)
-{
-    bool has_dont_care = (naming_index >= 0);
+/* Resolve a NameTargetId to the (stable global) buffer it names. The buffer is
+ * only touched on confirm, so a serializable ID rather than a raw pointer keeps
+ * the keyboard mode's ModeState plain-old-data. */
+static uint8_t *name_target_buffer(int id) {
+    switch (id) {
+    case NAME_TARGET_PARTY0:    return party_characters[0].name;
+    case NAME_TARGET_PARTY1:    return party_characters[1].name;
+    case NAME_TARGET_PARTY2:    return party_characters[2].name;
+    case NAME_TARGET_PARTY3:    return party_characters[3].name;
+    case NAME_TARGET_PET:       return game_state.pet_name;
+    case NAME_TARGET_FOOD:      return game_state.favourite_food;
+    case NAME_TARGET_THING:     return game_state.favourite_thing + 4;
+    case NAME_TARGET_M2_PLAYER: return game_state.mother2_playername;
+    case NAME_TARGET_EB_PLAYER: return game_state.earthbound_playername;
+    default:                    return NULL;
+    }
+}
 
-    /* Create keyboard window (assembly: TEXT_INPUT_DIALOG line 43) */
-    create_window(WINDOW_FILE_SELECT_NAMING_KB);
-    win.current_focus_window = WINDOW_FILE_SELECT_NAMING_KB;
+/* GAME_MODE_TEXT_INPUT step — run-to-completion port of the text_input_dialog()
+ * keyboard loop. Each step reads the input the pump's prior yield latched (when
+ * `primed`), acts on it, then renders one frame; the pump owns the single yield.
+ * See the mode header in mode_stack.h. */
+StepResult mode_step_text_input(ModeState *st) {
+    TextInputState *s = &st->text_input;
 
-    /* Don't Care row counter — starts at -1, incremented to 0 on first press,
-       then cycles 0→1→2→3→4→5→6→0→... (assembly: @LOCAL0A) */
-    int dont_care_row = -1;
-
-    /* Name ert.buffer in EB encoding */
-    uint8_t eb_name[32];
-    memset(eb_name, 0, sizeof(eb_name));
-    int name_pos = 0;
-
-    /* Pre-fill from existing name if provided */
-    if (existing_name) {
-        for (int i = 0; i < max_len && existing_name[i] != 0; i++) {
-            eb_name[i] = existing_name[i];
-            name_pos++;
-        }
+    WindowInfo *kw = get_window(WINDOW_FILE_SELECT_NAMING_KB);
+    WindowInfo *nw = get_window(s->name_display_window_id);
+    if (!kw || !nw) {
+        close_window(WINDOW_FILE_SELECT_NAMING_KB);
+        return STEP_RESULT_POP(-1);
     }
 
-    int name_tile_cols = 0;
-
-    /* Cursor position in window text coordinates */
-    int cur_x = 0, cur_y = 0;
-    bool is_lowercase = false;
-    int frame_counter = 0;
-
-    while (!platform_input_quit_requested()) {
-        /* Reset VWF VRAM tile allocation pointer each frame — without this,
-           kb_render_grid() and kb_render_labels() advance vwf_vram_next every
-           frame, eventually overwriting sprite tile data in VRAM. */
-        vwf_frame_reset();
-        /* Reserve VRAM tiles for the name display (at 0x2E0+) so the keyboard
-           grid VWF rendering doesn't allocate into the same range.  Each name
-           character uses 2 VRAM tiles (upper+lower for 16px font). */
-        vwf_reserve_tiles(max_len * 2);
-
-        WindowInfo *kw = get_window(WINDOW_FILE_SELECT_NAMING_KB);
-        WindowInfo *nw = get_window(name_display_window_id);
-        if (!kw || !nw) break;
-
-        /* Render all windows (borders + any VWF text for prompt).
-           This clears the tilemap, so we must re-render keyboard tiles after. */
-        render_all_windows();
-
-        /* Render keyboard grid character tiles */
-        kb_render_grid(kw, is_lowercase);
-
-        /* Render label text via VWF (CAPITAL, small, Don't Care, etc.) */
-        kb_render_labels(kw, has_dont_care);
-
-        /* Re-render name VWF tiles every frame.  Even though the name only
-           changes on input, the keyboard grid VWF rendering writes to the same
-           VRAM range (0x2E0+) as the name display tiles, so we must re-upload
-           the name tiles after the grid to keep them visible. */
-        {
-            uint8_t display[32];
-            kb_build_name_display(display, eb_name, name_pos, max_len);
-            name_tile_cols = kb_render_name_tiles(display, max_len);
-        }
-        kb_write_name_tilemap_at(nw, name_tile_cols, name_text_y);
-
-        /* Draw blinking cursor matching selection_menu() two-frame animation:
-           Frame 0 (big):  tiles 0x41/0x51  — CURSOR_FRAME0 from TEXT_WINDOW_GFX
-           Frame 1 (small): tiles 0x28D/0x29D — CURSOR_FRAME1 from TEXT_WINDOW_GFX
-           Toggle every 10 frames; always draw one frame (never skip). */
-        {
-            bool cursor_frame = ((frame_counter / 10) % 2 != 0);
-            uint16_t *tilemap = (uint16_t *)win.bg2_buffer;
-            uint16_t mx = kw->content_x + (uint16_t)cur_x;
-            uint16_t my = kw->content_y + (uint16_t)(cur_y * 2);
-            if (mx < 32 && my + 1 < 32) {
-                if (!cursor_frame) {
-                    tilemap[my * 32 + mx]       = 0x2441; /* tile 0x41, pal 1, pri */
-                    tilemap[(my + 1) * 32 + mx] = 0x2451; /* tile 0x51, pal 1, pri */
-                } else {
-                    tilemap[my * 32 + mx]       = 0x268D; /* tile 0x28D, pal 1, pri */
-                    tilemap[(my + 1) * 32 + mx] = 0x269D; /* tile 0x29D, pal 1, pri */
-                }
-            }
-        }
-        frame_counter++;
-
-        /* Sync win.bg2_buffer to VRAM (NMI DMA equivalent) */
-        upload_battle_screen_to_vram();
-
-        /* Run entity scripts for naming screen animations */
-        oam_clear();
-        run_actionscript_frame();
-        render_all_priority_sprites();
-
-        /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
-        sync_palettes_to_cgram();
-
-        /* Update battle BG animation */
-        battle_bg_update();
-
-        wait_for_vblank();
-
+    /* --- Input handling (skipped on the first frame: no yield has happened
+       yet, matching the blocking loop's render-before-first-read order) --- */
+    if (s->primed) {
         uint16_t pressed = platform_input_get_pad_new();
 
         /* Directional input — assembly: MOVE_CURSOR plays SFX only on
            successful cursor movement (SFX 124 for UP/DOWN, 123 for LEFT/RIGHT) */
         if (pressed & PAD_UP) {
-            int found = kb_find_next(kw, cur_x, cur_y, 0, -1);
+            int found = kb_find_next(kw, s->cur_x, s->cur_y, 0, -1);
             if (found >= 0) {
-                cur_y = (found >> 8) & 0xFF;
-                cur_x = found & 0xFF;
+                s->cur_y = (found >> 8) & 0xFF;
+                s->cur_x = found & 0xFF;
                 play_sfx(124);
             }
         }
         if (pressed & PAD_DOWN) {
-            int found = kb_find_next(kw, cur_x, cur_y, 0, 1);
+            int found = kb_find_next(kw, s->cur_x, s->cur_y, 0, 1);
             if (found >= 0) {
-                cur_y = (found >> 8) & 0xFF;
-                cur_x = found & 0xFF;
+                s->cur_y = (found >> 8) & 0xFF;
+                s->cur_x = found & 0xFF;
                 play_sfx(124);
             }
         }
         if (pressed & PAD_LEFT) {
-            int found = kb_find_next(kw, cur_x, cur_y, -1, 0);
+            int found = kb_find_next(kw, s->cur_x, s->cur_y, -1, 0);
             if (found >= 0) {
-                cur_y = (found >> 8) & 0xFF;
-                cur_x = found & 0xFF;
+                s->cur_y = (found >> 8) & 0xFF;
+                s->cur_x = found & 0xFF;
                 play_sfx(123);
             }
         }
         if (pressed & PAD_RIGHT) {
-            int found = kb_find_next(kw, cur_x, cur_y, 1, 0);
+            int found = kb_find_next(kw, s->cur_x, s->cur_y, 1, 0);
             if (found >= 0) {
-                cur_y = (found >> 8) & 0xFF;
-                cur_x = found & 0xFF;
+                s->cur_y = (found >> 8) & 0xFF;
+                s->cur_x = found & 0xFF;
                 play_sfx(123);
             }
         }
 
+        /* `confirm_request` replaces the blocking loop's `goto confirm_name`. */
+        bool confirm_request = false;
+
         /* A/L button: select */
         if (pressed & PAD_CONFIRM) {
-            if (cur_y == 6) {
+            if (s->cur_y == 6) {
                 /* Row 6: buttons */
-                if (cur_x == 0 && has_dont_care) {
+                if (s->cur_x == 0 && s->has_dont_care) {
                     /* Don't Care — cycle through preset names (assembly: @DONTCARE_SELECTED).
                        Counter starts at -1; on each press: if >= 6 reset to 0, else increment.
                        Then load dont_care_names[naming_index][row] into eb_name. */
                     play_sfx(122); /* SFX::TEXT_INPUT */
-                    if (dont_care_row >= 6)
-                        dont_care_row = 0;
+                    if (s->dont_care_row >= 6)
+                        s->dont_care_row = 0;
                     else
-                        dont_care_row++;
-                    const uint8_t *eb_src = get_dont_care_name(naming_index, dont_care_row);
-                    memset(eb_name, 0, sizeof(eb_name));
-                    name_pos = 0;
-                    for (int i = 0; i < DONT_CARE_NAME_SIZE && i < max_len && eb_src[i] != 0; i++) {
-                        eb_name[i] = eb_src[i];
-                        name_pos++;
+                        s->dont_care_row++;
+                    const uint8_t *eb_src = get_dont_care_name(s->naming_index, s->dont_care_row);
+                    memset(s->eb_name, 0, sizeof(s->eb_name));
+                    s->name_pos = 0;
+                    for (int i = 0; i < DONT_CARE_NAME_SIZE && i < (int)s->max_len && eb_src[i] != 0; i++) {
+                        s->eb_name[i] = eb_src[i];
+                        s->name_pos++;
                     }
                     /* Continue loop — assembly jumps back to @RENDER_CURSOR */
-                } else if (cur_x == 17) {
+                } else if (s->cur_x == 17) {
                     /* Backspace */
                     play_sfx(122); /* SFX::TEXT_INPUT */
-                    if (name_pos > 0) {
-                        name_pos--;
-                        eb_name[name_pos] = 0;
-
+                    if (s->name_pos > 0) {
+                        s->name_pos--;
+                        s->eb_name[s->name_pos] = 0;
                     }
-                } else if (cur_x == 25) {
+                } else if (s->cur_x == 25) {
                     /* OK */
                     play_sfx(94); /* SFX::NAMING_CONFIRM */
-                    goto confirm_name;
+                    confirm_request = true;
                 }
-            } else if (cur_y == 4) {
+            } else if (s->cur_y == 4) {
                 /* Row 4: CAPITAL/small toggle or punctuation */
                 play_sfx(122); /* SFX::TEXT_INPUT */
-                if (cur_x == 0) {
-                    is_lowercase = false;
-                } else if (cur_x == 7) {
-                    is_lowercase = true;
+                if (s->cur_x == 0) {
+                    s->is_lowercase = false;
+                } else if (s->cur_x == 7) {
+                    s->is_lowercase = true;
                 } else {
                     /* Punctuation at column 11/12 */
-                    int col = kb_text_x_to_grid_col(cur_x);
-                    const uint8_t (*grid)[KB_GRID_COLS] = is_lowercase ? kb_lower_grid : kb_upper_grid;
-                    if (col >= 0 && grid[4][col] != 0xFF && name_pos < max_len) {
-                        eb_name[name_pos] = grid[4][col];
-                        name_pos++;
-
+                    int col = kb_text_x_to_grid_col(s->cur_x);
+                    const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
+                    if (col >= 0 && grid[4][col] != 0xFF && s->name_pos < s->max_len) {
+                        s->eb_name[s->name_pos] = grid[4][col];
+                        s->name_pos++;
                     }
                 }
-            } else if (cur_y >= 0 && cur_y <= 3) {
+            } else if (s->cur_y >= 0 && s->cur_y <= 3) {
                 /* Character rows 0-3 */
                 play_sfx(122); /* SFX::TEXT_INPUT */
-                int col = kb_text_x_to_grid_col(cur_x);
-                const uint8_t (*grid)[KB_GRID_COLS] = is_lowercase ? kb_lower_grid : kb_upper_grid;
-                if (col >= 0 && grid[cur_y][col] != 0xFF && name_pos < max_len) {
-                    eb_name[name_pos] = grid[cur_y][col];
-                    name_pos++;
+                int col = kb_text_x_to_grid_col(s->cur_x);
+                const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
+                if (col >= 0 && grid[s->cur_y][col] != 0xFF && s->name_pos < s->max_len) {
+                    s->eb_name[s->name_pos] = grid[s->cur_y][col];
+                    s->name_pos++;
                 }
             }
         }
@@ -923,43 +843,151 @@ int text_input_dialog(uint8_t *name_buf, int max_len, int naming_index,
         /* B/SELECT: backspace (assembly: @CHECK_B_SELECT) */
         if (pressed & PAD_CANCEL) {
             play_sfx(125); /* SFX::NAMING_BACKSPACE */
-            if (name_pos > 0) {
-                name_pos--;
-                eb_name[name_pos] = 0;
-            } else if (naming_index != -1) {
+            if (s->name_pos > 0) {
+                s->name_pos--;
+                s->eb_name[s->name_pos] = 0;
+            } else if (s->naming_index != -1) {
                 /* No characters and not standalone — go back to previous screen.
                    Assembly only closes the keyboard window; name box and message
                    are left for the caller. */
                 close_window(WINDOW_FILE_SELECT_NAMING_KB);
-                return -1;
+                return STEP_RESULT_POP(-1);
             }
         }
 
         /* START: confirm */
         if (pressed & PAD_START) {
             play_sfx(126); /* SFX::NAMING_CONFIRM_ALT */
-            goto confirm_name;
+            confirm_request = true;
         }
 
-        continue;
-
-    confirm_name:
         /* Only confirm if at least one character entered
            (assembly: @CONFIRM_NAME checks STRLEN of KEYBOARD_INPUT_CHARACTERS) */
-        if (name_pos > 0) {
-            memset(name_buf, 0, (size_t)max_len);
-            for (int i = 0; i < name_pos && i < max_len; i++)
-                name_buf[i] = eb_name[i];
+        if (confirm_request && s->name_pos > 0) {
+            uint8_t *name_buf = name_target_buffer(s->name_target);
+            if (name_buf) {
+                memset(name_buf, 0, (size_t)s->max_len);
+                for (int i = 0; i < (int)s->name_pos && i < (int)s->max_len; i++)
+                    name_buf[i] = s->eb_name[i];
+            }
             close_window(WINDOW_FILE_SELECT_NAMING_KB);
-            return 0;
+            return STEP_RESULT_POP(0);
         }
     }
 
-    close_window(WINDOW_FILE_SELECT_NAMING_KB);
-    return -1;
+    /* --- Render one frame (no yield; owned by the pump) --- */
+
+    /* Reset VWF VRAM tile allocation pointer each frame — without this,
+       kb_render_grid() and kb_render_labels() advance vwf_vram_next every
+       frame, eventually overwriting sprite tile data in VRAM. */
+    vwf_frame_reset();
+    /* Reserve VRAM tiles for the name display (at 0x2E0+) so the keyboard
+       grid VWF rendering doesn't allocate into the same range.  Each name
+       character uses 2 VRAM tiles (upper+lower for 16px font). */
+    vwf_reserve_tiles(s->max_len * 2);
+
+    /* Render all windows (borders + any VWF text for prompt).
+       This clears the tilemap, so we must re-render keyboard tiles after. */
+    render_all_windows();
+
+    /* Render keyboard grid character tiles */
+    kb_render_grid(kw, s->is_lowercase);
+
+    /* Render label text via VWF (CAPITAL, small, Don't Care, etc.) */
+    kb_render_labels(kw, s->has_dont_care);
+
+    /* Re-render name VWF tiles every frame.  Even though the name only
+       changes on input, the keyboard grid VWF rendering writes to the same
+       VRAM range (0x2E0+) as the name display tiles, so we must re-upload
+       the name tiles after the grid to keep them visible. */
+    {
+        uint8_t display[32];
+        kb_build_name_display(display, s->eb_name, s->name_pos, s->max_len);
+        int name_tile_cols = kb_render_name_tiles(display, s->max_len);
+        kb_write_name_tilemap_at(nw, name_tile_cols, s->name_text_y);
+    }
+
+    /* Draw blinking cursor matching selection_menu() two-frame animation:
+       Frame 0 (big):  tiles 0x41/0x51  — CURSOR_FRAME0 from TEXT_WINDOW_GFX
+       Frame 1 (small): tiles 0x28D/0x29D — CURSOR_FRAME1 from TEXT_WINDOW_GFX
+       Toggle every 10 frames; always draw one frame (never skip). */
+    {
+        bool cursor_frame = ((s->frame_counter / 10) % 2 != 0);
+        uint16_t *tilemap = (uint16_t *)win.bg2_buffer;
+        uint16_t mx = kw->content_x + (uint16_t)s->cur_x;
+        uint16_t my = kw->content_y + (uint16_t)(s->cur_y * 2);
+        if (mx < 32 && my + 1 < 32) {
+            if (!cursor_frame) {
+                tilemap[my * 32 + mx]       = 0x2441; /* tile 0x41, pal 1, pri */
+                tilemap[(my + 1) * 32 + mx] = 0x2451; /* tile 0x51, pal 1, pri */
+            } else {
+                tilemap[my * 32 + mx]       = 0x268D; /* tile 0x28D, pal 1, pri */
+                tilemap[(my + 1) * 32 + mx] = 0x269D; /* tile 0x29D, pal 1, pri */
+            }
+        }
+    }
+    s->frame_counter++;
+
+    /* Sync win.bg2_buffer to VRAM (NMI DMA equivalent) */
+    upload_battle_screen_to_vram();
+
+    /* Run entity scripts for naming screen animations */
+    oam_clear();
+    run_actionscript_frame();
+    render_all_priority_sprites();
+
+    /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
+    sync_palettes_to_cgram();
+
+    /* Update battle BG animation */
+    battle_bg_update();
+
+    s->primed = 1;
+    return STEP_RESULT_CONTINUE();
 }
 
-static int name_a_character(uint8_t *name_buf, int max_len, const uint8_t *eb_prompt,
+/* Thin bridge over GAME_MODE_TEXT_INPUT (run to completion via pump_mode while
+ * the intro/file-select root chain is still blocking). Creates the keyboard
+ * window, seeds the mode state (including any existing-name pre-fill, so the
+ * existing_name pointer never enters the POD ModeState), then pumps. */
+int text_input_dialog(int name_target, int max_len, int naming_index,
+                      uint16_t name_display_window_id, int name_text_y,
+                      const uint8_t *existing_name)
+{
+    /* Create keyboard window (assembly: TEXT_INPUT_DIALOG line 43) */
+    create_window(WINDOW_FILE_SELECT_NAMING_KB);
+    win.current_focus_window = WINDOW_FILE_SELECT_NAMING_KB;
+
+    ModeState init = {0};
+    TextInputState *s = &init.text_input;
+    s->primed = 0;
+    s->name_target = (uint8_t)name_target;
+    s->naming_index = (int16_t)naming_index;
+    s->has_dont_care = (naming_index >= 0);
+    s->is_lowercase = false;
+    /* Don't Care row counter — starts at -1, incremented to 0 on first press,
+       then cycles 0→1→2→3→4→5→6→0→... (assembly: @LOCAL0A) */
+    s->dont_care_row = -1;
+    s->name_pos = 0;
+    s->max_len = (uint16_t)max_len;
+    s->name_display_window_id = name_display_window_id;
+    s->name_text_y = (int16_t)name_text_y;
+    s->cur_x = 0;
+    s->cur_y = 0;
+    s->frame_counter = 0;
+
+    /* Pre-fill from existing name if provided (eb_name zeroed by {0}). */
+    if (existing_name) {
+        for (int i = 0; i < max_len && i < (int)sizeof(s->eb_name) && existing_name[i] != 0; i++) {
+            s->eb_name[i] = existing_name[i];
+            s->name_pos++;
+        }
+    }
+
+    return (int)pump_mode(GAME_MODE_TEXT_INPUT, &init);
+}
+
+static int name_a_character(int name_target, int max_len, const uint8_t *eb_prompt,
                             int eb_prompt_len, int naming_index) {
     /* Assembly order (name_a_character.asm):
        1. CREATE_WINDOW #FILE_SELECT_NAMING_NAME_BOX
@@ -1008,7 +1036,7 @@ static int name_a_character(uint8_t *name_buf, int max_len, const uint8_t *eb_pr
 
     /* Step 5: Keyboard input via shared text_input_dialog.
        Name display goes in the name box window at text row 0. */
-    return text_input_dialog(name_buf, max_len, naming_index,
+    return text_input_dialog(name_target, max_len, naming_index,
                              WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
 }
 
@@ -1244,17 +1272,17 @@ static bool new_game_naming(void) {
     /* Naming prompts loaded from ROM asset (EB-encoded, NAMING_PROMPT_ENTRY_SIZE per entry) */
 
     struct {
-        uint8_t *buf;
+        int target;   /* NameTargetId (resolved to a global buffer on confirm) */
         int max_len;
     } name_targets[THINGS_NAMED_COUNT];
 
-    name_targets[0] = (typeof(name_targets[0])){party_characters[0].name, 5};
-    name_targets[1] = (typeof(name_targets[0])){party_characters[1].name, 5};
-    name_targets[2] = (typeof(name_targets[0])){party_characters[2].name, 5};
-    name_targets[3] = (typeof(name_targets[0])){party_characters[3].name, 5};
-    name_targets[4] = (typeof(name_targets[0])){game_state.pet_name, 6};
-    name_targets[5] = (typeof(name_targets[0])){game_state.favourite_food, 6};
-    name_targets[6] = (typeof(name_targets[0])){game_state.favourite_thing + 4, 6};
+    name_targets[0] = (typeof(name_targets[0])){NAME_TARGET_PARTY0, 5};
+    name_targets[1] = (typeof(name_targets[0])){NAME_TARGET_PARTY1, 5};
+    name_targets[2] = (typeof(name_targets[0])){NAME_TARGET_PARTY2, 5};
+    name_targets[3] = (typeof(name_targets[0])){NAME_TARGET_PARTY3, 5};
+    name_targets[4] = (typeof(name_targets[0])){NAME_TARGET_PET, 6};
+    name_targets[5] = (typeof(name_targets[0])){NAME_TARGET_FOOD, 6};
+    name_targets[6] = (typeof(name_targets[0])){NAME_TARGET_THING, 6};
 
     /* Initialize entity system once before the naming loop.
      * Assembly: INIT_ENTITY_SYSTEM runs at FILE_SELECT_INIT time;
@@ -1274,7 +1302,7 @@ static bool new_game_naming(void) {
         display_animated_naming_sprite((uint16_t)i);
 
         const uint8_t *eb_prompt = naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE;
-        int result = name_a_character(name_targets[i].buf, name_targets[i].max_len,
+        int result = name_a_character(name_targets[i].target, name_targets[i].max_len,
                                       eb_prompt, NAMING_PROMPT_ENTRY_SIZE, i);
 
         /* Assembly (file_select_menu_loop.asm @NAMING_ADVANCE):

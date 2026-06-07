@@ -114,7 +114,7 @@ uint16_t enter_your_name_please(uint16_t param) {
 
         /* TEXT_INPUT_DIALOG: keyboard input for M2 name (12 chars, no Don't Care).
          * Name display goes in NAMING_PROMPT at text row 1 (below EB name). */
-        result = (uint16_t)text_input_dialog(game_state.mother2_playername, 12, -1,
+        result = (uint16_t)text_input_dialog(NAME_TARGET_M2_PLAYER, 12, -1,
                                              WINDOW_NAMING_PROMPT, 1, existing_m2);
     } else {
         /* --- EarthBound player name path (param=0) ---
@@ -137,7 +137,7 @@ uint16_t enter_your_name_please(uint16_t param) {
 
         /* TEXT_INPUT_DIALOG: keyboard input for EB name (24 chars, no Don't Care).
          * Name display goes in NAMING_PROMPT at text row 1 (below prompt). */
-        result = (uint16_t)text_input_dialog(game_state.earthbound_playername, 24, -1,
+        result = (uint16_t)text_input_dialog(NAME_TARGET_EB_PLAYER, 24, -1,
                                              WINDOW_NAMING_PROMPT, 1, existing_eb);
 
         /* Assembly lines 96-104: PROCESS_NAME_INPUT_STRING + MEMCPY16.

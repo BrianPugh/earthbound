@@ -41,6 +41,7 @@ typedef enum {
     GAME_MODE_BATTLE_ROW_SELECT,   /* select_battle_row: front/back row targeting */
     GAME_MODE_BATTLE_ENEMY_SELECT, /* select_battle_target: single-battler targeting */
     GAME_MODE_NAMING_EVENTS,       /* naming-screen walk-out: wait for entity scripts to finish */
+    GAME_MODE_TEXT_INPUT,          /* on-screen keyboard naming dialog (text_input_dialog) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -450,6 +451,38 @@ typedef struct {
     uint16_t naming_index; /* init_naming_screen_events() arg */
 } NamingEventsState;
 
+/* GAME_MODE_TEXT_INPUT — run-to-completion port of text_input_dialog()
+ * (file_select.c), the on-screen keyboard used by the naming screens and the
+ * Mother-2/EarthBound player-name registry. The blocking loop was a single
+ * render -> wait_for_vblank -> read-input -> handle cycle; the step renders the
+ * frame and lets the pump own the yield. `primed` reproduces the original's
+ * "first iteration renders before any input is read" (no yield has happened yet),
+ * exactly like overworld_step's post/render split: a primed step reads the input
+ * latched by the previous frame's yield, acts on it, then renders.
+ *
+ * The output buffer was a uint8_t* parameter, which cannot live in a POD
+ * ModeState. It is replaced by a NameTargetId (file_select.h) resolved to the
+ * (stable global) buffer on confirm — the same serializable-by-ID pattern as the
+ * char-select callbacks. The eb_name work buffer is hoisted here; any
+ * existing-name pre-fill is done by the wrapper into the initial state, so the
+ * existing_name pointer never enters ModeState. */
+typedef struct {
+    uint8_t  primed;                 /* 0 = first frame: render without reading input */
+    uint8_t  name_target;            /* NameTargetId — resolved to a buffer on confirm */
+    uint8_t  has_dont_care;          /* naming_index >= 0 */
+    uint8_t  is_lowercase;           /* keyboard case toggle */
+    int16_t  naming_index;           /* -1 (player names) or 0..6 (Don't Care group) */
+    int16_t  dont_care_row;          /* -1 init, cycles 0..6 on each Don't Care press */
+    uint16_t name_pos;               /* characters entered so far */
+    uint16_t max_len;                /* name capacity */
+    uint16_t name_display_window_id; /* window that shows the name being typed */
+    int16_t  name_text_y;            /* text row of the name display */
+    int16_t  cur_x;                  /* keyboard cursor column (window text coords) */
+    int16_t  cur_y;                  /* keyboard cursor row */
+    uint16_t frame_counter;          /* cursor-blink timer */
+    uint8_t  eb_name[32];            /* the name being built (EB-encoded) */
+} TextInputState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -471,6 +504,7 @@ typedef union {
     BattleRowSelectState  battle_row_select;
     BattleEnemySelectState battle_enemy_select;
     NamingEventsState     naming_events;
+    TextInputState        text_input;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -544,6 +578,11 @@ StepResult mode_step_battle_enemy_select(ModeState *st);
  * ModeState.naming_events (phase = NE_WAIT_PENDING, naming_index) before
  * pump_mode(GAME_MODE_NAMING_EVENTS). Always pops 0. */
 StepResult mode_step_naming_events(ModeState *st);
+
+/* GAME_MODE_TEXT_INPUT step (defined in file_select.c). Init via
+ * ModeState.text_input before pump_mode(GAME_MODE_TEXT_INPUT). Pops 0 on confirm
+ * (name written to the resolved target buffer), -1 on cancel. */
+StepResult mode_step_text_input(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
