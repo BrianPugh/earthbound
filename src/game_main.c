@@ -5,6 +5,7 @@
 #include "game_main.h"
 #include "core/types.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "core/memory.h"
 #include "core/math.h"
 #include "core/decomp.h"
@@ -481,76 +482,101 @@ bool wait_frames_or_button(uint16_t count, uint16_t button_mask) {
 }
 
 /*
- * debug_y_button_flag — Port of DEBUG_Y_BUTTON_FLAG (asm/overworld/debug/y_button_flag.asm).
- *
- * Interactive event flag editor. Shows current flag index and ON/OFF state.
- * D-pad navigates (up/down by 1, left/right by 10), A toggles, B exits.
+ * mode_step_debug_ymenu — run-to-completion driver for the clean-leaf debug
+ * Y-button menus (flag editor, guide counter). See DebugYMenuState in
+ * mode_stack.h. The single yield is owned by the pump; this body never calls
+ * wait_for_vblank(). Input is read post-yield (the established pattern): DY_DRAW
+ * renders + window_tick_work + yields, DY_INPUT acts on the latched input.
  */
-static void debug_y_button_flag(void) {
-    uint16_t flag_index = 1;  /* Start at FLG_TEMP_0 (index 1) */
+StepResult mode_step_debug_ymenu(ModeState *st) {
+    DebugYMenuState *s = &st->debug_ymenu;
 
-    for (;;) {
+    switch ((DebugYMenuPhase)s->phase) {
+    case DY_DRAW:
         set_instant_printing();
         create_window(WINDOW_FILE_SELECT_MENU);
         set_window_number_padding(3);
-
-        /* Print flag index */
-        print_number((int)flag_index, 1);
-
-        /* Print space */
-        print_char_with_sound(0x0020);
-        advance_vwf_tile();
-
-        /* Print ON/OFF status */
-        bool is_set = event_flag_get(flag_index);
-        if (is_set)
-            print_string("ON");
-        else
-            print_string("OFF");
-
+        if (s->kind == DBG_YMENU_FLAG) {
+            print_number((int)s->index, 1);
+            print_char_with_sound(0x0020);  /* space */
+            advance_vwf_tile();
+            if (event_flag_get(s->index))
+                print_string("ON");
+            else
+                print_string("OFF");
+        } else { /* DBG_YMENU_GUIDE: count entities with active scripts */
+            int count = 0;
+            for (int i = 0; i < MAX_ENTITIES; i++) {
+                if (entities.script_table[ENT(i)] != -1)
+                    count++;
+            }
+            print_number(count, 1);
+        }
         clear_instant_printing();
-        window_tick();
+        window_tick_work();
+        s->phase = DY_INPUT;
+        return STEP_RESULT_CONTINUE();
 
-        uint16_t new_index = flag_index;
-
-        /* Wait for input */
-        for (;;) {
-            wait_for_vblank();
-
-            if (core.pad1_held & PAD_UP) {
-                new_index = flag_index + 1;
-                break;
-            }
-            if (core.pad1_held & PAD_DOWN) {
-                new_index = flag_index - 1;
-                break;
-            }
-            if (core.pad1_held & PAD_RIGHT) {
-                new_index = flag_index + 10;
-                break;
-            }
-            if (core.pad1_held & PAD_LEFT) {
-                new_index = flag_index - 10;
-                break;
-            }
-            if (core.pad1_pressed & PAD_CONFIRM) {
-                /* Toggle flag */
-                if (event_flag_get(flag_index))
-                    event_flag_clear(flag_index);
-                else
-                    event_flag_set(flag_index);
-                break;
-            }
+    case DY_INPUT:
+        if (s->kind == DBG_YMENU_GUIDE) {
+            /* Draw once, then wait for B/SELECT (pre-yield check each frame). */
             if (core.pad1_pressed & PAD_CANCEL) {
                 close_window(WINDOW_FILE_SELECT_MENU);
-                return;
+                return STEP_RESULT_POP(0);
             }
+            return STEP_RESULT_CONTINUE();
         }
 
-        /* Validate new index: must be 1-1999 (assembly: >= 2000 or == 0 → keep old) */
-        if (new_index > 0 && new_index < 2000)
-            flag_index = new_index;
+        /* DBG_YMENU_FLAG: d-pad navigates (±1 / ±10 held), A toggles, B exits.
+         * Any nav/toggle returns to DY_DRAW to re-render. */
+        {
+            uint16_t new_index = s->index;
+            bool redraw = false;
+            if (core.pad1_held & PAD_UP) {
+                new_index = s->index + 1; redraw = true;
+            } else if (core.pad1_held & PAD_DOWN) {
+                new_index = s->index - 1; redraw = true;
+            } else if (core.pad1_held & PAD_RIGHT) {
+                new_index = s->index + 10; redraw = true;
+            } else if (core.pad1_held & PAD_LEFT) {
+                new_index = s->index - 10; redraw = true;
+            } else if (core.pad1_pressed & PAD_CONFIRM) {
+                if (event_flag_get(s->index))
+                    event_flag_clear(s->index);
+                else
+                    event_flag_set(s->index);
+                redraw = true;  /* new_index unchanged; re-render toggled state */
+            } else if (core.pad1_pressed & PAD_CANCEL) {
+                close_window(WINDOW_FILE_SELECT_MENU);
+                return STEP_RESULT_POP(0);
+            }
+
+            if (redraw) {
+                /* Validate: must be 1-1999 (assembly: >= 2000 or == 0 → keep old) */
+                if (new_index > 0 && new_index < 2000)
+                    s->index = new_index;
+                s->phase = DY_DRAW;
+            }
+            return STEP_RESULT_CONTINUE();
+        }
     }
+
+    return STEP_RESULT_POP(0);
+}
+
+/*
+ * debug_y_button_flag — Port of DEBUG_Y_BUTTON_FLAG (asm/overworld/debug/y_button_flag.asm).
+ *
+ * Interactive event flag editor (GAME_MODE_DEBUG_YMENU, kind FLAG). Shows current
+ * flag index and ON/OFF state. D-pad navigates (up/down by 1, left/right by 10),
+ * A toggles, B exits.
+ */
+static void debug_y_button_flag(void) {
+    ModeState init = {0};
+    init.debug_ymenu.phase = DY_DRAW;
+    init.debug_ymenu.kind = DBG_YMENU_FLAG;
+    init.debug_ymenu.index = 1;  /* Start at FLG_TEMP_0 (index 1) */
+    pump_mode(GAME_MODE_DEBUG_YMENU, &init);
 }
 
 /*
@@ -641,28 +667,10 @@ exit:
  * the count. Press B to dismiss.
  */
 static void debug_y_button_guide(void) {
-    /* Count entities with active scripts */
-    int count = 0;
-    for (int i = 0; i < MAX_ENTITIES; i++) {
-        if (entities.script_table[ENT(i)] != -1)
-            count++;
-    }
-
-    set_instant_printing();
-    create_window(WINDOW_FILE_SELECT_MENU);
-    set_window_number_padding(3);
-    print_number(count, 1);
-    clear_instant_printing();
-    window_tick();
-
-    /* Wait for B/SELECT to exit */
-    for (;;) {
-        if (core.pad1_pressed & PAD_CANCEL)
-            break;
-        wait_for_vblank();
-    }
-
-    close_window(WINDOW_FILE_SELECT_MENU);
+    ModeState init = {0};
+    init.debug_ymenu.phase = DY_DRAW;
+    init.debug_ymenu.kind = DBG_YMENU_GUIDE;
+    pump_mode(GAME_MODE_DEBUG_YMENU, &init);
 }
 
 /*

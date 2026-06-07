@@ -36,6 +36,7 @@ typedef enum {
     GAME_MODE_SELECTION_MENU,  /* keystone menu primitive (selection_menu) */
     GAME_MODE_TOWN_MAP,        /* town map viewer (display_town_map / run_town_map_menu) */
     GAME_MODE_SOUND_STONE,     /* sound stone melody playback (use_sound_stone) */
+    GAME_MODE_DEBUG_YMENU,     /* debug Y-button leaf menus (flag editor, guide counter) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -298,6 +299,29 @@ typedef struct {
     SoundStonePlayback ps[8];
 } SoundStoneState;
 
+/* GAME_MODE_DEBUG_YMENU — run-to-completion port of the two clean-leaf debug
+ * Y-button menus (debug_y_button_flag, debug_y_button_guide in game_main.c). Both
+ * are an outer redraw + inner input wait; `kind` selects which. (debug_y_button_
+ * goods is NOT here: its A action calls char_select_prompt(mode 1), which is still
+ * a blocking selection_menu wrapper, not a pushable mode — converting goods now
+ * would leave its "inside char_select" position on the native stack. Revisit when
+ * char_select_prompt mode 1 becomes a mode, then convert goods via STEP_PUSH.) */
+typedef enum {
+    DBG_YMENU_FLAG = 0,  /* event flag editor */
+    DBG_YMENU_GUIDE,     /* active-script entity counter (draw once, wait for cancel) */
+} DebugYMenuKind;
+
+typedef enum {
+    DY_DRAW = 0,  /* (re)draw the window via window_tick_work, then yield */
+    DY_INPUT,     /* read input; FLAG: nav/toggle/cancel; GUIDE: wait for cancel */
+} DebugYMenuPhase;
+
+typedef struct {
+    uint8_t  phase;  /* DebugYMenuPhase */
+    uint8_t  kind;   /* DebugYMenuKind */
+    uint16_t index;  /* FLAG: current flag index (1-1999) */
+} DebugYMenuState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -314,6 +338,7 @@ typedef union {
     SelectionMenuState    selection_menu;
     TownMapState          town_map;
     SoundStoneState       sound_stone;
+    DebugYMenuState       debug_ymenu;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -363,6 +388,11 @@ StepResult mode_step_town_map(ModeState *st);
  * ModeState.sound_stone (phase = SS_SETUP1, cancellable) before
  * pump_mode(GAME_MODE_SOUND_STONE). Always pops 0. */
 StepResult mode_step_sound_stone(ModeState *st);
+
+/* GAME_MODE_DEBUG_YMENU step (defined in game_main.c). Init via
+ * ModeState.debug_ymenu (phase = DY_DRAW, kind, index) before
+ * pump_mode(GAME_MODE_DEBUG_YMENU). Always pops 0. */
+StepResult mode_step_debug_ymenu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
