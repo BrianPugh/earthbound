@@ -1016,28 +1016,45 @@ static int name_a_character(int name_target, int max_len, const uint8_t *eb_prom
         kb_build_name_display(display, empty_name, 0, max_len);
         name_tile_cols = kb_render_name_tiles(display, max_len);
     }
-    while (!platform_input_quit_requested()) {
-        vwf_frame_reset();
-        render_all_windows();
-        {
-            WindowInfo *nw = get_window(WINDOW_FILE_SELECT_NAMING_BOX);
-            if (nw) kb_write_name_tilemap(nw, name_tile_cols);
-        }
-        upload_battle_screen_to_vram();
-        oam_clear();
-        run_actionscript_frame();
-        render_all_priority_sprites();
-        sync_palettes_to_cgram();
-        battle_bg_update();
-        wait_for_vblank();
-        if (platform_input_get_pad_new() & PAD_ANY_BUTTON)
-            break;
-    }
+
+    /* Step 4: Wait for a button press (GAME_MODE_NAMING_PROMPT, run to
+       completion via pump_mode while the intro chain is still blocking). */
+    ModeState init = {0};
+    init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
+    pump_mode(GAME_MODE_NAMING_PROMPT, &init);
 
     /* Step 5: Keyboard input via shared text_input_dialog.
        Name display goes in the name box window at text row 0. */
     return text_input_dialog(name_target, max_len, naming_index,
                              WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
+}
+
+/* GAME_MODE_NAMING_PROMPT step — run-to-completion port of the name_a_character()
+ * prompt-wait loop. Renders the name box + prompt each frame; the pump owns the
+ * yield. `primed` reproduces the blocking loop's render-before-first-read. */
+StepResult mode_step_naming_prompt(ModeState *st) {
+    NamingPromptState *s = &st->naming_prompt;
+
+    if (s->primed) {
+        if (platform_input_get_pad_new() & PAD_ANY_BUTTON)
+            return STEP_RESULT_POP(0);
+    }
+
+    vwf_frame_reset();
+    render_all_windows();
+    {
+        WindowInfo *nw = get_window(WINDOW_FILE_SELECT_NAMING_BOX);
+        if (nw) kb_write_name_tilemap(nw, s->name_tile_cols);
+    }
+    upload_battle_screen_to_vram();
+    oam_clear();
+    run_actionscript_frame();
+    render_all_priority_sprites();
+    sync_palettes_to_cgram();
+    battle_bg_update();
+
+    s->primed = 1;
+    return STEP_RESULT_CONTINUE();
 }
 
 /*

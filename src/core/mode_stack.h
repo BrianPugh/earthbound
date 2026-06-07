@@ -42,6 +42,7 @@ typedef enum {
     GAME_MODE_BATTLE_ENEMY_SELECT, /* select_battle_target: single-battler targeting */
     GAME_MODE_NAMING_EVENTS,       /* naming-screen walk-out: wait for entity scripts to finish */
     GAME_MODE_TEXT_INPUT,          /* on-screen keyboard naming dialog (text_input_dialog) */
+    GAME_MODE_NAMING_PROMPT,       /* naming prompt: render name box, wait for any button */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -483,6 +484,18 @@ typedef struct {
     uint8_t  eb_name[32];            /* the name being built (EB-encoded) */
 } TextInputState;
 
+/* GAME_MODE_NAMING_PROMPT — run-to-completion port of the name_a_character()
+ * prompt-wait loop: render the name box (with its bullet+dashes display) and the
+ * prompt message each frame until any button is pressed, then pop so the caller
+ * proceeds to the keyboard (GAME_MODE_TEXT_INPUT). The one-shot setup (create
+ * windows, print prompt, render the initial name tiles -> name_tile_cols) is done
+ * by the wrapper before pumping; name_tile_cols is the only hoisted local.
+ * `primed` reproduces the blocking loop's render-before-first-read order. */
+typedef struct {
+    uint8_t  primed;         /* 0 = first frame: render without reading input */
+    int16_t  name_tile_cols; /* columns of the pre-rendered name display */
+} NamingPromptState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -505,6 +518,7 @@ typedef union {
     BattleEnemySelectState battle_enemy_select;
     NamingEventsState     naming_events;
     TextInputState        text_input;
+    NamingPromptState     naming_prompt;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -583,6 +597,11 @@ StepResult mode_step_naming_events(ModeState *st);
  * ModeState.text_input before pump_mode(GAME_MODE_TEXT_INPUT). Pops 0 on confirm
  * (name written to the resolved target buffer), -1 on cancel. */
 StepResult mode_step_text_input(ModeState *st);
+
+/* GAME_MODE_NAMING_PROMPT step (defined in file_select.c). Init via
+ * ModeState.naming_prompt (name_tile_cols) before pump_mode(GAME_MODE_NAMING_
+ * PROMPT). Always pops 0 (a button was pressed). */
+StepResult mode_step_naming_prompt(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
