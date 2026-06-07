@@ -35,6 +35,7 @@ typedef enum {
     GAME_MODE_TEXT_PROMPT,     /* cc_halt: text-advance wait + blinking triangle */
     GAME_MODE_SELECTION_MENU,  /* keystone menu primitive (selection_menu) */
     GAME_MODE_TOWN_MAP,        /* town map viewer (display_town_map / run_town_map_menu) */
+    GAME_MODE_SOUND_STONE,     /* sound stone melody playback (use_sound_stone) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -256,10 +257,53 @@ typedef struct {
     uint16_t fadeout_count; /* display variant: fade-out render frames remaining */
 } TownMapState;
 
+/* GAME_MODE_SOUND_STONE — run-to-completion port of use_sound_stone()
+ * (display_text_menus.c), the Sound Stone melody-playback screen. The blocking
+ * original had a one-shot setup with two embedded yields (force-blank, then
+ * blank-screen + fade-in), a long per-frame animation/sequencing loop, and a
+ * fade-out + force-blank teardown. Each former yield becomes a phase boundary;
+ * the heavy per-melody animation state (ps[8]) and loop scalars are hoisted here
+ * so nothing lives on the C stack across a frame. Asset pointers are re-derived
+ * from ASSET_DATA at the top of each step (deterministic, not serialized). */
+typedef struct {
+    int16_t state;       /* 0=inactive, 1=idle, 2=playing */
+    int16_t counter;     /* animation frame counter */
+    int16_t tile_toggle; /* orbit tile frame modifier (0 or 2) */
+    int16_t orbit_frame; /* index into melody data */
+    int16_t orbit_pos1;  /* orbit radius/position */
+    int16_t orbit_pos2;  /* orbit angle accumulator */
+    int16_t pad;         /* unused (matches the 14-byte ROM layout) */
+} SoundStonePlayback;
+
+typedef enum {
+    SS_SETUP1 = 0, /* parse config + force-blank work, then yield */
+    SS_SETUP2,     /* load gfx/palettes/bg + init melodies + blank-screen work, then yield */
+    SS_FADEIN,     /* fade_in + init loop scalars, then yield (matches the loop's first yield) */
+    SS_MAIN,       /* per-frame sequencing + sprite animation; on exit -> SS_FADEOUT */
+    SS_FADEOUT,    /* wait for fade-out; then force-blank work + yield */
+    SS_EXIT,       /* set color math + reload_map + fade_in, then pop */
+} SoundStonePhase;
+
+typedef struct {
+    uint8_t  phase;          /* SoundStonePhase */
+    uint8_t  cancellable;    /* use_sound_stone() arg: A/B/X cancels early */
+    int16_t  center_timer;   /* @LOCAL0E */
+    int16_t  center_frame;   /* @LOCAL0F */
+    int16_t  initial_delay;  /* @LOCAL0D */
+    int16_t  exit_countdown; /* @LOCAL0C */
+    int16_t  seq_index;      /* @LOCAL0B */
+    int16_t  timing_counter; /* @VIRTUAL04 / @LOCAL0A */
+    int16_t  current_melody; /* @VIRTUAL02 / @LOCAL09 */
+    int16_t  collected_count;
+    SoundStonePlayback ps[8];
+} SoundStoneState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
- * ModeStack layout for already-shipped modes. */
+ * ModeStack layout for already-shipped modes. (The reserve grew from 64 to 160
+ * for SoundStoneState's ps[8]; savestates are not cross-build compatible, so the
+ * one-time on-disk size change is harmless pre-cutover.) */
 typedef union {
     FadeWaitState         fade_wait;
     NumberSelectState     number_select;
@@ -269,7 +313,8 @@ typedef union {
     TextPromptState       text_prompt;
     SelectionMenuState    selection_menu;
     TownMapState          town_map;
-    uint8_t               _raw[64];
+    SoundStoneState       sound_stone;
+    uint8_t               _raw[160];
 } ModeState;
 
 #define MODE_STACK_MAX 8
@@ -313,6 +358,11 @@ StepResult mode_step_selection_menu(ModeState *st);
  * (phase = TM_LOAD_BEGIN, menu_mode, map_id) before pump_mode(GAME_MODE_TOWN_MAP).
  * Always pops 0; the caller derives its return value from its own state. */
 StepResult mode_step_town_map(ModeState *st);
+
+/* GAME_MODE_SOUND_STONE step (defined in display_text_menus.c). Init via
+ * ModeState.sound_stone (phase = SS_SETUP1, cancellable) before
+ * pump_mode(GAME_MODE_SOUND_STONE). Always pops 0. */
+StepResult mode_step_sound_stone(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

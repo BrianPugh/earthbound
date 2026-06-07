@@ -543,13 +543,20 @@ void enemy_flashing_on(uint16_t row, uint16_t enemy) {
  * cancels any active fade, then waits for one VBlank.
  * After VBlank, writes 0 to HDMAEN hardware register.
  */
-void force_blank_and_wait_vblank(void) {
+/* Run-to-completion half: the force-blank work without the trailing yield (the
+ * pump/root loop owns the single host_process_frame). Used by mode steps. */
+void force_blank_and_wait_vblank_work(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
     bg2_distortion_active = false;
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
-    render_frame_tick();
+    render_frame_tick_work();
+}
+
+void force_blank_and_wait_vblank(void) {
+    force_blank_and_wait_vblank_work();
+    wait_for_vblank();
 }
 
 
@@ -1779,9 +1786,15 @@ void restore_bg_palette_and_enable_display(void) {
  * Force-blanks the screen (INIDISP = 0x80) and waits for one VBlank.
  * Unlike FORCE_BLANK_AND_WAIT_VBLANK, does not disable HDMA or cancel fade.
  */
-void blank_screen_and_wait_vblank(void) {
+/* Run-to-completion half (no trailing yield). Used by mode steps. */
+void blank_screen_and_wait_vblank_work(void) {
     ppu.inidisp = 0x80;
-    render_frame_tick();
+    render_frame_tick_work();
+}
+
+void blank_screen_and_wait_vblank(void) {
+    blank_screen_and_wait_vblank_work();
+    wait_for_vblank();
 }
 
 

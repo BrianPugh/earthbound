@@ -1359,6 +1359,11 @@ void force_blank_and_wait_vblank(void);
 /* BLANK_SCREEN_AND_WAIT_VBLANK — like above but keeps HDMA and fade. */
 void blank_screen_and_wait_vblank(void);
 
+/* Run-to-completion halves of the two helpers above: the same work without the
+ * trailing wait_for_vblank(), for mode-stack steps where the pump owns the yield. */
+void force_blank_and_wait_vblank_work(void);
+void blank_screen_and_wait_vblank_work(void);
+
 /* LOAD_ENEMY_BATTLE_SPRITES (asm/battle/load_enemy_battle_sprites.asm)
  * Sets PPU to mode 1 + BG3 priority, configures BG/OBJ VRAM locations. */
 void load_enemy_battle_sprites(void);

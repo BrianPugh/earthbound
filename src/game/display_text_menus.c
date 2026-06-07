@@ -34,6 +34,7 @@
 #include "game/ending.h"
 #include "game/flyover.h"
 #include "core/decomp.h"
+#include "core/mode_stack.h"
 #include <string.h>
 
 /* --- Store table ---
@@ -176,138 +177,170 @@ uint16_t enter_your_name_please(uint16_t param) {
  *   - sound_stone.gfx.lzhal: compressed graphics (0x2C00 bytes decompressed)
  *   - sound_stone.pal: 192 bytes (6 ert.palettes for melody indicators)
  */
-uint16_t use_sound_stone(uint16_t cancellable) {
-    /* ---- Load assets ---- */
-    size_t gfx_size = ASSET_SIZE(ASSET_GRAPHICS_SOUND_STONE_GFX_LZHAL);
-    const uint8_t *config_data = ASSET_DATA(ASSET_DATA_SOUND_STONE_CONFIG_BIN);
-    const uint8_t *melody_data = ASSET_DATA(ASSET_DATA_SOUND_STONE_MELODIES_BIN);
-    const uint8_t *gfx_comp = ASSET_DATA(ASSET_GRAPHICS_SOUND_STONE_GFX_LZHAL);
-    const uint8_t *pal_data = ASSET_DATA(ASSET_SOUND_STONE_PAL);
+/* ---- GAME_MODE_SOUND_STONE (run-to-completion port of use_sound_stone) ---- */
 
-    if (!config_data || !melody_data || !gfx_comp || !pal_data) {
-        return 0;
-    }
-
-    /* Parse config blob offsets (see asm/bankconfig/US/bank04.asm lines 888-908) */
-    const uint8_t *idle_x       = config_data + 36;  /* SOUND_STONE_UNKNOWN  — 8 bytes */
-    const uint8_t *idle_y       = config_data + 44;  /* SOUND_STONE_UNKNOWN2 — 8 bytes */
-    const uint8_t *idle_tiles   = config_data + 52;  /* SOUND_STONE_UNKNOWN3 — 8 bytes */
-    const uint8_t *idle_pal     = config_data + 60;  /* SOUND_STONE_UNKNOWN4 — 8 bytes */
-    const uint8_t *orbit_tiles  = config_data + 68;  /* SOUND_STONE_UNKNOWN5 — 8 bytes */
-    const uint8_t *orbit_pal    = config_data + 76;  /* SOUND_STONE_UNKNOWN6 — 8 bytes */
-    const uint8_t *music_ids    = config_data + 84;  /* SOUND_STONE_MUSIC    — 9 bytes */
-    const uint8_t *timing_raw   = config_data + 93;  /* SOUND_STONE_UNKNOWN7+8 — 18 bytes (9 words) */
-    const uint8_t *melody_flags = config_data + 111; /* SOUND_STONE_MELODY_FLAGS — 8 bytes */
-
-    /* Parse melody pointer table → compute byte offsets within melody_data.
-     * The first 36 bytes of config are 9 DWORD ROM addresses. */
-    uint32_t melody_base = read_u32_le(config_data);
+/* Sound stone asset pointers/tables, re-derived each step (deterministic, so not
+ * serialized in ModeState). ok=false if a required asset is missing. */
+typedef struct {
+    bool ok;
+    const uint8_t *melody_data;
+    const uint8_t *idle_x, *idle_y, *idle_tiles, *idle_pal;
+    const uint8_t *orbit_tiles, *orbit_pal, *music_ids, *melody_flags;
     uint16_t melody_offsets[9];
+    uint16_t timing[9];
+} SoundStoneAssets;
+
+static SoundStoneAssets ss_load_assets(void) {
+    SoundStoneAssets a = {0};
+    const uint8_t *config_data = ASSET_DATA(ASSET_DATA_SOUND_STONE_CONFIG_BIN);
+    a.melody_data = ASSET_DATA(ASSET_DATA_SOUND_STONE_MELODIES_BIN);
+    if (!config_data || !a.melody_data)
+        return a; /* ok stays false */
+
+    /* Config blob layout (asm/bankconfig/US/bank04.asm lines 888-908). */
+    a.idle_x       = config_data + 36;
+    a.idle_y       = config_data + 44;
+    a.idle_tiles   = config_data + 52;
+    a.idle_pal     = config_data + 60;
+    a.orbit_tiles  = config_data + 68;
+    a.orbit_pal    = config_data + 76;
+    a.music_ids    = config_data + 84;
+    const uint8_t *timing_raw = config_data + 93;
+    a.melody_flags = config_data + 111;
+
+    /* Melody pointer table → byte offsets within melody_data (first 36 bytes of
+     * config are 9 DWORD ROM addresses). */
+    uint32_t melody_base = read_u32_le(config_data);
     for (int i = 0; i < 9; i++) {
         uint32_t ptr = read_u32_le(&config_data[i * 4]);
-        melody_offsets[i] = (uint16_t)(ptr - melody_base);
+        a.melody_offsets[i] = (uint16_t)(ptr - melody_base);
     }
-
-    /* Read timing values as 16-bit little-endian words */
-    uint16_t timing[9];
     for (int i = 0; i < 9; i++)
-        timing[i] = read_u16_le(&timing_raw[i * 2]);
+        a.timing[i] = read_u16_le(&timing_raw[i * 2]);
 
-    /* ---- Initialize screen (assembly lines 26-66) ---- */
-    force_blank_and_wait_vblank();
-    stop_music();
-    load_enemy_battle_sprites();
+    a.ok = true;
+    return a;
+}
 
-    /* Decompress sound stone graphics directly to VRAM at word address 0x2000 (byte 0x4000).
-     * Assembly: DECOMP, then COPY_TO_VRAM1P @VIRTUAL06, VRAM::SOUND_STONE_GFX, $2C00, 0 */
-    decomp(gfx_comp, gfx_size, &ppu.vram[0x2000 * 2], 0x2C00);
+uint16_t use_sound_stone(uint16_t cancellable) {
+    ModeState init = {0};
+    init.sound_stone.phase = SS_SETUP1;
+    init.sound_stone.cancellable = (uint8_t)(cancellable != 0);
+    pump_mode(GAME_MODE_SOUND_STONE, &init);
+    return 0;
+}
 
-    /* Copy 6 ert.palettes (192 bytes) to palette RAM at sub-palette 8.
-     * Assembly: MEMCPY16 src=SOUND_STONE_PALETTE, size=BPP4PALETTE_SIZE*6,
-     * dest=PALETTES + BPP4PALETTE_SIZE * 8.  BPP4PALETTE_SIZE=32 bytes=16 colors. */
-    memcpy(&ert.palettes[128], pal_data, 192);
+/*
+ * USE_SOUND_STONE step — see the SoundStoneState comment in mode_stack.h. The
+ * single host_process_frame() yield is owned by the pump, so this body never
+ * calls wait_for_vblank(); each former blocking yield is a phase boundary.
+ */
+StepResult mode_step_sound_stone(ModeState *st) {
+    SoundStoneState *s = &st->sound_stone;
 
-    load_character_window_palette();
-
-    /* Load battle BG layers 228/229 (SOUNDSTONE1/2) with no letterbox (style 4).
-     * Assembly: LDY #4; LDX #SOUNDSTONE2; LDA #SOUNDSTONE1; JSL LOAD_BATTLE_BG */
-    load_battle_bg(228, 229, 4);
-
-    /* Init spritemaps (assembly lines 48-66).
-     * spritemap struct: { y_offset, tile, flags, x_offset, special_flags } = 5 bytes */
-    uint8_t sm1[5] = {0}; /* idle/main sprite */
-    uint8_t sm2[5] = {0}; /* orbit/center sprite */
-    sm1[0] = 240;  /* y_offset — centers 16x16 sprite at base pos */
-    sm1[3] = 240;  /* x_offset */
-    sm2[0] = 248;  /* y_offset */
-    sm2[3] = 248;  /* x_offset */
-    sm1[4] = 0x81; /* special_flags: bit 7 = 16x16, bit 0 = hi tile name */
-    sm2[4] = 0x80; /* special_flags: bit 7 = 16x16 */
-
-    /* ---- Init melody playback state (assembly lines 68-104) ----
-     * sound_stone_playback_state: { state, counter, tile_toggle,
-     *   orbit_frame, orbit_pos1, orbit_pos2, pad } × 8 melodies, 14 bytes each */
-    typedef struct {
-        int16_t state;       /* 0=inactive, 1=idle, 2=playing */
-        int16_t counter;     /* animation frame counter */
-        int16_t tile_toggle; /* orbit tile frame modifier (0 or 2) */
-        int16_t orbit_frame; /* index into melody data */
-        int16_t orbit_pos1;  /* orbit radius/position */
-        int16_t orbit_pos2;  /* orbit angle accumulator (16-bit, hi byte = angle) */
-        int16_t pad;         /* unused */
-    } PlaybackState;
-
-    PlaybackState ps[8] = {{0}};
-    int16_t collected_count = 0;
-
-    for (int i = 0; i < 8; i++) {
-        if (event_flag_get(melody_flags[i])) {
-            ps[i].state = 1; /* idle — melody collected */
-            collected_count++;
-        }
-        ps[i].counter = 1;
-        ps[i].orbit_frame = 0;
+    switch ((SoundStonePhase)s->phase) {
+    case SS_SETUP1: {
+        /* Asset validation (original lines 182-215) + the first force-blank frame
+         * (original line 218). Tables are re-derived each step, not persisted. */
+        SoundStoneAssets a = ss_load_assets();
+        if (!a.ok)
+            return STEP_RESULT_POP(0);
+        force_blank_and_wait_vblank_work();
+        s->phase = SS_SETUP2;
+        return STEP_RESULT_CONTINUE();
     }
 
-    /* Fade in (assembly lines 105-108) */
-    blank_screen_and_wait_vblank();
-    fade_in(1, 0);
+    case SS_SETUP2: {
+        /* Load gfx/palettes/BG + init melody state, then the blank-screen frame
+         * (original lines 219-274). */
+        SoundStoneAssets a = ss_load_assets();
+        if (!a.ok)
+            return STEP_RESULT_POP(0);
+        size_t gfx_size = ASSET_SIZE(ASSET_GRAPHICS_SOUND_STONE_GFX_LZHAL);
+        const uint8_t *gfx_comp = ASSET_DATA(ASSET_GRAPHICS_SOUND_STONE_GFX_LZHAL);
+        const uint8_t *pal_data = ASSET_DATA(ASSET_SOUND_STONE_PAL);
+        if (!gfx_comp || !pal_data)
+            return STEP_RESULT_POP(0);
 
-    /* ---- Initialize loop state (assembly lines 109-120) ---- */
-    int16_t center_timer = 15;     /* @LOCAL0E: center sprite animation timer */
-    int16_t center_frame = 0;      /* @LOCAL0F: center sprite frame (0-3) */
-    int16_t initial_delay = 60;    /* @LOCAL0D: frames before sequence starts */
-    int16_t exit_countdown = 0;    /* @LOCAL0C: frames until fade-out */
-    int16_t seq_index = 0;         /* @LOCAL0B: melody_sequence_index */
-    int16_t timing_counter = 0;    /* @VIRTUAL04 / @LOCAL0A */
-    int16_t current_melody = 0;    /* @VIRTUAL02 / @LOCAL09 */
+        stop_music();
+        load_enemy_battle_sprites();
+        /* Decompress sound stone graphics to VRAM word address 0x2000. */
+        decomp(gfx_comp, gfx_size, &ppu.vram[0x2000 * 2], 0x2C00);
+        /* Copy 6 palettes (192 bytes) to palette RAM at sub-palette 8. */
+        memcpy(&ert.palettes[128], pal_data, 192);
+        load_character_window_palette();
+        /* Battle BG layers 228/229 (SOUNDSTONE1/2), no letterbox (style 4). */
+        load_battle_bg(228, 229, 4);
 
-    /* ---- Main loop (assembly lines 121-507) ---- */
-    for (;;) {
-        if (platform_input_quit_requested()) break;
-        wait_for_vblank();
-        fade_update();
+        s->collected_count = 0;
+        for (int i = 0; i < 8; i++) {
+            s->ps[i].state = event_flag_get(a.melody_flags[i]) ? 1 : 0;
+            if (s->ps[i].state == 1)
+                s->collected_count++;
+            s->ps[i].counter = 1;
+            s->ps[i].tile_toggle = 0;
+            s->ps[i].orbit_frame = 0;
+            s->ps[i].orbit_pos1 = 0;
+            s->ps[i].orbit_pos2 = 0;
+            s->ps[i].pad = 0;
+        }
+
+        blank_screen_and_wait_vblank_work();
+        s->phase = SS_FADEIN;
+        return STEP_RESULT_CONTINUE();
+    }
+
+    case SS_FADEIN:
+        /* fade_in + loop-scalar init (original lines 275-284). The CONTINUE yield
+         * matches the blocking loop's first wait_for_vblank before the body. */
+        fade_in(1, 0);
+        s->center_timer = 15;
+        s->center_frame = 0;
+        s->initial_delay = 60;
+        s->exit_countdown = 0;
+        s->seq_index = 0;
+        s->timing_counter = 0;
+        s->current_melody = 0;
+        s->phase = SS_MAIN;
+        return STEP_RESULT_CONTINUE();
+
+    case SS_MAIN: {
+        SoundStoneAssets a = ss_load_assets();
+        if (!a.ok)
+            return STEP_RESULT_POP(0);
+
+        /* Scratch spritemaps (original lines 239-246), re-init each frame; the
+         * loop only overwrites [1]/[2]. { y_off, tile, flags, x_off, special }. */
+        uint8_t sm1[5] = {0}; /* idle/main sprite */
+        uint8_t sm2[5] = {0}; /* orbit/center sprite */
+        sm1[0] = 240; sm1[3] = 240; sm1[4] = 0x81;
+        sm2[0] = 248; sm2[3] = 248; sm2[4] = 0x80;
 
         uint16_t pressed = core.pad1_pressed;
+        int16_t tc = s->timing_counter;
 
-        /* Reload timing_counter → local var (assembly line 125-126) */
-        int16_t tc = timing_counter;
+        /* ---- Per-frame sequencing + animation (original lines 287-451) ---- */
 
         /* Initial delay phase (assembly lines 127-138) */
         if (tc == 0) {
-            initial_delay--;
-            if (initial_delay == 0) {
-                current_melody = -1;
-                seq_index = -1;
+            s->initial_delay--;
+            if (s->initial_delay == 0) {
+                s->current_melody = -1;
+                s->seq_index = -1;
                 tc = 1;
-                timing_counter = 1;
+                s->timing_counter = 1;
             }
         }
 
         /* Exit countdown (assembly lines 139-145) */
-        if (exit_countdown > 0) {
-            exit_countdown--;
-            if (exit_countdown == 0) break; /* → EXIT_FADE_OUT */
+        if (s->exit_countdown > 0) {
+            s->exit_countdown--;
+            if (s->exit_countdown == 0) {
+                /* → EXIT_FADE_OUT (former break, no render this frame) */
+                fade_out(1, 1);
+                s->phase = SS_FADEOUT;
+                return STEP_RESULT_CONTINUE();
+            }
             goto render_sprites;
         }
 
@@ -315,58 +348,58 @@ uint16_t use_sound_stone(uint16_t cancellable) {
         if (tc == 0) goto render_sprites;
 
         tc--;
-        timing_counter = tc;
+        s->timing_counter = tc;
 
         if (tc != 0) goto update_timing;
 
         /* Timing counter reached 0 — melody's timer expired */
         {
-            int16_t cm = current_melody;
+            int16_t cm = s->current_melody;
 
             /* Deactivate previously-playing melody (assembly lines 158-168) */
-            if (cm < 8 && ps[cm].state == 2)
-                ps[cm].state = 1;
+            if (cm < 8 && s->ps[cm].state == 2)
+                s->ps[cm].state = 1;
 
             /* Check if we need to find next melody (assembly lines 169-193) */
             if (cm == 8) {
                 /* Search from seq_index+1 for a melody with state > 0 */
-                int16_t search = seq_index + 1;
-                while (search < 8 && ps[search].state == 0)
+                int16_t search = s->seq_index + 1;
+                while (search < 8 && s->ps[search].state == 0)
                     search++;
                 if (search >= 8) {
-                    exit_countdown = 150;
+                    s->exit_countdown = 150;
                 }
             }
 
             /* Advance to next melody (assembly lines 194-227) */
-            seq_index++;
-            if (seq_index >= 8) {
+            s->seq_index++;
+            if (s->seq_index >= 8) {
                 /* All melodies done */
-                exit_countdown = 150;
+                s->exit_countdown = 150;
                 goto update_timing;
             }
 
-            current_melody = seq_index;
+            s->current_melody = s->seq_index;
 
-            if (ps[seq_index].state != 0) {
-                ps[seq_index].state = 2; /* playing */
+            if (s->ps[s->seq_index].state != 0) {
+                s->ps[s->seq_index].state = 2; /* playing */
             } else {
-                current_melody = 8; /* sentinel: no active melody */
+                s->current_melody = 8; /* sentinel: no active melody */
             }
 
             /* Play music for this melody slot (assembly lines 216-226) */
-            tc = timing[current_melody];
-            timing_counter = tc;
-            change_music((uint16_t)music_ids[current_melody]);
+            tc = (int16_t)a.timing[s->current_melody];
+            s->timing_counter = tc;
+            change_music((uint16_t)a.music_ids[s->current_melody]);
         }
 
 update_timing:
         /* APU effect trigger (assembly lines 231-250):
          * When timing_counter equals (timing[melody] - 9), send APU command. */
-        if (current_melody < 8) {
-            int16_t threshold = (int16_t)(timing[current_melody] - 9);
-            if (timing_counter == threshold)
-                write_apu_port1((uint8_t)(collected_count + 8));
+        if (s->current_melody < 8) {
+            int16_t threshold = (int16_t)(a.timing[s->current_melody] - 9);
+            if (s->timing_counter == threshold)
+                write_apu_port1((uint8_t)(s->collected_count + 8));
         }
 
 render_sprites:
@@ -374,70 +407,70 @@ render_sprites:
         oam_clear();
 
         for (int i = 0; i < 8; i++) {
-            if (ps[i].state == 1) {
+            if (s->ps[i].state == 1) {
                 /* DRAW_IDLE_SPRITE (assembly lines 268-286):
                  * Draw at fixed position from lookup tables. */
-                sm1[1] = idle_tiles[i];     /* tile */
+                sm1[1] = a.idle_tiles[i];   /* tile */
                 sm1[2] = 0x30;              /* flags: palette 1, priority 1 */
-                write_spritemap_to_oam(sm1, (int16_t)(uint8_t)idle_x[i],
-                                            (int16_t)(uint8_t)idle_y[i]);
+                write_spritemap_to_oam(sm1, (int16_t)(uint8_t)a.idle_x[i],
+                                            (int16_t)(uint8_t)a.idle_y[i]);
 
-            } else if (ps[i].state == 2) {
+            } else if (s->ps[i].state == 2) {
                 /* DRAW_ORBIT_SPRITE (assembly lines 287-466):
                  * Animated orbiting sprite pair + main sprite at fixed pos. */
 
                 /* Advance orbit angle (assembly lines 288-295) */
-                ps[i].orbit_pos2 += (int16_t)(65540 / 20);
+                s->ps[i].orbit_pos2 += (int16_t)(65540 / 20);
 
                 /* Advance animation frame counter (assembly lines 297-344) */
-                ps[i].counter--;
-                if (ps[i].counter == 0) {
-                    ps[i].counter = 2;
+                s->ps[i].counter--;
+                if (s->ps[i].counter == 0) {
+                    s->ps[i].counter = 2;
 
                     /* Read next position byte from melody data (assembly lines 315-330) */
-                    uint16_t mel_offset = melody_offsets[i] + (uint16_t)ps[i].orbit_frame;
-                    ps[i].orbit_pos1 = (int16_t)(melody_data[mel_offset] & 0xFF);
-                    ps[i].orbit_frame++;
+                    uint16_t mel_offset = a.melody_offsets[i] + (uint16_t)s->ps[i].orbit_frame;
+                    s->ps[i].orbit_pos1 = (int16_t)(a.melody_data[mel_offset] & 0xFF);
+                    s->ps[i].orbit_frame++;
 
                     /* Toggle tile_toggle between 0 and 2 (assembly lines 336-344) */
-                    ps[i].tile_toggle = 2 - ps[i].tile_toggle;
+                    s->ps[i].tile_toggle = 2 - s->ps[i].tile_toggle;
                 }
 
                 /* Draw orbit sprite pair (assembly lines 345-442) */
-                sm2[1] = (uint8_t)(orbit_tiles[i] + ps[i].tile_toggle);
-                sm2[2] = (uint8_t)(orbit_pal[i] * 2 + 0x31);
+                sm2[1] = (uint8_t)(a.orbit_tiles[i] + s->ps[i].tile_toggle);
+                sm2[2] = (uint8_t)(a.orbit_pal[i] * 2 + 0x31);
 
-                int16_t pos1 = ps[i].orbit_pos1;
+                int16_t pos1 = s->ps[i].orbit_pos1;
                 if (pos1 != 0) {
-                    uint8_t angle = (uint8_t)((ps[i].orbit_pos2 >> 8) & 0xFF);
+                    uint8_t angle = (uint8_t)((s->ps[i].orbit_pos2 >> 8) & 0xFF);
 
                     /* First orbit sprite (assembly lines 388-410) */
-                    int16_t sx1 = (int16_t)(uint8_t)idle_x[i] + cosine_func(pos1, angle);
-                    int16_t sy1 = (int16_t)(uint8_t)idle_y[i] + cosine_sine(pos1, angle);
+                    int16_t sx1 = (int16_t)(uint8_t)a.idle_x[i] + cosine_func(pos1, angle);
+                    int16_t sy1 = (int16_t)(uint8_t)a.idle_y[i] + cosine_sine(pos1, angle);
                     write_spritemap_to_oam(sm2, sx1, sy1);
 
                     /* Second orbit sprite at angle+128 (assembly lines 411-442) */
                     uint8_t angle2 = (angle + 128) & 0xFF;
-                    int16_t sx2 = (int16_t)(uint8_t)idle_x[i] + cosine_func(pos1, angle2);
-                    int16_t sy2 = (int16_t)(uint8_t)idle_y[i] + cosine_sine(pos1, angle2);
+                    int16_t sx2 = (int16_t)(uint8_t)a.idle_x[i] + cosine_func(pos1, angle2);
+                    int16_t sy2 = (int16_t)(uint8_t)a.idle_y[i] + cosine_sine(pos1, angle2);
                     write_spritemap_to_oam(sm2, sx2, sy2);
                 }
 
                 /* Draw main sprite at fixed idle position (assembly lines 443-466) */
-                sm1[1] = (uint8_t)(idle_tiles[i] + 128);
-                sm1[2] = (uint8_t)(idle_pal[i] * 2 + 0x30);
-                write_spritemap_to_oam(sm1, (int16_t)(uint8_t)idle_x[i],
-                                            (int16_t)(uint8_t)idle_y[i]);
+                sm1[1] = (uint8_t)(a.idle_tiles[i] + 128);
+                sm1[2] = (uint8_t)(a.idle_pal[i] * 2 + 0x30);
+                write_spritemap_to_oam(sm1, (int16_t)(uint8_t)a.idle_x[i],
+                                            (int16_t)(uint8_t)a.idle_y[i]);
             }
         }
 
         /* Update center sprite animation (assembly lines 473-495) */
-        center_timer--;
-        if (center_timer == 0) {
-            center_timer = 15;
-            center_frame = (center_frame + 1) & 3;
+        s->center_timer--;
+        if (s->center_timer == 0) {
+            s->center_timer = 15;
+            s->center_frame = (int16_t)((s->center_frame + 1) & 3);
         }
-        sm2[1] = (uint8_t)(64 + center_frame * 2);
+        sm2[1] = (uint8_t)(64 + s->center_frame * 2);
         sm2[2] = 0x3B; /* palette 5, priority 1 + hi priority */
         write_spritemap_to_oam(sm2, 128, 112);
 
@@ -447,23 +480,32 @@ render_sprites:
         generate_battlebg_frame(&loaded_bg_data_layer2, 1);
 
         /* Button check for cancellable mode (assembly lines 503-507) */
-        if (cancellable && (pressed & (PAD_B | PAD_A | PAD_X)))
-            break;
+        if (s->cancellable && (pressed & (PAD_B | PAD_A | PAD_X))) {
+            fade_out(1, 1);
+            s->phase = SS_FADEOUT;
+            return STEP_RESULT_CONTINUE();
+        }
+        return STEP_RESULT_CONTINUE();
     }
 
-    /* ---- Exit: fade out and reload map (assembly lines 508-526) ---- */
-    fade_out(1, 1);
-    while (fade_active()) {
-        if (platform_input_quit_requested()) break;
-        wait_for_vblank();
-        fade_update();
-    }
-    force_blank_and_wait_vblank();
-    set_color_math_from_table(1);
-    reload_map();
-    fade_in(1, 1);
+    case SS_FADEOUT:
+        /* Wait for the exit fade-out, then the force-blank frame (original lines
+         * 455-461). */
+        if (fade_active())
+            return STEP_RESULT_CONTINUE();
+        force_blank_and_wait_vblank_work();
+        s->phase = SS_EXIT;
+        return STEP_RESULT_CONTINUE();
 
-    return 0;
+    case SS_EXIT:
+        /* Restore color math + reload the map (original lines 462-464). */
+        set_color_math_from_table(1);
+        reload_map();
+        fade_in(1, 1);
+        return STEP_RESULT_POP(0);
+    }
+
+    return STEP_RESULT_POP(0);
 }
 
 
