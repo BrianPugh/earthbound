@@ -32,6 +32,7 @@
 #include "game/audio.h"
 #include "core/memory.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "game/battle.h"
 #include "game/fade.h"
 #include "game/flyover.h"
@@ -48,6 +49,72 @@
 #include <math.h>
 
 #include "game_main.h"
+
+/* ---- GAME_MODE_MOSAIC_FADE step ----
+ * Run-to-completion port of the brightness-ramp mosaic fades (FADE_OUT_WITH_MOSAIC
+ * here, flyover.c's fade_in/out). The single yield is owned by the pump; this
+ * body never calls wait_for_vblank(). See the MosaicFadeState comment in
+ * mode_stack.h. The internal for(;;) advances brightness steps back-to-back when
+ * delay == 0 (no yields) and only returns CONTINUE to take a delay yield. */
+StepResult mode_step_mosaic_fade(ModeState *st) {
+    MosaicFadeState *s = &st->mosaic_fade;
+
+    if (s->phase == 1) {
+        /* MF_OUT + final_hdma: the extra trailing yield happened; pop. */
+        return STEP_RESULT_POP(0);
+    }
+
+    for (;;) {
+        /* Drain the inter-step delay first (the original's for(delay) wait). */
+        if (s->delay_left > 0) {
+            s->delay_left--;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        if (s->kind == MF_IN) {
+            uint8_t  b    = ppu.inidisp & 0x0F;
+            uint16_t next = (uint16_t)b + s->step;
+            if (next >= 0x0F) {
+                ppu.inidisp = (uint8_t)((ppu.inidisp & 0xF0) | 0x0F);
+                return STEP_RESULT_POP(0);
+            }
+            ppu.inidisp = (uint8_t)((ppu.inidisp & 0xF0) | (uint8_t)next);
+            if (s->mosaic_bgs) {
+                /* fade-in uses the PRE-step brightness for the mosaic size. */
+                uint8_t inv = (uint8_t)(~b) & 0x0F;
+                ppu.mosaic = (uint8_t)((inv << 4) | s->mosaic_bgs);
+            }
+            s->delay_left = s->delay;
+            continue;
+        }
+
+        /* MF_OUT */
+        ppu.mosaic = 0;
+        if (!(ppu.inidisp & 0x80)) {
+            uint8_t b    = ppu.inidisp & 0x0F;
+            int16_t next = (int16_t)b - (int16_t)s->step;
+            if (next >= 0) {
+                ppu.inidisp = (uint8_t)((ppu.inidisp & 0xF0) | (uint8_t)next);
+                if (s->mosaic_bgs) {
+                    /* fade-out uses the POST-step brightness for the mosaic size. */
+                    uint8_t inv = (uint8_t)(~(uint8_t)next) & 0x0F;
+                    ppu.mosaic = (uint8_t)((inv << 4) | s->mosaic_bgs);
+                }
+                s->delay_left = s->delay;
+                continue;
+            }
+        }
+
+        /* Ramp finished (already force-blank or brightness would go negative). */
+        ppu.inidisp = 0x80;
+        if (s->final_hdma) {
+            ppu.window_hdma_active = false;
+            s->phase = 1;
+            return STEP_RESULT_CONTINUE();   /* the extra trailing yield */
+        }
+        return STEP_RESULT_POP(0);
+    }
+}
 
 /* Animation sequence metadata from ANIMATION_SEQUENCE_POINTERS (bytes [4..7] of each 8-byte entry).
  * [0..1] = tile_size (LE), [2] = frame_count, [3] = delay. */
@@ -705,26 +772,15 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         uint16_t mosaic_bgs = sw(pc + 4);
         *out_pc = pc + 6;
 
-        while (1) {
-            ppu.mosaic = 0;
-            uint8_t cur = ppu.inidisp;
-            if (cur & 0x80) break;  /* already force blank */
-            int new_b = (int)(cur & 0x0F) - (int)decrease;
-            if (new_b < 0) break;
-            ppu.inidisp = (uint8_t)new_b;
-            if (mosaic_bgs) {
-                /* UPDATE_MOSAIC_FROM_BRIGHTNESS (C087AB):
-                 * mosaic_size = (~brightness << 4) & 0xF0
-                 * Inversely proportional: dimmer = coarser mosaic. */
-                uint8_t inv = (uint8_t)((uint8_t)new_b ^ 0xFF);
-                ppu.mosaic = (uint8_t)(((inv << 4) & 0xF0) | (mosaic_bgs & 0x0F));
-            }
-            for (uint16_t i = 0; i < delay; i++)
-                wait_for_vblank();
-        }
-        ppu.inidisp = 0x80;  /* force blank */
-        ppu.window_hdma_active = false;  /* disable HDMA effects */
-        wait_for_vblank();
+        /* The brightness-ramp loop + the trailing force-blank/HDMA-disable frame
+         * run to completion as GAME_MODE_MOSAIC_FADE (MF_OUT, final_hdma). */
+        ModeState init = {0};
+        init.mosaic_fade.kind       = MF_OUT;
+        init.mosaic_fade.step       = (uint8_t)decrease;
+        init.mosaic_fade.delay      = delay;
+        init.mosaic_fade.mosaic_bgs = (uint8_t)(mosaic_bgs & 0x0F);
+        init.mosaic_fade.final_hdma = 1;
+        pump_mode(GAME_MODE_MOSAIC_FADE, &init);
         return 0;
     }
     case ROM_ADDR_SPAWN_ENTITY_RELATIVE: {

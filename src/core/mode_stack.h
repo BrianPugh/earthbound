@@ -45,6 +45,8 @@ typedef enum {
     GAME_MODE_NAMING_PROMPT,       /* naming prompt: render name box, wait for any button */
     GAME_MODE_SCREEN_TRANSITION,   /* door/screen fade-in/out transition (screen_transition) */
     GAME_MODE_PALETTE_FADE,        /* overworld palette-fade loops (skippable_pause et al) */
+    GAME_MODE_MAP_PALETTE_FADE,    /* map-load BG palette cross-fade (load_map_palette) */
+    GAME_MODE_MOSAIC_FADE,         /* brightness-ramp mosaic fade in/out (callroutine, flyover) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -573,6 +575,57 @@ typedef struct {
     uint16_t remaining; /* frames left to run */
 } PaletteFadeState;
 
+/* GAME_MODE_MAP_PALETTE_FADE — run-to-completion port of load_map_palette()'s
+ * fade path (map_loader.c). The one-shot setup (parse target palette + compute
+ * the per-channel 8.8 accumulators/slopes into ert.buffer scratch) stays in the
+ * wrapper; only the per-frame UPDATE_MAP_PALETTE_FADE loop and the post-fade
+ * finalize live here.
+ *
+ * The blocking loop yields BEFORE each accumulate (wait_for_vblank() at the top
+ * of the body), so `primed` makes the first step the leading wait with no
+ * accumulate. Each subsequent step accumulates one frame (the inner 96-color
+ * loop) + sets PALETTE_UPLOAD_BG_ONLY. When the last frame is accumulated, the
+ * finalize (slam final BG palette, reload/adjust sprite palettes, PALETTE_UPLOAD
+ * _FULL) runs inline and `done` is set; the following step takes the trailing
+ * wait_for_vblank() and pops. Net yields = fade_frames + 1, matching the
+ * original. fade_frames == 0 is handled by the wrapper's instant path (never
+ * enters this mode). */
+typedef struct {
+    uint8_t  primed;    /* 0 = first frame is the leading wait (no accumulate yet) */
+    uint8_t  done;      /* set after the finalize; the next step pops */
+    uint16_t remaining; /* accumulate frames left */
+} MapPaletteFadeState;
+
+/* GAME_MODE_MOSAIC_FADE — run-to-completion port of the brightness-ramp mosaic
+ * fades: FADE_OUT_WITH_MOSAIC (callroutine.c) and flyover.c's fade_in/out. The
+ * INIDISP brightness nibble is ramped by `step` each brightness step, optionally
+ * driving the MOSAIC register (size inversely proportional to brightness) when
+ * `mosaic_bgs != 0`; each brightness step is followed by `delay` yields.
+ *
+ *   MF_IN  - ramp brightness up. Each step: next = b + step; if next >= 0x0F set
+ *            INIDISP brightness to 0x0F and POP (no trailing delay). The wrapper
+ *            primes INIDISP=0x00 / MOSAIC=0 before pumping.
+ *   MF_OUT - ramp brightness down. Each step clears MOSAIC, breaks if INIDISP is
+ *            already force-blank or next = b - step < 0; on break sets INIDISP =
+ *            0x80 (force blank). When `final_hdma` is set (the callroutine
+ *            variant) it also clears window_hdma_active and takes ONE extra yield
+ *            (phase 1) before popping.
+ *
+ * delay == 0 means the whole ramp completes in a single step with no yields
+ * (the original's inner for-loop ran zero times) — the step's internal loop
+ * advances brightness steps back-to-back until a yield (delay > 0) or completion. */
+typedef enum { MF_IN = 0, MF_OUT } MosaicFadeKind;
+
+typedef struct {
+    uint8_t  kind;        /* MosaicFadeKind */
+    uint8_t  phase;       /* MF_OUT + final_hdma: 1 = the extra trailing yield, then POP */
+    uint8_t  step;        /* brightness change per step */
+    uint8_t  mosaic_bgs;  /* mosaic enable mask (low nibble); 0 = no mosaic */
+    uint8_t  final_hdma;  /* MF_OUT: also clear window_hdma_active + 1 extra yield */
+    uint16_t delay;       /* yields between brightness steps */
+    uint16_t delay_left;  /* remaining delay yields before the next brightness step */
+} MosaicFadeState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -598,6 +651,8 @@ typedef union {
     NamingPromptState     naming_prompt;
     ScreenTransitionState screen_transition;
     PaletteFadeState      palette_fade;
+    MapPaletteFadeState   map_palette_fade;
+    MosaicFadeState       mosaic_fade;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -692,6 +747,16 @@ StepResult mode_step_screen_transition(ModeState *st);
  * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_
  * FADE). Pops 0 normally; the skippable kinds pop -1 if a button was pressed. */
 StepResult mode_step_palette_fade(ModeState *st);
+
+/* GAME_MODE_MAP_PALETTE_FADE step (defined in map_loader.c, where the sprite-
+ * palette helpers and BUF_FLASH_* scratch layout are visible). Init via
+ * ModeState.map_palette_fade (remaining = fade_frames) before pump_mode. Pops 0. */
+StepResult mode_step_map_palette_fade(ModeState *st);
+
+/* GAME_MODE_MOSAIC_FADE step (defined in callroutine.c). Init via
+ * ModeState.mosaic_fade (kind, step, delay, mosaic_bgs, final_hdma) before
+ * pump_mode(GAME_MODE_MOSAIC_FADE). Always pops 0. */
+StepResult mode_step_mosaic_fade(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

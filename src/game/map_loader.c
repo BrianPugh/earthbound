@@ -26,6 +26,7 @@
 #include "snes/ppu.h"
 #include "core/decomp.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include "data/assets.h"
 #include "include/binary.h"
 #include "include/constants.h"
@@ -861,37 +862,70 @@ void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
         b_incr[i] = ((tgt_b - cur_b) * 256) / div;
     }
 
-    /* UPDATE_MAP_PALETTE_FADE each frame (assembly lines 60-72).
-     * Assembly only calls WAIT_UNTIL_NEXT_FRAME, NOT a full render tick. */
-    for (uint16_t f = 0; f < fade_frames; f++) {
-        wait_for_vblank();
-        for (int i = 0; i < 96; i++) {
-            r_accum[i] += r_incr[i];
-            g_accum[i] += g_incr[i];
-            b_accum[i] += b_incr[i];
+    /* UPDATE_MAP_PALETTE_FADE each frame (assembly lines 60-89) — the per-frame
+     * accumulate loop and the post-fade finalize run to completion as
+     * GAME_MODE_MAP_PALETTE_FADE (the accumulators/slopes computed above live in
+     * ert.buffer scratch, which the step re-derives each frame). */
+    ModeState init = {0};
+    init.map_palette_fade.remaining = fade_frames;
+    pump_mode(GAME_MODE_MAP_PALETTE_FADE, &init);
+}
 
-            uint16_t r = (uint16_t)((r_accum[i] >> 8) & 0x1F);
-            uint16_t g = (uint16_t)((g_accum[i] >> 8) & 0x1F);
-            uint16_t b = (uint16_t)((b_accum[i] >> 8) & 0x1F);
+/* ---- GAME_MODE_MAP_PALETTE_FADE step ----
+ * Run-to-completion form of load_map_palette()'s fade loop + finalize. The single
+ * yield is owned by the pump; this body never calls wait_for_vblank(). See the
+ * MapPaletteFadeState comment in mode_stack.h. */
+StepResult mode_step_map_palette_fade(ModeState *st) {
+    MapPaletteFadeState *s = &st->map_palette_fade;
 
-            ert.palettes[32 + i] = r | (g << 5) | (b << 10);
-        }
-        ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
+    if (s->done)
+        return STEP_RESULT_POP(0);
+
+    if (!s->primed) {
+        /* The loop's leading wait_for_vblank() (yield-before-accumulate). */
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
     }
 
-    /* After fade: slam final BG palette (assembly lines 73-77) */
-    memcpy(&ert.palettes[32], target, 96 * sizeof(uint16_t));
+    /* Re-derive the scratch pointers (ert.buffer survives a save/reload). */
+    uint16_t *target  = (uint16_t *)&ert.buffer[BUF_FLASH_TARGET];
+    int16_t  *r_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_R];
+    int16_t  *g_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_G];
+    int16_t  *b_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_B];
+    int16_t  *r_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_R];
+    int16_t  *g_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_G];
+    int16_t  *b_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_B];
 
-    /* Reload sprite ert.palettes from SPRITE_GROUP_PALETTES (assembly lines 78-81) */
-    reload_sprite_group_palettes();
+    /* One frame's accumulate (assembly lines 60-72). */
+    for (int i = 0; i < 96; i++) {
+        r_accum[i] += r_incr[i];
+        g_accum[i] += g_incr[i];
+        b_accum[i] += b_incr[i];
 
-    /* Adjust sprite ert.palettes for new map lighting (assembly lines 82-83) */
-    adjust_sprite_palettes_by_average();
-    load_special_sprite_palette();
+        uint16_t r = (uint16_t)((r_accum[i] >> 8) & 0x1F);
+        uint16_t g = (uint16_t)((g_accum[i] >> 8) & 0x1F);
+        uint16_t b = (uint16_t)((b_accum[i] >> 8) & 0x1F);
 
-    /* Assembly lines 84-89: set full upload and wait for DMA */
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    wait_for_vblank();
+        ert.palettes[32 + i] = r | (g << 5) | (b << 10);
+    }
+    ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
+    s->remaining--;
+
+    if (s->remaining == 0) {
+        /* After fade: slam final BG palette (assembly lines 73-77). */
+        memcpy(&ert.palettes[32], target, 96 * sizeof(uint16_t));
+
+        /* Reload + adjust sprite palettes for new map lighting (lines 78-83). */
+        reload_sprite_group_palettes();
+        adjust_sprite_palettes_by_average();
+        load_special_sprite_palette();
+
+        /* Assembly lines 84-89: set full upload; the trailing wait is the next
+         * (final) yield, after which `done` pops. */
+        ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+        s->done = 1;
+    }
+    return STEP_RESULT_CONTINUE();
 }
 
 /* Load map palette with event flag override checking.

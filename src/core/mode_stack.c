@@ -83,6 +83,8 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_NAMING_PROMPT]       = mode_step_naming_prompt,       /* file_select.c */
     [GAME_MODE_SCREEN_TRANSITION]   = mode_step_screen_transition,   /* door.c */
     [GAME_MODE_PALETTE_FADE]        = mode_step_palette_fade,        /* overworld_palette.c */
+    [GAME_MODE_MAP_PALETTE_FADE]    = mode_step_map_palette_fade,    /* map_loader.c */
+    [GAME_MODE_MOSAIC_FADE]         = mode_step_mosaic_fade,         /* callroutine.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
