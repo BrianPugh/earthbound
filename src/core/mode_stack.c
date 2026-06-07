@@ -72,6 +72,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_ACTIONSCRIPT_WAIT] = mode_step_actionscript_wait, /* defined in display_text_cc.c */
     [GAME_MODE_TEXT_PROMPT]   = mode_step_text_prompt,        /* defined in display_text_cc.c */
     [GAME_MODE_SELECTION_MENU] = mode_step_selection_menu,    /* defined in window.c */
+    [GAME_MODE_TOWN_MAP]      = mode_step_town_map,           /* defined in town_map.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

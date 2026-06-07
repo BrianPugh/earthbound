@@ -34,6 +34,7 @@ typedef enum {
     GAME_MODE_ACTIONSCRIPT_WAIT, /* wait until an entity actionscript signals done */
     GAME_MODE_TEXT_PROMPT,     /* cc_halt: text-advance wait + blinking triangle */
     GAME_MODE_SELECTION_MENU,  /* keystone menu primitive (selection_menu) */
+    GAME_MODE_TOWN_MAP,        /* town map viewer (display_town_map / run_town_map_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -226,6 +227,35 @@ typedef struct {
     uint16_t frame_counter; /* frames since last cursor toggle */
 } SelectionMenuState;
 
+/* GAME_MODE_TOWN_MAP — run-to-completion port of display_town_map() (overworld X
+ * button) and run_town_map_menu() (items menu). Both share one mode via
+ * `menu_mode`. The blocking helper load_town_map_data() embedded a bare
+ * while(fade_active()) wait; it is split into load_town_map_begin() (fade_out +
+ * decomp) and load_town_map_finish() (palette/VRAM uploads + fade_in), with the
+ * former fade-wait inlined as TM_LOAD_WAIT (each CONTINUE yields, advancing the
+ * fade via host_process_frame). The menu variant re-enters TM_LOAD_BEGIN to
+ * reload when the up/down selection changes maps.
+ *
+ * Input timing follows the established post-yield pattern (overworld_step): a step
+ * renders the current frame, then acts on the input the pump's prior yield
+ * latched. The display variant checks its exit buttons after update_screen (like
+ * the blocking loop); the menu variant checks A after render but before
+ * update_screen (matching the blocking `if (A) break;` placement). */
+typedef enum {
+    TM_LOAD_BEGIN = 0, /* fade_out + decomp gfx, then wait for fade */
+    TM_LOAD_WAIT,      /* bare fade-wait; on done, finish load -> TM_MAIN */
+    TM_MAIN,           /* render icons + handle input (display exit / menu nav) */
+    TM_FADEOUT,        /* display variant: 16-frame fade-out render loop, then pop */
+} TownMapPhase;
+
+typedef struct {
+    uint8_t  phase;         /* TownMapPhase */
+    uint8_t  menu_mode;     /* 0 = display_town_map, 1 = run_town_map_menu */
+    uint8_t  map_id;        /* current map index (0-5) */
+    uint8_t  prev_map;      /* menu variant: last loaded map (suppresses re-reload) */
+    uint16_t fadeout_count; /* display variant: fade-out render frames remaining */
+} TownMapState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -238,6 +268,7 @@ typedef union {
     ActionscriptWaitState actionscript_wait;
     TextPromptState       text_prompt;
     SelectionMenuState    selection_menu;
+    TownMapState          town_map;
     uint8_t               _raw[64];
 } ModeState;
 
@@ -277,6 +308,11 @@ StepResult mode_step_char_select(ModeState *st);
  * (phase = SM_SETUP, allow_cancel) before pump_mode(GAME_MODE_SELECTION_MENU).
  * Pops the chosen item's userdata, or 0 on cancel. */
 StepResult mode_step_selection_menu(ModeState *st);
+
+/* GAME_MODE_TOWN_MAP step (defined in town_map.c). Init via ModeState.town_map
+ * (phase = TM_LOAD_BEGIN, menu_mode, map_id) before pump_mode(GAME_MODE_TOWN_MAP).
+ * Always pops 0; the caller derives its return value from its own state. */
+StepResult mode_step_town_map(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

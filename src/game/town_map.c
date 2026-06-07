@@ -28,6 +28,7 @@
 #include "include/pad.h"
 #include "snes/ppu.h"
 #include "platform/platform.h"
+#include "core/mode_stack.h"
 #include <string.h>
 
 #include "game_main.h"
@@ -47,7 +48,8 @@
 
 /* Forward declarations */
 static uint16_t get_town_map_id(uint16_t leader_x, uint16_t leader_y);
-static void load_town_map_data(uint16_t map_index);
+static void load_town_map_begin(uint16_t map_index);
+static void load_town_map_finish(uint16_t map_index);
 static void render_town_map_icons(uint16_t map_index);
 static void update_town_map_player_icon(void);
 static void cycle_map_icon_palette(void);
@@ -96,8 +98,13 @@ static uint16_t get_town_map_id(uint16_t leader_x, uint16_t leader_y) {
  *
  * Loads graphics, ert.palettes, and tilemaps for the specified town map.
  * map_index: 0-5 (Onett, Twoson, Threed, Fourside, Scaraba, Summers)
+ *
+ * Split for the run-to-completion mode (GAME_MODE_TOWN_MAP): load_town_map_begin()
+ * starts the fade-out and decompresses the GFX; the caller then waits for the
+ * fade (TM_LOAD_WAIT, each frame yields via the pump so the fade advances);
+ * load_town_map_finish() does the palette/VRAM uploads and starts the fade-in.
  */
-static void load_town_map_data(uint16_t map_index) {
+static void load_town_map_begin(uint16_t map_index) {
     fade_out(2, 1);
 
     /* Decompress town map GFX into ert.buffer.
@@ -109,12 +116,10 @@ static void load_town_map_data(uint16_t map_index) {
     if (gfx_data) {
         decomp(gfx_data, gfx_size, ert.buffer, BUFFER_SIZE);
     }
+}
 
-    /* Wait for fade to complete */
-    while (fade_active()) {
-        wait_for_vblank();
-    }
-
+static void load_town_map_finish(uint16_t map_index) {
+    (void)map_index;
     /* Copy first 2 ert.palettes (64 bytes) from BUFFER to PALETTES */
     memcpy(ert.palettes, ert.buffer, BPP4PALETTE_SIZE * 2);
 
@@ -357,6 +362,106 @@ static void render_town_map_icons(uint16_t map_index) {
 }
 
 /*
+ * GAME_MODE_TOWN_MAP step — run-to-completion driver shared by display_town_map()
+ * and run_town_map_menu(). See the TownMapState comment in mode_stack.h. The
+ * single host_process_frame() yield is owned by the pump, so this body never
+ * calls wait_for_vblank().
+ */
+StepResult mode_step_town_map(ModeState *st) {
+    TownMapState *s = &st->town_map;
+
+    switch ((TownMapPhase)s->phase) {
+    case TM_LOAD_BEGIN:
+        /* load_town_map_data() first half: fade_out + decompress GFX. */
+        load_town_map_begin(s->map_id);
+        s->phase = TM_LOAD_WAIT;
+        return STEP_RESULT_CONTINUE();
+
+    case TM_LOAD_WAIT:
+        /* Former bare while(fade_active()) wait_for_vblank() — each CONTINUE
+         * yields, advancing the fade via host_process_frame(). */
+        if (fade_active())
+            return STEP_RESULT_CONTINUE();
+        load_town_map_finish(s->map_id);   /* palette/VRAM uploads + fade_in */
+        s->prev_map = s->map_id;
+        s->phase = TM_MAIN;
+        return STEP_RESULT_CONTINUE();
+
+    case TM_MAIN:
+        if (s->menu_mode) {
+            /* run_town_map_menu(): up/down navigation across the 6 maps. Input
+             * was latched by the pump's prior yield (post-yield handling). */
+            if (core.pad1_pressed & PAD_UP) {
+                if (s->map_id == 0)
+                    s->map_id = TOWN_MAP_COUNT;
+                s->map_id--;
+            }
+            if (core.pad1_pressed & PAD_DOWN) {
+                s->map_id++;
+            }
+            if (s->map_id >= TOWN_MAP_COUNT)
+                s->map_id = 0;
+
+            /* Reload if the selection changed maps. */
+            if (s->map_id != s->prev_map) {
+                s->phase = TM_LOAD_BEGIN;
+                return STEP_RESULT_CONTINUE();
+            }
+
+            oam_clear();
+            render_town_map_icons(s->map_id);
+
+            if (core.pad1_pressed & PAD_A) {
+                /* Exit (matches the blocking `if (A) break;` before update_screen). */
+                undraw_flyover_text();
+                reload_map();
+                ppu.tm = 0x17;
+                return STEP_RESULT_POP(0);
+            }
+
+            update_screen();
+            return STEP_RESULT_CONTINUE();
+        }
+
+        /* display_town_map(): fixed map, exits on any of CONFIRM/CANCEL/X. */
+        oam_clear();
+        render_town_map_icons(s->map_id);
+        update_screen();
+
+        if ((core.pad1_pressed & PAD_CONFIRM) ||
+            (core.pad1_pressed & PAD_CANCEL) ||
+            (core.pad1_pressed & PAD_X)) {
+            fade_out(2, 1);
+            s->fadeout_count = 16;
+            s->phase = TM_FADEOUT;
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case TM_FADEOUT:
+        /* Fade out while continuing to render for 16 frames. */
+        if (s->fadeout_count > 0) {
+            oam_clear();
+            render_town_map_icons(s->map_id);
+            update_screen();
+            s->fadeout_count--;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        /* Reload the normal map display. */
+        ow.disable_music_changes = 1;
+        reload_map();
+        ml.current_map_music_track = ml.next_map_music_track;
+        undraw_flyover_text();
+        ow.disable_music_changes = 0;
+        ppu.tm = 0x17;
+        fade_in(2, 1);
+        return STEP_RESULT_POP(0);
+    }
+
+    return STEP_RESULT_POP(0);
+}
+
+/*
  * DISPLAY_TOWN_MAP (asm/overworld/display_town_map.asm)
  *
  * Displays the town map based on the leader's current position.
@@ -374,45 +479,11 @@ uint16_t display_town_map(void) {
     if (map_id == 0)
         return map_id;
 
-
-    load_town_map_data(map_id - 1);
-
-    /* Main render loop — exits on any button press */
-    for (;;) {
-        if (platform_input_quit_requested()) break;
-        wait_for_vblank();
-        oam_clear();
-        render_town_map_icons(map_id - 1);
-        update_screen();
-
-        if (core.pad1_pressed & PAD_CONFIRM)
-            break;
-        if (core.pad1_pressed & PAD_CANCEL)
-            break;
-        if (core.pad1_pressed & PAD_X)
-            break;
-    }
-
-    /* Fade out while continuing to render for 16 frames */
-    fade_out(2, 1);
-    for (uint16_t i = 0; i < 16; i++) {
-        if (platform_input_quit_requested()) break;
-        wait_for_vblank();
-        oam_clear();
-        render_town_map_icons(map_id - 1);
-        update_screen();
-    }
-
-    /* Reload the normal map display */
-    ow.disable_music_changes = 1;
-    reload_map();
-    ml.current_map_music_track = ml.next_map_music_track;
-    undraw_flyover_text();
-    ow.disable_music_changes = 0;
-
-    ppu.tm = 0x17;
-    fade_in(2, 1);
-
+    ModeState init = {0};
+    init.town_map.phase = TM_LOAD_BEGIN;
+    init.town_map.menu_mode = 0;
+    init.town_map.map_id = (uint8_t)(map_id - 1);
+    pump_mode(GAME_MODE_TOWN_MAP, &init);
 
     return map_id;
 }
@@ -438,52 +509,14 @@ void show_town_map(void) {
  * Used when selecting Town Map from the items menu.
  */
 void run_town_map_menu(void) {
-    uint16_t current_map = 0;
-    uint16_t prev_map = 0;
     town_map_animation_frame = 60;
     town_map_player_icon_animation_frame = 20;
     frames_until_map_icon_palette_update = 12;
 
-
-    load_town_map_data(current_map);
-
-    for (;;) {
-        if (platform_input_quit_requested()) break;
-        wait_for_vblank();
-        oam_clear();
-
-        /* Handle UP/DOWN navigation */
-        if (core.pad1_pressed & PAD_UP) {
-            if (current_map == 0)
-                current_map = TOWN_MAP_COUNT;
-            current_map--;
-        }
-        if (core.pad1_pressed & PAD_DOWN) {
-            current_map++;
-        }
-
-        /* Wrap around: assembly checks for -1 (0xFFFF) and >= 6 */
-        if (current_map >= TOWN_MAP_COUNT) {
-            current_map = 0;
-        }
-
-        /* Reload if map changed */
-        if (current_map != prev_map) {
-            load_town_map_data(current_map);
-            prev_map = current_map;
-        }
-
-        render_town_map_icons(current_map);
-
-        if (core.pad1_pressed & PAD_A)
-            break;
-
-        update_screen();
-    }
-
-    undraw_flyover_text();
-    reload_map();
-    ppu.tm = 0x17;
-
-
+    ModeState init = {0};
+    init.town_map.phase = TM_LOAD_BEGIN;
+    init.town_map.menu_mode = 1;
+    init.town_map.map_id = 0;
+    init.town_map.prev_map = 0;
+    pump_mode(GAME_MODE_TOWN_MAP, &init);
 }
