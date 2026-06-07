@@ -27,6 +27,7 @@
 #include "entity/entity.h"
 #include "game/audio.h"
 #include "game/battle.h"
+#include "core/mode_stack.h"
 #include "game/display_text.h"
 #include "game/fade.h"
 #include "game/game_state.h"
@@ -777,6 +778,98 @@ static void update_transition_scroll(void) {
     map_refresh_tilemaps(new_x + EB_VIEWPORT_CENTER_X, new_y + EB_VIEWPORT_CENTER_Y);
 }
 
+/* ---- GAME_MODE_SCREEN_TRANSITION step ----
+ * Run-to-completion form of screen_transition()'s two frame loops + finalize.
+ * See the ScreenTransitionState comment in mode_stack.h. The single yield is
+ * owned by the pump; this body never calls wait_for_vblank(). */
+StepResult mode_step_screen_transition(ModeState *st) {
+    ScreenTransitionState *s = &st->screen_transition;
+
+    for (;;) {
+        switch ((ScreenTransitionPhase)s->phase) {
+        case ST_EXIT_BODY:
+            if (s->frame >= s->duration) {
+                s->phase = ST_EXIT_FINALIZE;
+                continue;   /* no yield between the loop and finalize */
+            }
+            /* Optional pre-yield: flush a pending palette upload (asm line 95). */
+            if (!s->pal_waited && ert.palette_upload_mode != 0) {
+                s->pal_waited = 1;
+                return STEP_RESULT_CONTINUE();
+            }
+            update_map_palette_animation();
+            oam_clear();
+            update_transition_scroll();
+            update_entity_screen_positions();
+            run_actionscript_frame();
+            update_screen();
+            update_swirl_effect();
+            s->frame++;
+            s->pal_waited = 0;
+            return STEP_RESULT_CONTINUE();   /* the iteration's main yield */
+
+        case ST_EXIT_FINALIZE:
+            /* asm lines 117-141: fade-to-white (fade_style >= 49) or force-blank.
+             * The post-yield bits (wipe flag, re-enable entities) run in
+             * ST_EXIT_POST to preserve the original before/after-yield ordering. */
+            if (s->fade_style >= 49) {
+                for (int i = 0; i < 256; i++) {
+                    ert.palettes[i] = 0x7FFF;
+                }
+                ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+            } else {
+                set_force_blank(true);
+                ppu.window_hdma_active = false;
+            }
+            s->phase = ST_EXIT_POST;
+            return STEP_RESULT_CONTINUE();   /* the single finalize yield */
+
+        case ST_EXIT_POST:
+            if (s->fade_style >= 49) {
+                dr.wipe_palettes_on_map_load = 1;
+            }
+            enable_all_entities();   /* asm line 143 */
+            return STEP_RESULT_POP(0);
+
+        case ST_ENTER_BODY:
+            if (s->frame >= s->duration) {
+                /* asm lines 228-230: finalize palette fade (palette mode only),
+                 * then done — no extra yield (matches the loop falling through). */
+                if (s->enter_mode == 0) {
+                    finalize_palette_fade();
+                }
+                return STEP_RESULT_POP(0);
+            }
+            if (s->enter_mode == 0) {
+                if (!s->pal_waited && ert.palette_upload_mode != 0) {
+                    s->pal_waited = 1;
+                    return STEP_RESULT_CONTINUE();
+                }
+                update_map_palette_animation();
+            }
+            oam_clear();
+            run_actionscript_frame();
+            update_swirl_effect();
+            update_screen();
+            s->pal_waited = 0;
+            s->phase = ST_ENTER_POST;
+            return STEP_RESULT_CONTINUE();   /* the iteration's main yield */
+
+        case ST_ENTER_POST:
+            /* asm lines 211-213: disable entities on frame 1, AFTER the yield,
+             * BEFORE the loop increment (so it tests the pre-increment frame). */
+            if (s->frame == 1) {
+                disable_all_entities();
+            }
+            s->frame++;
+            s->phase = ST_ENTER_BODY;
+            continue;   /* no yield: resume the loop body */
+        }
+
+        return STEP_RESULT_POP(0);   /* unreachable */
+    }
+}
+
 /* ---- SCREEN_TRANSITION (port of asm/overworld/screen_transition.asm) ----
  * Main screen transition effect used by door transitions.
  *
@@ -809,6 +902,11 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
     uint16_t dir_x4 = (uint16_t)direction << 2;
     init_transition_scroll_velocity((uint16_t)unknown5, dir_x4);
 
+    /* The two per-frame frame loops (and the finalize frame) are run-to-
+     * completion as GAME_MODE_SCREEN_TRANSITION; the one-shot setup below and the
+     * shared cleanup at the bottom stay in this blocking wrapper. */
+    ModeState init = {0};
+
     if (mode == 1) {
         /* ====== EXIT TRANSITION (fade out) ====== */
 
@@ -828,43 +926,12 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
         load_palette_to_fade_buffer(fade_style);
         prepare_palette_fade_slopes((int16_t)eff_duration, 0xFFFF);
 
-        /* Assembly lines 94-116: exit transition frame loop */
-        for (uint16_t frame = 0; frame < eff_duration; frame++) {
-            if (ert.palette_upload_mode != 0) {
-                wait_for_vblank();
-            }
-            update_map_palette_animation();
-            oam_clear();
-            update_transition_scroll();
-            update_entity_screen_positions();
-            run_actionscript_frame();
-            update_screen();
-            update_swirl_effect();
-            wait_for_vblank();
-        }
-
-        /* Assembly lines 117-141: finalize exit transition.
-         * Assembly: LDA #50; CLC; SBC fade_style → 49 - fade_style
-         * BRANCHLTEQS @FADE_TO_WHITE when 49 - fade_style <= 0 → fade_style >= 49
-         * If fade_style >= 49, fade palette to white.
-         * If fade_style < 49, just force blank. */
-        if (fade_style >= 49) {
-            /* Fade to white: fill ert.palettes with 0x7FFF, upload */
-            for (int i = 0; i < 256; i++) {
-                ert.palettes[i] = 0x7FFF;
-            }
-            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-            wait_for_vblank();
-            dr.wipe_palettes_on_map_load = 1;
-        } else {
-            /* Force blank: set INIDISP to force blank, disable HDMA */
-            set_force_blank(true);
-            ppu.window_hdma_active = false;
-            wait_for_vblank();
-        }
-
-        /* Assembly lines 143: enable entities */
-        enable_all_entities();
+        /* Assembly lines 94-143: exit transition frame loop + finalize. */
+        init.screen_transition.phase      = ST_EXIT_BODY;
+        init.screen_transition.frame      = 0;
+        init.screen_transition.duration   = eff_duration;
+        init.screen_transition.fade_style = fade_style;
+        pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
     } else {
         /* ====== ENTER TRANSITION (fade in) ====== */
 
@@ -897,30 +964,12 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
                               (uint16_t)secondary_animation_flags);
         }
 
-        /* Assembly lines 192-227: enter transition frame loop */
-        for (uint16_t frame = 0; frame < (uint16_t)secondary_duration; frame++) {
-            if (enter_mode == 0) {
-                if (ert.palette_upload_mode != 0) {
-                    wait_for_vblank();
-                }
-                update_map_palette_animation();
-            }
-            oam_clear();
-            run_actionscript_frame();
-            update_swirl_effect();
-            update_screen();
-            wait_for_vblank();
-
-            /* Assembly lines 211-213: disable entities on frame 1 */
-            if (frame == 1) {
-                disable_all_entities();
-            }
-        }
-
-        /* Assembly lines 228-230: finalize palette fade if in palette mode */
-        if (enter_mode == 0) {
-            finalize_palette_fade();
-        }
+        /* Assembly lines 192-230: enter transition frame loop + finalize. */
+        init.screen_transition.phase      = ST_ENTER_BODY;
+        init.screen_transition.frame      = 0;
+        init.screen_transition.duration   = (uint16_t)secondary_duration;
+        init.screen_transition.enter_mode = enter_mode;
+        pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
     }
 
     /* ====== TRANSITION CLEANUP (shared) ====== */

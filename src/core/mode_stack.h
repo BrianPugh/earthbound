@@ -43,6 +43,7 @@ typedef enum {
     GAME_MODE_NAMING_EVENTS,       /* naming-screen walk-out: wait for entity scripts to finish */
     GAME_MODE_TEXT_INPUT,          /* on-screen keyboard naming dialog (text_input_dialog) */
     GAME_MODE_NAMING_PROMPT,       /* naming prompt: render name box, wait for any button */
+    GAME_MODE_SCREEN_TRANSITION,   /* door/screen fade-in/out transition (screen_transition) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -496,6 +497,43 @@ typedef struct {
     int16_t  name_tile_cols; /* columns of the pre-rendered name display */
 } NamingPromptState;
 
+/* GAME_MODE_SCREEN_TRANSITION — run-to-completion port of the two frame loops in
+ * screen_transition() (door.c, asm/overworld/screen_transition.asm), the door
+ * fade-out (mode==1, "exit") and fade-in (mode==0, "enter") animations. The
+ * one-shot setup (resolve config, init scroll velocity, the leading 2-frame
+ * wait, init the swirl, prime the palette fade) stays in the blocking wrapper;
+ * so does the trailing shared cleanup. Only the per-frame loops + the single
+ * finalize frame live here.
+ *
+ * Both loops carry an OPTIONAL pre-yield: `if (palette_upload_mode) wait_for_
+ * vblank();` flushes a pending palette DMA before the frame's palette animation
+ * update — at most one extra yield per iteration. `pal_waited` tracks whether
+ * that pre-yield has been taken this iteration (reset after the frame's main
+ * yield), reproducing the conditional double-yield exactly.
+ *
+ * Exit path: ST_EXIT_BODY (loop) -> ST_EXIT_FINALIZE (fade-to-white or force-
+ * blank frame) -> ST_EXIT_POST (post-yield wipe flag + enable entities, POP).
+ * Enter path: ST_ENTER_BODY (loop) -> ST_ENTER_POST (post-yield frame==1 disable
+ * + increment); when the loop ends, finalize_palette_fade() runs inline and the
+ * mode POPs (no extra yield). The enter loop's post-yield disable_all_entities()
+ * on frame 1 keeps its original placement (after the yield, before increment). */
+typedef enum {
+    ST_EXIT_BODY = 0,   /* exit fade-out loop iteration */
+    ST_EXIT_FINALIZE,   /* fade-to-white / force-blank frame */
+    ST_EXIT_POST,       /* post-finalize-yield: wipe flag + enable entities, POP */
+    ST_ENTER_BODY,      /* enter fade-in loop iteration */
+    ST_ENTER_POST,      /* post-yield: frame==1 disable, then increment */
+} ScreenTransitionPhase;
+
+typedef struct {
+    uint8_t  phase;      /* ScreenTransitionPhase */
+    uint8_t  pal_waited; /* the conditional palette pre-yield was taken this iteration */
+    uint8_t  enter_mode; /* enter path: 0 = palette fade, 1 = brightness fade */
+    uint8_t  fade_style; /* exit finalize: >= 49 fades to white, else force-blank */
+    uint16_t frame;      /* current loop frame index */
+    uint16_t duration;   /* eff_duration (exit) / secondary_duration (enter) */
+} ScreenTransitionState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -519,6 +557,7 @@ typedef union {
     NamingEventsState     naming_events;
     TextInputState        text_input;
     NamingPromptState     naming_prompt;
+    ScreenTransitionState screen_transition;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -602,6 +641,12 @@ StepResult mode_step_text_input(ModeState *st);
  * ModeState.naming_prompt (name_tile_cols) before pump_mode(GAME_MODE_NAMING_
  * PROMPT). Always pops 0 (a button was pressed). */
 StepResult mode_step_naming_prompt(ModeState *st);
+
+/* GAME_MODE_SCREEN_TRANSITION step (defined in door.c, where the transition
+ * helpers and the ert/dr/ppu state it touches are visible). Init via
+ * ModeState.screen_transition (phase = ST_EXIT_BODY or ST_ENTER_BODY) before
+ * pump_mode(GAME_MODE_SCREEN_TRANSITION). Always pops 0. */
+StepResult mode_step_screen_transition(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

@@ -81,6 +81,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_NAMING_EVENTS]       = mode_step_naming_events,       /* file_select.c */
     [GAME_MODE_TEXT_INPUT]          = mode_step_text_input,          /* file_select.c */
     [GAME_MODE_NAMING_PROMPT]       = mode_step_naming_prompt,       /* file_select.c */
+    [GAME_MODE_SCREEN_TRANSITION]   = mode_step_screen_transition,   /* door.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
