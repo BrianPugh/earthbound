@@ -38,6 +38,8 @@ typedef enum {
     GAME_MODE_SOUND_STONE,     /* sound stone melody playback (use_sound_stone) */
     GAME_MODE_DEBUG_YMENU,     /* debug Y-button leaf menus (flag editor, guide counter) */
     GAME_MODE_BATTLE_WAIT,     /* battle wait loops (PSI/screen-effect/meter/swirl/frames) */
+    GAME_MODE_BATTLE_ROW_SELECT,   /* select_battle_row: front/back row targeting */
+    GAME_MODE_BATTLE_ENEMY_SELECT, /* select_battle_target: single-battler targeting */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -363,6 +365,62 @@ typedef struct {
     uint16_t remaining; /* BW_FRAMES: frames left to render */
 } BattleWaitState;
 
+/* GAME_MODE_BATTLE_ROW_SELECT — run-to-completion port of select_battle_row()
+ * (battle_targeting.c): UP/DOWN choose the front (1) or back (2) row, A confirms,
+ * B cancels. Three-phase machine in the verified char-select idiom: a render frame
+ * (set_battler_flashing + target text + the inline "WINDOW_TICK equivalent" battle
+ * render, via targeting_render_work()), then BR_PRIME's first update_hppp_meter_
+ * work() frame before the input read, then BR_INPUT. A row change re-renders INLINE
+ * in BR_INPUT (no extra leading yield) and returns to BR_PRIME, exactly like
+ * char-select's navigation path. Pops row+1 (1=front, 2=back), or 0 on cancel. */
+typedef enum {
+    BR_RENDER = 0, /* flashing + target text + targeting render frame, then yield */
+    BR_PRIME,      /* one update_hppp_meter_work frame before the input read */
+    BR_INPUT,      /* read input: UP/DOWN row change, A confirm, B cancel */
+} BattleRowSelectPhase;
+
+typedef struct {
+    uint8_t  phase;        /* BattleRowSelectPhase */
+    uint8_t  allow_cancel; /* select_battle_row() arg */
+    uint16_t current_row;  /* 0=front, 1=back */
+} BattleRowSelectState;
+
+/* GAME_MODE_BATTLE_ENEMY_SELECT — run-to-completion port of select_battle_target()
+ * (battle_targeting.c): LEFT/RIGHT cycle battlers within a row, UP/DOWN switch
+ * rows, A confirms, B cancels. The blocking goto-machine had three re-render entry
+ * points; this maps to:
+ *   ET_DISPLAY - the `update_target_display` work (recompute x_pos, enemy_flashing_
+ *                on, conditional target text when target_shown==0, target_shown++,
+ *                targeting_render_work), then yield. `pending_sfx` plays at the top
+ *                (the blocking code's play_sfx ran right after the apply-common
+ *                yield, i.e. in this frame). Used for the initial entry and as the
+ *                second render of a selection change.
+ *   ET_PRIME   - one update_hppp_meter_work frame before the input read.
+ *   ET_INPUT   - read input. A confirm/B cancel pop. A selection change does the
+ *                `apply_selection_common` work INLINE (target_shown=0, recreate the
+ *                target window, targeting_render_work) -> ET_DISPLAY (the change's
+ *                two render frames, matching the blocking yield C then yield A). A
+ *                refresh-without-change (find returned nothing) re-runs the display
+ *                work inline -> ET_PRIME (one render frame). An idle frame runs
+ *                update_hppp_meter_work and stays in ET_INPUT.
+ * Pops the 1-based target index, or 0 on cancel. */
+typedef enum {
+    ET_DISPLAY = 0, /* update_target_display work, then yield */
+    ET_PRIME,       /* one update_hppp_meter_work frame before the input read */
+    ET_INPUT,       /* read input: LEFT/RIGHT/UP/DOWN navigation, A confirm, B cancel */
+} BattleEnemySelectPhase;
+
+typedef struct {
+    uint8_t  phase;         /* BattleEnemySelectPhase */
+    uint8_t  allow_cancel;  /* select_battle_target() arg */
+    uint8_t  pending_sfx;   /* sfx to play at the top of ET_DISPLAY after a change (0 = none) */
+    uint16_t action_param;  /* select_battle_target() arg (targetability check) */
+    uint16_t current_enemy; /* index within the current row */
+    uint16_t current_row;   /* 0=front, 1=back */
+    uint16_t x_pos;         /* current battler x position (recomputed each display) */
+    uint16_t target_shown;  /* 0 until the target text has been displayed once */
+} BattleEnemySelectState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -381,6 +439,8 @@ typedef union {
     SoundStoneState       sound_stone;
     DebugYMenuState       debug_ymenu;
     BattleWaitState       battle_wait;
+    BattleRowSelectState  battle_row_select;
+    BattleEnemySelectState battle_enemy_select;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -440,6 +500,14 @@ StepResult mode_step_debug_ymenu(ModeState *st);
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for
  * BW_FRAMES) before pump_mode(GAME_MODE_BATTLE_WAIT). Always pops 0. */
 StepResult mode_step_battle_wait(ModeState *st);
+
+/* GAME_MODE_BATTLE_ROW_SELECT / GAME_MODE_BATTLE_ENEMY_SELECT steps (defined in
+ * battle_targeting.c, where the targeting/flashing helpers live). Init the
+ * matching ModeState union member (phase = BR_RENDER / ET_DISPLAY) before
+ * pump_mode(). Row-select pops row+1 (or 0 on cancel); enemy-select pops the
+ * 1-based target index (or 0 on cancel). */
+StepResult mode_step_battle_row_select(ModeState *st);
+StepResult mode_step_battle_enemy_select(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

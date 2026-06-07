@@ -24,6 +24,7 @@
 #include "include/pad.h"
 #include "snes/ppu.h"
 #include "platform/platform.h"
+#include "core/mode_stack.h"
 #include "game_main.h"
 
 /* ITEM_USABLE_FLAGS table (from asm/data/item_usable_flags.asm)
@@ -275,163 +276,169 @@ static void set_battler_flashing(uint16_t row) {
  * allow_cancel: 1 = B/SELECT cancels, 0 = can't cancel.
  * action_param: index into battle_action_table for targetability check.
  */
-static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_param) {
-    uint16_t current_enemy = 0;     /* @LOCAL04: index within current row */
-    uint16_t target_shown = 0;      /* @LOCAL05: set after first display */
-    uint16_t current_row;           /* @VIRTUAL04: 0=front, 1=back */
+/* The "WINDOW_TICK equivalent" battle render the targeting UIs run each frame,
+ * minus the trailing wait_for_vblank() — the pump owns the single yield. Shared
+ * by both targeting modes below. */
+static void targeting_render_work(void) {
+    render_all_windows();
+    upload_battle_screen_to_vram();
+    run_actionscript_frame();
+    sync_palettes_to_cgram();
+    battle_bg_update();
+}
 
+/* select_battle_target's `update_target_display` work: recompute x_pos, flash the
+ * current battler, show the target text the first time, then render one frame. */
+static void et_display_work(BattleEnemySelectState *s) {
+    s->x_pos = get_battler_row_x_position(s->current_row, s->current_enemy);
+    enemy_flashing_on(s->current_row, s->current_enemy);
+    if (!s->target_shown)
+        display_battle_target_text(s->current_row, (int16_t)s->current_enemy);
+    s->target_shown++;
+    targeting_render_work();
+}
+
+/* GAME_MODE_BATTLE_ENEMY_SELECT — run-to-completion port of select_battle_target.
+ * See mode_stack.h for the phase mapping of the blocking goto-machine. */
+StepResult mode_step_battle_enemy_select(ModeState *ms) {
+    BattleEnemySelectState *s = &ms->battle_enemy_select;
+
+    switch ((BattleEnemySelectPhase)s->phase) {
+    case ET_DISPLAY:
+        /* The blocking code's play_sfx ran right after the apply-common yield,
+         * i.e. in this (post-yield) frame, before update_target_display renders. */
+        if (s->pending_sfx) {
+            play_sfx(s->pending_sfx);
+            s->pending_sfx = 0;
+        }
+        et_display_work(s);
+        s->phase = ET_PRIME;
+        return STEP_RESULT_CONTINUE();
+
+    case ET_PRIME:
+        update_hppp_meter_work();
+        s->phase = ET_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case ET_INPUT:
+    default: {
+        uint16_t pressed = platform_input_get_pad_new();
+        uint16_t sfx = 2;  /* SFX::CURSOR2 default (LEFT/RIGHT same-row move) */
+
+        /* A/L: confirm selection */
+        if (pressed & PAD_CONFIRM) {
+            enemy_flashing_off();
+            uint16_t result = s->current_row * bt.num_battlers_in_front_row +
+                              s->current_enemy + 1;
+            play_sfx(1);  /* SFX::CURSOR1 */
+            close_focus_window();
+            return STEP_RESULT_POP(result);
+        }
+
+        /* B/SELECT: cancel */
+        if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
+            enemy_flashing_off();
+            play_sfx(2);  /* SFX::CURSOR2 */
+            close_focus_window();
+            return STEP_RESULT_POP(0);
+        }
+
+        /* Navigation — decide the outcome, mirroring the blocking gotos:
+         *   change  -> apply_selection[_common] (recreate window + two renders)
+         *   refresh -> update_target_display    (one render, no change/sfx)
+         *   neither -> idle update_hppp_meter_work frame, stay in ET_INPUT.
+         * The blocking UP/DOWN guards are sequential `if`s that fall through to
+         * LEFT/RIGHT when their row condition fails; the else-if chain below is
+         * equivalent because the directions are exclusive and a failed UP/DOWN
+         * guard leaves its branch untaken. */
+        bool change = false;
+        bool refresh = false;
+
+        if ((pressed & PAD_UP) && s->current_row == 0 &&
+            bt.num_battlers_in_back_row != 0) {
+            /* switch_row to the back row */
+            sfx = 3;  /* SFX::CURSOR3 */
+            uint16_t new_row = s->current_row ^ 1;
+            int16_t found = find_next_battler_in_row(new_row, s->x_pos - 1, s->action_param);
+            if (found == -1)
+                found = find_prev_battler_in_row(new_row, s->x_pos + 1, s->action_param);
+            if (found == -1) refresh = true;
+            else { s->current_enemy = (uint16_t)found; s->current_row = new_row; change = true; }
+        } else if ((pressed & PAD_DOWN) && s->current_row == 1 &&
+                   bt.num_battlers_in_front_row != 0) {
+            /* switch_row to the front row */
+            sfx = 3;
+            uint16_t new_row = s->current_row ^ 1;
+            int16_t found = find_next_battler_in_row(new_row, s->x_pos - 1, s->action_param);
+            if (found == -1)
+                found = find_prev_battler_in_row(new_row, s->x_pos + 1, s->action_param);
+            if (found == -1) refresh = true;
+            else { s->current_enemy = (uint16_t)found; s->current_row = new_row; change = true; }
+        } else if (pressed & PAD_LEFT) {
+            int16_t found = find_prev_battler_in_row(s->current_row, s->x_pos, s->action_param);
+            if (found != -1) { s->current_enemy = (uint16_t)found; change = true; }
+            else {
+                uint16_t other = s->current_row ^ 1;
+                found = find_prev_battler_in_row(other, s->x_pos, s->action_param);
+                if (found == -1) refresh = true;
+                else { s->current_enemy = (uint16_t)found; s->current_row = other; change = true; }
+            }
+        } else if (pressed & PAD_RIGHT) {
+            int16_t found = find_next_battler_in_row(s->current_row, s->x_pos, s->action_param);
+            if (found != -1) { s->current_enemy = (uint16_t)found; change = true; }
+            else {
+                uint16_t other = s->current_row ^ 1;
+                found = find_next_battler_in_row(other, s->x_pos, s->action_param);
+                if (found == -1) refresh = true;
+                else { s->current_enemy = (uint16_t)found; s->current_row = other; change = true; }
+            }
+        }
+
+        if (change) {
+            /* apply_selection_common: recreate the target window + render frame
+             * (yield C); ET_DISPLAY then does update_target_display's render
+             * (yield A) and plays the queued sfx in that frame. */
+            s->target_shown = 0;
+            create_window(WINDOW_BATTLE_TARGET_TEXT);
+            targeting_render_work();
+            s->x_pos = get_battler_row_x_position(s->current_row, s->current_enemy);
+            s->pending_sfx = (uint8_t)sfx;
+            s->phase = ET_DISPLAY;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (refresh) {
+            /* goto update_target_display: one render frame, no change, no sfx. */
+            et_display_work(s);
+            s->phase = ET_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */
+        update_hppp_meter_work();
+        return STEP_RESULT_CONTINUE();
+    }
+    }
+}
+
+static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_param) {
+    uint16_t current_row;
     /* Start on front row if it has battlers, otherwise back row */
     if (bt.num_battlers_in_front_row != 0)
         current_row = 0;
     else
         current_row = 1;
-
     /* During Giygas battle, force back row */
     if (bt.giygas_phase != 0)
         current_row = 1;
 
-update_target_display:
-    {
-        uint16_t x_pos = get_battler_row_x_position(current_row, current_enemy);
-        enemy_flashing_on(current_row, current_enemy);
-
-        if (!target_shown) {
-            display_battle_target_text(current_row, (int16_t)current_enemy);
-        }
-        target_shown++;
-
-        /* WINDOW_TICK equivalent — render one frame */
-        render_all_windows();
-        upload_battle_screen_to_vram();
-        run_actionscript_frame();
-        sync_palettes_to_cgram();
-        battle_bg_update();
-        wait_for_vblank();
-
-        /* Input loop */
-        while (!platform_input_quit_requested()) {
-            update_hppp_meter_and_render();
-
-            uint16_t pressed = platform_input_get_pad_new();
-            uint16_t sfx = 2;  /* SFX::CURSOR2 default */
-
-            /* UP: switch to back row if on front row */
-            if (pressed & PAD_UP) {
-                if (current_row == 0 && bt.num_battlers_in_back_row != 0)
-                    goto switch_row;
-            }
-
-            /* DOWN: switch to front row if on back row */
-            if (pressed & PAD_DOWN) {
-                if (current_row == 1 && bt.num_battlers_in_front_row != 0)
-                    goto switch_row;
-            }
-
-            /* LEFT: find previous battler (assembly @CHECK_LEFT) */
-            if (pressed & PAD_LEFT) {
-                int16_t found = find_prev_battler_in_row(current_row, x_pos,
-                                                         action_param);
-                if (found != -1) {
-                    current_enemy = (uint16_t)found;
-                    goto apply_selection;
-                }
-                /* Try other row */
-                uint16_t other_row = current_row ^ 1;
-                found = find_prev_battler_in_row(other_row, x_pos,
-                                                 action_param);
-                if (found == -1)
-                    goto update_target_display;
-                current_enemy = (uint16_t)found;
-                current_row = other_row;
-                goto apply_selection_common;
-            }
-
-            /* RIGHT: find next battler (assembly @CHECK_RIGHT) */
-            if (pressed & PAD_RIGHT) {
-                int16_t found = find_next_battler_in_row(current_row, x_pos,
-                                                         action_param);
-                if (found != -1) {
-                    current_enemy = (uint16_t)found;
-                    goto apply_selection;
-                }
-                /* Try other row */
-                uint16_t other_row = current_row ^ 1;
-                found = find_next_battler_in_row(other_row, x_pos,
-                                                 action_param);
-                if (found == -1)
-                    goto update_target_display;
-                current_enemy = (uint16_t)found;
-                current_row = other_row;
-                goto apply_selection_common;
-            }
-
-            /* A/L: confirm selection */
-            if (pressed & PAD_CONFIRM) {
-                enemy_flashing_off();
-                uint16_t result = current_row * bt.num_battlers_in_front_row +
-                                  current_enemy + 1;
-                play_sfx(1);  /* SFX::CURSOR1 */
-                close_focus_window();
-                return result;
-            }
-
-            /* B/SELECT: cancel */
-            if (pressed & PAD_CANCEL) {
-                if (allow_cancel == 1) {
-                    enemy_flashing_off();
-                    play_sfx(2);  /* SFX::CURSOR2 */
-                    close_focus_window();
-                    return 0;
-                }
-            }
-
-            continue;
-
-        switch_row:
-            sfx = 3;  /* SFX::CURSOR3 */
-            {
-                uint16_t new_row = current_row ^ 1;
-                /* Find nearest battler in other row starting from current x - 1 */
-                int16_t found = find_next_battler_in_row(new_row, x_pos - 1,
-                                                         action_param);
-                if (found != -1) {
-                    current_enemy = (uint16_t)found;
-                    current_row = new_row;
-                    goto apply_selection_common;
-                }
-                /* Try from x + 1 going backward */
-                found = find_prev_battler_in_row(new_row, x_pos + 1,
-                                                 action_param);
-                if (found == -1)
-                    goto update_target_display;
-                current_enemy = (uint16_t)found;
-                current_row = new_row;
-                goto apply_selection_common;
-            }
-
-        apply_selection:
-            /* Keep current_row, just update enemy */
-            goto apply_selection_common;
-
-        apply_selection_common:
-            target_shown = 0;  /* reset to show new target text */
-            /* Recreate target text window */
-            create_window(WINDOW_BATTLE_TARGET_TEXT);
-            render_all_windows();
-            upload_battle_screen_to_vram();
-            run_actionscript_frame();
-            sync_palettes_to_cgram();
-            battle_bg_update();
-            wait_for_vblank();
-
-            x_pos = get_battler_row_x_position(current_row, current_enemy);
-            play_sfx(sfx);
-            goto update_target_display;
-        }
-        /* Quit requested */
-        close_focus_window();
-        return 0;
-    }
+    ModeState init = {0};
+    init.battle_enemy_select.phase         = ET_DISPLAY;
+    init.battle_enemy_select.allow_cancel  = (uint8_t)allow_cancel;
+    init.battle_enemy_select.action_param  = action_param;
+    init.battle_enemy_select.current_enemy = 0;
+    init.battle_enemy_select.current_row   = current_row;
+    init.battle_enemy_select.target_shown  = 0;
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE_ENEMY_SELECT, &init);
 }
 
 
@@ -446,59 +453,57 @@ update_target_display:
  *
  * allow_cancel: 1 = B/SELECT cancels, 0 = can't cancel.
  */
-static uint16_t select_battle_row(uint16_t allow_cancel) {
-    uint16_t current_row;  /* @LOCAL02: 0=front, 1=back */
-
-    /* Start on front row if it has battlers, otherwise back row */
-    if (bt.num_battlers_in_front_row != 0)
-        current_row = 0;
-    else
-        current_row = 1;
-
-display_row:
+/* select_battle_row's `display_row` work: flash the row, show its target text,
+ * then render one frame. No window recreation (unlike enemy-select), so a row
+ * change is a single render frame. */
+static void br_render_work(uint16_t current_row) {
     set_battler_flashing(current_row);
     display_battle_target_text(current_row, -1);  /* -1 = row text */
+    targeting_render_work();
+}
 
-    /* WINDOW_TICK equivalent */
-    render_all_windows();
-    upload_battle_screen_to_vram();
-    run_actionscript_frame();
-    sync_palettes_to_cgram();
-    battle_bg_update();
-    wait_for_vblank();
+/* GAME_MODE_BATTLE_ROW_SELECT — run-to-completion port of select_battle_row.
+ * Three-phase machine (BattleRowSelectPhase) in the verified char-select idiom. */
+StepResult mode_step_battle_row_select(ModeState *ms) {
+    BattleRowSelectState *s = &ms->battle_row_select;
 
-    /* Input loop */
-    while (!platform_input_quit_requested()) {
-        update_hppp_meter_and_render();
+    switch ((BattleRowSelectPhase)s->phase) {
+    case BR_RENDER:
+        br_render_work(s->current_row);
+        s->phase = BR_PRIME;
+        return STEP_RESULT_CONTINUE();
+
+    case BR_PRIME:
+        update_hppp_meter_work();
+        s->phase = BR_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case BR_INPUT:
+    default: {
         uint16_t pressed = platform_input_get_pad_new();
-
         uint16_t target_row = 0xFFFF;
         uint16_t sfx = 3;  /* SFX::CURSOR3 */
 
-        if (pressed & PAD_UP) {
+        if (pressed & PAD_UP)
             target_row = 1;  /* want back row */
-        }
-        if (pressed & PAD_DOWN) {
+        if (pressed & PAD_DOWN)
             target_row = 0;  /* want front row */
-        }
 
         /* A/L: confirm */
         if (pressed & PAD_CONFIRM) {
             clear_battler_flashing();
-            uint16_t result = current_row + 1;  /* 1=front, 2=back */
+            uint16_t result = s->current_row + 1;  /* 1=front, 2=back */
             play_sfx(1);  /* SFX::CURSOR1 */
             close_focus_window();
-            return result;
+            return STEP_RESULT_POP(result);
         }
 
         /* B/SELECT: cancel */
-        if (pressed & PAD_CANCEL) {
-            if (allow_cancel == 1) {
-                clear_battler_flashing();
-                play_sfx(2);  /* SFX::CURSOR2 */
-                close_focus_window();
-                return 0;
-            }
+        if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
+            clear_battler_flashing();
+            play_sfx(2);  /* SFX::CURSOR2 */
+            close_focus_window();
+            return STEP_RESULT_POP(0);
         }
 
         /* Validate and apply row change */
@@ -510,14 +515,36 @@ display_row:
                 valid = true;
 
             if (valid) {
+                /* goto display_row: play_sfx then re-render in this frame (yield A),
+                 * then BR_PRIME's update_hppp (yield B) before the next input. */
                 play_sfx(sfx);
-                current_row = target_row;
-                goto display_row;
+                s->current_row = target_row;
+                br_render_work(s->current_row);
+                s->phase = BR_PRIME;
+                return STEP_RESULT_CONTINUE();
             }
         }
+
+        /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */
+        update_hppp_meter_work();
+        return STEP_RESULT_CONTINUE();
     }
-    close_focus_window();
-    return 0;
+    }
+}
+
+static uint16_t select_battle_row(uint16_t allow_cancel) {
+    uint16_t current_row;
+    /* Start on front row if it has battlers, otherwise back row */
+    if (bt.num_battlers_in_front_row != 0)
+        current_row = 0;
+    else
+        current_row = 1;
+
+    ModeState init = {0};
+    init.battle_row_select.phase        = BR_RENDER;
+    init.battle_row_select.allow_cancel = (uint8_t)allow_cancel;
+    init.battle_row_select.current_row  = current_row;
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE_ROW_SELECT, &init);
 }
 
 
