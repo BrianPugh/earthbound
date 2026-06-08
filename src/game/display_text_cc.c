@@ -1305,9 +1305,15 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                 target = addr;
             }
         }
-        /* If a valid selection was made, call display_text recursively */
+        /* If a valid selection was made, STEP_PUSH a nested GAME_MODE_DISPLAY_TEXT
+         * child for the gosub (the same mechanism as CC_08 CALL_TEXT) instead of
+         * recursing via display_text_from_addr() on the C stack. The parent resumes
+         * DT_RUN past the jump table on POP; no post-work. */
         if (target != 0 && wm != 0 && (uint16_t)wm <= count) {
-            display_text_from_addr(target);
+            if (dt_make_child_init(out_init, target)) {
+                *out_mode = GAME_MODE_DISPLAY_TEXT;
+                return true;
+            }
         }
         break;
     }

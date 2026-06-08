@@ -1497,7 +1497,7 @@ static void dt_setup_init(ModeState *init, const uint8_t *script, size_t size) {
 /* Build a child DISPLAY_TEXT init from a CALL_TEXT (CC_08) target address,
  * mirroring display_text_from_addr() -> display_text(). Returns false if the
  * address can't be resolved (the blocking path warns and does nothing). */
-static bool dt_make_child_init(ModeState *init, uint32_t addr) {
+bool dt_make_child_init(ModeState *init, uint32_t addr) {
     TextBlock *blk = NULL;
     const uint8_t *ptr = resolve_text_addr(addr, &blk);
     if (!ptr || !blk)

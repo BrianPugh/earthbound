@@ -52,6 +52,12 @@ void print_enemy_article(uint16_t mode);
 #define psi_teleport_dest_data  ASSET_DATA(ASSET_DATA_PSI_TELEPORT_DEST_TABLE_BIN)
 #define psi_teleport_dest_size  ASSET_SIZE(ASSET_DATA_PSI_TELEPORT_DEST_TABLE_BIN)
 
+/* Build a child DISPLAY_TEXT init from a CALL_TEXT/gosub target address (mirrors
+ * display_text_from_addr -> display_text). Returns false if unresolvable. Used by
+ * CC_08 (display_text.c) and CC_1F_C0 (display_text_cc.c) to STEP_PUSH a nested
+ * GAME_MODE_DISPLAY_TEXT child instead of recursing on the C stack. */
+bool dt_make_child_init(ModeState *init, uint32_t addr);
+
 /* ---- Window helpers (display_text.c) ---- */
 WindowInfo *get_focus_window_info(void);
 /* party_character_selector: now BATTLE-path only (mode != 1) — the HPPP column
