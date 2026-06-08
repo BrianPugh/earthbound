@@ -954,19 +954,17 @@ cleanup:
     enable_all_entities();
 }
 
-/* overworld_boot — one-time per-session setup: intro, file select, and overworld
- * initialization, run once before the overworld step loop begins.
+/* boot_begin — stage 1 of boot: one-shot setup, run once at the top of LOOP_BOOT.
  *
- * NOTE (single-loop migration): this still uses the legacy *blocking* style —
- * init_intro() and friends run their own internal wait_for_vblank loops. It is
- * invoked from the unified game_loop_step() BOOT state and will be converted to
- * run-to-completion incrementally. See docs/plans/savestate-unified-loop.md. */
-static void overworld_boot(void) {
-    /* Run the intro sequence (logo → gas station → title → file select).
-     * In the assembly, MAIN_LOOP calls INIT_INTRO → FILE_SELECT_INIT →
-     * INITIALIZE_OVERWORLD_STATE. The C port embeds file select inside
-     * init_intro(), so after init_intro() returns, we go directly to
-     * overworld initialization. */
+ * Normal path: init_intro() does its one-shot init and PUSHes GAME_MODE_INIT_INTRO
+ * onto the mode stack; game_loop_step() then drives that intro state machine one
+ * step per frame (the root loop owns the single yield), so no blocking pump_mode()
+ * runs the intro to completion any more. Once the stack drains, game_loop_step()
+ * falls through to overworld_boot() (stage 3). See docs/plans/savestate-unified-loop.md.
+ *
+ * --skip-intro path: do the minimal init the intro would otherwise perform and push
+ * nothing, so game_loop_step() proceeds straight to overworld_boot(). */
+static void boot_begin(void) {
     if (platform_skip_intro) {
         /* Debug: skip intro/file select, go directly to overworld.
          * Minimal init that the intro would normally do. */
@@ -986,9 +984,20 @@ static void overworld_boot(void) {
         game_state.leader_y_coord = 15 * 8;
         game_state.leader_direction = 4; /* facing DOWN */
     } else {
+        /* One-shot intro setup + mode_push(GAME_MODE_INIT_INTRO). Returns
+         * immediately with the intro state machine on the stack. */
         init_intro();
     }
+}
 
+/* overworld_boot — stage 3 of boot: overworld initialization, run once the intro
+ * has finished (or was skipped). In the assembly, MAIN_LOOP calls INIT_INTRO →
+ * FILE_SELECT_INIT → INITIALIZE_OVERWORLD_STATE; this is the work after the intro.
+ *
+ * IMPORTANT: this must NOT yield before the first overworld render — the assembly
+ * has no WAIT between init and @LOOP_BEGIN (see the fade_in note below). The caller
+ * (game_loop_step) runs this and the first overworld_step() in the same frame. */
+static void overworld_boot(void) {
     /* Sprite data lives in ROM on the SNES (always available). In the C port
      * it must be loaded from extracted asset files. The naming screen (new game)
      * and attract mode load it for their own use, but when loading an existing
@@ -1052,6 +1061,7 @@ typedef enum { OW_CONTINUE, OW_GAME_OVER } OwStepResult;
 typedef enum { LOOP_BOOT, LOOP_OVERWORLD } LoopMode;
 static LoopMode g_loop_mode = LOOP_BOOT;
 static bool g_overworld_first_step;
+static bool g_boot_setup_done;   /* stage-1 boot setup (intro push / skip-intro) done this boot */
 
 /* One frame of post-vblank overworld processing — the work the assembly main
  * loop did *after* WAIT_UNTIL_NEXT_FRAME (port of main.asm lines 30-161).
@@ -1185,15 +1195,49 @@ static OwStepResult overworld_step(void) {
 void game_loop_step(void) {
     switch (g_loop_mode) {
     case LOOP_BOOT:
+        /* Stage 1: one-shot setup (push GAME_MODE_INIT_INTRO, or skip-intro init). */
+        if (!g_boot_setup_done) {
+            g_boot_setup_done = true;
+            boot_begin();
+        }
+
+        /* Stage 2: drive the intro state machine one step per frame. The root
+         * loop's host_process_frame() is the only yield, so a savestate taken
+         * mid-intro lands on serializable mode-stack state. This mirrors
+         * pump_mode() exactly: yield (break) after every PUSH/CONTINUE and after
+         * any POP that leaves the stack non-empty; on the final POP that drains
+         * the stack, fall through WITHOUT yielding into the overworld init —
+         * matching pump_mode()'s "completed without an extra yield". */
+        if (g_mode_stack.depth > 0) {
+            uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
+            StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
+                                              &g_mode_stack.state[top]);
+            if (r.kind == STEP_PUSH) {
+                mode_push(r.push_mode, r.push_init);
+                break;
+            } else if (r.kind == STEP_POP) {
+                mode_pop(r.pop_result);
+                if (g_mode_stack.depth > 0)
+                    break;
+                /* stack drained: intro complete — fall through, no yield */
+            } else {
+                break;  /* STEP_CONTINUE */
+            }
+        }
+
+        /* Stage 3: overworld init, then fall through to the first overworld render
+         * in this same frame — the assembly has no WAIT between init and the first
+         * loop iteration (main.asm line 23→24), and inserting one would make the
+         * screen visible a script frame too early. */
         overworld_boot();
         g_overworld_first_step = true;
         g_loop_mode = LOOP_OVERWORLD;
-        /* Run the first overworld render in this same step — the assembly has no
-         * WAIT between init and the first loop iteration (main.asm line 23→24). */
         /* fallthrough */
     case LOOP_OVERWORLD:
-        if (overworld_step() == OW_GAME_OVER)
-            g_loop_mode = LOOP_BOOT;  /* re-boot (intro/comeback) on next step */
+        if (overworld_step() == OW_GAME_OVER) {
+            g_loop_mode = LOOP_BOOT;     /* re-boot (intro/comeback) on next step */
+            g_boot_setup_done = false;   /* replay stage-1 setup on the next boot */
+        }
         break;
     }
 }

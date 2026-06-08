@@ -203,10 +203,15 @@ StepResult mode_step_init_intro(ModeState *ms) {
 }
 
 /*
- * Port of INIT_INTRO from asm/intro/init_intro.asm (US retail path) — thin
- * blocking wrapper. The one-shot initialization (asm:20-42) stays here; the
- * state machine that cycles logos -> gas station -> title -> attract (and exits
- * to the file select on a button press) runs as GAME_MODE_INIT_INTRO.
+ * Port of INIT_INTRO from asm/intro/init_intro.asm (US retail path) — one-shot
+ * boot setup that ends by PUSHing GAME_MODE_INIT_INTRO onto the mode stack.
+ *
+ * The one-shot initialization (asm:20-42, including the two startup vblanks)
+ * runs here, then the state machine that cycles logos -> gas station -> title ->
+ * attract (and exits to the file select on a button press) is left on the stack
+ * for the root loop to drive one step per frame (game_main.c's LOOP_BOOT). This
+ * no longer pump_mode()s the intro to completion itself, so a savestate taken
+ * mid-intro lands on serializable mode-stack state rather than a blocked C stack.
  */
 void init_intro(void) {
     /* Assembly lines 20-26: initialization before state machine */
@@ -242,5 +247,5 @@ void init_intro(void) {
 
     ModeState init = {0};
     init.init_intro.phase = II_LOGO;
-    pump_mode(GAME_MODE_INIT_INTRO, &init);
+    mode_push(GAME_MODE_INIT_INTRO, &init);
 }
