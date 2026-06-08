@@ -54,15 +54,34 @@ void print_enemy_article(uint16_t mode);
 
 /* ---- Window helpers (display_text.c) ---- */
 WindowInfo *get_focus_window_info(void);
+/* party_character_selector: now BATTLE-path only (mode != 1) — the HPPP column
+ * selector that STEP_PUSHes GAME_MODE_CHAR_SELECT. Still inline-blocking (its
+ * char_select on_change cascades into display_text_from_addr; Phase B). */
 uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
                                   uint16_t allow_cancel);
+/* Overworld party-member selection (former party_character_selector mode==1):
+ * builds the selection window + menu items, fills the SELECTION_MENU child init for
+ * a STEP_PUSH, and returns the saved argument_memory to restore on resume.
+ * *out_window_id receives the created window to close on resume. The result-store
+ * and window/attr cleanup run in the DT_RESUME_CC1A_PARTY_SEL handler on POP. */
+uint32_t party_selector_overworld_prepare(uint16_t allow_cancel, ModeState *out_init,
+                                          uint16_t *out_window_id);
 
 /* ---- CC dispatch handlers (display_text_cc.c) ---- */
 void cc_set_event_flag(ScriptReader *r);
 void cc_clear_event_flag(ScriptReader *r);
 void cc_18_dispatch(ScriptReader *r);
 void cc_19_dispatch(ScriptReader *r);
-void cc_1a_dispatch(ScriptReader *r);
+/* cc_1a_dispatch: most sub-ops run inline and return false. Sub 0x00/0x01
+ * (PARTY_MEMBER_SELECTION_MENU) in OVERWORLD mode (mode byte == 1) instead fills
+ * out_init/out_mode (GAME_MODE_SELECTION_MENU to STEP_PUSH), out_resume
+ * (DT_RESUME_CC1A_PARTY_SEL), *out_window_id (window to close on POP) and
+ * *out_saved_argmem (argument_memory to restore on POP), and returns true. The
+ * battle path (mode != 1) stays inline-blocking (Phase B). The caller
+ * (mode_step_display_text) zeroes *out_init before the call. */
+bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume, uint16_t *out_window_id,
+                    uint32_t *out_saved_argmem);
 void cc_1b_dispatch(ScriptReader *r);
 void cc_1c_dispatch(ScriptReader *r);
 void cc_1d_dispatch(ScriptReader *r);

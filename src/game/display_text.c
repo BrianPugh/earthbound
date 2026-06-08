@@ -967,6 +967,61 @@ int eb_to_ascii_buf(const uint8_t *src, int max_len, char *dst) {
 }
 
 /*
+ * Overworld party-member selection — the former party_character_selector mode==1
+ * branch (asm/text/party_character_selector.asm lines 34-111). Builds the selection
+ * window + one menu item per party member and fills the GAME_MODE_SELECTION_MENU
+ * child init for a STEP_PUSH by the caller (cc_1a_dispatch). The selection_menu()
+ * run, window close, attribute restore, pagination reset, argument_memory restore
+ * and result store are all deferred to the DT_RESUME_CC1A_PARTY_SEL handler in
+ * mode_step_display_text, which runs after the pushed menu pops.
+ *
+ * Returns the saved argument_memory (assembly @LOCAL06, captured at entry before the
+ * mode branch and restored in the shared cleanup); *out_window_id receives the
+ * created window so the resume handler can close it.
+ */
+uint32_t party_selector_overworld_prepare(uint16_t allow_cancel, ModeState *out_init,
+                                          uint16_t *out_window_id) {
+    uint32_t saved_argument_memory = get_argument_memory();
+
+    save_window_text_attributes();
+
+    /* Pick window based on party count (assembly lines 36-46). */
+    uint8_t party_count = game_state.player_controlled_party_count;
+    uint16_t window_id;
+    if (party_count == 1) {
+        window_id = WINDOW_SINGLE_CHARACTER_SELECT;
+    } else {
+        window_id = WINDOW_TARGETING_PROMPT + party_count - 1;
+    }
+    create_window(window_id);
+
+    /* Build menu items: one per party member (assembly lines 54-100). */
+    for (int i = 0; i < party_count; i++) {
+        uint8_t member_id = game_state.party_members[i];
+
+        char name_buf[7];
+        if (member_id >= 1 && member_id <= 4) {
+            eb_to_ascii_buf(party_characters[member_id - 1].name, 5, name_buf);
+        } else if (member_id == PARTY_MEMBER_KING) {
+            eb_to_ascii_buf(game_state.pet_name, 6, name_buf);
+            name_buf[5] = '\0';
+        } else {
+            name_buf[0] = '\0';
+        }
+
+        add_menu_item(name_buf, member_id, (uint16_t)(i * 6), 0);
+    }
+
+    print_menu_items();
+
+    /* Fill the SELECTION_MENU child init (assembly's selection_menu(allow_cancel)). */
+    out_init->selection_menu.phase        = SM_SETUP;
+    out_init->selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    *out_window_id = window_id;
+    return saved_argument_memory;
+}
+
+/*
  * PARTY_CHARACTER_SELECTOR — Port of asm/text/party_character_selector.asm.
  *
  * Displays a party member selection menu and returns the selected character ID
@@ -992,60 +1047,13 @@ int eb_to_ascii_buf(const uint8_t *src, int max_len, char *dst) {
  */
 uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
                                          uint16_t allow_cancel) {
-    /* Save/restore the calling window's argument_memory.
+    /* Battle-path only (mode != 1). The overworld path (mode == 1) is handled by
+     * party_selector_overworld_prepare + a STEP_PUSH from cc_1a_dispatch.
+     *
+     * Save/restore the calling window's argument_memory.
      * Assembly lines 24-30: saves window_stats::argument_memory to LOCAL06,
      * lines 370-378: restores it on return. */
     uint32_t saved_argument_memory = get_argument_memory();
-    uint16_t result = 0;
-
-    if (mode == 1) {
-        /* --- Overworld mode (assembly lines 34-111) ---
-         * Mode == 1 → overworld selection menu (falls through in assembly).
-         * Assembly: CMP #1; BNEL @BATTLE_MODE_PATH — branches AWAY on mode != 1. */
-        save_window_text_attributes();
-
-        /* Pick window based on party count.
-         * Assembly line 36-46: party_count==1 → SINGLE_CHARACTER_SELECT,
-         * else → TARGETING_PROMPT + party_count - 1 */
-        uint8_t party_count = game_state.player_controlled_party_count;
-        uint16_t window_id;
-        if (party_count == 1) {
-            window_id = WINDOW_SINGLE_CHARACTER_SELECT;
-        } else {
-            window_id = WINDOW_TARGETING_PROMPT + party_count - 1;
-        }
-        create_window(window_id);
-
-        /* Build menu items: one per party member.
-         * Assembly lines 54-100: loops party_count times, gets each character's name
-         * from GET_PARTY_CHARACTER_NAME, copies 5 chars + null, adds menu item
-         * with text_x = index * 6, text_y = 0, userdata = party_member_id. */
-        for (int i = 0; i < party_count; i++) {
-            uint8_t member_id = game_state.party_members[i];
-
-            char name_buf[7];
-            if (member_id >= 1 && member_id <= 4) {
-                eb_to_ascii_buf(party_characters[member_id - 1].name, 5, name_buf);
-            } else if (member_id == PARTY_MEMBER_KING) {
-                eb_to_ascii_buf(game_state.pet_name, 6, name_buf);
-                name_buf[5] = '\0';
-            } else {
-                name_buf[0] = '\0';
-            }
-
-            add_menu_item(name_buf, member_id, (uint16_t)(i * 6), 0);
-        }
-
-        print_menu_items();
-        result = selection_menu(allow_cancel);
-        close_window(window_id);
-        restore_window_text_attributes();
-
-        /* Lines 370-378: Cleanup — restore pagination and argument_memory. */
-        dt.pagination_animation_frame = -1;
-        set_argument_memory(saved_argument_memory);
-        return result;
-    }
 
     /* --- Battle mode (assembly lines 112-369): HPPP column selection with
      * LEFT/RIGHT navigation, now run as GAME_MODE_CHAR_SELECT (run-to-completion).
@@ -1558,6 +1566,18 @@ StepResult mode_step_display_text(ModeState *ms) {
         } else {
             set_working_memory((uint32_t)value);
         }
+    } else if (st->resume == DT_RESUME_CC1A_PARTY_SEL) {
+        /* CC_1A_00/01 overworld party select: the former
+         * party_character_selector mode==1 tail (assembly @CHAR_LOOP_CHECK2 /
+         * lines 370-378) — close the selection window, restore text attributes,
+         * reset pagination, restore argument_memory, and store the chosen
+         * member id (0 on cancel) to working memory. */
+        st->resume = DT_RESUME_NONE;
+        close_window(st->cc1a_window_id);
+        restore_window_text_attributes();
+        dt.pagination_animation_frame = -1;
+        set_argument_memory(st->cc1a_saved_argmem);
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
 
     ScriptReader *r = &st->reader;
@@ -1837,7 +1857,25 @@ StepResult mode_step_display_text(ModeState *ms) {
         /* Tree dispatchers */
         case 0x18: cc_18_dispatch(r); break;
         case 0x19: cc_19_dispatch(r); break;
-        case 0x1A: cc_1a_dispatch(r); break;
+        case 0x1A: {
+            /* Most CC_1A sub-ops run inline; the overworld party-member selection
+             * (sub 0x00/0x01, mode byte == 1) requests a SELECTION_MENU child push,
+             * carrying the window to close + argument_memory to restore on POP. */
+            static ModeState cc1a_init;  /* outlives this dispatch (pump copies it) */
+            memset(&cc1a_init, 0, sizeof(cc1a_init));
+            GameMode child_mode = GAME_MODE_NONE;
+            uint8_t  child_resume = DT_RESUME_NONE;
+            uint16_t window_id = 0;
+            uint32_t saved_argmem = 0;
+            if (cc_1a_dispatch(r, &cc1a_init, &child_mode, &child_resume,
+                               &window_id, &saved_argmem)) {
+                st->resume = child_resume;
+                st->cc1a_window_id = window_id;
+                st->cc1a_saved_argmem = saved_argmem;
+                return STEP_RESULT_PUSH_INIT(child_mode, &cc1a_init);
+            }
+            break;
+        }
         case 0x1B: cc_1b_dispatch(r); break;
         case 0x1C: cc_1c_dispatch(r); break;
         case 0x1D: cc_1d_dispatch(r); break;

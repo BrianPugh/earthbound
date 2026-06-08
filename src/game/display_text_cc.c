@@ -2106,7 +2106,9 @@ void cc_19_dispatch(ScriptReader *r) {
     }
 }
 
-void cc_1a_dispatch(ScriptReader *r) {
+bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume, uint16_t *out_window_id,
+                    uint32_t *out_saved_argmem) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -2119,7 +2121,8 @@ void cc_1a_dispatch(ScriptReader *r) {
          *
          * Arguments: 4 x uint32_t text script pointers (one per party member,
          * used in battle mode for displaying character-specific text), followed
-         * by 1 byte mode (0=overworld, 1=battle HPPP column selection).
+         * by 1 byte mode (1 = overworld selection menu, else = battle HPPP column
+         * selection — see party_character_selector's CMP #1; BNEL @BATTLE_MODE_PATH).
          *
          * Calls PARTY_CHARACTER_SELECTOR (C1244C.asm) with:
          *   A = pointer to script_ptrs, X = mode, Y = allow_cancel (0 or 1). */
@@ -2130,6 +2133,18 @@ void cc_1a_dispatch(ScriptReader *r) {
         script_ptrs[3] = script_read_dword(r);
         uint8_t mode = script_read_byte(r);
         uint16_t allow_cancel = (sub == 0x01) ? 1 : 0;
+        if (mode == 1) {
+            /* Overworld: prepare the selection window + menu and request a
+             * STEP_PUSH of GAME_MODE_SELECTION_MENU; the result store + window
+             * cleanup run in DT_RESUME_CC1A_PARTY_SEL when the menu pops. */
+            *out_saved_argmem = party_selector_overworld_prepare(allow_cancel, out_init,
+                                                                 out_window_id);
+            *out_mode   = GAME_MODE_SELECTION_MENU;
+            *out_resume = DT_RESUME_CC1A_PARTY_SEL;
+            return true;
+        }
+        /* Battle path (mode != 1): still inline-blocking — its char_select
+         * on_change cascades into display_text_from_addr (Phase B). */
         uint16_t result = party_character_selector(script_ptrs, mode, allow_cancel);
         set_working_memory((uint32_t)result);
         break;
@@ -2218,6 +2233,7 @@ void cc_1a_dispatch(ScriptReader *r) {
         FATAL("display_text: unknown CC 1A %02X\n", sub);
         break;
     }
+    return false;  /* sub-op ran inline; no child push needed */
 }
 
 

@@ -957,8 +957,9 @@ typedef enum {
  * byte. CCs with no post-work leave it DT_RESUME_NONE. */
 typedef enum {
     DT_RESUME_NONE = 0,
-    DT_RESUME_CC11,         /* CC_11 selection_menu: store result to working_memory */
-    DT_RESUME_CC1F_NUMSEL,  /* CC_1F_52 number-select: store entered value / cancel */
+    DT_RESUME_CC11,             /* CC_11 selection_menu: store result to working_memory */
+    DT_RESUME_CC1F_NUMSEL,      /* CC_1F_52 number-select: store entered value / cancel */
+    DT_RESUME_CC1A_PARTY_SEL,   /* CC_1A_00/01 overworld party select: cleanup + store result */
 } DisplayTextResume;
 
 typedef struct {
@@ -966,6 +967,8 @@ typedef struct {
     uint8_t      saved_cc18_attrs; /* this call level's saved g_cc18_attrs_saved */
     uint8_t      resume;           /* DisplayTextResume: post-child work pending on POP */
     uint16_t     delay_remaining;  /* DT_DELAY: window_tick_work frames left */
+    uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
+    uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
 } DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */
 
