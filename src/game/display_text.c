@@ -1547,6 +1547,17 @@ StepResult mode_step_display_text(ModeState *ms) {
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
         clear_focus_window_menu_options();
+    } else if (st->resume == DT_RESUME_CC1F_NUMSEL) {
+        /* CC_1F_52 (number-select): store the entered value, or zero both working
+         * and argument memory on cancel (-1) — the tail of the former CC_1F_52. */
+        st->resume = DT_RESUME_NONE;
+        int32_t value = mode_child_result();
+        if (value == -1) {
+            set_working_memory(0);
+            set_argument_memory(0);
+        } else {
+            set_working_memory((uint32_t)value);
+        }
     }
 
     ScriptReader *r = &st->reader;
@@ -1831,7 +1842,19 @@ StepResult mode_step_display_text(ModeState *ms) {
         case 0x1C: cc_1c_dispatch(r); break;
         case 0x1D: cc_1d_dispatch(r); break;
         case 0x1E: cc_1e_dispatch(r); break;
-        case 0x1F: cc_1f_dispatch(r); break;
+        case 0x1F: {
+            /* Most CC_1F sub-ops run inline; the three yielding ones request a
+             * child push (the entered value / delay / actionscript wait). */
+            static ModeState cc1f_init;  /* outlives this dispatch (pump copies it) */
+            memset(&cc1f_init, 0, sizeof(cc1f_init));
+            GameMode child_mode = GAME_MODE_NONE;
+            uint8_t  child_resume = DT_RESUME_NONE;
+            if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume)) {
+                st->resume = child_resume;
+                return STEP_RESULT_PUSH_INIT(child_mode, &cc1f_init);
+            }
+            break;
+        }
 
         /* All other simple CCs — skip arguments */
         default:

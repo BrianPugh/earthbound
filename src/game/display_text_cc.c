@@ -683,7 +683,8 @@ StepResult mode_step_text_prompt(ModeState *ms) {
 #undef TRIANGLE_TILE_SMALL
 #undef TRIANGLE_TILE_CLEAR
 
-void cc_1f_dispatch(ScriptReader *r) {
+bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -1030,25 +1031,18 @@ void cc_1f_dispatch(ScriptReader *r) {
             break;
         }
 
-        ModeState init = {0};
-        init.number_select.phase       = NS_RENDER;
-        init.number_select.start_x     = w->text_x;
-        init.number_select.start_y     = w->text_y;
-        init.number_select.max_digits  = max_digits;
-        init.number_select.cursor_pos  = 1;  /* digit position from right, 1-based */
-        init.number_select.value       = 0;
-        init.number_select.place_value = 1;
-
-        int32_t value = pump_mode(GAME_MODE_NUMBER_SELECT, &init);
-
-        if (value == -1) {
-            /* Cancelled: set both working_memory and argument_memory to 0 */
-            set_working_memory(0);
-            set_argument_memory(0);
-        } else {
-            set_working_memory((uint32_t)value);
-        }
-        break;
+        /* STEP_PUSH GAME_MODE_NUMBER_SELECT; the entered value (or -1 on cancel)
+         * is read back via DT_RESUME_CC1F_NUMSEL in mode_step_display_text. */
+        out_init->number_select.phase       = NS_RENDER;
+        out_init->number_select.start_x     = w->text_x;
+        out_init->number_select.start_y     = w->text_y;
+        out_init->number_select.max_digits  = max_digits;
+        out_init->number_select.cursor_pos  = 1;  /* digit position from right, 1-based */
+        out_init->number_select.value       = 0;
+        out_init->number_select.place_value = 1;
+        *out_mode   = GAME_MODE_NUMBER_SELECT;
+        *out_resume = DT_RESUME_CC1F_NUMSEL;
+        return true;
     }
 
     /* --- Map/movement commands --- */
@@ -1061,11 +1055,12 @@ void cc_1f_dispatch(ScriptReader *r) {
          * Button press (B/SELECT/A/L) cancels the remaining delay.
          * dt.text_speed_based_wait is set during file select from game_state.text_speed. */
         if (!dt.text_prompt_waiting_for_input) {
-            ModeState init = {0};
-            init.text_delay.remaining  = dt.text_speed_based_wait;
-            init.text_delay.cancelable = 1;
-            init.text_delay.primed     = 0;
-            pump_mode(GAME_MODE_TEXT_DELAY, &init);
+            /* STEP_PUSH a cancelable text-speed delay (no post-work). */
+            out_init->text_delay.remaining  = dt.text_speed_based_wait;
+            out_init->text_delay.cancelable = 1;
+            out_init->text_delay.primed     = 0;
+            *out_mode = GAME_MODE_TEXT_DELAY;
+            return true;
         }
         break;
     }
@@ -1083,8 +1078,10 @@ void cc_1f_dispatch(ScriptReader *r) {
          * to win.bg2_buffer so text is visible while waiting for entity scripts. */
         ert.actionscript_state = 0;
         clear_instant_printing();
-        pump_mode(GAME_MODE_ACTIONSCRIPT_WAIT, NULL);
-        break;
+        /* STEP_PUSH the actionscript wait (out_init stays zeroed = the former NULL
+         * init; no post-work). */
+        *out_mode = GAME_MODE_ACTIONSCRIPT_WAIT;
+        return true;
     case 0x62: {
         /* ENABLE_BLINKING_TRIANGLE: 1 arg byte.
          * Port of CC_1F_62 (asm/text/ccs/enable_blinking_triangle.asm) →
@@ -1508,6 +1505,7 @@ void cc_1f_dispatch(ScriptReader *r) {
         }
         break;
     }
+    return false;  /* sub-op ran inline; no child push needed */
 }
 
 

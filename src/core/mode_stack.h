@@ -957,7 +957,8 @@ typedef enum {
  * byte. CCs with no post-work leave it DT_RESUME_NONE. */
 typedef enum {
     DT_RESUME_NONE = 0,
-    DT_RESUME_CC11, /* CC_11 selection_menu: store result to working_memory */
+    DT_RESUME_CC11,         /* CC_11 selection_menu: store result to working_memory */
+    DT_RESUME_CC1F_NUMSEL,  /* CC_1F_52 number-select: store entered value / cancel */
 } DisplayTextResume;
 
 typedef struct {

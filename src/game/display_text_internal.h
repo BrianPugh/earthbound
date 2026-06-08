@@ -10,6 +10,7 @@
 #include "game/display_text.h"
 #include "game/window.h"  /* for WindowInfo */
 #include "data/assets.h"
+#include "core/mode_stack.h"  /* ModeState/GameMode for cc_1f_dispatch's push-request */
 
 /* TextSource and ScriptReader are defined in game/display_text.h (included above)
  * so the GAME_MODE_DISPLAY_TEXT ModeState in mode_stack.h can embed the reader. */
@@ -66,7 +67,13 @@ void cc_1b_dispatch(ScriptReader *r);
 void cc_1c_dispatch(ScriptReader *r);
 void cc_1d_dispatch(ScriptReader *r);
 void cc_1e_dispatch(ScriptReader *r);
-void cc_1f_dispatch(ScriptReader *r);
+/* cc_1f_dispatch: most sub-ops run inline and return false. The three yielding
+ * sub-ops (0x52 number-select, 0x60 text-speed delay, 0x61 wait-for-actionscript)
+ * instead fill out_init/out_mode (the child to STEP_PUSH) and out_resume (the
+ * DisplayTextResume post-work the parent owes on POP) and return true. The caller
+ * (mode_step_display_text) zeroes *out_init before the call. */
+bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume);
 
 /* ---- Menu functions (display_text_menus.c) ---- */
 uint16_t enter_your_name_please(uint16_t param);
