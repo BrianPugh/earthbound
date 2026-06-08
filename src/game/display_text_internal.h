@@ -59,7 +59,6 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
 /* ---- CC dispatch handlers (display_text_cc.c) ---- */
 void cc_set_event_flag(ScriptReader *r);
 void cc_clear_event_flag(ScriptReader *r);
-void cc_pause(ScriptReader *r);
 void cc_18_dispatch(ScriptReader *r);
 void cc_19_dispatch(ScriptReader *r);
 void cc_1a_dispatch(ScriptReader *r);

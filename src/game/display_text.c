@@ -1705,7 +1705,21 @@ StepResult mode_step_display_text(ModeState *ms) {
              * Port of CC_0F → INCREMENT_SECONDARY_MEMORY (asm/text/increment_secondary_memory.asm). */
             increment_secondary_memory();
             break;
-        case 0x10: cc_pause(r); break;
+        case 0x10: {
+            /* PAUSE (CC_10): read the frame count, clear instant printing, then
+             * STEP_PUSH GAME_MODE_TEXT_DELAY (lead_window=1, non-cancelable) — the
+             * former cc_pause() -> pump_mode(GAME_MODE_TEXT_DELAY). No post-work;
+             * the parent resumes DT_RUN on POP. */
+            uint8_t frames = script_read_byte(r);
+            clear_instant_printing();
+            static ModeState init;  /* outlives this dispatch (pump copies it) */
+            memset(&init, 0, sizeof(init));
+            init.text_delay.remaining   = frames;
+            init.text_delay.cancelable  = 0;
+            init.text_delay.primed      = 0;
+            init.text_delay.lead_window = 1;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_DELAY, &init);
+        }
 
         /* Jump CCs */
         case 0x06: {

@@ -61,30 +61,11 @@ void cc_clear_event_flag(ScriptReader *r) {
  * CC 0x13 (HALT_WITHOUT_PROMPT):     show_triangle=0, skip_text_speed=0
  * CC 0x14 (HALT_WITH_PROMPT_ALWAYS): show_triangle=1, skip_text_speed=1
  */
-/* cc_halt was removed: CC_03/0x13/0x14 now STEP_PUSH GAME_MODE_TEXT_PROMPT
- * directly from mode_step_display_text (dt_push_text_prompt in display_text.c).
- * The prompt's phase machine still lives in mode_step_text_prompt below. */
-
-
-void cc_pause(ScriptReader *r) {
-    uint8_t frames = script_read_byte(r);
-    /* Port of CC_10 → TICK_HPPP_METER_N_FRAMES (C100D6).
-     * Assembly renders (frames + 1) total frames:
-     *   1st frame via WINDOW_TICK, remaining via UPDATE_HPPP_METER_AND_RENDER.
-     * Both paths call RENDER_FRAME_TICK internally.
-     * Using update_hppp_meter_and_render() for HP/PP roller animation. */
-    /* Assembly: JSR CLEAR_INSTANT_PRINTING; JSL WINDOW_TICK.
-     * WINDOW_TICK leaves dt.instant_printing=0 (no re-enable). Run-to-completion
-     * via GAME_MODE_TEXT_DELAY with a leading window_tick_work frame (lead_window)
-     * and the non-cancelable delay. */
-    clear_instant_printing();
-    ModeState init = {0};
-    init.text_delay.remaining   = frames;
-    init.text_delay.cancelable  = 0;
-    init.text_delay.primed      = 0;
-    init.text_delay.lead_window = 1;
-    pump_mode(GAME_MODE_TEXT_DELAY, &init);
-}
+/* cc_halt and cc_pause were removed: CC_03/0x13/0x14 and CC_10 now STEP_PUSH
+ * GAME_MODE_TEXT_PROMPT / GAME_MODE_TEXT_DELAY directly from mode_step_display_text
+ * (dt_push_text_prompt / the CC_10 case in display_text.c) instead of calling a
+ * wrapper that pump_mode'd. Their phase machines (mode_step_text_prompt /
+ * mode_step_text_delay) still live below. */
 
 
 /* --- CC 0x1F tree handlers (attract mode) --- */
