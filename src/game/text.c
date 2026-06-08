@@ -2382,6 +2382,14 @@ item_action_loop:
                      * Give item to another party member. */
                     set_window_focus(WINDOW_INVENTORY);
 
+                    /* Assembly (open_menu.asm:307): CLEAR_FOCUS_WINDOW_CONTENT frees
+                     * the giver inventory window's BG2 content tiles before the
+                     * recipient's inventory is rendered into WINDOW_OVERWORLD_CHAR_SELECT
+                     * during char_select_prompt. Without this, both full inventories
+                     * hold tiles at once and exhaust the ~407-tile BG2 pool
+                     * ("alloc_bg2_tilemap_entry: tile exhaustion!"). */
+                    clear_focus_window_content_far();
+
                     action_virtual02 = 1;
                     display_menu_header_text(3);  /* "Whom?" */
 

@@ -266,6 +266,10 @@ uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id);
  * Resets the menu item count of the focus window to 0. */
 void clear_focus_window_menu_options(void);
 
+/* CLEAR_FOCUS_WINDOW_CONTENT (far wrapper): frees the focus window's BG2 content
+ * tiles and resets its text cursor. Defined in battle_ui.c. */
+void clear_focus_window_content_far(void);
+
 /* GET_WINDOW_MENU_OPTION_COUNT: Port of asm/text/window/get_window_menu_option_count.asm.
  * Returns the number of menu items in the specified window. */
 uint16_t get_window_menu_option_count(uint16_t window_id);
