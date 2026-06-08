@@ -1469,27 +1469,70 @@ void check_text_word_wrap(ScriptReader *reader) {
     }
 }
 
-/* --- Main interpreter loop ---
- * Port of DISPLAY_TEXT (asm/text/display_text.asm). */
-void display_text(const uint8_t *script, size_t script_size) {
-    if (!script || script_size == 0) return;
+/* --- Main interpreter loop (GAME_MODE_DISPLAY_TEXT) ---
+ * Run-to-completion port of DISPLAY_TEXT (asm/text/display_text.asm). See the
+ * GAME_MODE_DISPLAY_TEXT comment in mode_stack.h for the phase machine. */
 
-    /* Save/restore dt.g_cc18_attrs_saved per call level, mirroring PUSH_TEXT_STACK_FRAME /
-     * POP_TEXT_STACK_FRAME which give each display_text invocation its own
-     * display_text_state::unknown4 field. Each nested CC_08 (CALL_TEXT) call gets
-     * a clean flag; the parent's flag is restored when the nested call returns. */
-    uint8_t saved_cc18_attrs = dt.g_cc18_attrs_saved;
-    dt.g_cc18_attrs_saved = 0;
+/* Seed a DISPLAY_TEXT ModeState from a raw script pointer + size, mirroring the
+ * blocking display_text() prologue's reader setup. */
+static void dt_setup_init(ModeState *init, const uint8_t *script, size_t size) {
+    memset(init, 0, sizeof(*init));
+    DisplayTextModeState *st = &init->display_text;
+    st->phase = DT_ENTER;
+    st->reader.source = text_classify_source(script);
+    uint32_t base_off = (uint32_t)(script - text_source_base(st->reader.source));
+    st->reader.ptr_off = base_off;
+    st->reader.end_off = base_off + (uint32_t)size;
+    st->reader.prefix_off = -1;
+}
 
-    ScriptReader reader;
-    reader.source = text_classify_source(script);
-    uint32_t script_base_off = (uint32_t)(script - text_source_base(reader.source));
-    reader.ptr_off = script_base_off;
-    reader.end_off = script_base_off + (uint32_t)script_size;
-    reader.prefix_off = -1;
-    dt.upcoming_word_length = 0;
+/* Build a child DISPLAY_TEXT init from a CALL_TEXT (CC_08) target address,
+ * mirroring display_text_from_addr() -> display_text(). Returns false if the
+ * address can't be resolved (the blocking path warns and does nothing). */
+static bool dt_make_child_init(ModeState *init, uint32_t addr) {
+    TextBlock *blk = NULL;
+    const uint8_t *ptr = resolve_text_addr(addr, &blk);
+    if (!ptr || !blk)
+        return false;
+    size_t remaining = blk->size - (size_t)(ptr - blk->data);
+    if (remaining == 0)
+        return false;
+    dt_setup_init(init, ptr, remaining);
+    return true;
+}
 
-    while (reader.ptr_off < reader.end_off || reader.prefix_off >= 0) {
+StepResult mode_step_display_text(ModeState *ms) {
+    DisplayTextModeState *st = &ms->display_text;
+
+    /* DT_DELAY: typewriter per-character delay. One window_tick_work() per frame;
+     * the pump owns the yield. Mirrors the blocking for(i<delay) window_tick(). */
+    if (st->phase == DT_DELAY) {
+        window_tick_work();
+        if (--st->delay_remaining == 0)
+            st->phase = DT_RUN;
+        return STEP_RESULT_CONTINUE();
+    }
+
+    /* DT_ENTER: per-call prologue (save the parent's g_cc18_attrs_saved, zero the
+     * global, reset the word counter), then fall through to DT_RUN with no yield —
+     * mirroring PUSH_TEXT_STACK_FRAME / the blocking display_text() entry. Each
+     * call level (including a nested CC_08 child) gets a clean flag; the parent's
+     * value is restored before this level pops. */
+    if (st->phase == DT_ENTER) {
+        st->saved_cc18_attrs = dt.g_cc18_attrs_saved;
+        dt.g_cc18_attrs_saved = 0;
+        dt.upcoming_word_length = 0;
+        st->phase = DT_RUN;
+    }
+
+    ScriptReader *r = &st->reader;
+
+    for (;;) {
+        if (!(r->ptr_off < r->end_off || r->prefix_off >= 0)) {
+            /* End of stream without END_BLOCK: POP_TEXT_STACK_FRAME equivalent. */
+            dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
+            return STEP_RESULT_POP(0);
+        }
         /* Word-wrap lookahead — port of display_text.asm @MAIN_LOOP lines 49-61.
          * When ENABLE_WORD_WRAP is active, before each character we check if
          * we're at a word boundary (dt.upcoming_word_length == 0).  If so, peek
@@ -1499,7 +1542,7 @@ void display_text(const uint8_t *script, size_t script_size) {
             if (dt.upcoming_word_length > 0) {
                 dt.upcoming_word_length--;
             } else {
-                check_text_word_wrap(&reader);
+                check_text_word_wrap(r);
                 /* After check, dt.upcoming_word_length is set for the word.
                  * Assembly does BRA @READ_NEXT_BYTE (skips DEC for first char).
                  * This is handled naturally: we don't decrement here, so the
@@ -1507,7 +1550,7 @@ void display_text(const uint8_t *script, size_t script_size) {
             }
         }
 
-        uint8_t byte = script_read_byte(&reader);
+        uint8_t byte = script_read_byte(r);
 
         /* Printable character (>= 0x20) — port of PRINT_LETTER
          * (asm/text/print_letter.asm).
@@ -1541,15 +1584,20 @@ void display_text(const uint8_t *script, size_t script_size) {
                     play_sfx(7);  /* SFX::TEXT_PRINT */
                 }
 
-                /* Delay loop (assembly lines 71-81):
-                 * SELECTED_TEXT_SPEED + 1 iterations of WINDOW_TICK.
-                 * game_state.text_speed = SELECTED_TEXT_SPEED. */
+                /* Typewriter delay (assembly lines 71-81): SELECTED_TEXT_SPEED+1
+                 * WINDOW_TICK frames. The first frame's work runs now; any
+                 * remaining frames run in DT_DELAY. Each returns CONTINUE so the
+                 * pump yields once per frame — matching the blocking for-loop's
+                 * window_tick() (work-then-yield) repeated `delay` times. */
                 int delay = (game_state.text_speed & 0xFF) + 1;
-                for (int i = 0; i < delay; i++) {
-                    window_tick();
+                window_tick_work();
+                if (delay > 1) {
+                    st->delay_remaining = (uint16_t)(delay - 1);
+                    st->phase = DT_DELAY;
                 }
+                return STEP_RESULT_CONTINUE();
             }
-            continue;
+            continue;  /* instant printing: no yield */
         }
 
         /* END_BLOCK (CC_02): Script terminator.
@@ -1562,8 +1610,8 @@ void display_text(const uint8_t *script, size_t script_size) {
             if (dt.g_cc18_attrs_saved) {
                 restore_window_text_attributes();
             }
-            dt.g_cc18_attrs_saved = saved_cc18_attrs;
-            return;
+            dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
+            return STEP_RESULT_POP(0);
         }
 
         /* Control codes */
@@ -1590,12 +1638,12 @@ void display_text(const uint8_t *script, size_t script_size) {
             break;
 
         /* Implemented CCs */
-        case 0x04: cc_set_event_flag(&reader); break;
-        case 0x05: cc_clear_event_flag(&reader); break;
+        case 0x04: cc_set_event_flag(r); break;
+        case 0x05: cc_clear_event_flag(r); break;
         case 0x07: {
             /* CHECK_EVENT_FLAG: 2 args (word) → store flag value to working memory.
              * Port of CC_07 (asm/text/ccs/get_event_flag.asm). */
-            uint16_t flag = script_read_word(&reader);
+            uint16_t flag = script_read_word(r);
             int16_t val = event_flag_get(flag);
             set_working_memory((uint32_t)(int32_t)val);
             break;
@@ -1603,7 +1651,7 @@ void display_text(const uint8_t *script, size_t script_size) {
         case 0x0B: {
             /* TEST_IF_WORKMEM_TRUE: 1 arg. If working_memory == arg, set 1; else 0.
              * Port of CC_0B (asm/text/ccs/check_equal.asm). */
-            uint8_t val = script_read_byte(&reader);
+            uint8_t val = script_read_byte(r);
             uint32_t wm = get_working_memory();
             set_working_memory((uint32_t)((uint16_t)wm == (uint16_t)val ? 1 : 0));
             break;
@@ -1611,7 +1659,7 @@ void display_text(const uint8_t *script, size_t script_size) {
         case 0x0C: {
             /* TEST_IF_WORKMEM_FALSE: 1 arg. If working_memory != arg, set 1; else 0.
              * Port of CC_0C (asm/text/ccs/check_not_equal.asm). */
-            uint8_t val = script_read_byte(&reader);
+            uint8_t val = script_read_byte(r);
             uint32_t wm = get_working_memory();
             set_working_memory((uint32_t)((uint16_t)wm != (uint16_t)val ? 1 : 0));
             break;
@@ -1620,7 +1668,7 @@ void display_text(const uint8_t *script, size_t script_size) {
             /* COPY_TO_ARGMEM: 1 arg. If arg != 0, copy secondary → argument.
              * If arg == 0, copy working → argument.
              * Port of CC_0D (asm/text/ccs/copy_to_argmem.asm). */
-            uint8_t val = script_read_byte(&reader);
+            uint8_t val = script_read_byte(r);
             if (val != 0) {
                 set_argument_memory((uint32_t)get_secondary_memory());
             } else {
@@ -1632,7 +1680,7 @@ void display_text(const uint8_t *script, size_t script_size) {
             /* STORE_TO_ARGMEM: 1 arg. If arg != 0, set secondary = arg.
              * If arg == 0, set secondary = low byte of argument_memory.
              * Port of CC_0E (asm/text/ccs/set_secmem.asm). */
-            uint8_t val = script_read_byte(&reader);
+            uint8_t val = script_read_byte(r);
             if (val != 0) {
                 set_secondary_memory(val);
             } else {
@@ -1645,47 +1693,54 @@ void display_text(const uint8_t *script, size_t script_size) {
              * Port of CC_0F → INCREMENT_SECONDARY_MEMORY (asm/text/increment_secondary_memory.asm). */
             increment_secondary_memory();
             break;
-        case 0x10: cc_pause(&reader); break;
+        case 0x10: cc_pause(r); break;
 
         /* Jump CCs */
         case 0x06: {
             /* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword address).
              * Port of CC_06. If event flag is set, jump to target; else skip. */
-            uint16_t flag = script_read_word(&reader);
-            uint32_t target = script_read_dword(&reader);
+            uint16_t flag = script_read_word(r);
+            uint32_t target = script_read_dword(r);
             if (event_flag_get(flag)) {
-                resolve_text_jump(&reader, target);
+                resolve_text_jump(r, target);
             }
             break;
         }
         case 0x08: {
-            /* CALL_TEXT: 4 args (dword address).
-             * Port of CC_08. Recursive call; returns after END_BLOCK. */
-            uint32_t target = script_read_dword(&reader);
-            display_text_from_addr(target);
+            /* CALL_TEXT: 4 args (dword address). Port of CC_08. The blocking form
+             * recursed via display_text_from_addr(); now it STEP_PUSHes a nested
+             * GAME_MODE_DISPLAY_TEXT child so the recursion lives on the mode stack
+             * (serializable), not the C stack. The parent resumes DT_RUN on POP.
+             * One yield is inserted at the push (and one at the child's pop) — an
+             * accepted imperceptible shift on text that already yields per char. */
+            uint32_t target = script_read_dword(r);
+            static ModeState dt_call_init;  /* outlives this dispatch (pump copies it) */
+            if (dt_make_child_init(&dt_call_init, target))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_call_init);
+            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", target);
             break;
         }
         case 0x09: {
             /* JUMP_MULTI: 1 byte count + count*4 byte addresses.
              * Port of CC_09 (asm/text/ccs/jump_multi.asm).
              * Uses working_memory as 1-indexed selector into address table. */
-            uint8_t count = script_read_byte(&reader);
+            uint8_t count = script_read_byte(r);
             uint32_t wm = get_working_memory();
             if (wm > 0 && wm <= count) {
-                script_skip(&reader, (wm - 1) * 4);
-                uint32_t target = script_read_dword(&reader);
-                resolve_text_jump(&reader, target);
+                script_skip(r, (wm - 1) * 4);
+                uint32_t target = script_read_dword(r);
+                resolve_text_jump(r, target);
             } else {
                 /* Out of range or 0 — skip all destinations */
-                script_skip(&reader, count * 4);
+                script_skip(r, count * 4);
             }
             break;
         }
         case 0x0A: {
             /* JUMP: 4 args (dword address).
              * Port of CC_0A. Unconditional jump. */
-            uint32_t target = script_read_dword(&reader);
-            resolve_text_jump(&reader, target);
+            uint32_t target = script_read_dword(r);
+            resolve_text_jump(r, target);
             break;
         }
 
@@ -1724,25 +1779,34 @@ void display_text(const uint8_t *script, size_t script_size) {
             break;
 
         /* Tree dispatchers */
-        case 0x18: cc_18_dispatch(&reader); break;
-        case 0x19: cc_19_dispatch(&reader); break;
-        case 0x1A: cc_1a_dispatch(&reader); break;
-        case 0x1B: cc_1b_dispatch(&reader); break;
-        case 0x1C: cc_1c_dispatch(&reader); break;
-        case 0x1D: cc_1d_dispatch(&reader); break;
-        case 0x1E: cc_1e_dispatch(&reader); break;
-        case 0x1F: cc_1f_dispatch(&reader); break;
+        case 0x18: cc_18_dispatch(r); break;
+        case 0x19: cc_19_dispatch(r); break;
+        case 0x1A: cc_1a_dispatch(r); break;
+        case 0x1B: cc_1b_dispatch(r); break;
+        case 0x1C: cc_1c_dispatch(r); break;
+        case 0x1D: cc_1d_dispatch(r); break;
+        case 0x1E: cc_1e_dispatch(r); break;
+        case 0x1F: cc_1f_dispatch(r); break;
 
         /* All other simple CCs — skip arguments */
         default:
-            cc_skip_args(&reader, byte);
+            cc_skip_args(r, byte);
             break;
         }
 
         if (platform_input_quit_requested()) {
-            dt.g_cc18_attrs_saved = saved_cc18_attrs;
-            return;
+            dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
+            return STEP_RESULT_POP(0);
         }
     }
-    dt.g_cc18_attrs_saved = saved_cc18_attrs;
+}
+
+/* Run a text bytecode script to completion. Thin wrapper over the
+ * GAME_MODE_DISPLAY_TEXT mode: seed a ModeState and pump it (the migration bridge
+ * yield) until it pops. All ~50 callers keep working unchanged. */
+void display_text(const uint8_t *script, size_t script_size) {
+    if (!script || script_size == 0) return;
+    ModeState init;
+    dt_setup_init(&init, script, script_size);
+    pump_mode(GAME_MODE_DISPLAY_TEXT, &init);
 }

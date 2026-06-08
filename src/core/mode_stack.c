@@ -92,6 +92,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_ATTRACT]             = mode_step_attract_mode,        /* attract_mode.c */
     [GAME_MODE_FILE_MENU]           = mode_step_file_menu,           /* file_select.c */
     [GAME_MODE_INIT_INTRO]          = mode_step_init_intro,          /* init_intro.c */
+    [GAME_MODE_DISPLAY_TEXT]        = mode_step_display_text,        /* display_text.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

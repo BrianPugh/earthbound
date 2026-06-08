@@ -2,6 +2,7 @@
 #define EB_CORE_MODE_STACK_H
 
 #include "core/types.h"
+#include "game/display_text.h"  /* ScriptReader (embedded in DisplayTextState) */
 
 /* ---------------------------------------------------------------------------
  * Explicit mode stack (savestate-anywhere migration, phase 2).
@@ -54,6 +55,7 @@ typedef enum {
     GAME_MODE_ATTRACT,             /* attract-mode demo scene (run_attract_mode) */
     GAME_MODE_FILE_MENU,           /* file-select cascade (file_menu_loop) */
     GAME_MODE_INIT_INTRO,          /* intro state machine (init_intro) */
+    GAME_MODE_DISPLAY_TEXT,        /* text bytecode interpreter (display_text) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -923,6 +925,39 @@ typedef struct {
     uint8_t  attract_index;    /* which attract scene table entry is next */
 } InitIntroState;
 
+/* GAME_MODE_DISPLAY_TEXT — run-to-completion port of the text bytecode
+ * interpreter display_text() (display_text.c, asm/text/display_text.asm). The
+ * blocking while-loop body is the DT_RUN phase, run inside an internal for(;;)
+ * that processes control codes back-to-back and only returns (yields) at a real
+ * frame boundary:
+ *   - the per-character typewriter delay (window_tick x text_speed+1) becomes the
+ *     DT_DELAY phase (one window_tick_work() per step);
+ *   - CC_08 CALL_TEXT recursion becomes a STEP_PUSH of a nested DISPLAY_TEXT
+ *     child (the parent resumes DT_RUN on POP).
+ * DT_ENTER does the per-call prologue (save the parent's g_cc18_attrs_saved, zero
+ * the global, reset upcoming_word_length) then falls through to DT_RUN with no
+ * yield, matching the blocking display_text() entry. The saved value is restored
+ * on END_BLOCK / end-of-stream / quit before the POP, so per-call attribute state
+ * is naturally per-mode.
+ *
+ * Staged landing (plan Phase A, strategy b): only the typewriter delay and CALL
+ * recursion are run-to-completion here. The remaining yielding control codes
+ * (cc_halt/cc_pause/CC_11 selection_menu/the cc_1f sub-ops) still call their
+ * blocking forms inline, which internally pump_mode their already-converted
+ * children — C-stack state for now, converted to STEP_PUSH in later commits. */
+typedef enum {
+    DT_ENTER = 0, /* per-call prologue, then fall through to DT_RUN (no yield) */
+    DT_RUN,       /* interpret control codes until a yield point */
+    DT_DELAY,     /* typewriter per-character delay countdown */
+} DisplayTextPhase;
+
+typedef struct {
+    uint8_t      phase;            /* DisplayTextPhase */
+    uint8_t      saved_cc18_attrs; /* this call level's saved g_cc18_attrs_saved */
+    uint16_t     delay_remaining;  /* DT_DELAY: window_tick_work frames left */
+    ScriptReader reader;           /* offset-based script cursor (serializable) */
+} DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -957,6 +992,7 @@ union ModeState {
     AttractState          attract;
     FileMenuState         file_menu;
     InitIntroState        init_intro;
+    DisplayTextModeState  display_text;
     uint8_t               _raw[160];
 };
 
@@ -1100,6 +1136,11 @@ StepResult mode_step_file_menu(ModeState *st);
  * ModeState.init_intro (phase = II_LOGO) before pump_mode(GAME_MODE_INIT_INTRO).
  * Pops 0. */
 StepResult mode_step_init_intro(ModeState *st);
+
+/* GAME_MODE_DISPLAY_TEXT step (defined in display_text.c). Normally entered via
+ * the display_text() wrapper (pump_mode); CC_08 CALL_TEXT STEP_PUSHes a nested
+ * instance. Init with phase = DT_ENTER and the reader fields set. Always pops 0. */
+StepResult mode_step_display_text(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

@@ -17,6 +17,29 @@
 
 #include "core/types.h"
 
+/* Which embedded text asset a ScriptReader reads from. A stable, build-portable
+ * tag (savestate-serializable) in place of a raw base pointer; text_source_base()
+ * (display_text.c) maps it back to the live asset pointer on each read. */
+typedef enum {
+    TEXT_SRC_DIALOGUE = 0,    /* dialogue blob      (ASSET_DIALOGUE_DIALOGUE_BIN)   */
+    TEXT_SRC_INLINE_STRINGS,  /* inline strings     (ASSET_TEXT_INLINE_STRINGS_BIN) */
+    TEXT_SRC_STATUS_WINDOW,   /* status window text (ASSET_DATA_STATUS_WINDOW_TEXT_BIN) */
+    TEXT_SRC_COUNT,
+} TextSource;
+
+/* Script reading cursor — offset-based so it holds no raw pointers and can live in
+ * a serializable ModeState (savestate-anywhere migration). `source` selects the
+ * asset; ptr_off/end_off are byte offsets within it. prefix_off is the CC 0x15-0x17
+ * dictionary-substitution cursor (-1 = none); that CC is not yet wired up in the C
+ * port, so prefix_off is currently always -1 (dormant). Defined here (not in the
+ * internal header) so the GAME_MODE_DISPLAY_TEXT ModeState can embed it. */
+typedef struct {
+    uint8_t  source;       /* TextSource */
+    uint32_t ptr_off;      /* current read offset within the source asset */
+    uint32_t end_off;      /* end offset (exclusive) */
+    int32_t  prefix_off;   /* dictionary substitution offset; -1 = none */
+} ScriptReader;
+
 /* Run a text bytecode script to completion.
  * Blocks until the script hits END_BLOCK (0x02) or returns.
  * For attract mode: drives scene setup (teleport, entity spawn, pause).
