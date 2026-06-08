@@ -48,6 +48,7 @@ typedef enum {
     GAME_MODE_MAP_PALETTE_FADE,    /* map-load BG palette cross-fade (load_map_palette) */
     GAME_MODE_MOSAIC_FADE,         /* brightness-ramp mosaic fade in/out (callroutine, flyover) */
     GAME_MODE_FLYOVER,             /* flyover text + coffee/tea cutscene interpreters */
+    GAME_MODE_INTRO_LOGO,          /* intro logo sequence (Nintendo/APE/HAL) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -700,6 +701,40 @@ typedef struct {
     uint32_t script_size;         /* script byte length */
 } FlyoverState;
 
+/* GAME_MODE_INTRO_LOGO — run-to-completion port of logo_screen() (logo_screen.c):
+ * the Nintendo -> APE -> HAL logo sequence shown at boot. Each logo is loaded
+ * (no yield), faded in, held, and faded out. The brightness ramps are exactly
+ * GAME_MODE_MOSAIC_FADE (MF_IN / MF_OUT with no mosaic), so this mode PUSHes a
+ * MOSAIC_FADE child for each fade via STEP_PUSH-with-init rather than re-inlining
+ * the ramp — the first real use of that mechanism.
+ *
+ *   LG_LOAD  - load logo[idx] gfx, prime INIDISP=0x00 / MOSAIC=0, set the hold
+ *              length, then PUSH MF_IN; resume at LG_HOLD.
+ *   LG_HOLD  - hold loop. Nintendo (idx 0) is fixed at 180 frames and NOT
+ *              skippable; APE/HAL (idx 1/2) hold up to 120 frames and skip on any
+ *              button press (post-yield read). A skip PUSHes a faster MF_OUT
+ *              (step 2, delay 1) and pops 1; a normal time-out PUSHes MF_OUT
+ *              (step 1, delay 2). Either way resume at LG_DONE_FADE.
+ *   LG_DONE_FADE - after the fade-out: a skip pops 1; otherwise advance to the
+ *                  next logo (LG_LOAD) or pop 0 after HAL.
+ *
+ * Pops 0 on normal completion, 1 if a button skipped APE/HAL (matching the
+ * blocking logo_screen() return). The few extra force-blank/brightness-0 frames
+ * the pump inserts at each PUSH/POP boundary are imperceptible on this cosmetic
+ * sequence (same class of accepted <=1-frame shift as the other conversions). */
+typedef enum {
+    LG_LOAD = 0,
+    LG_HOLD,
+    LG_DONE_FADE,
+} IntroLogoPhase;
+
+typedef struct {
+    uint8_t  phase;          /* IntroLogoPhase */
+    uint8_t  logo_idx;       /* 0 = Nintendo, 1 = APE, 2 = HAL */
+    uint8_t  skipping;       /* a button skip is in progress: pop 1 after the fade-out */
+    uint16_t hold_remaining; /* frames left to hold the current logo */
+} IntroLogoState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -728,6 +763,7 @@ union ModeState {
     MapPaletteFadeState   map_palette_fade;
     MosaicFadeState       mosaic_fade;
     FlyoverState          flyover;
+    IntroLogoState        intro_logo;
     uint8_t               _raw[160];
 };
 
@@ -838,6 +874,11 @@ StepResult mode_step_mosaic_fade(ModeState *st);
  * or FOP_CT_FADEOUT1, id, pos, script_size, …) before pump_mode(GAME_MODE_
  * FLYOVER). Always pops 0. */
 StepResult mode_step_flyover(ModeState *st);
+
+/* GAME_MODE_INTRO_LOGO step (defined in logo_screen.c). Init via
+ * ModeState.intro_logo (phase = LG_LOAD, logo_idx = 0) before
+ * pump_mode(GAME_MODE_INTRO_LOGO). Pops 0 normally, 1 on a button skip. */
+StepResult mode_step_intro_logo(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

@@ -8,6 +8,7 @@
 #include "game/audio.h"
 #include "data/assets.h"
 #include "platform/platform.h"
+#include "core/mode_stack.h"
 #include <string.h>
 
 /* Forward declarations from main.c */
@@ -16,33 +17,6 @@
 /* Graphics and arrangements decompress directly to ppu.vram, matching the
  * ROM's BUFFER → VRAM DMA flow without needing an intermediate buffer.
  * ppu.vram persists between logo loads (BSS-zeroed once), matching the ROM. */
-
-/* Fade in with mosaic effect.
-   Ports FADE_IN_WITH_MOSAIC: A=step, X=delay_frames, Y=mosaic_enable */
-static void fade_in_with_mosaic(uint16_t step, uint16_t delay_frames, uint16_t mosaic_enable) {
-    ppu.inidisp = 0x00; /* brightness 0, force blank off */
-    ppu.mosaic = 0;
-
-    while (1) {
-        uint8_t brightness = ppu.inidisp & 0x0F;
-        uint16_t next = brightness + step;
-        if (next >= 0x0F) {
-            ppu.inidisp = (ppu.inidisp & 0xF0) | 0x0F;
-            break;
-        }
-        ppu.inidisp = (ppu.inidisp & 0xF0) | (uint8_t)next;
-
-        if (mosaic_enable) {
-            /* Mosaic size = inverted brightness, shifted left 4 */
-            uint8_t inv = (~(uint8_t)next) & 0x0F;
-            ppu.mosaic = (inv << 4) | mosaic_enable;
-        }
-
-        for (uint16_t i = 0; i < delay_frames; i++) {
-            wait_for_vblank();
-        }
-    }
-}
 
 /* Fade out with mosaic effect.
    Ports FADE_OUT_WITH_MOSAIC: A=step, X=delay_frames, Y=mosaic_enable */
@@ -72,11 +46,6 @@ void fade_out_with_mosaic(uint16_t step, uint16_t delay_frames, uint16_t mosaic_
        In the emulator, that spin-wait + subsequent code all happen in one
        runFrame call. So we do NOT call wait_for_vblank() here — the next
        wait_for_vblank() in fade_in_with_mosaic will serve as that frame. */
-}
-
-/* Wait for N frames, return true if button pressed */
-static bool wait_frames_or_until_pressed(uint16_t frames) {
-    return wait_frames_or_button(frames, 0xFFFF);
 }
 
 void logo_screen_load(uint16_t logo_id) {
@@ -164,40 +133,80 @@ void logo_screen_load(uint16_t logo_id) {
     }
 }
 
+/* ---- GAME_MODE_INTRO_LOGO -------------------------------------------------
+ * Run-to-completion port of the blocking logo_screen() below. See the
+ * IntroLogoState comment in mode_stack.h. The single yield is owned by the pump;
+ * this body never calls wait_for_vblank(). The brightness ramps are pushed as
+ * GAME_MODE_MOSAIC_FADE children (MF_IN/MF_OUT, no mosaic), exactly matching the
+ * former fade_in_with_mosaic() / fade_out_with_mosaic(step,delay,0) calls. */
+
+/* Logo IDs in display order, indexed by IntroLogoState.logo_idx. */
+static const uint16_t intro_logo_ids[3] = { LOGO_NINTENDO, LOGO_APE, LOGO_HALKEN };
+
+/* Build a STEP_PUSH of a MOSAIC_FADE child. The pump copies *push_init into the
+ * child's stack level synchronously right after this step returns (before any
+ * other step runs), so a function-local static is a safe home for the init. */
+static StepResult intro_logo_push_fade(MosaicFadeKind kind, uint8_t step, uint16_t delay) {
+    static ModeState child;
+    memset(&child, 0, sizeof(child));
+    child.mosaic_fade.kind  = (uint8_t)kind;
+    child.mosaic_fade.step  = step;
+    child.mosaic_fade.delay = delay;
+    /* mosaic_bgs = 0 (logos use no mosaic); final_hdma = 0; phase/delay_left = 0 */
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child);
+}
+
+/* Load logo[idx] and begin its fade-in (shared by initial entry + inter-logo
+ * transition). Primes INIDISP=0x00 / MOSAIC=0 (FADE_IN_WITH_MOSAIC's first act)
+ * and pushes MF_IN(step 1, delay 2, no mosaic). Resumes at LG_HOLD. */
+static StepResult intro_logo_begin(IntroLogoState *s) {
+    logo_screen_load(intro_logo_ids[s->logo_idx]);
+    ppu.inidisp = 0x00; /* brightness 0, force blank off */
+    ppu.mosaic = 0;
+    s->hold_remaining = (s->logo_idx == 0) ? 180 : 120;
+    s->skipping = 0;
+    s->phase = LG_HOLD;
+    return intro_logo_push_fade(MF_IN, 1, 2);
+}
+
+StepResult mode_step_intro_logo(ModeState *st) {
+    IntroLogoState *s = &st->intro_logo;
+
+    switch ((IntroLogoPhase)s->phase) {
+    case LG_LOAD:
+        return intro_logo_begin(s);
+
+    case LG_HOLD:
+        /* APE/HAL (idx > 0) skip on any button (post-yield read), exactly like
+         * the former wait_frames_or_until_pressed(); Nintendo (idx 0) is a plain
+         * 180-frame hold with no button check. */
+        if (s->logo_idx > 0 && platform_input_get_pad_new()) {
+            s->skipping = 1;
+            s->phase = LG_DONE_FADE;
+            return intro_logo_push_fade(MF_OUT, 2, 1); /* fast skip fade-out */
+        }
+        if (s->hold_remaining == 0) {
+            s->phase = LG_DONE_FADE;
+            return intro_logo_push_fade(MF_OUT, 1, 2); /* normal fade-out */
+        }
+        s->hold_remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case LG_DONE_FADE:
+        if (s->skipping)
+            return STEP_RESULT_POP(1);
+        if (s->logo_idx < 2) {
+            s->logo_idx++;
+            return intro_logo_begin(s);
+        }
+        return STEP_RESULT_POP(0);
+    }
+    return STEP_RESULT_POP(0);
+}
+
 uint16_t logo_screen(void) {
-    /* Screen 0: Nintendo logo - show for 180 frames (3 seconds) */
-    logo_screen_load(LOGO_NINTENDO);
-    fade_in_with_mosaic(1, 2, 0); /* step=1, delay=2, no mosaic */
-
-    /* Wait 180 frames (3 seconds) */
-    for (int i = 0; i < 180; i++) {
-        if (platform_input_quit_requested()) return 1;
-        wait_for_vblank();
-    }
-
-    fade_out_with_mosaic(1, 2, 0);
-
-    /* Screen 1: APE logo - show for 120 frames (2 seconds) */
-    logo_screen_load(LOGO_APE);
-    fade_in_with_mosaic(1, 2, 0);
-
-    if (wait_frames_or_until_pressed(120)) {
-        /* Button pressed - skip remaining logos */
-        fade_out_with_mosaic(2, 1, 0);
-        return 1;
-    }
-
-    fade_out_with_mosaic(1, 2, 0);
-
-    /* Screen 2: HAL Laboratory logo */
-    logo_screen_load(LOGO_HALKEN);
-    fade_in_with_mosaic(1, 2, 0);
-
-    if (wait_frames_or_until_pressed(120)) {
-        fade_out_with_mosaic(2, 1, 0);
-        return 1;
-    }
-
-    fade_out_with_mosaic(1, 2, 0);
-    return 0;
+    ModeState init = {0};
+    init.intro_logo.phase = LG_LOAD;
+    init.intro_logo.logo_idx = 0;
+    return (uint16_t)pump_mode(GAME_MODE_INTRO_LOGO, &init);
 }
