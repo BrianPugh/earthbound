@@ -61,18 +61,9 @@ void cc_clear_event_flag(ScriptReader *r) {
  * CC 0x13 (HALT_WITHOUT_PROMPT):     show_triangle=0, skip_text_speed=0
  * CC 0x14 (HALT_WITH_PROMPT_ALWAYS): show_triangle=1, skip_text_speed=1
  */
-void cc_halt(int show_triangle, int skip_text_speed) {
-    /* Run-to-completion via GAME_MODE_TEXT_PROMPT (mode_step_text_prompt). The
-     * former blocking sequence — drain text_prompt_waiting_for_input, window_tick,
-     * then the text-speed shortcut / no-triangle wait / blinking-triangle wait —
-     * is now a phase machine whose locals live in TextPromptState. pump_mode owns
-     * the single yield. */
-    ModeState init = {0};
-    init.text_prompt.phase           = TP_WAIT_PROMPT;
-    init.text_prompt.show_triangle   = (uint8_t)(show_triangle != 0);
-    init.text_prompt.skip_text_speed = (uint8_t)(skip_text_speed != 0);
-    pump_mode(GAME_MODE_TEXT_PROMPT, &init);
-}
+/* cc_halt was removed: CC_03/0x13/0x14 now STEP_PUSH GAME_MODE_TEXT_PROMPT
+ * directly from mode_step_display_text (dt_push_text_prompt in display_text.c).
+ * The prompt's phase machine still lives in mode_step_text_prompt below. */
 
 
 void cc_pause(ScriptReader *r) {

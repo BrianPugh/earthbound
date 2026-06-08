@@ -1501,6 +1501,19 @@ static bool dt_make_child_init(ModeState *init, uint32_t addr) {
     return true;
 }
 
+/* CC_03/0x13/0x14 (cc_halt): push the text-advance prompt as a child mode.
+ * Replaces the former inline cc_halt() -> pump_mode(GAME_MODE_TEXT_PROMPT); the
+ * prompt's whole phase machine lives in mode_step_text_prompt. No post-work, so
+ * the parent simply resumes DT_RUN (next byte) on POP. */
+static StepResult dt_push_text_prompt(int show_triangle, int skip_text_speed) {
+    static ModeState init;  /* outlives this dispatch (pump copies it) */
+    memset(&init, 0, sizeof(init));
+    init.text_prompt.phase           = TP_WAIT_PROMPT;
+    init.text_prompt.show_triangle   = (uint8_t)(show_triangle != 0);
+    init.text_prompt.skip_text_speed = (uint8_t)(skip_text_speed != 0);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_PROMPT, &init);
+}
+
 StepResult mode_step_display_text(ModeState *ms) {
     DisplayTextModeState *st = &ms->display_text;
 
@@ -1634,8 +1647,7 @@ StepResult mode_step_display_text(ModeState *ms) {
         case 0x03:
             /* HALT_WITH_PROMPT: 0 args. Port of CC_03.
              * Assembly: calls CC_13_14 with A=1, X=0 → show triangle, allow text speed delay. */
-            cc_halt(1, 0);
-            break;
+            return dt_push_text_prompt(1, 0);
 
         /* Implemented CCs */
         case 0x04: cc_set_event_flag(r); break;
@@ -1770,13 +1782,11 @@ StepResult mode_step_display_text(ModeState *ms) {
         case 0x13:
             /* HALT_WITHOUT_PROMPT: 0 args. Port of CC_13.
              * Assembly: calls CC_13_14 with A=0, X=0 → no triangle. */
-            cc_halt(0, 0);
-            break;
+            return dt_push_text_prompt(0, 0);
         case 0x14:
             /* HALT_WITH_PROMPT_ALWAYS: 0 args. Port of CC_14.
              * Assembly: calls CC_13_14 with A=1, X=1 → show triangle, skip text speed delay. */
-            cc_halt(1, 1);
-            break;
+            return dt_push_text_prompt(1, 1);
 
         /* Tree dispatchers */
         case 0x18: cc_18_dispatch(r); break;
