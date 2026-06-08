@@ -57,16 +57,32 @@ typedef enum {
     STEP_POP,        /* this mode is done; hand pop_result back to the parent  */
 } StepKind;
 
+/* Forward declaration: ModeState is defined further down (it references the
+ * per-mode state structs). StepResult embeds one by value so a step that returns
+ * STEP_PUSH can carry the child's initial state — a pointer to a step-local would
+ * be dangling by the time the pump/root applies it. */
+typedef union ModeState ModeState;
+
 typedef struct {
-    StepKind kind;
-    GameMode push_mode;   /* valid when kind == STEP_PUSH */
-    int32_t  pop_result;  /* valid when kind == STEP_POP  */
+    StepKind  kind;
+    GameMode  push_mode;   /* valid when kind == STEP_PUSH */
+    int32_t   pop_result;  /* valid when kind == STEP_POP  */
+    ModeState *push_init;  /* STEP_PUSH: optional initial state (NULL = zeroed) */
 } StepResult;
 
 /* Convenience constructors for step functions. */
 #define STEP_RESULT_CONTINUE()  ((StepResult){ .kind = STEP_CONTINUE })
 #define STEP_RESULT_PUSH(m)     ((StepResult){ .kind = STEP_PUSH, .push_mode = (m) })
 #define STEP_RESULT_POP(r)      ((StepResult){ .kind = STEP_POP,  .pop_result = (int32_t)(r) })
+
+/* STEP_PUSH carrying an initial ModeState for the child. `init` must point at
+ * storage that outlives the dispatch call — in practice a `static` ModeState in
+ * the step function, or a field hoisted into the parent's own ModeState (which
+ * lives in the serializable g_mode_stack, not on the C stack). The pump/root
+ * copies *init into the child's level immediately, so the pointer is only
+ * dereferenced within the same dispatch turn. */
+#define STEP_RESULT_PUSH_INIT(m, init) \
+    ((StepResult){ .kind = STEP_PUSH, .push_mode = (m), .push_init = (init) })
 
 /* Which per-frame "tick" body a GAME_MODE_FADE_WAIT runs while the fade is in
  * progress. Each former blocking loop did slightly different per-frame work. */
@@ -690,7 +706,7 @@ typedef struct {
  * ModeStack layout for already-shipped modes. (The reserve grew from 64 to 160
  * for SoundStoneState's ps[8]; savestates are not cross-build compatible, so the
  * one-time on-disk size change is harmless pre-cutover.) */
-typedef union {
+union ModeState {
     FadeWaitState         fade_wait;
     NumberSelectState     number_select;
     CharSelectState       char_select;
@@ -713,7 +729,7 @@ typedef union {
     MosaicFadeState       mosaic_fade;
     FlyoverState          flyover;
     uint8_t               _raw[160];
-} ModeState;
+};
 
 #define MODE_STACK_MAX 8
 

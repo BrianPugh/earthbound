@@ -127,7 +127,7 @@ int32_t pump_mode(GameMode mode, const ModeState *init) {
                                           &g_mode_stack.state[top]);
 
         if (r.kind == STEP_PUSH) {
-            mode_push(r.push_mode, NULL);
+            mode_push(r.push_mode, r.push_init);
         } else if (r.kind == STEP_POP) {
             mode_pop(r.pop_result);
             if (g_mode_stack.depth < floor)
