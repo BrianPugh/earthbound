@@ -86,6 +86,43 @@ static size_t inline_string_table_size = 0;
 static const uint8_t *dialogue_blob = NULL;
 static size_t dialogue_blob_size = 0;
 
+/* Status window text asset (forward-declared here; assigned lazily near its first
+ * use). Referenced by the TextSource helpers below. */
+static const uint8_t *status_window_text_data;
+static size_t   status_window_text_size;
+
+/* Dormant CC 0x15-0x17 dictionary base — prefix substitution is not yet wired up,
+ * so ScriptReader::prefix_off is always -1 and this stays NULL. */
+static const uint8_t *text_prefix_base = NULL;
+
+/* Map a TextSource tag back to its live asset base pointer. Readers are offset-
+ * based (no raw pointers in ScriptReader) so they survive a save/reload; the base
+ * is re-derived on each read. */
+static const uint8_t *text_source_base(uint8_t source) {
+    switch ((TextSource)source) {
+    case TEXT_SRC_DIALOGUE:       return dialogue_blob;
+    case TEXT_SRC_INLINE_STRINGS: return inline_string_table;
+    case TEXT_SRC_STATUS_WINDOW:  return status_window_text_data;
+    default:                      return NULL;
+    }
+}
+
+/* Classify which TextSource a raw script pointer falls within (used only at the
+ * few display_text() entry points, where the buffer comes from a known asset).
+ * The three text assets are distinct, non-overlapping buffers, so the range check
+ * is unambiguous; falls back to dialogue if somehow unmatched. */
+static uint8_t text_classify_source(const uint8_t *p) {
+    if (dialogue_blob && p >= dialogue_blob && p < dialogue_blob + dialogue_blob_size)
+        return TEXT_SRC_DIALOGUE;
+    if (inline_string_table && p >= inline_string_table &&
+        p < inline_string_table + inline_string_table_size)
+        return TEXT_SRC_INLINE_STRINGS;
+    if (status_window_text_data && p >= status_window_text_data &&
+        p < status_window_text_data + status_window_text_size)
+        return TEXT_SRC_STATUS_WINDOW;
+    return TEXT_SRC_DIALOGUE;
+}
+
 
 /* HP/PP modification functions: now in game_state.c, declared in game_state.h.
  * heal_character_hp/pp, reduce_hp/pp_target, recover/reduce_hp/pp_amtpercent. */
@@ -582,16 +619,16 @@ uint8_t script_read_byte(ScriptReader *r) {
     /* Read from prefix ert.buffer first (compressed text dictionary insertion).
      * When a null terminator is hit, switch back to main stream.
      * Port of @LOCAL04 / @READ_NEXT_BYTE in display_text.asm. */
-    if (r->prefix_ptr) {
-        uint8_t b = *r->prefix_ptr;
+    if (r->prefix_off >= 0 && text_prefix_base) {
+        uint8_t b = text_prefix_base[r->prefix_off];
         if (b != 0x00) {
-            r->prefix_ptr++;
+            r->prefix_off++;
             return b;
         }
-        r->prefix_ptr = NULL; /* prefix exhausted */
+        r->prefix_off = -1; /* prefix exhausted */
     }
-    if (r->ptr >= r->end) return 0x02; /* END_BLOCK if past end */
-    return *r->ptr++;
+    if (r->ptr_off >= r->end_off) return 0x02; /* END_BLOCK if past end */
+    return text_source_base(r->source)[r->ptr_off++];
 }
 
 uint16_t script_read_word(ScriptReader *r) {
@@ -619,9 +656,11 @@ void resolve_text_jump(ScriptReader *r, uint32_t addr) {
     TextBlock *blk = NULL;
     const uint8_t *ptr = resolve_text_addr(addr, &blk);
     if (ptr && blk) {
-        r->ptr = ptr;
-        r->base = blk->data;
-        r->end = blk->data + blk->size;
+        /* resolve_text_addr only resolves dialogue-blob / inline-string addresses,
+         * split on DIALOGUE_BLOB_BASE — matching its own range check. */
+        r->source  = (addr >= DIALOGUE_BLOB_BASE) ? TEXT_SRC_DIALOGUE : TEXT_SRC_INLINE_STRINGS;
+        r->ptr_off = (uint32_t)(ptr - blk->data);
+        r->end_off = (uint32_t)blk->size;
     } else {
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     }
@@ -743,8 +782,8 @@ void toggle_hppp_flipout_mode(uint16_t enable) {
 #define STATUS_TEXT5_OFFSET        35 /* affliction names (9 entries × 16 bytes) */
 #define STATUS_TEXT6_OFFSET       179 /* homesick text (16 bytes) */
 
-static const uint8_t *status_window_text_data;
-static size_t   status_window_text_size;
+/* status_window_text_data / status_window_text_size are declared near the top
+ * (TextSource helpers reference them); assigned lazily in display_status_window(). */
 static const uint8_t *status_equip_text_data;
 
 void display_status_window(uint16_t char_id) {
@@ -1381,17 +1420,17 @@ void check_text_word_wrap(ScriptReader *reader) {
     while (1) {
         /* Read next byte from peek copy */
         uint8_t ch;
-        if (peek.prefix_ptr) {
-            ch = *peek.prefix_ptr;
+        if (peek.prefix_off >= 0 && text_prefix_base) {
+            ch = text_prefix_base[peek.prefix_off];
             if (ch == 0x00) {
                 /* End of prefix ert.buffer → switch to main stream */
-                peek.prefix_ptr = NULL;
+                peek.prefix_off = -1;
                 continue;
             }
-            peek.prefix_ptr++;
+            peek.prefix_off++;
         } else {
-            if (peek.ptr >= peek.end) break;
-            ch = *peek.ptr++;
+            if (peek.ptr_off >= peek.end_off) break;
+            ch = text_source_base(peek.source)[peek.ptr_off++];
         }
 
         /* Word boundary: space (0x50) or control code (< 0x20) */
@@ -1443,13 +1482,14 @@ void display_text(const uint8_t *script, size_t script_size) {
     dt.g_cc18_attrs_saved = 0;
 
     ScriptReader reader;
-    reader.base = script;
-    reader.ptr = script;
-    reader.end = script + script_size;
-    reader.prefix_ptr = NULL;
+    reader.source = text_classify_source(script);
+    uint32_t script_base_off = (uint32_t)(script - text_source_base(reader.source));
+    reader.ptr_off = script_base_off;
+    reader.end_off = script_base_off + (uint32_t)script_size;
+    reader.prefix_off = -1;
     dt.upcoming_word_length = 0;
 
-    while (reader.ptr < reader.end || reader.prefix_ptr) {
+    while (reader.ptr_off < reader.end_off || reader.prefix_off >= 0) {
         /* Word-wrap lookahead — port of display_text.asm @MAIN_LOOP lines 49-61.
          * When ENABLE_WORD_WRAP is active, before each character we check if
          * we're at a word boundary (dt.upcoming_word_length == 0).  If so, peek

@@ -1733,7 +1733,7 @@ void cc_19_dispatch(ScriptReader *r) {
         char label_buf[MENU_LABEL_SIZE];
         int pos = 0;
         uint8_t b;
-        while (r->ptr < r->end && pos < MENU_LABEL_SIZE - 1) {
+        while (r->ptr_off < r->end_off && pos < MENU_LABEL_SIZE - 1) {
             b = script_read_byte(r);
             if (b == 0x01) {
                 /* Terminator with 4-byte callback address.
