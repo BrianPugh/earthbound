@@ -25,6 +25,7 @@
 #include "platform/platform.h"
 #include "snes/ppu.h"
 #include "core/log.h"
+#include "core/mode_stack.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -63,9 +64,68 @@ static bool load_attract_mode_text_offsets(void) {
   return true;
 }
 
-uint16_t run_attract_mode(uint16_t scene_index) {
-  uint16_t button_pressed = 0;
+/* ---- GAME_MODE_ATTRACT ----------------------------------------------------
+ * Run-to-completion port of the three blocking loops at the tail of
+ * run_attract_mode(). See the AttractState comment in mode_stack.h. The single
+ * yield is owned by the pump; this body never calls wait_for_vblank() (per-frame
+ * work uses render_frame_tick_work()). */
+StepResult mode_step_attract_mode(ModeState *st) {
+  AttractState *s = &st->attract;
 
+  switch ((AttractPhase)s->phase) {
+  case AT_MAIN: {
+    /* while(actionscript_state == 0): swirl, button check, render, fade, TM. */
+    bool done = false;
+    if (ert.actionscript_state != 0) {
+      done = true;
+    } else {
+      update_swirl_effect();
+      if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+        s->button_pressed = 1;
+        done = true;
+      } else {
+        render_frame_tick_work();
+        fade_update();
+        if (s->loop_frame <= 1)
+          ppu.tm = 0x13; /* BG1 | BG2 | OBJ on the first two frames */
+        s->loop_frame++;
+        if (s->loop_frame >= 36000) /* safety timeout (no timeout in the ROM) */
+          done = true;
+      }
+    }
+    if (done) {
+      close_oval_window();
+      s->phase = AT_OVAL_CLOSE;
+    }
+    return STEP_RESULT_CONTINUE();
+  }
+
+  case AT_OVAL_CLOSE:
+    /* Wait for the oval-close animation to finish. */
+    if (!is_psi_animation_active()) {
+      fade_out(1, 1); /* A=1 (step), X=1 (delay) */
+      s->phase = AT_FADEOUT;
+      return STEP_RESULT_CONTINUE();
+    }
+    render_frame_tick_work();
+    update_swirl_effect();
+    return STEP_RESULT_CONTINUE();
+
+  case AT_FADEOUT:
+    if (!fade_active()) {
+      stop_oval_window();
+      ert.actionscript_state = 0;
+      clear_map_entities();
+      return STEP_RESULT_POP(s->button_pressed);
+    }
+    fade_update();
+    render_frame_tick_work();
+    return STEP_RESULT_CONTINUE();
+  }
+  return STEP_RESULT_POP(s->button_pressed);
+}
+
+uint16_t run_attract_mode(uint16_t scene_index) {
   /* Clamp scene index to valid range */
   if (scene_index >= 10)
     scene_index = 9;
@@ -181,89 +241,13 @@ uint16_t run_attract_mode(uint16_t scene_index) {
    * was found in the assembly for the bicycle case — the drift appears to
    * be the original ROM behavior. Opcode 0x08 (SET_TICK_CALLBACK in
    * EVENT_002 / party follower) uses an 8-bit STA that preserves the
-  OBJECT_TICK_DISABLED
-   * flag in the high byte.
-   *
-  /* Main loop — faithful port of @UNKNOWN2..@UNKNOWN7 in C4D989.asm.
-   * After DISPLAY_TEXT returns, entity scripts continue running via
-   * render_frame_tick → run_actionscript_frame. Wait until scripts
-   * call SET_ACTIONSCRIPT_STATE_RUNNING or the user presses a button.
-   *
-   * Assembly loop order:
-   *   @UNKNOWN7: check ACTIONSCRIPT_STATE → if 0, continue
-   *   @UNKNOWN2: UPDATE_SWIRL_EFFECT, check PAD_PRESS for A/B/Start
-   *   @UNKNOWN4: RENDER_FRAME_TICK
-   *   @UNKNOWN5: if frame<=1, TM_MIRROR = $13
-   *   @UNKNOWN6: increment frame counter → BRA @UNKNOWN7
-   */
-  {
-    int loop_frame = 0;
-    while (ert.actionscript_state == 0) {
-      /* @UNKNOWN2: Update oval window animation */
-      update_swirl_effect();
+   * OBJECT_TICK_DISABLED flag in the high byte. */
 
-      /* Check for button press (A, B, or Start) */
-      uint16_t pressed = platform_input_get_pad_new();
-      if (pressed & PAD_ANY_BUTTON) {
-        button_pressed = 1;
-        break;
-      }
-
-      /* @UNKNOWN4: Render frame — entity scripts execute here via
-       * run_actionscript_frame(). Scripts like EVENT_535 call
-       * DECOMP_ITOI_PRODUCTION and WRITE_BYTE_WRAM to set up BG3. */
-      render_frame_tick();
-
-      /* Process brightness fades (ACTIONSCRIPT_FADE_OUT/IN).
-       * Assembly: the NMI handler applies FADE_PARAMETERS per frame.
-       * C port: fade_update() must be called explicitly each frame. */
-      fade_update();
-
-      /* @UNKNOWN5-6: Enable BG1+BG2+OBJ on the first two frames.
-       * This comes AFTER render_frame_tick (matching assembly order).
-       * Entity scripts may set TM to $17 (enabling BG3) during
-       * render_frame_tick, but on frames 0-1 we override to $13.
-       * After frame 1, TM stays at whatever the entity script set. */
-      if (loop_frame <= 1) {
-        ppu.tm = 0x13; /* BG1 | BG2 | OBJ */
-      }
-
-      loop_frame++;
-
-      /* Safety timeout — assembly has no timeout; scenes end when the
-       * entity script calls SET_ACTIONSCRIPT_STATE_RUNNING. */
-      if (loop_frame >= 36000)
-        break;
-
-      if (platform_input_quit_requested())
-        break;
-    }
-  }
-
-  /* Close the oval window */
-  close_oval_window();
-
-  /* Wait for oval close animation to finish */
-  while (is_psi_animation_active()) {
-    render_frame_tick();
-    update_swirl_effect();
-    if (platform_input_quit_requested())
-      break;
-  }
-
-  /* Fade out */
-  fade_out(1, 1); /* Assembly: A=1 (step), X=1 (delay) */
-  while (fade_active()) {
-    fade_update();
-    render_frame_tick();
-    if (platform_input_quit_requested())
-      break;
-  }
-
-  /* Stop oval window system */
-  stop_oval_window();
-  ert.actionscript_state = 0;
-  clear_map_entities();
-
-  return button_pressed;
+  /* The main scene loop, the oval-close wait, and the fade-out + cleanup now
+   * run as GAME_MODE_ATTRACT (see mode_step_attract_mode above). The blocking
+   * display_text_from_addr() above already drove the scene script to its
+   * END_BLOCK; this mode runs the remaining post-script frames. */
+  ModeState init = {0};
+  init.attract.phase = AT_MAIN;
+  return (uint16_t)pump_mode(GAME_MODE_ATTRACT, &init);
 }

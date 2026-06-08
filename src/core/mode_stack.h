@@ -51,6 +51,7 @@ typedef enum {
     GAME_MODE_INTRO_LOGO,          /* intro logo sequence (Nintendo/APE/HAL) */
     GAME_MODE_GAS_STATION,         /* gas-station prologue (RUN_GAS_STATION_CREDITS) */
     GAME_MODE_TITLE_SCREEN,        /* title screen (show_title_screen) */
+    GAME_MODE_ATTRACT,             /* attract-mode demo scene (run_attract_mode) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -816,6 +817,39 @@ typedef struct {
     uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
 } TitleScreenState;
 
+/* GAME_MODE_ATTRACT — run-to-completion port of the three blocking loops at the
+ * tail of run_attract_mode() (attract_mode.c), an idle title-screen demo scene.
+ * The one-shot setup AND the blocking display_text_from_addr() that drives the
+ * scene script (which pumps its own converted text waits internally) stay in the
+ * blocking wrapper; only the post-script loops live here:
+ *
+ *   AT_MAIN       - while(actionscript_state == 0): update_swirl_effect(), then a
+ *                   button check (any button -> result 1), then render_frame_tick_
+ *                   work() + fade_update() + the frame<=1 TM override + the 36000-
+ *                   frame safety timeout. On any exit, close_oval_window() ->
+ *                   AT_OVAL_CLOSE.
+ *   AT_OVAL_CLOSE - while(is_psi_animation_active()): render_frame_tick_work() +
+ *                   update_swirl_effect(). On completion fade_out(1,1) ->
+ *                   AT_FADEOUT.
+ *   AT_FADEOUT    - while(fade_active()): fade_update() + render_frame_tick_work().
+ *                   On completion stop_oval_window() + clear_map_entities(), pop.
+ *
+ * Pops the button-pressed flag (1 if a button ended the scene, else 0), matching
+ * the blocking return. The swirl update in AT_OVAL_CLOSE runs one render-frame
+ * earlier than the blocking loop (which yielded before it) — an accepted
+ * imperceptible shift on this brief cosmetic close animation. */
+typedef enum {
+    AT_MAIN = 0,
+    AT_OVAL_CLOSE,
+    AT_FADEOUT,
+} AttractPhase;
+
+typedef struct {
+    uint8_t  phase;          /* AttractPhase */
+    uint8_t  button_pressed; /* result: a button ended the scene */
+    uint16_t loop_frame;     /* AT_MAIN: frame counter (TM override + timeout) */
+} AttractState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -847,6 +881,7 @@ union ModeState {
     IntroLogoState        intro_logo;
     GasStationState       gas_station;
     TitleScreenState      title_screen;
+    AttractState          attract;
     uint8_t               _raw[160];
 };
 
@@ -974,6 +1009,12 @@ StepResult mode_step_gas_station(ModeState *st);
  * pump_mode(GAME_MODE_TITLE_SCREEN). Pops 0 on time-out (attract mode), 1 on a
  * button press (file select). */
 StepResult mode_step_title_screen(ModeState *st);
+
+/* GAME_MODE_ATTRACT step (defined in attract_mode.c). Init via ModeState.attract
+ * (phase = AT_MAIN) before pump_mode(GAME_MODE_ATTRACT) — the wrapper runs the
+ * one-shot setup + the blocking scene script first. Pops the button-pressed
+ * flag (1 if a button ended the scene, else 0). */
+StepResult mode_step_attract_mode(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
