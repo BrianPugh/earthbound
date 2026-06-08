@@ -17,6 +17,7 @@
  */
 
 #include "game/flyover.h"
+#include "core/mode_stack.h"
 #include "game/display_text.h"
 #include "game/text.h"
 #include "game/window.h"
@@ -57,6 +58,20 @@ static uint16_t flyover_dirty_max;
 static uint16_t flyover_screen_offset;
 static uint16_t flyover_pixel_offset;
 static uint16_t flyover_byte_offset;
+
+/* Script asset for each flyover ID (file scope so mode_step_flyover can re-derive
+ * the script pointer from the saved id). Use .bin — ebtools decodes .flyover into
+ * assembly source, but the C port needs raw binary bytecodes. */
+static const AssetId flyover_script_ids[8] = {
+    ASSET_FLYOVER_INTRO1_BIN,
+    ASSET_FLYOVER_INTRO2_BIN,
+    ASSET_FLYOVER_INTRO3_BIN,
+    ASSET_FLYOVER_WINTERS_INTRO1_BIN,
+    ASSET_FLYOVER_WINTERS_INTRO2_BIN,
+    ASSET_FLYOVER_DALAAM_INTRO1_BIN,
+    ASSET_FLYOVER_DALAAM_INTRO2_BIN,
+    ASSET_FLYOVER_ENDING_BIN,
+};
 
 /* TILES_PER_ROW * BYTES_PER_TILE = 26 * 16 = 416 */
 #define FLYOVER_ROW_BYTES    416
@@ -314,7 +329,7 @@ static void flyover_init_screen(void) {
  * Each row = 0x1A0 bytes (26 tiles × 16 bytes). Total = 0x3400 bytes.
  * Upload size = 0x04E0 bytes (3 rows).
  * ====================================================================== */
-static void flyover_upload_vwf_to_vram(void) {
+static void flyover_upload_vwf_to_vram_work(void) {
     flyover_invert_vwf();
 
     uint16_t row_start = flyover_screen_offset * FLYOVER_ROW_BYTES;  /* offset * 0x1A0 */
@@ -346,8 +361,6 @@ static void flyover_upload_vwf_to_vram(void) {
 
     flyover_dirty_min = 0xFFFF;
     flyover_dirty_max = 0;
-
-    wait_for_vblank();
 }
 
 /* ======================================================================
@@ -477,54 +490,266 @@ void load_background_animation(uint16_t bg1_layer, uint16_t bg2_layer) {
     blank_screen_and_wait_vblank();
 }
 
+/* BATTLEBG_LAYER enum values from battlebgs.asm (used by coffeetea_scene). */
+#define BATTLEBG_COFFEE1 231
+#define BATTLEBG_COFFEE2 232
+#define BATTLEBG_TEA1    233
+#define BATTLEBG_TEA2    234
+
 /* ======================================================================
- * Helper: blocking fade with mosaic.
- * Port of FADE_IN_WITH_MOSAIC / FADE_OUT_WITH_MOSAIC.
- * These loop internally, calling wait_for_vblank() each step.
+ * GAME_MODE_FLYOVER step
+ *
+ * Run-to-completion form of play_flyover_script() (FO_SCRIPT) and
+ * coffeetea_scene() (FO_COFFEETEA). The single yield is owned by the pump; this
+ * body never calls wait_for_vblank(). See the FlyoverState comment in
+ * mode_stack.h. The internal for(;;) advances non-yielding phase transitions
+ * (`continue`) and returns CONTINUE only at the original's yield points. The
+ * flyover brightness ramps (no mosaic) are inlined; the script-render statics
+ * (flyover_screen_offset, …) stay in .bss.
  * ====================================================================== */
-static void flyover_fade_in_blocking(uint16_t step, uint16_t delay_frames,
-                                      uint16_t mosaic_enable) {
-    ppu.inidisp = 0x00;  /* brightness 0, force blank off */
-    ppu.mosaic = 0;
+StepResult mode_step_flyover(ModeState *st) {
+    FlyoverState *s = &st->flyover;
 
-    while (1) {
-        uint8_t brightness = ppu.inidisp & 0x0F;
-        uint16_t next = brightness + step;
-        if (next >= 0x0F) {
-            ppu.inidisp = (ppu.inidisp & 0xF0) | 0x0F;
-            break;
+    for (;;) {
+        switch ((FlyoverPhase)s->phase) {
+
+        /* ---------------- FO_SCRIPT (play_flyover_script) ---------------- */
+        case FOP_S_PARSE: {
+            const uint8_t *script = ASSET_DATA(flyover_script_ids[s->id]);
+            /* opcode 0x09 continuation: upload (yielded) -> wait -> scroll. */
+            if (s->sub == 1) { s->sub = 2; return STEP_RESULT_CONTINUE(); }
+            if (s->sub == 2) { flyover_scroll_text(24); s->sub = 0; }
+
+            int to_fadein = 0;
+            while (!to_fadein) {
+                if (s->pos >= s->script_size) { to_fadein = 1; break; }
+                uint8_t opcode = script[s->pos++];
+                if (opcode == 0x00) {
+                    to_fadein = 1;
+                } else if (opcode == 0x02) {
+                    if (s->pos < s->script_size)
+                        flyover_screen_offset = script[s->pos++];
+                } else if (opcode == 0x09) {
+                    flyover_upload_vwf_to_vram_work();
+                    s->sub = 1;
+                    return STEP_RESULT_CONTINUE();   /* the upload's wait */
+                } else if (opcode == 0x01) {
+                    if (s->pos < s->script_size)
+                        flyover_advance_pixel_offset(script[s->pos++]);
+                } else if (opcode == 0x08) {
+                    if (s->pos < s->script_size)
+                        flyover_render_party_name(script[s->pos++]);
+                } else {
+                    flyover_render_text_char((uint16_t)opcode);
+                }
+            }
+
+            /* Parse complete: TM=$04 (BG3 only) then fade in (step 1, delay 3). */
+            ppu.tm = 0x04;
+            ppu.inidisp = 0x00;
+            ppu.mosaic = 0;
+            s->ramp_delay_left = 0;
+            s->phase = FOP_S_FADEIN;
+            continue;
         }
-        ppu.inidisp = (ppu.inidisp & 0xF0) | (uint8_t)next;
 
-        if (mosaic_enable) {
-            uint8_t inv = (~brightness) & 0x0F;
-            ppu.mosaic = (uint8_t)((inv << 4) | mosaic_enable);
+        case FOP_S_FADEIN:
+            if (s->ramp_delay_left > 0) { s->ramp_delay_left--; return STEP_RESULT_CONTINUE(); }
+            {
+                uint8_t  b    = ppu.inidisp & 0x0F;
+                uint16_t next = (uint16_t)b + 1;
+                if (next >= 0x0F) {
+                    ppu.inidisp   = (uint8_t)((ppu.inidisp & 0xF0) | 0x0F);
+                    s->display_left = 180;
+                    s->phase      = FOP_S_DISPLAY;
+                    continue;
+                }
+                ppu.inidisp      = (uint8_t)((ppu.inidisp & 0xF0) | (uint8_t)next);
+                s->ramp_delay_left = 3;
+                continue;
+            }
+
+        case FOP_S_DISPLAY:
+            if (s->display_left == 0) {
+                s->ramp_delay_left = 0;
+                s->phase = FOP_S_FADEOUT;
+                continue;
+            }
+            s->display_left--;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_S_FADEOUT:
+            if (s->ramp_delay_left > 0) { s->ramp_delay_left--; return STEP_RESULT_CONTINUE(); }
+            ppu.mosaic = 0;
+            if (!(ppu.inidisp & 0x80)) {
+                uint8_t b    = ppu.inidisp & 0x0F;
+                int16_t next = (int16_t)b - 1;
+                if (next >= 0) {
+                    ppu.inidisp      = (uint8_t)((ppu.inidisp & 0xF0) | (uint8_t)next);
+                    s->ramp_delay_left = 3;
+                    continue;
+                }
+            }
+            ppu.inidisp = 0x80;
+            s->phase = FOP_S_CLEAN1;
+            continue;
+
+        case FOP_S_CLEAN1:
+            ppu.tm = 0x17;
+            memset(win.bg2_buffer, 0, 0x700);
+            dt.enable_word_wrap = (uint16_t)-1;
+            force_blank_and_wait_vblank_work();
+            s->phase = FOP_S_CLEAN2;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_S_CLEAN2:
+            undraw_flyover_text();
+            entities.tick_callback_hi[ENT(23)] = s->saved_ent23_tick_hi;
+            blank_screen_and_wait_vblank_work();
+            s->phase = FOP_S_DONE;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_S_DONE:
+            return STEP_RESULT_POP(0);
+
+        /* ---------------- FO_COFFEETEA (coffeetea_scene) ---------------- */
+        case FOP_CT_FADEOUT1:
+            /* flyover_fade_out_blocking(1, 1, 0): ramp down, delay 1, no mosaic. */
+            if (s->ramp_delay_left > 0) { s->ramp_delay_left--; return STEP_RESULT_CONTINUE(); }
+            ppu.mosaic = 0;
+            if (!(ppu.inidisp & 0x80)) {
+                uint8_t b    = ppu.inidisp & 0x0F;
+                int16_t next = (int16_t)b - 1;
+                if (next >= 0) {
+                    ppu.inidisp      = (uint8_t)((ppu.inidisp & 0xF0) | (uint8_t)next);
+                    s->ramp_delay_left = 1;
+                    continue;
+                }
+            }
+            ppu.inidisp = 0x80;
+            s->phase = FOP_CT_SETUP_A;
+            continue;
+
+        case FOP_CT_SETUP_A:
+            flyover_init_screen();
+            oam_clear();
+            force_blank_and_wait_vblank_work();   /* load_background_animation() start */
+            s->phase = FOP_CT_SETUP_B;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_SETUP_B: {
+            /* load_background_animation() body (replicated; the public blocking
+             * version stays for ending.c / callroutine.c). */
+            ppu.bgmode  = 0x09;
+            ppu.bg_sc[0]  = 0x58;
+            ppu.bg_nba[0] = (uint8_t)(ppu.bg_nba[0] & 0xF0);
+            ppu.bg_hofs[0] = 0;
+            ppu.bg_vofs[0] = 0;
+            ppu.bg_sc[1]  = 0x5C;
+            ppu.bg_nba[0] = (uint8_t)((ppu.bg_nba[0] & 0x0F) | 0x10);
+            ppu.bg_hofs[1] = 0;
+            ppu.bg_vofs[1] = 0;
+            uint16_t bg1 = (s->id == 0) ? BATTLEBG_COFFEE1 : BATTLEBG_TEA1;
+            uint16_t bg2 = (s->id == 0) ? BATTLEBG_COFFEE2 : BATTLEBG_TEA2;
+            load_battle_bg(bg1, bg2, 4);
+            blank_screen_and_wait_vblank_work();
+            s->phase = FOP_CT_SETUP_C;
+            return STEP_RESULT_CONTINUE();
         }
 
-        for (uint16_t i = 0; i < delay_frames; i++)
-            wait_for_vblank();
+        case FOP_CT_SETUP_C: {
+            fade_in(1, 1);
+            flyover_screen_offset = 28;
+            const uint8_t *script = ASSET_DATA(s->id == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
+            if (!script)
+                return STEP_RESULT_POP(0);   /* blocking: if(!script) return; */
+            dt.enable_word_wrap = 0;
+            s->scroll_accum = 0;
+            s->phase = FOP_CT_PARSE;
+            continue;
+        }
+
+        case FOP_CT_PARSE: {
+            const uint8_t *script = ASSET_DATA(s->id == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
+            /* opcode 0x09 smooth-scroll inner loop continuation. After each yield
+             * (upload's wait, then wait_and_update_battle_effects' wait) we run
+             * update_battle_screen_effects(), then either advance + yield again or
+             * finish the line. */
+            if (s->sub == 1) {
+                update_battle_screen_effects();
+                if (s->scroll_accum < 8192) {
+                    s->scroll_accum = flyover_advance_text_line(s->scroll_accum);
+                    return STEP_RESULT_CONTINUE();
+                }
+                s->scroll_accum -= 8192;
+                flyover_scroll_text(24);
+                s->sub = 0;
+            }
+
+            int to_fadeout = 0;
+            while (!to_fadeout) {
+                if (s->pos >= s->script_size) { to_fadeout = 1; break; }
+                uint8_t opcode = script[s->pos++];
+                if (opcode == 0x00) {
+                    to_fadeout = 1;
+                } else if (opcode == 0x09) {
+                    s->scroll_accum = flyover_advance_text_line(s->scroll_accum);
+                    flyover_upload_vwf_to_vram_work();
+                    s->sub = 1;
+                    return STEP_RESULT_CONTINUE();   /* the upload's wait */
+                } else if (opcode == 0x01) {
+                    if (s->pos < s->script_size)
+                        flyover_advance_pixel_offset(script[s->pos++]);
+                } else if (opcode == 0x08) {
+                    if (s->pos < s->script_size)
+                        flyover_render_party_name(script[s->pos++]);
+                } else {
+                    flyover_render_text_char((uint16_t)opcode);
+                }
+            }
+
+            fade_out(1, 1);
+            s->fade_primed = 0;
+            s->phase = FOP_CT_FADEWAIT;
+            continue;
+        }
+
+        case FOP_CT_FADEWAIT:
+            /* while (fade_active()) { wait; update_battle_screen_effects(); fade_update(); } */
+            if (s->fade_primed) {
+                update_battle_screen_effects();
+                fade_update();
+            }
+            s->fade_primed = 1;
+            if (!fade_active()) { s->phase = FOP_CT_CLEAN1; continue; }
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_CLEAN1:
+            force_blank_and_wait_vblank_work();
+            s->phase = FOP_CT_CLEAN2;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_CLEAN2:
+            reload_map();
+            memset(win.bg2_buffer, 0, 1792);
+            dt.enable_word_wrap = 0xFF;
+            force_blank_and_wait_vblank_work();
+            s->phase = FOP_CT_CLEAN3;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_CLEAN3:
+            undraw_flyover_text();
+            blank_screen_and_wait_vblank_work();
+            s->phase = FOP_CT_DONE;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_DONE:
+            fade_in(1, 1);
+            return STEP_RESULT_POP(0);
+        }
+
+        return STEP_RESULT_POP(0);   /* unreachable */
     }
-}
-
-static void flyover_fade_out_blocking(uint16_t step, uint16_t delay_frames,
-                                       uint16_t mosaic_enable) {
-    while (1) {
-        ppu.mosaic = 0;
-        uint8_t brightness = ppu.inidisp & 0x0F;
-        if (ppu.inidisp & 0x80) break;
-        int16_t next = (int16_t)brightness - (int16_t)step;
-        if (next < 0) break;
-        ppu.inidisp = (ppu.inidisp & 0xF0) | (uint8_t)next;
-
-        if (mosaic_enable) {
-            uint8_t inv = (~(uint8_t)next) & 0x0F;
-            ppu.mosaic = (uint8_t)((inv << 4) | mosaic_enable);
-        }
-
-        for (uint16_t i = 0; i < delay_frames; i++)
-            wait_for_vblank();
-    }
-    ppu.inidisp = 0x80;  /* force blank */
 }
 
 /* ======================================================================
@@ -543,20 +768,6 @@ static void flyover_fade_out_blocking(uint16_t step, uint16_t delay_frames,
  * Then restores normal display.
  * ====================================================================== */
 void play_flyover_script(uint16_t id) {
-    /* Script file names for each flyover ID.
-     * Use .bin extension — ebtools decodes .flyover into assembly source,
-     * but the C port needs raw binary bytecodes. */
-    static const AssetId script_ids[8] = {
-        ASSET_FLYOVER_INTRO1_BIN,
-        ASSET_FLYOVER_INTRO2_BIN,
-        ASSET_FLYOVER_INTRO3_BIN,
-        ASSET_FLYOVER_WINTERS_INTRO1_BIN,
-        ASSET_FLYOVER_WINTERS_INTRO2_BIN,
-        ASSET_FLYOVER_DALAAM_INTRO1_BIN,
-        ASSET_FLYOVER_DALAAM_INTRO2_BIN,
-        ASSET_FLYOVER_ENDING_BIN,
-    };
-
     if (id >= 8) return;
 
     /* Assembly lines 11-15: save entity 23 tick_callback_hi then disable.
@@ -570,74 +781,22 @@ void play_flyover_script(uint16_t id) {
     flyover_init_screen();
 
     /* Load script data */
-    size_t script_size = ASSET_SIZE(script_ids[id]);
-    const uint8_t *script = ASSET_DATA(script_ids[id]);
-    if (!script) return;
+    size_t script_size = ASSET_SIZE(flyover_script_ids[id]);
+    const uint8_t *script = ASSET_DATA(flyover_script_ids[id]);
+    if (!script) return;   /* (matches blocking: leaves entity 23 disabled) */
 
     dt.enable_word_wrap = 0;
 
-    /* Parse script bytecodes */
-    size_t pos = 0;
-    while (pos < script_size) {
-        uint8_t opcode = script[pos++];
-
-        if (opcode == 0x00) {
-            /* End of script */
-            break;
-        } else if (opcode == 0x02) {
-            /* Set screen offset */
-            if (pos < script_size) {
-                flyover_screen_offset = script[pos++];
-            }
-        } else if (opcode == 0x09) {
-            /* Upload ert.buffer, wait, scroll */
-            flyover_upload_vwf_to_vram();
-            wait_for_vblank();
-            flyover_scroll_text(24);
-        } else if (opcode == 0x01) {
-            /* Advance pixel offset */
-            if (pos < script_size) {
-                flyover_advance_pixel_offset(script[pos++]);
-            }
-        } else if (opcode == 0x08) {
-            /* Render party member name */
-            if (pos < script_size) {
-                uint16_t char_id = script[pos++];
-                flyover_render_party_name(char_id);
-            }
-        } else {
-            /* Render as EB character */
-            flyover_render_text_char((uint16_t)opcode);
-        }
-    }
-
-    /* Fade in with mosaic: TM=$04 (BG3 only), step=1, delay=3, no mosaic */
-    ppu.tm = 0x04;
-    flyover_fade_in_blocking(1, 3, 0);
-
-    /* Display for 180 frames */
-    for (int i = 0; i < 180; i++) {
-        wait_for_vblank();
-    }
-
-    /* Fade out: step=1, delay=3, no mosaic */
-    flyover_fade_out_blocking(1, 3, 0);
-
-    /* Restore TM to normal: $17 = BG1+BG2+BG3+OBJ */
-    ppu.tm = 0x17;
-
-    /* Clear BG2 ert.buffer: 0x380 words = 0x700 bytes */
-    memset(win.bg2_buffer, 0, 0x700);
-
-    dt.enable_word_wrap = (uint16_t)-1;
-
-    force_blank_and_wait_vblank();
-    undraw_flyover_text();
-
-    /* Assembly line 119-120: restore entity 23 tick_callback_hi to pre-flyover state */
-    entities.tick_callback_hi[ENT(23)] = saved_ent23_tick_hi;
-
-    blank_screen_and_wait_vblank();
+    /* Parse + fade-in/display/fade-out/cleanup run to completion as
+     * GAME_MODE_FLYOVER (FO_SCRIPT). */
+    ModeState init = {0};
+    init.flyover.kind                = FO_SCRIPT;
+    init.flyover.phase               = FOP_S_PARSE;
+    init.flyover.id                  = id;
+    init.flyover.pos                 = 0;
+    init.flyover.script_size         = (uint32_t)script_size;
+    init.flyover.saved_ent23_tick_hi = saved_ent23_tick_hi;
+    pump_mode(GAME_MODE_FLYOVER, &init);
 }
 
 /* ======================================================================
@@ -654,105 +813,17 @@ void play_flyover_script(uint16_t id) {
  *   5. Fade out, wait for completion
  *   6. Reload map, clear BG2, undraw flyover, fade in
  * ====================================================================== */
-
-/* BATTLEBG_LAYER enum values from battlebgs.asm */
-#define BATTLEBG_COFFEE1 231
-#define BATTLEBG_COFFEE2 232
-#define BATTLEBG_TEA1    233
-#define BATTLEBG_TEA2    234
-
 void coffeetea_scene(uint16_t type) {
-    /* 1. Fade out with mosaic: step=1, delay=1, no mosaic */
-    flyover_fade_out_blocking(1, 1, 0);
-
-    /* 2. Init flyover text screen */
-    flyover_init_screen();
-    oam_clear();
-
-    /* 3. Load coffee/tea background animation */
-    uint16_t bg1 = (type == 0) ? BATTLEBG_COFFEE1 : BATTLEBG_TEA1;
-    uint16_t bg2 = (type == 0) ? BATTLEBG_COFFEE2 : BATTLEBG_TEA2;
-    load_background_animation(bg1, bg2);
-
-    /* 4. Fade in: step=1, delay=1 */
-    fade_in(1, 1);
-
-    /* 5. Set initial screen offset */
-    flyover_screen_offset = 28;
-
-    /* 6. Load text script */
-    AssetId coffee_tea_id = type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN;
-    size_t script_size = ASSET_SIZE(coffee_tea_id);
-    const uint8_t *script = ASSET_DATA(coffee_tea_id);
-    if (!script) return;
-
-    dt.enable_word_wrap = 0;
-
-    uint16_t scroll_accum = 0;  /* @VIRTUAL04 in assembly */
-
-    /* Parse script bytecodes */
-    size_t pos = 0;
-    while (pos < script_size) {
-        uint8_t opcode = script[pos++];
-
-        if (opcode == 0x00) {
-            break;
-        } else if (opcode == 0x09) {
-            /* Smooth scroll sequence:
-             * 1. advance_text_line_position with current accum
-             * 2. Upload VWF ert.buffer
-             * 3. Update battle screen effects
-             * 4. Loop scrolling until accumulator crosses 8192 (0x2000)
-             * 5. Subtract 8192, scroll flyover text */
-            scroll_accum = flyover_advance_text_line(scroll_accum);
-            flyover_upload_vwf_to_vram();
-            update_battle_screen_effects();
-
-            while (scroll_accum < 8192) {
-                scroll_accum = flyover_advance_text_line(scroll_accum);
-                wait_and_update_battle_effects();
-            }
-            scroll_accum -= 8192;
-            flyover_scroll_text(24);
-        } else if (opcode == 0x01) {
-            /* Advance pixel offset */
-            if (pos < script_size) {
-                flyover_advance_pixel_offset(script[pos++]);
-            }
-        } else if (opcode == 0x08) {
-            /* Render party member name */
-            if (pos < script_size) {
-                uint16_t char_id = script[pos++];
-                flyover_render_party_name(char_id);
-            }
-        } else {
-            /* Render as EB character */
-            flyover_render_text_char((uint16_t)opcode);
-        }
-    }
-
-    /* Fade out: step=1, delay=1 */
-    fade_out(1, 1);
-
-    /* Wait for fade completion while updating battle effects */
-    while (fade_active()) {
-        wait_and_update_battle_effects();
-        fade_update();
-    }
-
-    /* Cleanup */
-    force_blank_and_wait_vblank();
-    reload_map();
-
-    /* Clear BG2 ert.buffer: 896 words = 1792 bytes */
-    memset(win.bg2_buffer, 0, 1792);
-
-    dt.enable_word_wrap = 0xFF;
-
-    force_blank_and_wait_vblank();
-    undraw_flyover_text();
-    blank_screen_and_wait_vblank();
-
-    /* Fade in: step=1, delay=1 */
-    fade_in(1, 1);
+    /* The entire scene (initial fade-out, BG load, smooth-scroll script, fade-out
+     * wait, cleanup, fade-in) runs to completion as GAME_MODE_FLYOVER
+     * (FO_COFFEETEA). The script null-check happens in FOP_CT_SETUP_C (after the
+     * fade/BG setup), matching the blocking placement. */
+    ModeState init = {0};
+    init.flyover.kind        = FO_COFFEETEA;
+    init.flyover.phase       = FOP_CT_FADEOUT1;
+    init.flyover.id          = type;
+    init.flyover.pos         = 0;
+    init.flyover.script_size =
+        (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
+    pump_mode(GAME_MODE_FLYOVER, &init);
 }

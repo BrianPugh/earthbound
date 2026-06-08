@@ -85,6 +85,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_PALETTE_FADE]        = mode_step_palette_fade,        /* overworld_palette.c */
     [GAME_MODE_MAP_PALETTE_FADE]    = mode_step_map_palette_fade,    /* map_loader.c */
     [GAME_MODE_MOSAIC_FADE]         = mode_step_mosaic_fade,         /* callroutine.c */
+    [GAME_MODE_FLYOVER]             = mode_step_flyover,             /* flyover.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

@@ -47,6 +47,7 @@ typedef enum {
     GAME_MODE_PALETTE_FADE,        /* overworld palette-fade loops (skippable_pause et al) */
     GAME_MODE_MAP_PALETTE_FADE,    /* map-load BG palette cross-fade (load_map_palette) */
     GAME_MODE_MOSAIC_FADE,         /* brightness-ramp mosaic fade in/out (callroutine, flyover) */
+    GAME_MODE_FLYOVER,             /* flyover text + coffee/tea cutscene interpreters */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -626,6 +627,63 @@ typedef struct {
     uint16_t delay_left;  /* remaining delay yields before the next brightness step */
 } MosaicFadeState;
 
+/* GAME_MODE_FLYOVER — run-to-completion port of the two flyover/cutscene
+ * bytecode interpreters in flyover.c: play_flyover_script() (FO_SCRIPT, the map
+ * intro "fly over" text) and coffeetea_scene() (FO_COFFEETEA, the coffee/tea
+ * break). Both walk a script of EB-character/control opcodes, then fade in,
+ * display, and fade back out with the usual force-blank/undraw cleanup.
+ *
+ * The flyover module's render state (flyover_screen_offset, flyover_vwf_x/y, …)
+ * stays in file-static .bss (set by the wrappers / the static helpers) — it is
+ * run-to-completion-safe; serializing it is deferred (same policy as town_map's
+ * anim counters). Only the former C-stack locals are hoisted here. The script
+ * pointer is re-derived from `id` each step (FO_SCRIPT: flyover_script_ids[id];
+ * FO_COFFEETEA: ASSET_COFFEE/TEA_BIN by `id` = type), so no pointer is stored.
+ *
+ * The flyover brightness ramps have no mosaic, so they are inlined (not pushed as
+ * GAME_MODE_MOSAIC_FADE — STEP_PUSH cannot yet carry init state). `sub` drives
+ * the multi-yield opcode 0x09 (FO_SCRIPT: upload→wait→scroll; FO_COFFEETEA: the
+ * smooth-scroll inner loop). load_background_animation()'s body is replicated in
+ * the CT setup phases because the public blocking version is still used by
+ * ending.c / callroutine.c. Always pops 0. */
+typedef enum { FO_SCRIPT = 0, FO_COFFEETEA } FlyoverKind;
+
+typedef enum {
+    /* FO_SCRIPT (play_flyover_script) */
+    FOP_S_PARSE = 0, /* walk opcodes; 0x09 => upload+wait+scroll (sub 1/2) */
+    FOP_S_FADEIN,    /* brightness ramp up (step 1, delay 3, no mosaic) */
+    FOP_S_DISPLAY,   /* hold the text for 180 frames */
+    FOP_S_FADEOUT,   /* brightness ramp down (step 1, delay 3) */
+    FOP_S_CLEAN1,    /* tm/bg2/word-wrap + force-blank frame */
+    FOP_S_CLEAN2,    /* undraw + restore entity 23 + blank-screen frame */
+    FOP_S_DONE,      /* POP */
+    /* FO_COFFEETEA (coffeetea_scene) */
+    FOP_CT_FADEOUT1, /* initial brightness ramp down (step 1, delay 1) */
+    FOP_CT_SETUP_A,  /* init screen + oam_clear + force-blank frame */
+    FOP_CT_SETUP_B,  /* BG mode/locations + load_battle_bg + blank-screen frame */
+    FOP_CT_SETUP_C,  /* fade_in + screen offset + script null-check */
+    FOP_CT_PARSE,    /* walk opcodes; 0x09 => smooth-scroll inner loop (sub 1) */
+    FOP_CT_FADEWAIT, /* fade_out then wait while updating battle effects */
+    FOP_CT_CLEAN1,   /* force-blank frame */
+    FOP_CT_CLEAN2,   /* reload_map + bg2 + word-wrap + force-blank frame */
+    FOP_CT_CLEAN3,   /* undraw + blank-screen frame */
+    FOP_CT_DONE,     /* fade_in + POP */
+} FlyoverPhase;
+
+typedef struct {
+    uint8_t  kind;                /* FlyoverKind */
+    uint8_t  phase;               /* FlyoverPhase */
+    uint8_t  sub;                 /* opcode 0x09 sub-state */
+    uint8_t  fade_primed;         /* FOP_CT_FADEWAIT: work-after-yield flag */
+    uint16_t id;                  /* FO_SCRIPT: flyover id 0-7; FO_COFFEETEA: type 0/1 */
+    uint16_t ramp_delay_left;     /* yields left before the next brightness step */
+    uint16_t display_left;        /* FO_SCRIPT 180-frame display countdown */
+    uint16_t saved_ent23_tick_hi; /* FO_SCRIPT: restored at cleanup */
+    uint16_t scroll_accum;        /* FO_COFFEETEA smooth-scroll accumulator */
+    uint32_t pos;                 /* script parse position */
+    uint32_t script_size;         /* script byte length */
+} FlyoverState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -653,6 +711,7 @@ typedef union {
     PaletteFadeState      palette_fade;
     MapPaletteFadeState   map_palette_fade;
     MosaicFadeState       mosaic_fade;
+    FlyoverState          flyover;
     uint8_t               _raw[160];
 } ModeState;
 
@@ -757,6 +816,12 @@ StepResult mode_step_map_palette_fade(ModeState *st);
  * ModeState.mosaic_fade (kind, step, delay, mosaic_bgs, final_hdma) before
  * pump_mode(GAME_MODE_MOSAIC_FADE). Always pops 0. */
 StepResult mode_step_mosaic_fade(ModeState *st);
+
+/* GAME_MODE_FLYOVER step (defined in flyover.c, where the flyover render helpers
+ * and module statics live). Init via ModeState.flyover (kind, phase = FOP_S_PARSE
+ * or FOP_CT_FADEOUT1, id, pos, script_size, …) before pump_mode(GAME_MODE_
+ * FLYOVER). Always pops 0. */
+StepResult mode_step_flyover(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
