@@ -8,4 +8,9 @@
    Ported from GAS_STATION in asm/intro/gas_station.asm */
 uint16_t gas_station(void);
 
+/* Yield-free one-shot setup for the gas-station scene (INIT_ENTITY_SYSTEM +
+   GAS_STATION_LOAD). Run before pushing GAME_MODE_GAS_STATION; the gas_station()
+   wrapper calls it too. */
+void gas_station_setup(void);
+
 #endif /* INTRO_GAS_STATION_H */

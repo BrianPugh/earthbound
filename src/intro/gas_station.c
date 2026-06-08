@@ -336,10 +336,14 @@ StepResult mode_step_gas_station(ModeState *st) {
  *
  * Returns: 0 = timed out, 1 = button pressed
  */
-uint16_t gas_station(void) {
+void gas_station_setup(void) {
     /* One-shot setup (yield-free): ROM JSL INIT_ENTITY_SYSTEM + GAS_STATION_LOAD. */
     entity_system_init();
     gas_station_load();
+}
+
+uint16_t gas_station(void) {
+    gas_station_setup();
 
     ModeState init = {0};
     init.gas_station.phase = GS_PH1;

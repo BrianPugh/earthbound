@@ -187,7 +187,7 @@ StepResult mode_step_title_screen(ModeState *st) {
  *
  * Returns: 0 = timeout (attract mode), 1 = button pressed
  */
-uint16_t show_title_screen(uint16_t quick_mode) {
+void title_screen_setup(uint16_t quick_mode) {
     /* ROM: JSL FORCE_BLANK_AND_WAIT_VBLANK */
     ppu.inidisp = 0x80;
 
@@ -345,6 +345,10 @@ uint16_t show_title_screen(uint16_t quick_mode) {
          * SNES); the warm-up mode advances it each frame via fade_update(). */
         fade_in(4, 1);
     }
+}
+
+uint16_t show_title_screen(uint16_t quick_mode) {
+    title_screen_setup(quick_mode);
 
     /* Run the warm-up, input/actionscript wait, and fade-out as a
      * run-to-completion mode. ert.actionscript_state is left as the entity

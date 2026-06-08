@@ -164,7 +164,10 @@ static void file_select_init(void) {
  *   Pass 1: build menu item labels ("N: CharName" or "N: Start New Game")
  *   Pass 2: for occupied slots, print "Level:" and "Text Speed:" info
  */
-static uint16_t file_select_menu(void) {
+/* Build the file-select slot list window (formerly file_select_menu() minus the
+ * blocking selection_menu(0) call). Returns -1 when the window is ready to push a
+ * selection menu, or an early result (create-window failure → 1) otherwise. */
+static int fm_file_select_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
     if (!w) return 1;
 
@@ -223,17 +226,19 @@ static uint16_t file_select_menu(void) {
     }
 
     /* Assembly (file_select_menu.asm:271): SELECTION_MENU directly —
-     * no RENDER_ALL_WINDOWS in between. SELECTION_MENU's internal
-     * WINDOW_TICK (selection_menu.asm:186) handles the first render. */
-    uint16_t result = selection_menu(0); /* no cancel */
-    current_save_slot = (uint8_t)result;
-    return result;
+     * no RENDER_ALL_WINDOWS in between. The caller pushes GAME_MODE_SELECTION_
+     * MENU(allow_cancel=0); current_save_slot is set from the result in the
+     * FM_SELECT_RESULT phase. */
+    return -1;
 }
 
 /*
  * Show the sub-menu for a valid file (Continue/Copy/Delete/Set Up).
  */
-static uint16_t show_file_select_submenu(void) {
+/* Build the Continue/Copy/Delete/Set Up submenu (formerly show_file_select_
+ * submenu() minus its blocking selection_menu(1)). Returns -1 when ready to push,
+ * or 0 on create-window failure. */
+static int fm_submenu_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MENU);
     if (!w) return 0;
 
@@ -253,9 +258,10 @@ static uint16_t show_file_select_submenu(void) {
     add_menu_item("Set Up", 4, 15, 0);
 
     /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS then
-     * SELECTION_MENU directly — no RENDER_ALL_WINDOWS in between. */
+     * SELECTION_MENU directly — no RENDER_ALL_WINDOWS in between. The caller
+     * pushes GAME_MODE_SELECTION_MENU(allow_cancel=1). */
     print_menu_items();
-    return selection_menu(1);
+    return -1;
 }
 
 /*
@@ -357,7 +363,9 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
 /*
  * Text speed selection menu.
  */
-static uint16_t text_speed_menu(void) {
+/* Build the text-speed menu (formerly text_speed_menu() minus its blocking
+ * selection_menu(1)). Returns -1 when ready to push, 0 on create-window failure. */
+static int fm_textspeed_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_TEXT_SPEED);
     if (!w) return 0;
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
@@ -375,26 +383,29 @@ static uint16_t text_speed_menu(void) {
      * instead of SET_FILE_SELECT_TEXT_HIGHLIGHT.  The C port gates highlight
      * by window ID instead (see selection_menu confirm handler), so this
      * clear is unnecessary and would break word-wrap if not restored. */
-    uint16_t result = selection_menu(1);
-    if (result > 0) {
-        game_state.text_speed = (uint8_t)result;
-        /* Compute dt.text_speed_based_wait for TEXT_SPEED_DELAY.
-         * Assembly (file_select_menu_loop.asm:681-688):
-         * text_speed==3 (Slow) → 0 (instant text, halt at end of line).
-         * Otherwise → (text_speed - 1) * 30 frames per character. */
-        if (result == 3) {
-            dt.text_speed_based_wait = 0;
-        } else {
-            dt.text_speed_based_wait = result * 30;
-        }
+    return -1;
+}
+
+/* Apply a text-speed selection (result > 0). */
+static void fm_textspeed_apply(uint16_t result) {
+    game_state.text_speed = (uint8_t)result;
+    /* Compute dt.text_speed_based_wait for TEXT_SPEED_DELAY.
+     * Assembly (file_select_menu_loop.asm:681-688):
+     * text_speed==3 (Slow) → 0 (instant text, halt at end of line).
+     * Otherwise → (text_speed - 1) * 30 frames per character. */
+    if (result == 3) {
+        dt.text_speed_based_wait = 0;
+    } else {
+        dt.text_speed_based_wait = result * 30;
     }
-    return result;
 }
 
 /*
  * Sound mode selection menu.
  */
-static uint16_t sound_mode_menu(void) {
+/* Build the sound-mode menu (formerly sound_mode_menu() minus selection_menu(1)).
+ * Returns -1 when ready to push, 0 on create-window failure. */
+static int fm_sound_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MUSIC_MODE);
     if (!w) return 0;
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
@@ -406,11 +417,12 @@ static uint16_t sound_mode_menu(void) {
     add_menu_item("Mono", 2, 0, 2);
 
     print_menu_items();
-    uint16_t result = selection_menu(1);
-    if (result > 0) {
-        game_state.sound_setting = (uint8_t)(result - 1);
-    }
-    return result;
+    return -1;
+}
+
+/* Apply a sound-mode selection (result > 0). */
+static void fm_sound_apply(uint16_t result) {
+    game_state.sound_setting = (uint8_t)(result - 1);
 }
 
 /*
@@ -434,7 +446,9 @@ static void preview_flavour_callback(uint16_t value) {
 /*
  * Window flavour selection menu.
  */
-static uint16_t flavour_menu(void) {
+/* Build the window-flavour menu (formerly flavour_menu() minus selection_menu(1)).
+ * Returns -1 when ready to push, 0 on create-window failure. */
+static int fm_flavour_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_FLAVOUR);
     if (!w) return 0;
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
@@ -452,12 +466,13 @@ static uint16_t flavour_menu(void) {
     w->cursor_move_callback = preview_flavour_callback;
 
     print_menu_items();
-    uint16_t result = selection_menu(1);
-    if (result > 0) {
-        game_state.text_flavour = (uint8_t)result;  /* 1-indexed, matching assembly */
-        text_load_flavour_palette(game_state.text_flavour - 1);
-    }
-    return result;
+    return -1;
+}
+
+/* Apply a window-flavour selection (result > 0). */
+static void fm_flavour_apply(uint16_t result) {
+    game_state.text_flavour = (uint8_t)result;  /* 1-indexed, matching assembly */
+    text_load_flavour_palette(game_state.text_flavour - 1);
 }
 
 /*
@@ -1545,6 +1560,336 @@ static bool new_game_naming(void) {
  * Main file select loop.
  * Ported from FILE_SELECT_INIT + RUN_FILE_MENU in assembly.
  */
+/* Initial state for a pushed GAME_MODE_SELECTION_MENU child. Must outlive the
+ * dispatch turn (STEP_RESULT_PUSH_INIT copies it immediately); a file-static is
+ * fine since only one selection menu is ever pending at a time. */
+static ModeState fm_child_init;
+
+/* Set the HP-meter rolling speed from the HP_METER_SPEEDS table by text_speed.
+ * Assembly file_select_menu_loop.asm:665-678. */
+static void fm_set_hp_meter_speed(void) {
+    int idx = (game_state.text_speed & 0xFF) - 1;
+    if (idx < 0) idx = 0;
+    if (idx > 2) idx = 2;
+    bt.hp_meter_speed = (int32_t)read_u32_le(hp_meter_speeds_data + idx * 4);
+}
+
+/* Push GAME_MODE_SELECTION_MENU as a child after a *_build() has laid out the
+ * focus window. Sets the FM phase to read the result in on re-entry. Replicates
+ * selection_menu()'s early-exit (no focus window / empty menu → result 0 with no
+ * push), delivered inline via result_ready so the *_RESULT phase handles it. */
+static StepResult fm_push_selection(FileMenuState *st, uint8_t result_phase,
+                                    uint16_t allow_cancel) {
+    st->phase = result_phase;
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0) {
+        st->result_ready = 1;
+        st->result = 0;
+        return STEP_RESULT_CONTINUE();
+    }
+    st->result_ready = 0;
+    fm_child_init = (ModeState){0};
+    fm_child_init.selection_menu.phase        = SM_SETUP;
+    fm_child_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &fm_child_init);
+}
+
+/* Read the result of the menu a *_RESULT phase is processing: the popped child's
+ * value, or the inline early-exit value if no child was pushed. */
+static uint16_t fm_take_result(FileMenuState *st) {
+    uint16_t r = st->result_ready ? st->result : (uint16_t)mode_child_result();
+    st->result_ready = 0;
+    return r;
+}
+
+/*
+ * GAME_MODE_FILE_MENU step — run-to-completion port of file_menu_loop()'s loop.
+ * See FileMenuState in mode_stack.h for the phase machine and what stays blocking.
+ * The synchronous build/apply helpers and the sub-menu pushes let several
+ * phases chain within one dispatch (the internal for-loop), matching the blocking
+ * original's zero-yield gap between one menu closing and the next opening.
+ */
+StepResult mode_step_file_menu(ModeState *ms) {
+    FileMenuState *st = &ms->file_menu;
+
+    for (;;) {
+        switch ((FileMenuPhase)st->phase) {
+        case FM_FADEIN_WAIT:
+            /* while (fade_active()) { battle_bg_update; fade_update; yield } */
+            if (fade_active()) {
+                battle_bg_update();
+                fade_update();
+                return STEP_RESULT_CONTINUE();
+            }
+            st->phase = FM_SELECT;
+            continue;
+
+        case FM_SELECT: {
+            /* Outer-loop head: battle_bg_update once, then the slot list. */
+            battle_bg_update();
+            int e = fm_file_select_build();
+            if (e >= 0) {            /* create-window failure → inline result */
+                st->result_ready = 1;
+                st->result = (uint16_t)e;
+                st->phase = FM_SELECT_RESULT;
+                continue;
+            }
+            return fm_push_selection(st, FM_SELECT_RESULT, 0);
+        }
+
+        case FM_SELECT_RESULT: {
+            uint16_t selected = fm_take_result(st);
+            st->selected = selected;
+            current_save_slot = (uint8_t)selected;   /* file_select_menu() did this */
+            if (selected == 0) { st->phase = FM_SELECT; continue; }
+            int slot = selected - 1;
+            if (save_files_present[slot]) {
+                st->phase = FM_SUBMENU;              /* @VALID_FILE_SELECTED */
+            } else {
+                game_state_init();
+                st->phase = FM_NG_TS;
+            }
+            continue;
+        }
+
+        case FM_SUBMENU: {
+            int e = fm_submenu_build();
+            if (e >= 0) {
+                st->result_ready = 1;
+                st->result = (uint16_t)e;
+                st->phase = FM_SUBMENU_RESULT;
+                continue;
+            }
+            return fm_push_selection(st, FM_SUBMENU_RESULT, 1);
+        }
+
+        case FM_SUBMENU_RESULT: {
+            uint16_t action = fm_take_result(st);
+            int slot = st->selected - 1;
+            switch (action) {
+            case 0: /* B pressed — @MENU_B_PRESSED */
+                close_focus_window();
+                st->phase = FM_SELECT;
+                continue;
+
+            case 1: /* Continue — @MENU_STARTGAME_SELECTED */
+                load_game(slot);
+                reset_queued_interactions();
+                reload_hotspots();
+                ow.respawn_x = game_state.leader_x_coord;
+                ow.respawn_y = game_state.leader_y_coord;
+                if (game_state.text_speed == 3)
+                    dt.text_speed_based_wait = 0;
+                else
+                    dt.text_speed_based_wait = (uint16_t)game_state.text_speed * 30;
+                fm_set_hp_meter_speed();
+                close_all_windows();
+                return STEP_RESULT_POP(1);
+
+            case 2: /* Copy — @MENU_COPY_SELECTED */
+                close_all_windows();
+                st->phase = FM_SELECT;
+                continue;
+
+            case 3: /* Delete — CONFIRM_FILE_DELETE (C1F2A8) */
+            {
+                close_focus_window();
+                WindowInfo *dw = create_window(WINDOW_FILE_SELECT_DELETE);
+                if (dw) {
+                    set_focus_text_cursor(0, 0);
+                    print_string("Are you sure you want to delete?");
+
+                    set_focus_text_cursor(0, 1);
+                    print_number(current_save_slot, 1);
+
+                    set_focus_text_cursor(2, 1);
+                    {
+                        int len = 0;
+                        while (len < 5 && party_characters[0].name[len] != 0x00) len++;
+                        print_eb_string(party_characters[0].name, len);
+                    }
+
+                    set_focus_text_cursor(8, 1);
+                    print_string("Level:");
+
+                    set_focus_text_cursor(12, 1);
+                    print_number(party_characters[0].level, 2);
+
+                    add_menu_item("No", 0, 0, 2);
+                    add_menu_item("Yes", 1, 0, 3);
+                }
+                print_menu_items();
+                return fm_push_selection(st, FM_DELETE_RESULT, 1);
+            }
+
+            case 4: /* Set Up */
+                load_game(slot);
+                st->phase = FM_SETUP_TS;
+                continue;
+
+            default:
+                st->phase = FM_SELECT;
+                continue;
+            }
+        }
+
+        case FM_DELETE_RESULT: {
+            uint16_t del_confirm = fm_take_result(st);
+            int slot = st->selected - 1;
+            if (del_confirm == 1) {
+                save_files_present[slot] = 0;
+                erase_save(slot);
+            }
+            close_all_windows();
+            st->phase = FM_SELECT;
+            continue;
+        }
+
+        /* ---- existing-save Set Up cascade ------------------------------- */
+        case FM_SETUP_TS: {
+            int e = fm_textspeed_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_SETUP_TS_RESULT; continue; }
+            return fm_push_selection(st, FM_SETUP_TS_RESULT, 1);
+        }
+        case FM_SETUP_TS_RESULT: {
+            uint16_t ts = fm_take_result(st);
+            if (ts == 0) {  /* @VALID_FILE_SELECTED — back to submenu */
+                close_window(WINDOW_FILE_SELECT_TEXT_SPEED);
+                st->phase = FM_SUBMENU;
+                continue;
+            }
+            fm_textspeed_apply(ts);
+            st->phase = FM_SETUP_SND;
+            continue;
+        }
+        case FM_SETUP_SND: {
+            int e = fm_sound_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_SETUP_SND_RESULT; continue; }
+            return fm_push_selection(st, FM_SETUP_SND_RESULT, 1);
+        }
+        case FM_SETUP_SND_RESULT: {
+            uint16_t sm = fm_take_result(st);
+            if (sm == 0) {
+                close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
+                st->phase = FM_SETUP_TS;
+                continue;
+            }
+            fm_sound_apply(sm);
+            st->phase = FM_SETUP_FLV;
+            continue;
+        }
+        case FM_SETUP_FLV: {
+            int e = fm_flavour_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_SETUP_FLV_RESULT; continue; }
+            return fm_push_selection(st, FM_SETUP_FLV_RESULT, 1);
+        }
+        case FM_SETUP_FLV_RESULT: {
+            uint16_t fl = fm_take_result(st);
+            if (fl == 0) {
+                close_window(WINDOW_FILE_SELECT_FLAVOUR);
+                st->phase = FM_SETUP_SND;
+                continue;
+            }
+            fm_flavour_apply(fl);
+            save_game(st->selected - 1);   /* @MENU_OTHER_SELECTED */
+            close_all_windows();
+            st->phase = FM_SELECT;
+            continue;
+        }
+
+        /* ---- new-game cascade ------------------------------------------- */
+        case FM_NG_TS: {
+            int e = fm_textspeed_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_NG_TS_RESULT; continue; }
+            return fm_push_selection(st, FM_NG_TS_RESULT, 1);
+        }
+        case FM_NG_TS_RESULT: {
+            uint16_t ts = fm_take_result(st);
+            if (ts == 0) {
+                close_window(WINDOW_FILE_SELECT_TEXT_SPEED);
+                st->phase = FM_SELECT;   /* back to file select */
+                continue;
+            }
+            fm_textspeed_apply(ts);
+            st->phase = FM_NG_SND;
+            continue;
+        }
+        case FM_NG_SND: {
+            int e = fm_sound_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_NG_SND_RESULT; continue; }
+            return fm_push_selection(st, FM_NG_SND_RESULT, 1);
+        }
+        case FM_NG_SND_RESULT: {
+            uint16_t sm = fm_take_result(st);
+            if (sm == 0) {
+                close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
+                st->phase = FM_NG_TS;
+                continue;
+            }
+            fm_sound_apply(sm);
+            st->phase = FM_NG_FLV;
+            continue;
+        }
+        case FM_NG_FLV: {
+            int e = fm_flavour_build();
+            if (e >= 0) { st->result_ready = 1; st->result = (uint16_t)e;
+                          st->phase = FM_NG_FLV_RESULT; continue; }
+            return fm_push_selection(st, FM_NG_FLV_RESULT, 1);
+        }
+        case FM_NG_FLV_RESULT: {
+            uint16_t fl = fm_take_result(st);
+            if (fl == 0) {
+                close_window(WINDOW_FILE_SELECT_FLAVOUR);
+                st->phase = FM_NG_SND;
+                continue;
+            }
+            fm_flavour_apply(fl);
+            st->phase = FM_NG_NAMING;
+            continue;
+        }
+
+        case FM_NG_NAMING:
+            /* Naming screen. new_game_naming() is a self-contained blocking
+             * driver over the already-converted naming modes; it stays blocking
+             * here (the C-stack during it is acceptable — terminal, input-driven).
+             * Deferred to its own conversion, parallel to attract's text-
+             * interpreter dependency. */
+            current_save_slot = (uint8_t)st->selected;
+            if (!new_game_naming()) {
+                /* Back out of naming: re-display all setup windows as backdrops,
+                 * change music, re-enter flavour selection (file_select_menu_loop
+                 * .asm:141-150). Save choices before the display_only load_game()s
+                 * clobber game_state. */
+                uint8_t saved_text_speed = game_state.text_speed;
+                uint8_t saved_sound_setting = game_state.sound_setting;
+                close_all_windows();
+                file_select_menu_display_only();
+                text_speed_menu_display_only(saved_text_speed);
+                sound_mode_menu_display_only(saved_sound_setting);
+                change_music(3);  /* MUSIC::SETUP_SCREEN */
+                st->phase = FM_NG_FLV;
+                continue;
+            }
+            fm_set_hp_meter_speed();
+            return STEP_RESULT_POP(1);
+        }
+
+        /* Unreachable: every phase returns or continues. */
+        return STEP_RESULT_POP(0);
+    }
+}
+
+/*
+ * Main file select loop — thin blocking wrapper.
+ * One-shot setup (asset loads + FILE_SELECT_INIT + fade_in) stays here; the
+ * fade-in wait and the menu cascade run as GAME_MODE_FILE_MENU.
+ * Ported from FILE_SELECT_INIT + RUN_FILE_MENU in assembly.
+ */
 uint16_t file_menu_loop(void) {
     /* Load asset data for file select screen */
     dont_care_names_data = ASSET_DATA(ASSET_US_DATA_DONT_CARE_NAMES_BIN);
@@ -1558,206 +1903,7 @@ uint16_t file_menu_loop(void) {
     /* Fade in (matching assembly: FADE_IN with X=1) */
     fade_in(1, 1);
 
-    /* Wait for fade to complete while updating BG animation */
-    while (fade_active()) {
-        battle_bg_update();
-        fade_update();
-        wait_for_vblank();
-    }
-
-    while (!platform_input_quit_requested()) {
-        /* Update battle BG animation each frame */
-        battle_bg_update();
-
-        /* Show file select menu */
-        uint16_t selected = file_select_menu();
-        if (selected == 0) continue;
-
-        int slot = selected - 1;
-
-        if (save_files_present[slot]) {
-            /* Existing save — assembly @VALID_FILE_SELECTED (line 37):
-             * show submenu, dispatch action, loop back here on cancel
-             * from Setup or after Copy/Delete complete. */
-        valid_file_selected: {
-            uint16_t action = show_file_select_submenu();
-
-            switch (action) {
-            case 0: /* B pressed — assembly @MENU_B_PRESSED (line 50-52) */
-                close_focus_window();
-                continue;
-
-            case 1: /* Continue — assembly @MENU_STARTGAME_SELECTED (lines 53-60) */
-                load_game(slot);
-                reset_queued_interactions();
-                reload_hotspots();
-                /* Assembly lines 56-59: Save leader position as respawn point */
-                ow.respawn_x = game_state.leader_x_coord;
-                ow.respawn_y = game_state.leader_y_coord;
-                if (game_state.text_speed == 3)
-                    dt.text_speed_based_wait = 0;
-                else
-                    dt.text_speed_based_wait = (uint16_t)game_state.text_speed * 30;
-                /* Assembly lines 665-678: set HP meter rolling speed from
-                 * HP_METER_SPEEDS table based on text_speed. */
-                {
-                    int idx = (game_state.text_speed & 0xFF) - 1;
-                    if (idx < 0) idx = 0;
-                    if (idx > 2) idx = 2;
-                    bt.hp_meter_speed = (int32_t)read_u32_le(hp_meter_speeds_data + idx * 4);
-                }
-                close_all_windows();
-                return 1;
-
-            case 2: /* Copy — assembly @MENU_COPY_SELECTED (lines 61-65) */
-                close_all_windows();
-                continue;
-
-            case 3: /* Delete — faithful port of CONFIRM_FILE_DELETE (C1F2A8) */
-                {
-                    close_focus_window();
-                    WindowInfo *dw = create_window(WINDOW_FILE_SELECT_DELETE);
-                    if (dw) {
-                        /* Row 0: confirmation prompt */
-                        set_focus_text_cursor(0, 0);
-                        print_string("Are you sure you want to delete?");
-
-                        /* Row 1: slot number + character name + level */
-                        set_focus_text_cursor(0, 1);
-                        print_number(current_save_slot, 1);
-
-                        set_focus_text_cursor(2, 1);
-                        {
-                            int len = 0;
-                            while (len < 5 && party_characters[0].name[len] != 0x00) len++;
-                            print_eb_string(party_characters[0].name, len);
-                        }
-
-                        set_focus_text_cursor(8, 1);
-                        print_string("Level:");
-
-                        set_focus_text_cursor(12, 1);
-                        print_number(party_characters[0].level, 2);
-
-                        /* Menu items: No at (0,2), Yes at (0,3) */
-                        add_menu_item("No", 0, 0, 2);
-                        add_menu_item("Yes", 1, 0, 3);
-                    }
-                    /* Assembly (confirm_file_delete.asm:65-67): PRINT_MENU_ITEMS
-                     * then SELECTION_MENU directly — no RENDER_ALL_WINDOWS. */
-                    print_menu_items();
-                    uint16_t del_confirm = selection_menu(1);
-                    if (del_confirm == 1) {
-                        /* Assembly (confirm_file_delete.asm:71-74): ERASE_SAVE
-                         * zeroes both copies of the save block in SRAM. */
-                        save_files_present[slot] = 0;
-                        erase_save(slot);
-                    }
-                    close_all_windows();
-                }
-                continue;
-
-            case 4: /* Set Up — asm lines 71-99: windows stack on confirm,
-                     * B-press closes only current window and goes back. */
-                {
-                    load_game(slot);
-
-                setup_text_speed: {
-                    uint16_t ts = text_speed_menu();
-                    if (ts == 0) {
-                        close_window(WINDOW_FILE_SELECT_TEXT_SPEED);
-                        /* Assembly line 80: BRA @VALID_FILE_SELECTED —
-                         * return to submenu, not to slot selection. */
-                        goto valid_file_selected;
-                    }
-                }
-
-                setup_sound_mode: {
-                    uint16_t sm = sound_mode_menu();
-                    if (sm == 0) {
-                        close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
-                        goto setup_text_speed;
-                    }
-                }
-
-                {
-                    uint16_t fl = flavour_menu();
-                    if (fl == 0) {
-                        close_window(WINDOW_FILE_SELECT_FLAVOUR);
-                        goto setup_sound_mode;
-                    }
-                }
-
-                    /* Assembly @MENU_OTHER_SELECTED (line 98-100) */
-                    save_game(slot);
-                    close_all_windows();
-                }
-                continue;
-            }
-        }
-        } else {
-            /* New game — asm lines 101-132: windows stack/persist as the
-             * user advances.  B-press on a menu closes only that window
-             * and returns to the previous menu.  CLOSE_ALL_WINDOWS only
-             * happens when entering the naming screen. */
-            game_state_init();
-
-        new_game_text_speed: {
-            uint16_t ts = text_speed_menu();
-            if (ts == 0) {
-                close_window(WINDOW_FILE_SELECT_TEXT_SPEED);
-                continue; /* back to file select */
-            }
-        }
-
-        new_game_sound_mode: {
-            uint16_t sm = sound_mode_menu();
-            if (sm == 0) {
-                close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
-                goto new_game_text_speed;
-            }
-        }
-
-        new_game_flavour: {
-            uint16_t fl = flavour_menu();
-            if (fl == 0) {
-                close_window(WINDOW_FILE_SELECT_FLAVOUR);
-                goto new_game_sound_mode;
-            }
-        }
-
-            /* Naming screen */
-            current_save_slot = (uint8_t)selected;
-            if (!new_game_naming()) {
-                /* Assembly (file_select_menu_loop.asm lines 141-150):
-                 * When backing out of naming, re-display all setup windows
-                 * as backdrops (display-only with no selection_menu call),
-                 * change music back to setup screen, then re-enter flavour
-                 * selection for user input.
-                 * Assembly calls: CLOSE_ALL_WINDOWS, FILE_SELECT_MENU(1),
-                 *   FILE_SELECT_TEXT_SPEED_MENU(1), FILE_SELECT_SOUND_MODE_MENU(1),
-                 *   CHANGE_MUSIC(SETUP_SCREEN), BRA @NEW_GAME_OPEN_FLAVOUR */
-                /* Save user's choices before file_select_menu_display_only
-                 * clobbers game_state via load_game() calls. */
-                uint8_t saved_text_speed = game_state.text_speed;
-                uint8_t saved_sound_setting = game_state.sound_setting;
-                close_all_windows();
-                file_select_menu_display_only();
-                text_speed_menu_display_only(saved_text_speed);
-                sound_mode_menu_display_only(saved_sound_setting);
-                change_music(3);  /* MUSIC::SETUP_SCREEN */
-                goto new_game_flavour;
-            }
-            /* Assembly lines 665-678: set HP meter rolling speed */
-            {
-                int idx = (game_state.text_speed & 0xFF) - 1;
-                if (idx < 0) idx = 0;
-                if (idx > 2) idx = 2;
-                bt.hp_meter_speed = (int32_t)read_u32_le(hp_meter_speeds_data + idx * 4);
-            }
-            return 1;
-        }
-    }
-
-    return 0;
+    ModeState init = {0};
+    init.file_menu.phase = FM_FADEIN_WAIT;
+    return (uint16_t)pump_mode(GAME_MODE_FILE_MENU, &init);
 }

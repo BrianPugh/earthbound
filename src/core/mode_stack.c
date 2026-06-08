@@ -90,6 +90,8 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_GAS_STATION]         = mode_step_gas_station,         /* gas_station.c */
     [GAME_MODE_TITLE_SCREEN]        = mode_step_title_screen,        /* title_screen.c */
     [GAME_MODE_ATTRACT]             = mode_step_attract_mode,        /* attract_mode.c */
+    [GAME_MODE_FILE_MENU]           = mode_step_file_menu,           /* file_select.c */
+    [GAME_MODE_INIT_INTRO]          = mode_step_init_intro,          /* init_intro.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
@@ -114,6 +116,10 @@ int32_t mode_pop(int32_t result) {
     if (d > 0)
         g_mode_stack.child_result[d - 1] = result;
     return result;
+}
+
+int32_t mode_child_result(void) {
+    return g_mode_stack.child_result[g_mode_stack.depth - 1];
 }
 
 /* ---- migration bridge ---------------------------------------------------- */

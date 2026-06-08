@@ -14,4 +14,9 @@ void load_title_screen_graphics(void);
    Ported from SHOW_TITLE_SCREEN (show_title_screen.asm) */
 uint16_t show_title_screen(uint16_t quick_mode);
 
+/* Yield-free one-shot setup for the title screen (PPU/BG/OAM config, graphics
+   load, entity wipe, and the non-quick sprite-palette fade prep). Run before
+   pushing GAME_MODE_TITLE_SCREEN; the show_title_screen() wrapper calls it too. */
+void title_screen_setup(uint16_t quick_mode);
+
 #endif /* INTRO_TITLE_SCREEN_H */

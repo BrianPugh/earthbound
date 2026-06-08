@@ -52,6 +52,8 @@ typedef enum {
     GAME_MODE_GAS_STATION,         /* gas-station prologue (RUN_GAS_STATION_CREDITS) */
     GAME_MODE_TITLE_SCREEN,        /* title screen (show_title_screen) */
     GAME_MODE_ATTRACT,             /* attract-mode demo scene (run_attract_mode) */
+    GAME_MODE_FILE_MENU,           /* file-select cascade (file_menu_loop) */
+    GAME_MODE_INIT_INTRO,          /* intro state machine (init_intro) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -850,6 +852,77 @@ typedef struct {
     uint16_t loop_frame;     /* AT_MAIN: frame counter (TM override + timeout) */
 } AttractState;
 
+/* GAME_MODE_FILE_MENU — run-to-completion port of file_menu_loop() (file_select.c),
+ * the file-select cascade reached from the intro. Each former blocking sub-menu
+ * (file_select_menu / show_file_select_submenu / text_speed / sound_mode / flavour
+ * / delete-confirm) was a thin wrapper around selection_menu(); the cascade now
+ * builds each menu's window synchronously, STEP_PUSHes GAME_MODE_SELECTION_MENU,
+ * and reads the choice back via mode_child_result() in the matching *_RESULT phase.
+ *
+ * Two things deliberately stay blocking, called inline from the step (the C-stack
+ * during them is acceptable — they are terminal, input-driven, and depend on
+ * subsystems not yet converted): new_game_naming() (its own multi-character driver
+ * over the already-converted naming modes) and the synchronous load/save/erase
+ * helpers (no yield). The leading fade-in wait is phase FM_FADEIN_WAIT.
+ *
+ * Pops 1 when a game is started/loaded (overworld follows), 0 on quit. The result
+ * is ignored by the init_intro parent (it runs the same post-file-menu cleanup
+ * either way), matching the blocking original. */
+typedef enum {
+    FM_FADEIN_WAIT = 0, /* while(fade_active()): battle_bg_update + fade_update */
+    FM_SELECT,          /* battle_bg_update; build slot list; push selection_menu(0) */
+    FM_SELECT_RESULT,   /* branch on chosen slot: submenu (existing) or new-game cascade */
+    FM_SUBMENU,         /* build Continue/Copy/Delete/SetUp; push selection_menu(1) */
+    FM_SUBMENU_RESULT,  /* dispatch the submenu action */
+    FM_DELETE_RESULT,   /* after the delete-confirm selection_menu(1) */
+    FM_SETUP_TS,        /* existing-save Set Up: text-speed menu */
+    FM_SETUP_TS_RESULT,
+    FM_SETUP_SND,       /* existing-save Set Up: sound-mode menu */
+    FM_SETUP_SND_RESULT,
+    FM_SETUP_FLV,       /* existing-save Set Up: flavour menu */
+    FM_SETUP_FLV_RESULT,
+    FM_NG_TS,           /* new-game: text-speed menu */
+    FM_NG_TS_RESULT,
+    FM_NG_SND,          /* new-game: sound-mode menu */
+    FM_NG_SND_RESULT,
+    FM_NG_FLV,          /* new-game: flavour menu */
+    FM_NG_FLV_RESULT,
+    FM_NG_NAMING,       /* new-game: run naming (blocking) + finalize, or back to flavour */
+} FileMenuPhase;
+
+typedef struct {
+    uint8_t  phase;         /* FileMenuPhase */
+    uint8_t  result_ready;  /* 1 = `result` holds an inline early-exit value (no child was pushed) */
+    uint16_t selected;      /* chosen slot, 1-based (file_select_menu result) */
+    uint16_t result;        /* inline early-exit result for the *_RESULT phase */
+} FileMenuState;
+
+/* GAME_MODE_INIT_INTRO — run-to-completion port of init_intro()'s state machine
+ * (init_intro.c). STEP_PUSHes the converted intro leaves (INTRO_LOGO, GAS_STATION,
+ * TITLE_SCREEN) and FILE_MENU as children, branching on mode_child_result(). The
+ * yield-free transitions (change_music, fade_out_if_visible, the PPU cleanup, the
+ * post-file-menu cleanup) run inline at the phase boundaries. Attract scenes still
+ * run via the blocking run_attract_mode() wrapper, called inline: its scene is
+ * driven by display_text_from_addr() (the text interpreter), which is not yet a
+ * mode. The one-shot init_intro() setup stays in the blocking wrapper. */
+typedef enum {
+    II_LOGO = 0,        /* push INTRO_LOGO */
+    II_LOGO_RESULT,
+    II_GAS,             /* change_music(GAS_STATION); push GAS_STATION */
+    II_GAS_RESULT,
+    II_TITLE,           /* change_music(TITLE_SCREEN); title setup; push TITLE_SCREEN */
+    II_TITLE_RESULT,
+    II_ATTRACT,         /* run the attract scene table (blocking run_attract_mode) */
+    II_FILE_MENU,       /* exit cleanup; change_music(SETUP); push FILE_MENU */
+    II_FILE_MENU_DONE,  /* post-file-menu cleanup (window_tick_work) then pop */
+} InitIntroPhase;
+
+typedef struct {
+    uint8_t  phase;            /* InitIntroPhase */
+    uint8_t  title_quick_mode; /* skip-to-title quick mode for the next title-screen push */
+    uint8_t  attract_index;    /* which attract scene table entry is next */
+} InitIntroState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -882,6 +955,8 @@ union ModeState {
     GasStationState       gas_station;
     TitleScreenState      title_screen;
     AttractState          attract;
+    FileMenuState         file_menu;
+    InitIntroState        init_intro;
     uint8_t               _raw[160];
 };
 
@@ -1016,6 +1091,16 @@ StepResult mode_step_title_screen(ModeState *st);
  * flag (1 if a button ended the scene, else 0). */
 StepResult mode_step_attract_mode(ModeState *st);
 
+/* GAME_MODE_FILE_MENU step (defined in file_select.c). Init via
+ * ModeState.file_menu (phase = FM_FADEIN_WAIT) before pump_mode(GAME_MODE_FILE_
+ * MENU). Pops 1 when a game starts/loads, 0 on quit. */
+StepResult mode_step_file_menu(ModeState *st);
+
+/* GAME_MODE_INIT_INTRO step (defined in init_intro.c). Init via
+ * ModeState.init_intro (phase = II_LOGO) before pump_mode(GAME_MODE_INIT_INTRO).
+ * Pops 0. */
+StepResult mode_step_init_intro(ModeState *st);
+
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
 void mode_push(GameMode mode, const ModeState *init);
@@ -1023,6 +1108,11 @@ void mode_push(GameMode mode, const ModeState *init);
 /* Pop the top mode, recording `result` into the parent's child_result slot.
  * Returns `result`. */
 int32_t mode_pop(int32_t result);
+
+/* Read the result the most-recently-popped child handed back to the current
+ * (now-top) mode. A parent mode that STEP_PUSHes a child reads this on its next
+ * step to branch on the child's pop value. Returns child_result[depth-1]. */
+int32_t mode_child_result(void);
 
 /* Migration bridge: push `mode` (with optional initial state) and run it — and
  * any children it pushes — to completion using a LOCAL host_process_frame()

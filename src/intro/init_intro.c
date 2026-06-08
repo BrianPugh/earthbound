@@ -15,6 +15,7 @@
 #include "game/display_text.h"
 #include "game/text.h"
 #include "platform/platform.h"
+#include "core/mode_stack.h"
 
 /* Forward declarations */
 #include "game_main.h"
@@ -53,25 +54,161 @@ static void init_intro_exit_cleanup(void) {
     ow.disable_music_changes = 0;
 }
 
+/* Attract-mode scene table (init_intro.asm states 3-10): scenes run back-to-back
+ * (no yield between), looping back to the title screen after the last. */
+static const uint16_t init_intro_attract_scenes[] = { 0, 2, 3, 4, 5, 6, 7, 9 };
+#define INIT_INTRO_ATTRACT_COUNT \
+    ((int)(sizeof(init_intro_attract_scenes) / sizeof(init_intro_attract_scenes[0])))
+
+/* Initial state for a pushed intro child (INTRO_LOGO / GAS_STATION / TITLE_SCREEN).
+ * Must outlive the dispatch turn (STEP_RESULT_PUSH_INIT copies it immediately);
+ * only one child is ever pending at a time. */
+static ModeState ii_child_init;
+
 /*
- * Port of INIT_INTRO from asm/intro/init_intro.asm (US retail path).
- *
- * The original is a state machine that cycles through:
- *   State 0: Logo screens (Nintendo, APE, HAL)
- *   State 1: Gas station prologue
- *   State 2: Title screen
- *   State 3+: Attract mode demos (loop back to state 2)
- *
- * When the user presses Start/A/B on the title screen OR during attract
- * mode, we proceed to the file select menu. Pressing during logos or gas
- * station skips to the title screen (quick mode). From file select,
- * loading or starting a new game exits the intro.
+ * GAME_MODE_INIT_INTRO step — run-to-completion port of INIT_INTRO's state
+ * machine (asm/intro/init_intro.asm, US retail path). See InitIntroState in
+ * mode_stack.h. The intro leaves (logos, gas station, title screen) are STEP_
+ * PUSHed as their own modes after their yield-free setup runs inline; the result
+ * each hands back (button skip vs normal completion) is read via mode_child_
+ * result() in the matching *_RESULT phase. Attract scenes and the file menu run
+ * via their blocking wrappers inline (run_attract_mode() blocks on the not-yet-
+ * converted text interpreter; file_menu_loop() does one-shot setup before pumping
+ * GAME_MODE_FILE_MENU). The brief fade_out_if_visible() / exit-cleanup transitions
+ * also run inline (they yield via direct wait_for_vblank, only on input-driven
+ * skip paths). The pump owns the single yield.
+ */
+StepResult mode_step_init_intro(ModeState *ms) {
+    InitIntroState *st = &ms->init_intro;
+
+    for (;;) {
+        switch ((InitIntroPhase)st->phase) {
+        case II_LOGO:
+            /* Logo screens (Nintendo, APE, HAL). No yield-free setup needed. */
+            ii_child_init = (ModeState){0};
+            ii_child_init.intro_logo.phase    = LG_LOAD;
+            ii_child_init.intro_logo.logo_idx = 0;
+            st->phase = II_LOGO_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_INTRO_LOGO, &ii_child_init);
+
+        case II_LOGO_RESULT:
+            if (mode_child_result() != 0) {
+                /* Button during logos — WRITE_APU_PORT1(2) + FADE_OUT_WITH_MOSAIC
+                 * then skip directly to the title (quick mode). asm:78-97. */
+                write_apu_port1(2);
+                fade_out_if_visible();
+                st->title_quick_mode = 1;
+                st->phase = II_TITLE;
+            } else {
+                st->phase = II_GAS;
+            }
+            continue;
+
+        case II_GAS:
+            /* Gas station prologue. */
+            change_music(1); /* MUSIC::GAS_STATION */
+            gas_station_setup();
+            ii_child_init = (ModeState){0};
+            ii_child_init.gas_station.phase            = GS_PH1;
+            ii_child_init.gas_station.fade_delay_left  = 11;
+            ii_child_init.gas_station.brightness_fading = 1;
+            ii_child_init.gas_station.remaining        = 236;
+            st->phase = II_GAS_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_GAS_STATION, &ii_child_init);
+
+        case II_GAS_RESULT:
+            if (mode_child_result() != 0) {
+                /* Button during gas station — WRITE_APU_PORT1(2) +
+                 * FADE_OUT_WITH_MOSAIC + PPU cleanup, skip to title (quick).
+                 * asm:110-138. */
+                write_apu_port1(2);
+                fade_out_if_visible();
+                ppu.cgadsub = 0;
+                ppu.cgwsel = 0;
+                ppu.tm = 1;
+                ppu.ts = 0;
+                st->title_quick_mode = 1;
+            }
+            st->phase = II_TITLE;
+            continue;
+
+        case II_TITLE:
+            /* Title screen. */
+            change_music(175); /* MUSIC::TITLE_SCREEN */
+            title_screen_setup(st->title_quick_mode);
+            ii_child_init = (ModeState){0};
+            ii_child_init.title_screen.phase      = TS_WARMUP;
+            ii_child_init.title_screen.quick_mode = st->title_quick_mode;
+            st->title_quick_mode = 0;   /* consumed (asm clears title_quick_mode) */
+            st->phase = II_TITLE_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &ii_child_init);
+
+        case II_TITLE_RESULT:
+            if (mode_child_result() != 0) {
+                /* Button — go to file select. */
+                st->phase = II_FILE_MENU;
+            } else {
+                /* Timed out — start the attract sequence. */
+                st->attract_index = 0;
+                st->phase = II_ATTRACT;
+            }
+            continue;
+
+        case II_ATTRACT: {
+            /* Attract scenes run back-to-back via the blocking run_attract_mode()
+             * wrapper. A button press during ANY scene exits directly to file
+             * select (asm @UNKNOWN27, init_intro.asm:212-247). */
+            if (st->attract_index == 0)
+                change_music(157); /* MUSIC::ATTRACT_MODE (first scene only) */
+            uint16_t scene = init_intro_attract_scenes[st->attract_index];
+            if (run_attract_mode(scene) != 0) {
+                st->phase = II_FILE_MENU;
+                continue;
+            }
+            st->attract_index++;
+            if (st->attract_index >= INIT_INTRO_ATTRACT_COUNT) {
+                /* After all attract scenes, loop back to the title screen. */
+                st->title_quick_mode = 0;
+                st->phase = II_TITLE;
+            }
+            /* else: stay in II_ATTRACT and run the next scene immediately. */
+            continue;
+        }
+
+        case II_FILE_MENU:
+            /* Exit cleanup + file select. RUN_FILE_MENU (run_file_menu.asm).
+             * file_menu_loop() runs blocking (one-shot setup + pumps FILE_MENU). */
+            init_intro_exit_cleanup();
+            change_music(3); /* MUSIC::SETUP_SCREEN */
+            file_menu_loop();
+            /* RUN_FILE_MENU post-cleanup (run_file_menu.asm:13-17). The single
+             * window_tick() becomes window_tick_work() + the CONTINUE yield. */
+            clear_instant_printing();
+            window_tick_work();
+            st->phase = II_FILE_MENU_DONE;
+            return STEP_RESULT_CONTINUE();
+
+        case II_FILE_MENU_DONE:
+            /* Critical: ow.disabled_transitions must be cleared or the overworld
+             * text/palette/pajama systems won't function. event_script_data is
+             * NOT freed — it's needed by the main game loop. */
+            ow.disabled_transitions = 0;
+            free_title_screen_script_data();
+            return STEP_RESULT_POP(0);
+        }
+
+        /* Unreachable: every phase returns or continues. */
+        return STEP_RESULT_POP(0);
+    }
+}
+
+/*
+ * Port of INIT_INTRO from asm/intro/init_intro.asm (US retail path) — thin
+ * blocking wrapper. The one-shot initialization (asm:20-42) stays here; the
+ * state machine that cycles logos -> gas station -> title -> attract (and exits
+ * to the file select on a button press) runs as GAME_MODE_INIT_INTRO.
  */
 void init_intro(void) {
-    uint16_t state = 0;
-    uint16_t result;
-    uint16_t title_quick_mode = 0;
-
     /* Assembly lines 20-26: initialization before state machine */
     ow.disabled_transitions = 1;
     write_apu_port1(2);
@@ -103,152 +240,7 @@ void init_intro(void) {
     load_title_screen_script_data();
     load_event_script_data();
 
-    while (!platform_input_quit_requested()) {
-        switch (state) {
-        case 0:
-            /* Logo screens (Nintendo, APE, HAL) */
-            result = logo_screen();
-            if (result != 0) {
-                /* Button pressed during logos — assembly does
-                 * WRITE_APU_PORT1(2) + FADE_OUT_WITH_MOSAIC(4,1,0)
-                 * then skips directly to title screen (quick mode).
-                 * init_intro.asm lines 78-97. */
-                write_apu_port1(2);
-                fade_out_if_visible();
-                title_quick_mode = 1;
-                state = 2;
-            } else {
-                state = 1;
-            }
-            break;
-
-        case 1:
-            /* Gas station prologue */
-            change_music(1); /* MUSIC::GAS_STATION */
-            result = gas_station();
-            if (result != 0) {
-                /* Button pressed during gas station — assembly does
-                 * WRITE_APU_PORT1(2) + FADE_OUT_WITH_MOSAIC(4,1,0)
-                 * + PPU cleanup, then skips to title screen (quick mode).
-                 * init_intro.asm lines 110-138. */
-                write_apu_port1(2);
-                fade_out_if_visible();
-                ppu.cgadsub = 0;
-                ppu.cgwsel = 0;
-                ppu.tm = 1;
-                ppu.ts = 0;
-                title_quick_mode = 1;
-            }
-            state = 2;
-            break;
-
-        case 2:
-            /* Title screen */
-            change_music(175); /* MUSIC::TITLE_SCREEN */
-            result = show_title_screen(title_quick_mode);
-            title_quick_mode = 0;
-
-            if (result != 0) {
-                /* User pressed button — go to file select.
-                 * In the assembly, INIT_INTRO returns here and the caller
-                 * runs FILE_SELECT_MENU_LOOP. We embed it. */
-                init_intro_exit_cleanup();
-                change_music(3); /* MUSIC::SETUP_SCREEN */
-                file_menu_loop();
-                /* RUN_FILE_MENU post-cleanup (run_file_menu.asm lines 13-17).
-                 * The assembly's RUN_FILE_MENU wrapper does this after
-                 * FILE_MENU_LOOP returns. Critical: ow.disabled_transitions
-                 * must be cleared or the overworld text/palette/pajama
-                 * systems won't function correctly. */
-                clear_instant_printing();
-                window_tick();
-                ow.disabled_transitions = 0;
-                free_title_screen_script_data();
-                /* NOTE: event_script_data is NOT freed here — it's needed by
-                 * INITIALIZE_OVERWORLD_STATE and the main game loop. In the
-                 * assembly, INIT_INTRO returns to MAIN_LOOP which continues
-                 * using the event pointer table for the rest of the game. */
-                return;
-            } else {
-                /* Timed out — start attract mode sequence */
-                state = 3;
-            }
-            break;
-
-        /* Attract mode scenes.
-         * In the assembly, button press during ANY attract scene exits
-         * INIT_INTRO entirely via @UNKNOWN27 (init_intro.asm:212-247).
-         * It does NOT show the title screen first — it goes directly
-         * to the exit cleanup. In the C port, we embed the file select. */
-        case 3:
-            change_music(157); /* MUSIC::ATTRACT_MODE */
-            result = run_attract_mode(0);
-            if (result != 0) goto exit_to_file_select;
-            state = 4;
-            break;
-
-        case 4:
-            result = run_attract_mode(2);
-            if (result != 0) goto exit_to_file_select;
-            state = 5;
-            break;
-
-        case 5:
-            result = run_attract_mode(3);
-            if (result != 0) goto exit_to_file_select;
-            state = 6;
-            break;
-
-        case 6:
-            result = run_attract_mode(4);
-            if (result != 0) goto exit_to_file_select;
-            state = 7;
-            break;
-
-        case 7:
-            result = run_attract_mode(5);
-            if (result != 0) goto exit_to_file_select;
-            state = 8;
-            break;
-
-        case 8:
-            result = run_attract_mode(6);
-            if (result != 0) goto exit_to_file_select;
-            state = 9;
-            break;
-
-        case 9:
-            result = run_attract_mode(7);
-            if (result != 0) goto exit_to_file_select;
-            state = 10;
-            break;
-
-        case 10:
-            result = run_attract_mode(9);
-            if (result != 0) goto exit_to_file_select;
-            /* After all attract scenes, loop back to title screen */
-            state = 2;
-            title_quick_mode = 0;
-            break;
-
-        default:
-            state = 0;
-            break;
-        }
-    }
-    return;
-
-exit_to_file_select:
-    /* Assembly @UNKNOWN27 exit path (init_intro.asm:222-247):
-     * Button press during attract mode or title screen exits directly
-     * to file select — no intermediate title screen. */
-    init_intro_exit_cleanup();
-    change_music(3); /* MUSIC::SETUP_SCREEN */
-    file_menu_loop();
-    /* RUN_FILE_MENU post-cleanup (run_file_menu.asm lines 13-17). */
-    clear_instant_printing();
-    window_tick();
-    ow.disabled_transitions = 0;
-    free_title_screen_script_data();
-    /* NOTE: event_script_data persists — see note above. */
+    ModeState init = {0};
+    init.init_intro.phase = II_LOGO;
+    pump_mode(GAME_MODE_INIT_INTRO, &init);
 }
