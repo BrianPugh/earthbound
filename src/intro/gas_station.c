@@ -29,6 +29,7 @@
 #include "data/assets.h"
 #include "include/constants.h"
 #include "platform/platform.h"
+#include "core/mode_stack.h"
 #include <string.h>
 
 /* Forward declarations from main.c */
@@ -191,55 +192,142 @@ static void gas_station_load(void) {
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 }
 
-/*
- * Phase 1 of RUN_GAS_STATION_CREDITS — the "red Giygas static" intro.
- *
- * 236 frames of battle-BG noise animation (BG2 palette cycling) while the
- * screen brightness fades in ($80 -> $01 -> ... -> $0F over ~180 frames).
- * CGRAM groups 0-1 (the gas station image) are still all-zero, so only the
- * BG2 static is visible.
- *
- * ROM: RUN_GAS_STATION_CREDITS phase-1 loop —
- *      UPDATE_BATTLE_SCREEN_EFFECTS + NMI brightness fade + WAIT_UNTIL_NEXT_FRAME.
- *
- * Returns 1 if interrupted by quit/button, 0 if it ran to completion.
- */
-static uint16_t gas_station_phase1_static_intro(void) {
-    /*
-     * NMI-driven brightness fade.
-     * ROM: FADE_IN stores step=1, delay=11.
-     * Brightness goes: $80 -> $01 -> $02 -> ... -> $0F over ~180 frames.
-     */
-    int fade_delay_left = 11;
-    bool brightness_fading = true;
+/* ---- GAME_MODE_GAS_STATION ------------------------------------------------
+ * Run-to-completion port of the blocking gas_station() below. See the
+ * GasStationState comment in mode_stack.h. The single yield is owned by the
+ * pump; this body never calls wait_for_vblank(). Each phase does its frame's
+ * work then decrements `remaining`; on the frame `remaining` reaches 0 it runs
+ * the (yield-free) transition into the next phase, so frame counts match the
+ * blocking loops. Every phase but GS_PH6 pops 1 on any button (post-yield read,
+ * checked at the top of the step — the same <=1-frame placement the other
+ * conversions accept). */
+StepResult mode_step_gas_station(ModeState *st) {
+    GasStationState *s = &st->gas_station;
 
-    for (int i = 0; i < 236; i++) {
-        if (platform_input_quit_requested()) return 1;
-        if (platform_input_get_pad_new()) return 1;
-
-        /* UPDATE_BATTLE_SCREEN_EFFECTS — just the battle BG animation part */
+    switch ((GasStationPhase)s->phase) {
+    case GS_PH1:
+        /* 236-frame red-static intro with the NMI brightness fade-in. */
+        if (platform_input_get_pad_new())
+            return STEP_RESULT_POP(1);
         battle_bg_update();
-
-        /* Process NMI brightness fade */
-        if (brightness_fading) {
-            fade_delay_left--;
-            if (fade_delay_left < 0) {
-                fade_delay_left = 11;
+        if (s->brightness_fading) {
+            if (--s->fade_delay_left < 0) {
+                s->fade_delay_left = 11;
                 uint8_t brightness = ppu.inidisp & 0x0F;
                 int next = brightness + 1;
                 if (next >= 0x10) {
                     ppu.inidisp = 0x0F;
-                    brightness_fading = false;
+                    s->brightness_fading = 0;
                 } else {
                     ppu.inidisp = (uint8_t)next;
                 }
             }
         }
-
         gas_station_sync_palettes();
-        wait_for_vblank();
+        if (--s->remaining == 0) {
+            s->phase = GS_PH2;
+            s->remaining = 480;
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case GS_PH2:
+        /* 480-frame palette interpolation + battle BG animation. The group-2
+         * save/restore keeps UPDATE_MAP_PALETTE_ANIMATION from disturbing the
+         * battle BG's own palette cycling. */
+        if (platform_input_get_pad_new())
+            return STEP_RESULT_POP(1);
+        memcpy(map_palette_backup, &ert.palettes[32], sizeof(map_palette_backup));
+        update_map_palette_animation();
+        memcpy(loaded_bg_data_layer1.palette,
+               &ert.palettes[loaded_bg_data_layer1.palette_index],
+               sizeof(loaded_bg_data_layer1.palette));
+        memcpy(&ert.palettes[32], map_palette_backup, sizeof(map_palette_backup));
+        battle_bg_update();
+        gas_station_sync_palettes();
+        if (--s->remaining == 0) {
+            /* FINALIZE_PALETTE_FADE + disable color math (yield-free). */
+            PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
+            memcpy(ert.palettes, fade->target, sizeof(fade->target));
+            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+            gas_station_sync_palettes();
+            ppu.cgadsub = 0x00;
+            ppu.cgwsel = 0x00;
+            ppu.tm = 0x01;
+            /* Keep BG2 in TS to hold wide mode (see the blocking notes below). */
+            ppu.ts = 0x02;
+            s->phase = GS_PH3;
+            s->remaining = 120;
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case GS_PH3:
+        /* 120-frame hold at full brightness (no per-frame work). */
+        if (platform_input_get_pad_new())
+            return STEP_RESULT_POP(1);
+        if (--s->remaining == 0) {
+            /* Music change + EVENT_860 flash entity (yield-free). */
+            change_music(174); /* MUSIC::GAS_STATION_2 */
+            s->entity_offset = entity_init_wipe(860);
+            s->phase = GS_PH4;
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case GS_PH4:
+        /* Run EVENT_860 until its script clears. A button skip deactivates the
+         * entity first (the blocking post-yield check). */
+        if (platform_input_get_pad_new()) {
+            deactivate_entity(s->entity_offset);
+            return STEP_RESULT_POP(1);
+        }
+        if (!(s->entity_offset >= 0 &&
+              entities.script_table[s->entity_offset] != ENTITY_NONE)) {
+            /* Script finished: set up the 330-frame fade to white (yield-free).
+             * Reset backdrop index 0 to black so the wide-mode gutters fade
+             * cleanly from black to white. */
+            ert.palettes[0] = 0;
+            PaletteFadeBuffer *wfade = buf_palette_fade(ert.buffer);
+            for (int i = 0; i < BUF_FADE_COLOR_COUNT; i++)
+                wfade->target[i] = 0x7FFF;
+            prepare_palette_fade_slopes(330, 0xFFFF);
+            s->phase = GS_PH5;
+            s->remaining = 330;
+            return STEP_RESULT_CONTINUE();
+        }
+        run_actionscript_frame();
+        gas_station_sync_palettes();
+        return STEP_RESULT_CONTINUE();
+
+    case GS_PH5:
+        /* 330-frame fade to white. Plain sync (not gas_station_sync_palettes)
+         * so the backdrop cgram[0] whitens along with the gutters. */
+        if (platform_input_get_pad_new())
+            return STEP_RESULT_POP(1);
+        update_map_palette_animation();
+        sync_palettes_to_cgram();
+        if (--s->remaining == 0) {
+            /* Clear the screen + palettes, restore BG2 centering (yield-free). */
+            ppu.tm = 0;
+            memset(ert.palettes, 0, sizeof(ert.palettes));
+            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+            sync_palettes_to_cgram();
+            ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
+            ppu.sprite_y_offset = 0;
+            ppu.ts = 0x00;
+            s->phase = GS_PH6;
+            s->remaining = 30;
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case GS_PH6:
+        /* 30-frame final wait — NOT button-skippable (WAIT_FRAMES_OR_UNTIL_
+         * PRESSED(30) with mask 0). Check-at-top so it yields exactly 30 frames
+         * before the terminal pop (which does not yield). */
+        if (s->remaining == 0)
+            return STEP_RESULT_POP(0);
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
     }
-    return 0;
+    return STEP_RESULT_POP(0);
 }
 
 /*
@@ -249,180 +337,14 @@ static uint16_t gas_station_phase1_static_intro(void) {
  * Returns: 0 = timed out, 1 = button pressed
  */
 uint16_t gas_station(void) {
-    /* ROM: JSL INIT_ENTITY_SYSTEM */
+    /* One-shot setup (yield-free): ROM JSL INIT_ENTITY_SYSTEM + GAS_STATION_LOAD. */
     entity_system_init();
-
     gas_station_load();
 
-    /*
-     * Phase 1: red Giygas static intro (236 frames, brightness fade-in).
-     */
-    if (gas_station_phase1_static_intro()) return 1;
-
-    /*
-     * Phase 2: 480 frames — palette interpolation + battle BG animation.
-     *
-     * ROM loop (RUN_GAS_STATION_CREDITS @UNKNOWN3):
-     *   1. Save palette group 2 → MAP_PALETTE_BACKUP
-     *   2. UPDATE_MAP_PALETTE_ANIMATION (advances all 256 palette entries)
-     *   3. Clear PALETTE_UPLOAD_MODE (prevent mid-loop upload)
-     *   4. COPY_BG_PALETTE_FROM_POINTER (restore LOADED_BG_DATA palette from PALETTES)
-     *   5. Restore palette group 2 from MAP_PALETTE_BACKUP
-     *   6. UPDATE_BATTLE_SCREEN_EFFECTS (battle BG animation + palette cycling)
-     *   7. Set PALETTE_UPLOAD_MODE = FULL
-     *   8. WAIT_UNTIL_NEXT_FRAME
-     *
-     * The save/restore of group 2 prevents UPDATE_MAP_PALETTE_ANIMATION from
-     * interfering with the battle BG's own palette cycling.
-     */
-    for (int i = 0; i < 480; i++) {
-        if (platform_input_quit_requested()) return 1;
-        if (platform_input_get_pad_new()) return 1;
-
-        /* Save battle BG palette (group 2, colors 32-47) */
-        memcpy(map_palette_backup, &ert.palettes[32], sizeof(map_palette_backup));
-
-        /* Advance palette fade (gas station fades in, battle BG fades out) */
-        update_map_palette_animation();
-
-        /* COPY_BG_PALETTE_FROM_POINTER (asm/battle/effects/copy_bg_palette_from_pointer.asm):
-         * Copy the now-faded palette from ert.palettes[] into loaded_bg_data_layer1.palette
-         * so battle_bg_update() palette cycling uses the gradually-dimming palette. */
-        memcpy(loaded_bg_data_layer1.palette,
-               &ert.palettes[loaded_bg_data_layer1.palette_index],
-               sizeof(loaded_bg_data_layer1.palette));
-
-        /* Restore battle BG palette — undo what UPDATE_MAP_PALETTE_ANIMATION did */
-        memcpy(&ert.palettes[32], map_palette_backup, sizeof(map_palette_backup));
-
-        /* UPDATE_BATTLE_SCREEN_EFFECTS — animates battle BG (palette cycling) */
-        battle_bg_update();
-
-        gas_station_sync_palettes();
-        wait_for_vblank();
-    }
-
-    /*
-     * FINALIZE_PALETTE_FADE: copy fade target (ert.buffer[0..511]) to ert.palettes[].
-     * Then disable color math (gas station fully visible, no more BG2 overlay).
-     *
-     * ROM: CGADSUB=0, CGWSEL=0, TM=BG1, TS=0
-     */
-    PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
-    memcpy(ert.palettes, fade->target, sizeof(fade->target));
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    gas_station_sync_palettes();
-
-    ppu.cgadsub = 0x00;
-    ppu.cgwsel = 0x00;
-    ppu.tm = 0x01;
-    /* ROM sets TS=0 here (256-wide hardware has no gutters to worry about).
-     * The C port keeps BG2 in the sub screen so the renderer stays in WIDE
-     * mode for the rest of the scene: wide mode is detected from FILL layers
-     * present in TM|TS, and BG2 carries the BG_VIEWPORT_FILL flag. With color
-     * math now disabled (CGADSUB=0) the sub screen is never composited, so BG2
-     * is invisible — only its presence in TS matters, to hold wide mode. This
-     * lets the closing phase-5 fade-to-white reach the gutters via the backdrop
-     * (cgram[0]); a non-wide scene would letterbox them to hard black instead. */
-    ppu.ts = 0x02;
-
-    /*
-     * Phase 3: Wait 120 frames (gas station visible at full brightness).
-     * ROM: WAIT_FRAMES_OR_UNTIL_PRESSED(120)
-     */
-    for (int i = 0; i < 120; i++) {
-        if (platform_input_quit_requested()) return 1;
-        if (platform_input_get_pad_new()) return 1;
-        wait_for_vblank();
-    }
-
-    /*
-     * Phase 4: Music change + EVENT_860 flash palette sequence.
-     *
-     * ROM: CHANGE_MUSIC(GAS_STATION_2=174), INIT_ENTITY_WIPE(EVENT_860).
-     * EVENT_860 is an entity script that rapidly alternates between
-     * the normal gas station palette and a "flash" palette with
-     * accelerating timing, creating a strobe effect.
-     */
-    change_music(174);  /* MUSIC::GAS_STATION_2 */
-
-    int16_t entity_offset = entity_init_wipe(860);
-
-    /* Run entity script until it finishes.
-     * ROM: loop while ENTITY_SCRIPT_TABLE[entity_offset] != -1 */
-    while (entity_offset >= 0 &&
-           entities.script_table[entity_offset] != ENTITY_NONE) {
-        run_actionscript_frame();
-        gas_station_sync_palettes();
-        wait_for_vblank();
-
-        if (platform_input_quit_requested()) {
-            deactivate_entity(entity_offset);
-            return 1;
-        }
-        if (platform_input_get_pad_new()) {
-            deactivate_entity(entity_offset);
-            return 1;
-        }
-    }
-
-    /*
-     * Phase 5: 330-frame palette fade to WHITE.
-     *
-     * ROM: PREPARE_PALETTE_FADE_FROM_CURRENT(330)
-     * This calls LOAD_PALETTE_TO_FADE_BUFFER with level=100,
-     * which produces all-white ($7FFF) target for every color.
-     * Then PREPARE_PALETTE_FADE(330, $FFFF) sets up the fade slopes.
-     */
-    {
-        /* The backdrop (palette index 0) still holds the gas-station
-         * background colour (teal). It's invisible under the centered, opaque
-         * BG1 image but fills the wide-mode gutters, which phases 3-4 pinned to
-         * black via cgram[0] (without touching ert.palettes[0]). The fade below
-         * starts each color from its current ert.palettes[] value, so leaving
-         * index 0 teal would flash the gutters teal before they whiten. Reset
-         * it to black so the gutters fade cleanly from black to white. */
-        ert.palettes[0] = 0;
-
-        /* Set fade target to all-white (0x7FFF) */
-        PaletteFadeBuffer *wfade = buf_palette_fade(ert.buffer);
-        for (int i = 0; i < BUF_FADE_COLOR_COUNT; i++) {
-            wfade->target[i] = 0x7FFF;
-        }
-        prepare_palette_fade_slopes(330, 0xFFFF);
-    }
-
-    for (int i = 0; i < 330; i++) {
-        if (platform_input_quit_requested()) return 1;
-        if (platform_input_get_pad_new()) return 1;
-
-        update_map_palette_animation();
-        /* Plain sync (NOT gas_station_sync_palettes): let the backdrop
-         * cgram[0] fade to white along with everything else so the wide-mode
-         * gutters fade to white too. Color math is off in this phase, so the
-         * gutter fill is inactive and the gutters simply follow the backdrop. */
-        sync_palettes_to_cgram();
-        wait_for_vblank();
-    }
-
-    /*
-     * Phase 6: Clear screen and wait.
-     * ROM: STZ TM_MIRROR, zeroes all PALETTES, PALETTE_UPLOAD_MODE=FULL,
-     * then WAIT_FRAMES_OR_UNTIL_PRESSED(30).
-     */
-    ppu.tm = 0;
-    memset(ert.palettes, 0, sizeof(ert.palettes));
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    sync_palettes_to_cgram();
-
-    /* Restore BG2 to centered so the wide-viewport fill doesn't leak into
-     * whatever screen follows, and drop BG2 from the sub screen (FINALIZE set
-     * TS=2 only to hold wide mode; ROM leaves TS=0 here). */
-    ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
-    ppu.sprite_y_offset = 0;
-    ppu.ts = 0x00;
-
-    wait_frames_or_button(30, 0);
-
-    return 0;
+    ModeState init = {0};
+    init.gas_station.phase = GS_PH1;
+    init.gas_station.fade_delay_left = 11;
+    init.gas_station.brightness_fading = 1;
+    init.gas_station.remaining = 236;
+    return (uint16_t)pump_mode(GAME_MODE_GAS_STATION, &init);
 }

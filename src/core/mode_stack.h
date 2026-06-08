@@ -49,6 +49,7 @@ typedef enum {
     GAME_MODE_MOSAIC_FADE,         /* brightness-ramp mosaic fade in/out (callroutine, flyover) */
     GAME_MODE_FLYOVER,             /* flyover text + coffee/tea cutscene interpreters */
     GAME_MODE_INTRO_LOGO,          /* intro logo sequence (Nintendo/APE/HAL) */
+    GAME_MODE_GAS_STATION,         /* gas-station prologue (RUN_GAS_STATION_CREDITS) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -735,6 +736,45 @@ typedef struct {
     uint16_t hold_remaining; /* frames left to hold the current logo */
 } IntroLogoState;
 
+/* GAME_MODE_GAS_STATION — run-to-completion port of gas_station() /
+ * RUN_GAS_STATION_CREDITS (gas_station.c), the "red Giygas static" prologue. The
+ * one-shot setup (entity_system_init + gas_station_load, both yield-free) stays
+ * in the blocking wrapper; the six former blocking loops become phases sharing
+ * one `remaining` countdown:
+ *
+ *   GS_PH1 - 236-frame static intro with the NMI brightness fade-in
+ *            (fade_delay_left / brightness_fading drive the $80->$0F ramp).
+ *   GS_PH2 - 480-frame palette interpolation (gas station fades in, battle BG
+ *            fades out); on completion FINALIZE_PALETTE_FADE + disable color math.
+ *   GS_PH3 - 120-frame hold at full brightness; on completion CHANGE_MUSIC +
+ *            entity_init_wipe(EVENT_860) (the flash sequence).
+ *   GS_PH4 - run EVENT_860 until its script clears; a button skip deactivates
+ *            the entity first; on completion sets up the fade-to-white.
+ *   GS_PH5 - 330-frame fade to white; on completion clears the screen/palettes.
+ *   GS_PH6 - 30-frame final wait (NOT button-skippable), then pop.
+ *
+ * Every phase except GS_PH6 skips to pop-1 on any button (post-yield read),
+ * matching the blocking WAIT_FRAMES_OR_UNTIL_PRESSED / pad checks. Pops 0 on a
+ * full run, 1 on a button skip. Each phase does its frame's work then decrements
+ * `remaining`, performing the (yield-free) transition to the next phase on the
+ * frame that reaches 0 — so the frame counts match the originals. */
+typedef enum {
+    GS_PH1 = 0,
+    GS_PH2,
+    GS_PH3,
+    GS_PH4,
+    GS_PH5,
+    GS_PH6,
+} GasStationPhase;
+
+typedef struct {
+    uint8_t  phase;             /* GasStationPhase */
+    uint8_t  brightness_fading; /* GS_PH1: NMI brightness fade still ramping */
+    int16_t  fade_delay_left;   /* GS_PH1: frames until the next brightness step */
+    int16_t  entity_offset;     /* GS_PH4: the EVENT_860 flash entity */
+    uint16_t remaining;         /* frames left in the current countdown phase */
+} GasStationState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -764,6 +804,7 @@ union ModeState {
     MosaicFadeState       mosaic_fade;
     FlyoverState          flyover;
     IntroLogoState        intro_logo;
+    GasStationState       gas_station;
     uint8_t               _raw[160];
 };
 
@@ -879,6 +920,12 @@ StepResult mode_step_flyover(ModeState *st);
  * ModeState.intro_logo (phase = LG_LOAD, logo_idx = 0) before
  * pump_mode(GAME_MODE_INTRO_LOGO). Pops 0 normally, 1 on a button skip. */
 StepResult mode_step_intro_logo(ModeState *st);
+
+/* GAME_MODE_GAS_STATION step (defined in gas_station.c). Init via
+ * ModeState.gas_station (phase = GS_PH1, fade_delay_left = 11,
+ * brightness_fading = 1, remaining = 236) before pump_mode(GAME_MODE_GAS_STATION).
+ * Pops 0 on a full run, 1 on a button skip. */
+StepResult mode_step_gas_station(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
