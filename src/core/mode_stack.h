@@ -50,6 +50,7 @@ typedef enum {
     GAME_MODE_FLYOVER,             /* flyover text + coffee/tea cutscene interpreters */
     GAME_MODE_INTRO_LOGO,          /* intro logo sequence (Nintendo/APE/HAL) */
     GAME_MODE_GAS_STATION,         /* gas-station prologue (RUN_GAS_STATION_CREDITS) */
+    GAME_MODE_TITLE_SCREEN,        /* title screen (show_title_screen) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -775,6 +776,46 @@ typedef struct {
     uint16_t remaining;         /* frames left in the current countdown phase */
 } GasStationState;
 
+/* GAME_MODE_TITLE_SCREEN — run-to-completion port of show_title_screen()
+ * (title_screen.c). The one-shot setup (force-blank, entity init, BG/OAM/graphics
+ * load, entity_init_wipe(TITLE_SCREEN_1), and the quick/non-quick pre-loop setup
+ * — sprite-palette decomp + fade-target/slopes, or fade_in(4,1)) all stay in the
+ * blocking wrapper. The three former blocking loops become phases:
+ *
+ *   TS_WARMUP  - 60-frame warm-up. quick_mode selects the body: quick =
+ *                fade_update() + render_frame_tick_work(); non-quick = the
+ *                sprite-palette lerp (group 8) + update_map_palette_animation() +
+ *                render_frame_tick_work(). `frame` counts to 60, then -> TS_INPUT.
+ *   TS_INPUT   - the @CHECK_ACTIONSCRIPT / @INPUT_LOOP goto machine as one
+ *                self-looping phase: each step checks actionscript_state
+ *                (1 -> exit to attract, result 0), then any button (-> exit,
+ *                result 1), else render_frame_tick_work(). Input/state are read
+ *                at the top (post-yield), matching the original's button-then-
+ *                render-then-recheck order.
+ *   TS_FADEOUT - the manual brightness ramp-down (0x0F..1, four frames each, then
+ *                force-blank) + the exit cleanup (restore viewport/sprite offset,
+ *                clear actionscript_state, setup_entity_color_math, entity reset).
+ *                Inlined rather than pushed as MOSAIC_FADE: the existing C loop
+ *                displays 0x0F first and ends at 1, one brightness level off from
+ *                FADE_OUT_WITH_MOSAIC; inlining keeps this refactor behavior-exact.
+ *
+ * Pops 0 on idle time-out (-> attract mode), 1 on a button press (-> file select),
+ * matching the blocking return. */
+typedef enum {
+    TS_WARMUP = 0,
+    TS_INPUT,
+    TS_FADEOUT,
+} TitleScreenPhase;
+
+typedef struct {
+    uint8_t  phase;           /* TitleScreenPhase */
+    uint8_t  quick_mode;      /* selects the TS_WARMUP body */
+    uint8_t  result;          /* 0 = time-out (attract), 1 = button pressed */
+    uint8_t  fade_b;          /* TS_FADEOUT: current brightness (0x0F..1) */
+    uint8_t  fade_delay_left; /* TS_FADEOUT: frames left at the current brightness */
+    uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
+} TitleScreenState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -805,6 +846,7 @@ union ModeState {
     FlyoverState          flyover;
     IntroLogoState        intro_logo;
     GasStationState       gas_station;
+    TitleScreenState      title_screen;
     uint8_t               _raw[160];
 };
 
@@ -926,6 +968,12 @@ StepResult mode_step_intro_logo(ModeState *st);
  * brightness_fading = 1, remaining = 236) before pump_mode(GAME_MODE_GAS_STATION).
  * Pops 0 on a full run, 1 on a button skip. */
 StepResult mode_step_gas_station(ModeState *st);
+
+/* GAME_MODE_TITLE_SCREEN step (defined in title_screen.c). Init via
+ * ModeState.title_screen (phase = TS_WARMUP, quick_mode) before
+ * pump_mode(GAME_MODE_TITLE_SCREEN). Pops 0 on time-out (attract mode), 1 on a
+ * button press (file select). */
+StepResult mode_step_title_screen(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

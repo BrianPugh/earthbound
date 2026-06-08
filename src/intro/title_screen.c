@@ -34,6 +34,7 @@
 #include "data/assets.h"
 #include "platform/platform.h"
 #include "include/pad.h"
+#include "core/mode_stack.h"
 #include <string.h>
 
 /* Forward declarations from main.c */
@@ -85,6 +86,95 @@ void load_title_screen_graphics(void) {
         memset(vram_dst, 0, 0x4000);
         decomp(comp_data, comp_size, vram_dst, 0x4000);
     }
+}
+
+/* ---- GAME_MODE_TITLE_SCREEN -----------------------------------------------
+ * Run-to-completion port of show_title_screen()'s warm-up loop, input/
+ * actionscript wait, and fade-out. See the TitleScreenState comment in
+ * mode_stack.h. The single yield is owned by the pump; this body never calls
+ * wait_for_vblank() (the warm-up/input frames use render_frame_tick_work()). */
+
+/* The manual fade-out + exit cleanup, run as its own phase and also called
+ * inline when TS_INPUT decides to exit (so there is no extra yield between the
+ * decision and the first fade frame). Displays brightness 0x0F..1 for four
+ * frames each, then force-blanks — matching the existing manual loop exactly. */
+static StepResult title_fadeout_step(TitleScreenState *s) {
+    if (s->fade_delay_left > 0) {
+        s->fade_delay_left--;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->fade_b == 0) {
+        ppu.inidisp = 0x80;
+        ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
+        ppu.sprite_x_offset = 0;
+        ert.actionscript_state = 0;
+        setup_entity_color_math();
+        entity_system_init();
+        return STEP_RESULT_POP(s->result);
+    }
+    ppu.inidisp = s->fade_b;
+    s->fade_b--;
+    s->fade_delay_left = 3; /* this step yields once; three more follow = 4/level */
+    return STEP_RESULT_CONTINUE();
+}
+
+StepResult mode_step_title_screen(ModeState *st) {
+    TitleScreenState *s = &st->title_screen;
+
+    switch ((TitleScreenPhase)s->phase) {
+    case TS_WARMUP:
+        if (s->quick_mode) {
+            if (fade_active()) fade_update();
+            render_frame_tick_work();
+        } else {
+            /* Sprite-palette lerp (group 8, colors 128-143) toward the saved
+             * fade target, re-derived from ert.buffer each frame. */
+            PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
+            for (int c = 128; c < 144; c++) {
+                uint16_t target = fade->target[c];
+                uint8_t tr = target & 0x1F;
+                uint8_t tg = (target >> 5) & 0x1F;
+                uint8_t tb = (target >> 10) & 0x1F;
+                uint8_t cr = (uint8_t)((tr * (s->frame + 1)) / 60);
+                uint8_t cg = (uint8_t)((tg * (s->frame + 1)) / 60);
+                uint8_t cb = (uint8_t)((tb * (s->frame + 1)) / 60);
+                ert.palettes[c] = (uint16_t)cr | ((uint16_t)cg << 5) |
+                                  ((uint16_t)cb << 10);
+            }
+            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+            update_map_palette_animation();
+            render_frame_tick_work();
+        }
+        if (++s->frame >= 60)
+            s->phase = TS_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case TS_INPUT:
+        /* @CHECK_ACTIONSCRIPT: state 1 -> exit to attract (result 0). State 0/2
+         * keep looping. (Input + state are read post-yield, at the top.) */
+        if (ert.actionscript_state != 0 && ert.actionscript_state != 2) {
+            s->result = 0;
+            s->phase = TS_FADEOUT;
+            s->fade_b = 0x0F;
+            s->fade_delay_left = 0;
+            return title_fadeout_step(s);
+        }
+        /* @INPUT_LOOP: any button exits to file select (result 1). */
+        if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+            s->result = 1;
+            s->phase = TS_FADEOUT;
+            s->fade_b = 0x0F;
+            s->fade_delay_left = 0;
+            return title_fadeout_step(s);
+        }
+        /* @NO_BUTTON: run one frame. */
+        render_frame_tick_work();
+        return STEP_RESULT_CONTINUE();
+
+    case TS_FADEOUT:
+        return title_fadeout_step(s);
+    }
+    return STEP_RESULT_POP(s->result);
 }
 
 /*
@@ -240,37 +330,10 @@ uint16_t show_title_screen(uint16_t quick_mode) {
             }
         }
 
-        /* 60-frame loop: update palette animation + run entity system */
-        for (int frame = 0; frame < 60; frame++) {
-            /* UPDATE_MAP_PALETTE_ANIMATION — handled by callroutine but we
-             * also need it here for the sprite palette pre-fade */
-            /* Actually, let's keep it simple: the entity system's C42235
-             * subroutine handles the full palette animation including the
-             * 150-frame wait. During these first 60 frames, the entity scripts
-             * are waiting (PAUSE $3C in EVENT_788, then PAUSE $96 in C42235).
-             *
-             * The sprite palette fade from show_title_screen.asm is separate.
-             * We just do a simple lerp here. */
-            for (int c = 128; c < 144; c++) {
-                uint16_t target = fade->target[c];
-                uint8_t tr = target & 0x1F;
-                uint8_t tg = (target >> 5) & 0x1F;
-                uint8_t tb = (target >> 10) & 0x1F;
-                uint8_t cr = (uint8_t)((tr * (frame + 1)) / 60);
-                uint8_t cg = (uint8_t)((tg * (frame + 1)) / 60);
-                uint8_t cb = (uint8_t)((tb * (frame + 1)) / 60);
-                ert.palettes[c] = (uint16_t)cr | ((uint16_t)cg << 5) |
-                              ((uint16_t)cb << 10);
-            }
-            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-
-            /* Assembly: UPDATE_MAP_PALETTE_ANIMATION then RENDER_FRAME_TICK */
-            update_map_palette_animation();
-            render_frame_tick();
-            if (platform_input_quit_requested()) {
-                return 1;
-            }
-        }
+        /* The 60-frame sprite-palette warm-up — and the @INPUT_LOOP /
+         * @CHECK_ACTIONSCRIPT wait and the closing fade-out — now run as
+         * GAME_MODE_TITLE_SCREEN (TS_WARMUP body re-derives `fade` from
+         * ert.buffer each frame; slopes/target were set up above). */
     } else {
         /* Quick mode (asm @QUICK_MODE): NMI-driven brightness fade runs
          * concurrently with a 60-frame RENDER_FRAME_TICK warm-up loop.
@@ -278,91 +341,16 @@ uint16_t show_title_screen(uint16_t quick_mode) {
          * during this warm-up.  The brightness fade (starting from force blank)
          * keeps the screen dark until entity scripts have loaded the palette. */
 
-        /* ROM: LDX #1 / LDA #4 / JSL FADE_IN
-         * On the SNES, FADE_IN is NMI-driven so it runs concurrently with
-         * the 60-frame RENDER_FRAME_TICK loop below. We merge both into
-         * a single loop to match this behavior. */
+        /* ROM: LDX #1 / LDA #4 / JSL FADE_IN — non-blocking (NMI-driven on the
+         * SNES); the warm-up mode advances it each frame via fade_update(). */
         fade_in(4, 1);
-
-        /* ROM: 60-frame RENDER_FRAME_TICK loop (@QUICK_WARMUP_LOOP) */
-        for (int frame = 0; frame < 60; frame++) {
-            if (fade_active()) fade_update();
-            render_frame_tick();
-            if (platform_input_quit_requested()) {
-                return 1;
-            }
-        }
     }
 
-    /* Main loop — faithful port of @INPUT_LOOP / @CHECK_ACTIONSCRIPT.
-     *
-     * ACTIONSCRIPT_STATE transitions:
-     *   0 → entities still running (keep looping)
-     *   2 → paused / palette done (keep looping, accept input)
-     *   1 → EVENT_YIELD_TO_TEXT fired, all pauses complete (exit → attract mode)
-     *
-     * EVENT_788 fires EVENT_YIELD_TO_TEXT after ~765 frames of EVENT_PAUSEs,
-     * which sets ert.actionscript_state = 1 via SET_ACTIONSCRIPT_STATE_RUNNING.
-     * That's the signal to exit to attract mode (~12.75 seconds idle).
-     *
-     * Buttons are checked every frame (assembly checks PAD_PRESS unconditionally).
-     */
-    uint16_t result = 0;
-    /* Note: ert.actionscript_state was zeroed by entity_system_init() and may have
-     * been set to 2 (paused) by entity scripts during the warmup loop above.
-     * The ROM does NOT re-zero it here — @MAIN_LOOP_INIT only clears @VIRTUAL02.
-     * We must NOT reset ert.actionscript_state here or we'd lose valid state. */
-
-    /* Jump to @CHECK_ACTIONSCRIPT first (assembly: BRA @CHECK_ACTIONSCRIPT) */
-    goto check_actionscript;
-
-input_loop:
-    if (platform_input_quit_requested()) {
-        return 1;
-    }
-
-    /* ROM: @INPUT_LOOP — check buttons every frame */
-    {
-        uint16_t pressed = platform_input_get_pad_new();
-        if (pressed & PAD_ANY_BUTTON) {
-            result = 1;
-            goto post_input_loop;
-        }
-    }
-
-    /* ROM: @NO_BUTTON — run one frame */
-    render_frame_tick();
-
-check_actionscript:
-    /* ROM: @CHECK_ACTIONSCRIPT
-     * State 0 or 2 → keep looping.  State 1 → exit to attract mode. */
-    if (ert.actionscript_state == 0)
-        goto input_loop;
-    if (ert.actionscript_state == 2)
-        goto input_loop;
-
-post_input_loop:
-    /* ROM: @POST_INPUT_LOOP → @FADE_OUT
-     * (quick_mode and state!=0 both branch to @FADE_OUT;
-     *  the RUN_TITLE_SEQUENCE path is only reachable from the overworld
-     *  call path which we don't use here.) */
-
-    /* FADE_OUT_WITH_MOSAIC(1, 4, 0) */
-    for (uint8_t b = 0x0F; b > 0; b--) {
-        ppu.inidisp = b;
-        for (int d = 0; d < 4; d++)
-            wait_for_vblank();
-    }
-    ppu.inidisp = 0x80;
-
-    /* Clear viewport extension and sprite offset before leaving */
-    ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
-    ppu.sprite_x_offset = 0;
-
-    /* ROM: STZ ACTIONSCRIPT_STATE / JSL SETUP_ENTITY_COLOR_MATH / JSL INIT_ENTITY_SYSTEM */
-    ert.actionscript_state = 0;
-    setup_entity_color_math();
-    entity_system_init();
-
-    return result;
+    /* Run the warm-up, input/actionscript wait, and fade-out as a
+     * run-to-completion mode. ert.actionscript_state is left as the entity
+     * scripts set it (the ROM does not re-zero it here). */
+    ModeState init = {0};
+    init.title_screen.phase = TS_WARMUP;
+    init.title_screen.quick_mode = (uint8_t)quick_mode;
+    return (uint16_t)pump_mode(GAME_MODE_TITLE_SCREEN, &init);
 }

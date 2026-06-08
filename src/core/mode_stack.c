@@ -88,6 +88,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_FLYOVER]             = mode_step_flyover,             /* flyover.c */
     [GAME_MODE_INTRO_LOGO]          = mode_step_intro_logo,          /* logo_screen.c */
     [GAME_MODE_GAS_STATION]         = mode_step_gas_station,         /* gas_station.c */
+    [GAME_MODE_TITLE_SCREEN]        = mode_step_title_screen,        /* title_screen.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
