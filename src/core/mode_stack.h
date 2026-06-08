@@ -951,9 +951,19 @@ typedef enum {
     DT_DELAY,     /* typewriter per-character delay countdown */
 } DisplayTextPhase;
 
+/* Post-child work a DISPLAY_TEXT level owes when a STEP_PUSHed child pops back to
+ * it. A CC that pushes a child and then needs the child's result records this; the
+ * top of DT_RUN handles it (reading mode_child_result()) before reading the next
+ * byte. CCs with no post-work leave it DT_RESUME_NONE. */
+typedef enum {
+    DT_RESUME_NONE = 0,
+    DT_RESUME_CC11, /* CC_11 selection_menu: store result to working_memory */
+} DisplayTextResume;
+
 typedef struct {
     uint8_t      phase;            /* DisplayTextPhase */
     uint8_t      saved_cc18_attrs; /* this call level's saved g_cc18_attrs_saved */
+    uint8_t      resume;           /* DisplayTextResume: post-child work pending on POP */
     uint16_t     delay_remaining;  /* DT_DELAY: window_tick_work frames left */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
 } DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */

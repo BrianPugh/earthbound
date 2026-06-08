@@ -1538,6 +1538,17 @@ StepResult mode_step_display_text(ModeState *ms) {
         st->phase = DT_RUN;
     }
 
+    /* Post-child resume: a CC that STEP_PUSHed a child and needs its result does
+     * its post-work here, on the frame the child pops back into DT_RUN, before the
+     * next byte is read. */
+    if (st->resume == DT_RESUME_CC11) {
+        /* CC_11 (selection_menu): store the chosen userdata (0 on cancel) to
+         * working memory, then clear the menu — the tail of the former CC_11. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+        clear_focus_window_menu_options();
+    }
+
     ScriptReader *r = &st->reader;
 
     for (;;) {
@@ -1783,15 +1794,25 @@ StepResult mode_step_display_text(ModeState *ms) {
             break;
         }
         case 0x11: {
-            /* CREATE_SELECTION_MENU: 0 args. Port of CC_11.
-             * Runs the selection menu for the focus window and stores
-             * result in working_memory. Allow cancel (B button = 0).
-             * Assembly: JSR SELECTION_MENU; SET_WORKING_MEMORY;
-             *           JSR CLEAR_FOCUS_WINDOW_MENU_OPTIONS */
-            uint16_t result = selection_menu(1);
-            set_working_memory((uint32_t)result);
-            clear_focus_window_menu_options();
-            break;
+            /* CREATE_SELECTION_MENU: 0 args. Port of CC_11. STEP_PUSHes
+             * GAME_MODE_SELECTION_MENU (allow_cancel=1) instead of the former
+             * selection_menu() -> pump_mode; the result is stored to working memory
+             * in the DT_RESUME_CC11 handler when the menu pops. Assembly:
+             * JSR SELECTION_MENU; SET_WORKING_MEMORY; JSR CLEAR_FOCUS_WINDOW_MENU_OPTIONS.
+             * selection_menu() returns 0 without pumping for a null/empty menu —
+             * replicate that early-out here (no push, no resume). */
+            WindowInfo *w = get_window(win.current_focus_window);
+            if (!w || w->menu_count == 0) {
+                set_working_memory(0);
+                clear_focus_window_menu_options();
+                break;
+            }
+            static ModeState sm_init;  /* outlives this dispatch (pump copies it) */
+            memset(&sm_init, 0, sizeof(sm_init));
+            sm_init.selection_menu.phase        = SM_SETUP;
+            sm_init.selection_menu.allow_cancel = 1;
+            st->resume = DT_RESUME_CC11;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sm_init);
         }
         case 0x13:
             /* HALT_WITHOUT_PROMPT: 0 args. Port of CC_13.
