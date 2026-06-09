@@ -2360,14 +2360,17 @@ void cc_1c_dispatch(ScriptReader *r) {
     case 0x02: {
         /* PRINT_CHAR_NAME: 1 arg.
          * Port of CC_1C_02 (asm/text/ccs/print_character_name.asm).
-         * arg=0xFF → use working_memory, arg=0 → use argument_memory,
+         * arg=0xFF → use working_memory_storage, arg=0 → use argument_memory,
          * else arg = character ID (1-based).
          * Characters 1-4 = party members (name from char_struct).
-         * Characters 5-6 = King/Buzz Buzz (name from game_state.pet_name). */
+         * Characters 5-6 = King/Buzz Buzz (name from game_state.pet_name).
+         * NOTE: $FF reads working_memory_STORAGE (asm: window_stats::
+         * working_memory_storage), not working_memory — used by the Goods Give
+         * messages to print the recipient (set via set_working_memory_storage). */
         uint8_t arg = script_read_byte(r);
         uint16_t char_id;
         if (arg == 0xFF) {
-            char_id = (uint16_t)(get_working_memory() & 0xFFFF);
+            char_id = (uint16_t)(get_working_memory_storage() & 0xFFFF);
         } else if (arg == 0) {
             char_id = (uint16_t)(get_argument_memory() & 0xFFFF);
         } else {

@@ -2013,19 +2013,32 @@ uint16_t count_alive_party_members(void) {
     return alive;
 }
 
+/* FIND_INVENTORY_SPACE (asm/misc/find_inventory_space.asm): returns char_id if the
+ * character has ANY empty item slot, else 0. Checks all SIZEOF(char_struct::items)
+ * = 14 slots (the assembly loops slot 0..13 via BRANCHGTS). NOTE: this is distinct
+ * from find_empty_inventory_slot(), which only scans slots 0..12 — using that here
+ * mis-reports a character whose sole free slot is the 14th (index 13, where a freed
+ * slot lands after the inventory compacts) as full ("carrying too much stuff"). */
+static uint16_t inventory_find_space(uint16_t char_id) {
+    uint16_t char_idx = char_id - 1;
+    if (char_idx >= TOTAL_PARTY_COUNT) return 0;
+    for (uint16_t slot = 0; slot < ITEM_INVENTORY_SIZE; slot++) {
+        if (party_characters[char_idx].items[slot] == 0)
+            return char_id;
+    }
+    return 0;
+}
+
 uint16_t find_inventory_space2(uint16_t char_id) {
     if (char_id != 0xFF) {
-        uint16_t slot = find_empty_inventory_slot(char_id);
-        return (slot < 13) ? char_id : 0;
+        return inventory_find_space(char_id);
     }
 
     uint8_t count = game_state.player_controlled_party_count;
     for (int i = 0; i < count; i++) {
         uint8_t member = game_state.party_members[i];
-        uint16_t slot = find_empty_inventory_slot(member);
-        if (slot < 13) {
+        if (inventory_find_space(member))
             return member;
-        }
     }
     return 0;
 }
