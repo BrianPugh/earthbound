@@ -2472,10 +2472,13 @@ item_action_loop:
                     };
 
                     create_window(WINDOW_TEXT_STANDARD);
-                    /* Set working_memory = source char, argument_memory = target char.
-                     * Assembly lines 414-435: working_memory = source (VIRTUAL06),
-                     * working_memory_storage = target, argument_memory = item_slot. */
+                    /* Assembly @DISPLAY_GIVE_MESSAGE: working_memory = source char,
+                     * working_memory_storage = target char, argument_memory = item slot.
+                     * The give-success/fail messages substitute the recipient's name
+                     * from working_memory_storage — without it, "gave to <X>" renders
+                     * the wrong name (e.g. the giver) for give-to-other. */
                     set_working_memory(goods_char);
+                    set_working_memory_storage(give_target);
                     set_argument_memory(goods_item_slot);
 
                     display_text_from_addr(carry_msg_addrs[case_index]);

@@ -179,6 +179,7 @@ const TeleportDestination *get_teleport_dest(uint16_t index);
  * Port of SET/GET_WORKING_MEMORY, SET/GET_ARGUMENT_MEMORY. */
 uint32_t get_working_memory(void);
 void set_working_memory(uint32_t val);
+void set_working_memory_storage(uint32_t val);
 uint32_t get_argument_memory(void);
 void set_argument_memory(uint32_t val);
 

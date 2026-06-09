@@ -200,6 +200,11 @@ void set_working_memory(uint32_t val) {
     if (w) w->working_memory = val;
 }
 
+void set_working_memory_storage(uint32_t val) {
+    WindowInfo *w = get_focus_window_info();
+    if (w) w->working_memory_storage = val;
+}
+
 uint32_t get_argument_memory(void) {
     WindowInfo *w = get_focus_window_info();
     return w ? w->argument_memory : 0;
