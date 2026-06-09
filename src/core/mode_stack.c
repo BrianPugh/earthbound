@@ -59,6 +59,21 @@ static StepResult mode_step_fade_wait(ModeState *st) {
     return STEP_RESULT_CONTINUE();
 }
 
+/* GAME_MODE_ENTITY_FADE_WAIT — run one window_tick per frame until the entity
+ * fade-out animation finishes (ow.entity_fade_entity == -1), then pop. Replaces
+ * the raw blocking loops `while (ow.entity_fade_entity != -1) { window_tick(); }`
+ * (overworld_interaction.c display_text_and_wait_for_fade, text.c open_menu paths,
+ * game_main.c menu cleanup). The exit is checked at the top (check-before, like
+ * FADE_WAIT); window_tick_work() does window_tick()'s work without the yield,
+ * which the pump owns — work-then-yield matches the original ordering exactly. */
+static StepResult mode_step_entity_fade_wait(ModeState *st) {
+    (void)st;
+    if (ow.entity_fade_entity == -1)
+        return STEP_RESULT_POP(0);
+    window_tick_work();
+    return STEP_RESULT_CONTINUE();
+}
+
 /* ---- dispatch table ------------------------------------------------------ */
 
 typedef StepResult (*ModeStepFn)(ModeState *st);
@@ -93,6 +108,8 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_FILE_MENU]           = mode_step_file_menu,           /* file_select.c */
     [GAME_MODE_INIT_INTRO]          = mode_step_init_intro,          /* init_intro.c */
     [GAME_MODE_DISPLAY_TEXT]        = mode_step_display_text,        /* display_text.c */
+    [GAME_MODE_ENTITY_FADE_WAIT]    = mode_step_entity_fade_wait,
+    [GAME_MODE_TEXT_WAIT_FADE]      = mode_step_text_wait_fade,      /* overworld_interaction.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

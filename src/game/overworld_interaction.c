@@ -19,6 +19,8 @@
 #include "game/game_state.h"
 #include "game/map_loader.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init */
+#include "core/mode_stack.h"
 #include "game/window.h"
 #include "game/door.h"
 #include "game/audio.h"
@@ -43,17 +45,47 @@
 #define NPC_TYPE_ITEM_BOX 2
 #define NPC_TYPE_OBJECT   3
 
-void display_text_and_wait_for_fade(uint32_t text_addr) {
-    disable_all_entities();
-    display_text_from_addr(text_addr);
-    /* Assembly: loop calling WINDOW_TICK until ow.entity_fade_entity == -1.
-     * Entity fade animation callroutines are ported (callbacks.c).
-     * The fade entity (EVENT_ENTITY_WIPE, script 859) drives the animation via its script. */
-    while (ow.entity_fade_entity != -1) {
-        window_tick();
-        if (platform_input_quit_requested()) break;
+/* GAME_MODE_TEXT_WAIT_FADE step — the run-to-completion form of
+ * display_text_and_wait_for_fade(). Each phase STEP_PUSHes the next child so the
+ * whole interaction (dialogue + entity fade-out wait) lives on the mode stack
+ * instead of the C stack, keeping a savestate taken mid-dialogue serializable.
+ * Behavior matches the former blocking wrapper exactly aside from the accepted
+ * ≤1-frame push/pop boundary yields. */
+StepResult mode_step_text_wait_fade(ModeState *st) {
+    TextWaitFadeState *s = &st->text_wait_fade;
+    switch ((TextWaitFadePhase)s->phase) {
+    case TWF_TEXT: {
+        /* Assembly: DISABLE_ALL_ENTITIES then DISPLAY_TEXT. */
+        disable_all_entities();
+        s->phase = TWF_FADE;
+        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
+        if (dt_make_child_init(&dt_init, s->text_addr))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        /* Unresolvable address: the blocking form logged a warning and displayed
+         * nothing, then still ran the fade-wait loop. Fall through to TWF_FADE. */
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", s->text_addr);
+        return STEP_RESULT_CONTINUE();
     }
-    enable_all_entities();
+    case TWF_FADE:
+        /* Assembly: loop calling WINDOW_TICK until ow.entity_fade_entity == -1.
+         * Entity fade animation callroutines are ported (callbacks.c). The fade
+         * entity (EVENT_ENTITY_WIPE, script 859) drives the animation via its
+         * script. Delegated to GAME_MODE_ENTITY_FADE_WAIT. */
+        s->phase = TWF_DONE;
+        return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
+    case TWF_DONE:
+    default:
+        enable_all_entities();
+        return STEP_RESULT_POP(0);
+    }
+}
+
+/* Thin bridge over GAME_MODE_TEXT_WAIT_FADE (run to completion via pump_mode
+ * while the overworld driver is still blocking; STEP_PUSHed directly once
+ * process_queued_interactions / door_transition become modes). */
+void display_text_and_wait_for_fade(uint32_t text_addr) {
+    ModeState init = { .text_wait_fade = { .phase = TWF_TEXT, .text_addr = text_addr } };
+    pump_mode(GAME_MODE_TEXT_WAIT_FADE, &init);
 }
 
 /* ---- PROCESS_QUEUED_INTERACTIONS (port of process_queued_interactions.asm) ----

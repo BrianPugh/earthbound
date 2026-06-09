@@ -947,9 +947,7 @@ cleanup:
     hide_hppp_windows();
 
     /* Wait for entity fade to complete (assembly @WAIT_FADE, lines 279-283) */
-    while (ow.entity_fade_entity != (int16_t)-1) {
-        window_tick();
-    }
+    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
 
     enable_all_entities();
 }

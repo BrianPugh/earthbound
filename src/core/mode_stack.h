@@ -56,6 +56,8 @@ typedef enum {
     GAME_MODE_FILE_MENU,           /* file-select cascade (file_menu_loop) */
     GAME_MODE_INIT_INTRO,          /* intro state machine (init_intro) */
     GAME_MODE_DISPLAY_TEXT,        /* text bytecode interpreter (display_text) */
+    GAME_MODE_ENTITY_FADE_WAIT,    /* wait until ow.entity_fade_entity == -1 (window_tick) */
+    GAME_MODE_TEXT_WAIT_FADE,      /* overworld interaction: dialogue then entity-fade wait */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -103,6 +105,21 @@ typedef enum {
 typedef struct {
     uint8_t tick_kind;   /* FadeTickKind */
 } FadeWaitState;
+
+/* GAME_MODE_TEXT_WAIT_FADE phases. Port of display_text_and_wait_for_fade():
+ * disable entities, show dialogue, wait for the entity fade-out to finish, then
+ * re-enable. Each phase STEP_PUSHes the next child so the whole interaction lives
+ * on the mode stack (serializable) instead of the C stack. */
+typedef enum {
+    TWF_TEXT = 0,  /* disable entities + STEP_PUSH GAME_MODE_DISPLAY_TEXT */
+    TWF_FADE,      /* STEP_PUSH GAME_MODE_ENTITY_FADE_WAIT */
+    TWF_DONE,      /* enable entities + POP */
+} TextWaitFadePhase;
+
+typedef struct {
+    uint8_t  phase;       /* TextWaitFadePhase */
+    uint32_t text_addr;   /* dialogue address to resolve + display */
+} TextWaitFadeState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1019,6 +1036,7 @@ union ModeState {
     FileMenuState         file_menu;
     InitIntroState        init_intro;
     DisplayTextModeState  display_text;
+    TextWaitFadeState     text_wait_fade;
     uint8_t               _raw[160];
 };
 
@@ -1167,6 +1185,14 @@ StepResult mode_step_init_intro(ModeState *st);
  * the display_text() wrapper (pump_mode); CC_08 CALL_TEXT STEP_PUSHes a nested
  * instance. Init with phase = DT_ENTER and the reader fields set. Always pops 0. */
 StepResult mode_step_display_text(ModeState *st);
+
+/* GAME_MODE_TEXT_WAIT_FADE step (defined in overworld_interaction.c). Init with
+ * ModeState.text_wait_fade (phase = TWF_TEXT, text_addr) before
+ * pump_mode(GAME_MODE_TEXT_WAIT_FADE). Drives the overworld text-interaction
+ * primitive: disable entities, push DISPLAY_TEXT, wait for the entity fade-out,
+ * re-enable entities. Always pops 0. GAME_MODE_ENTITY_FADE_WAIT (the wait child)
+ * is defined in mode_stack.c and takes no init. */
+StepResult mode_step_text_wait_fade(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

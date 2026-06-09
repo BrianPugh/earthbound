@@ -2615,10 +2615,7 @@ cleanup_and_close:
     close_all_windows();
 
     /* Wait for entity fade to complete (assembly @WAIT_ENTITY_FADE) */
-    while (ow.entity_fade_entity != -1) {
-        window_tick();
-        if (platform_input_quit_requested()) break;
-    }
+    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
 
     enable_all_entities();
 }
@@ -2645,10 +2642,7 @@ void open_menu_button_checktalk(void) {
     close_all_windows();
 
     /* Wait for entity fade to complete */
-    while (ow.entity_fade_entity != -1) {
-        window_tick();
-        if (platform_input_quit_requested()) break;
-    }
+    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
 
     enable_all_entities();
 }
