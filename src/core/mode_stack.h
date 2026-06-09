@@ -60,6 +60,7 @@ typedef enum {
     GAME_MODE_TEXT_WAIT_FADE,      /* overworld interaction: dialogue then entity-fade wait */
     GAME_MODE_PROCESS_INTERACTION, /* overworld interaction dispatch (process_queued_interactions) */
     GAME_MODE_DOOR_TRANSITION,     /* door/teleport transition driver (door_transition) */
+    GAME_MODE_QUICK_CHECKTALK,     /* L-button quick talk/check (open_menu_button_checktalk) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -165,6 +166,19 @@ typedef struct {
     uint16_t unknown6;         /* dest y (low 14 bits) + direction class (bits 14-15) */
     uint16_t unknown8;         /* dest x tile */
 } DoorTransitionState;
+
+/* GAME_MODE_QUICK_CHECKTALK phases. Port of open_menu_button_checktalk(): the
+ * L-button quick talk/check. Resolve the target text (talk_to → check_action →
+ * fallback), show it, close the windows, wait for the entity fade. */
+typedef enum {
+    QCT_TEXT = 0,  /* disable entities, resolve text, STEP_PUSH DISPLAY_TEXT */
+    QCT_FADE,      /* close windows, STEP_PUSH ENTITY_FADE_WAIT */
+    QCT_DONE,      /* enable entities + POP */
+} QuickChecktalkPhase;
+
+typedef struct {
+    uint8_t phase;   /* QuickChecktalkPhase */
+} QuickChecktalkState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1084,6 +1098,7 @@ union ModeState {
     TextWaitFadeState     text_wait_fade;
     ProcessInteractionState process_interaction;
     DoorTransitionState   door_transition;
+    QuickChecktalkState   quick_checktalk;
     uint8_t               _raw[160];
 };
 
@@ -1250,6 +1265,11 @@ StepResult mode_step_process_interaction(ModeState *st);
  * ModeState.door_transition (phase = DTR_BEGIN, door_ptr) before
  * pump_mode(GAME_MODE_DOOR_TRANSITION). Always pops 0. */
 StepResult mode_step_door_transition(ModeState *st);
+
+/* GAME_MODE_QUICK_CHECKTALK step (defined in text.c). Init with
+ * ModeState.quick_checktalk (phase = QCT_TEXT) before
+ * pump_mode(GAME_MODE_QUICK_CHECKTALK). Always pops 0. */
+StepResult mode_step_quick_checktalk(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

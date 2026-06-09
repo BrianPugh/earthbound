@@ -2625,26 +2625,55 @@ cleanup_and_close:
  * Quick talk/check: tries TALK_TO first, then CHECK if no talk result.
  * Falls back to MSG_SYS_NOPROBLEM ("Nothing problem here.").
  * Called on L button in the overworld. */
+/* GAME_MODE_QUICK_CHECKTALK step — run-to-completion form of
+ * open_menu_button_checktalk(). The dialogue (DISPLAY_TEXT) and the entity
+ * fade-out wait (ENTITY_FADE_WAIT) are STEP_PUSHed so the quick talk/check lives
+ * on the mode stack instead of holding this driver's frame on the C stack. */
+StepResult mode_step_quick_checktalk(ModeState *ms) {
+    QuickChecktalkState *st = &ms->quick_checktalk;
+
+    switch ((QuickChecktalkPhase)st->phase) {
+    case QCT_TEXT: {
+        disable_all_entities();
+        play_sfx(1);  /* SFX::CURSOR1 */
+
+        /* Resolve target text: TALK_TO, then CHECK, then the fallback. */
+        uint32_t text_ptr = talk_to();
+        if (text_ptr == 0)
+            text_ptr = check_action();
+        if (text_ptr == 0)
+            text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
+
+        st->phase = QCT_FADE;
+        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
+        if (dt_make_child_init(&dt_init, text_ptr))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", text_ptr);
+        return STEP_RESULT_CONTINUE();
+    }
+
+    case QCT_FADE:
+        clear_instant_printing();
+        hide_hppp_windows();
+        close_all_windows();
+        st->phase = QCT_DONE;
+        return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
+
+    case QCT_DONE:
+    default:
+        enable_all_entities();
+        return STEP_RESULT_POP(0);
+    }
+}
+
+/* OPEN_MENU_BUTTON_CHECKTALK — Port of asm/overworld/open_menu.asm lines 616-644.
+ * Quick talk/check (L button in the overworld): tries TALK_TO first, then CHECK,
+ * falling back to MSG_SYS_NOTHING_WRONG_HERE. Thin bridge over
+ * GAME_MODE_QUICK_CHECKTALK (run to completion via pump_mode while overworld_post
+ * is still a blocking driver). */
 void open_menu_button_checktalk(void) {
-    disable_all_entities();
-    play_sfx(1);  /* SFX::CURSOR1 */
-
-    uint32_t text_ptr = talk_to();
-    if (text_ptr == 0)
-        text_ptr = check_action();
-    if (text_ptr == 0)
-        text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
-
-    display_text_from_addr(text_ptr);
-
-    clear_instant_printing();
-    hide_hppp_windows();
-    close_all_windows();
-
-    /* Wait for entity fade to complete */
-    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
-
-    enable_all_entities();
+    ModeState init = { .quick_checktalk = { .phase = QCT_TEXT } };
+    pump_mode(GAME_MODE_QUICK_CHECKTALK, &init);
 }
 
 /* Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
