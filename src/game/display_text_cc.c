@@ -2149,11 +2149,17 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
             *out_resume = DT_RESUME_CC1A_PARTY_SEL;
             return true;
         }
-        /* Battle path (mode != 1): still inline-blocking — its char_select
-         * on_change cascades into display_text_from_addr (Phase B). */
-        uint16_t result = party_character_selector(script_ptrs, mode, allow_cancel);
-        set_working_memory((uint32_t)result);
-        break;
+        /* Battle path (mode != 1): prepare the GAME_MODE_CHAR_SELECT init and
+         * request a STEP_PUSH. The per-member text scripts are shown via the
+         * char_select on_change (CS_ONCHANGE_PARTY_SELECT_SCRIPT), which itself
+         * STEP_PUSHes a DISPLAY_TEXT child — no C-stack pump remains. The chosen
+         * member id is stored to working memory in DT_RESUME_CC1A_BATTLE_SEL on POP
+         * (CHAR_SELECT does its own argument_memory restore, so no window cleanup
+         * here). */
+        party_selector_battle_prepare(script_ptrs, mode, allow_cancel, out_init);
+        *out_mode   = GAME_MODE_CHAR_SELECT;
+        *out_resume = DT_RESUME_CC1A_BATTLE_SEL;
+        return true;
     }
     case 0x04: {
         /* SELECTION_MENU_NO_CANCEL: 0 args.

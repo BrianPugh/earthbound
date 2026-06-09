@@ -60,11 +60,15 @@ bool dt_make_child_init(ModeState *init, uint32_t addr);
 
 /* ---- Window helpers (display_text.c) ---- */
 WindowInfo *get_focus_window_info(void);
-/* party_character_selector: now BATTLE-path only (mode != 1) — the HPPP column
- * selector that STEP_PUSHes GAME_MODE_CHAR_SELECT. Still inline-blocking (its
- * char_select on_change cascades into display_text_from_addr; Phase B). */
-uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
-                                  uint16_t allow_cancel);
+/* party_selector_battle_prepare: BATTLE path (mode != 1) of the former
+ * party_character_selector — fills the GAME_MODE_CHAR_SELECT init (CSP_INIT phase,
+ * on_change = CS_ONCHANGE_PARTY_SELECT_SCRIPT) for a STEP_PUSH by cc_1a_dispatch. The
+ * input loop runs in mode_step_char_select (battle.c); the per-member script display
+ * is itself a STEP_PUSH, so no C-stack pump remains. The chosen member id is stored to
+ * working memory in the DT_RESUME_CC1A_BATTLE_SEL handler on POP. *out_init must be
+ * zeroed by the caller. */
+void party_selector_battle_prepare(uint32_t *script_ptrs, uint16_t mode,
+                                   uint16_t allow_cancel, ModeState *out_init);
 /* Overworld party-member selection (former party_character_selector mode==1):
  * builds the selection window + menu items, fills the SELECTION_MENU child init for
  * a STEP_PUSH, and returns the saved argument_memory to restore on resume.

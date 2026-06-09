@@ -377,7 +377,48 @@ static void cs_render(CharSelectState *st) {
 StepResult mode_step_char_select(ModeState *ms) {
     CharSelectState *st = &ms->char_select;
 
+    /* Outlives the dispatch turn (pump_mode copies the init immediately): holds the
+     * DISPLAY_TEXT child init for an on_change callback that requests a STEP_PUSH. */
+    static ModeState cs_onchange_init;
+
+    /* Post-child resume: an on_change callback (CS_ONCHANGE_PARTY_SELECT_SCRIPT)
+     * STEP_PUSHed a DISPLAY_TEXT child; run its deferred render tail on the frame the
+     * child pops back, before re-entering the input loop. */
+    if (st->resume == CS_RESUME_INIT) {
+        st->resume = CS_RESUME_NONE;
+        dt.pagination_animation_frame = 0;
+        cs_render(st);
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+    } else if (st->resume == CS_RESUME_NAV) {
+        st->resume = CS_RESUME_NONE;
+        st->delay = 4;   /* shorter poll window right after navigating */
+        cs_render(st);
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+
     switch ((CharSelectPhase)st->phase) {
+    case CSP_INIT: {
+        /* Pre-loop one-shot (former char_select_prompt lines 556-561 /
+         * party_character_selector lines 89-102): initial on_change, THEN reset the
+         * pagination animation, THEN the first render — preserving the blocking
+         * original's order (on_change completes before pagination_animation_frame=0).
+         * The no-push path falls through to the first render with no extra yield. */
+        uint8_t mid = game_state.party_members[st->current_index] & 0xFF;
+        memset(&cs_onchange_init, 0, sizeof(cs_onchange_init));
+        if (cs_invoke_on_change(st->on_change_id, mid, &cs_onchange_init)) {
+            /* on_change pushed a DISPLAY_TEXT child; the pagination reset + first
+             * render run in CS_RESUME_INIT after it pops. */
+            st->resume = CS_RESUME_INIT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &cs_onchange_init);
+        }
+        dt.pagination_animation_frame = 0;
+        cs_render(st);
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+
     case CSP_RENDER:
         cs_render(st);
         st->phase = CSP_PRIME;
@@ -455,8 +496,14 @@ StepResult mode_step_char_select(ModeState *ms) {
         if ((uint16_t)new_index != st->current_index) {
             play_sfx(nav_sfx);
             st->current_index = (uint16_t)new_index;
-            uint8_t mid = game_state.party_members[st->current_index];
-            cs_invoke_on_change(st->on_change_id, mid & 0xFF);
+            uint8_t mid = game_state.party_members[st->current_index] & 0xFF;
+            memset(&cs_onchange_init, 0, sizeof(cs_onchange_init));
+            if (cs_invoke_on_change(st->on_change_id, mid, &cs_onchange_init)) {
+                /* on_change pushed a DISPLAY_TEXT child; the delay reset + re-render
+                 * tail runs in the CS_RESUME_NAV handler when it pops. */
+                st->resume = CS_RESUME_NAV;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &cs_onchange_init);
+            }
         }
 
         st->delay = 4;   /* shorter poll window right after navigating */
@@ -553,15 +600,12 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
     else
         current_index = (uint16_t)win.battle_menu_current_character_id;
 
-    /* Pre-loop, one-shot, no yield (lines 141-163): initial on_change + reset
-     * pagination animation. char_select_prompt still holds the raw function
-     * pointers here, so the first on_change is invoked directly. */
-    if (on_change)
-        on_change(game_state.party_members[current_index] & 0xFF);
-    dt.pagination_animation_frame = 0;
+    /* The initial on_change + pagination reset (assembly lines 141-163) now run in
+     * the mode's CSP_INIT phase (so an on_change that pushes a DISPLAY_TEXT child is
+     * a STEP_PUSH, not a C-stack pump). on_change is mapped to its ID below. */
 
     ModeState init = {0};
-    init.char_select.phase                 = CSP_RENDER;
+    init.char_select.phase                 = CSP_INIT;
     init.char_select.mode                  = (uint8_t)mode;
     init.char_select.allow_cancel          = (uint8_t)allow_cancel;
     init.char_select.on_change_id          = cs_onchange_id(on_change);

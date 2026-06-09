@@ -1055,22 +1055,18 @@ uint32_t party_selector_overworld_prepare(uint16_t allow_cancel, ModeState *out_
  * Assembly: called from CC_1A_00 (uncancellable, Y=0) and CC_1A_01 (cancellable, Y=1).
  * Parameters: A=script_ptrs_base, X=mode, Y=allow_cancel.
  */
-uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
-                                         uint16_t allow_cancel) {
+void party_selector_battle_prepare(uint32_t *script_ptrs, uint16_t mode,
+                                   uint16_t allow_cancel, ModeState *out_init) {
     /* Battle-path only (mode != 1). The overworld path (mode == 1) is handled by
-     * party_selector_overworld_prepare + a STEP_PUSH from cc_1a_dispatch.
+     * party_selector_overworld_prepare. This fills the GAME_MODE_CHAR_SELECT init
+     * for a STEP_PUSH by cc_1a_dispatch; the input loop runs in mode_step_char_select
+     * (battle.c). The per-character on_change displays the member's text script via
+     * CS_ONCHANGE_PARTY_SELECT_SCRIPT (cs_invoke_on_change, text.c), which itself
+     * STEP_PUSHes a nested DISPLAY_TEXT child — no C-stack pump remains.
      *
-     * Save/restore the calling window's argument_memory.
-     * Assembly lines 24-30: saves window_stats::argument_memory to LOCAL06,
-     * lines 370-378: restores it on return. */
+     * Save the calling window's argument_memory (assembly lines 24-30); the step
+     * restores it before it pops (@CLEANUP_AND_RETURN, lines 370-378). */
     uint32_t saved_argument_memory = get_argument_memory();
-
-    /* --- Battle mode (assembly lines 112-369): HPPP column selection with
-     * LEFT/RIGHT navigation, now run as GAME_MODE_CHAR_SELECT (run-to-completion).
-     * The input loop is shared with char_select_prompt's battle path
-     * (mode_step_char_select in battle.c); the only difference is the per-character
-     * on_change action, which here displays the member's text script via the
-     * CS_ONCHANGE_PARTY_SELECT_SCRIPT dispatch (cs_invoke_on_change in text.c). --- */
 
     /* Lines 112-132: Copy 4 script pointers to the global array the on_change
      * dispatch reads from. */
@@ -1086,35 +1082,17 @@ uint16_t party_character_selector(uint32_t *script_ptrs, uint16_t mode,
         current_index = (uint16_t)win.battle_menu_current_character_id;
     }
 
-    /* Lines 141-156: Pre-loop one-shot — display the initial character's script
-     * (mirrors char_select_prompt's direct initial on_change call). */
-    {
-        uint8_t member_id = game_state.party_members[current_index];
-        if (member_id > 0 && member_id <= 4) {
-            uint32_t script_addr = dt.party_member_selection_scripts[member_id - 1];
-            if (script_addr != 0) {
-                display_text_from_addr(script_addr);
-            }
-        }
-    }
-
-    /* Lines 157-160: Reset pagination animation. */
-    dt.pagination_animation_frame = 0;
-
-    ModeState init = {0};
-    init.char_select.phase                 = CSP_RENDER;
-    init.char_select.mode                  = (uint8_t)mode;
-    init.char_select.allow_cancel          = (uint8_t)allow_cancel;
-    init.char_select.on_change_id          = CS_ONCHANGE_PARTY_SELECT_SCRIPT;
-    init.char_select.check_valid_id        = CS_CHECKVALID_NONE;
-    init.char_select.current_index         = current_index;
-    init.char_select.delay                 = 10;
-    init.char_select.counter               = 0;
-    init.char_select.saved_argument_memory = saved_argument_memory;
-
-    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
-     * pagination_animation_frame = -1) before it pops. */
-    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
+    /* Lines 141-160 (initial per-member script + pagination reset) run in the mode's
+     * CSP_INIT phase, so the initial script is a STEP_PUSH, not a C-stack pump. */
+    out_init->char_select.phase                 = CSP_INIT;
+    out_init->char_select.mode                  = (uint8_t)mode;
+    out_init->char_select.allow_cancel          = (uint8_t)allow_cancel;
+    out_init->char_select.on_change_id          = CS_ONCHANGE_PARTY_SELECT_SCRIPT;
+    out_init->char_select.check_valid_id        = CS_CHECKVALID_NONE;
+    out_init->char_select.current_index         = current_index;
+    out_init->char_select.delay                 = 10;
+    out_init->char_select.counter               = 0;
+    out_init->char_select.saved_argument_memory = saved_argument_memory;
 }
 
 
@@ -1587,6 +1565,13 @@ StepResult mode_step_display_text(ModeState *ms) {
         restore_window_text_attributes();
         dt.pagination_animation_frame = -1;
         set_argument_memory(st->cc1a_saved_argmem);
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1A_BATTLE_SEL) {
+        /* CC_1A_00/01 battle party select: GAME_MODE_CHAR_SELECT did its own
+         * @CLEANUP_AND_RETURN (argument_memory restore + pagination reset) before
+         * popping; the only tail left is storing the chosen member id (0 on cancel)
+         * to working memory — the former party_character_selector return value. */
+        st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
 

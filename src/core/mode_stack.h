@@ -146,10 +146,20 @@ typedef enum {
 } CharSelectCheckValidId;
 
 typedef enum {
-    CSP_RENDER = 0,  /* highlight char + window_tick_work + pagination arrows */
+    CSP_INIT = 0,    /* initial on_change (may STEP_PUSH a text child) then first render */
+    CSP_RENDER,      /* highlight char + window_tick_work + pagination arrows */
     CSP_PRIME,       /* first update_hppp frame before the input read */
     CSP_INPUT,       /* poll input within the `delay` counter window */
 } CharSelectPhase;
+
+/* Post-child resume for an on_change callback that STEP_PUSHed a GAME_MODE_DISPLAY_TEXT
+ * child (CS_ONCHANGE_PARTY_SELECT_SCRIPT). The deferred render tail runs on the frame
+ * the child pops back into mode_step_char_select. */
+typedef enum {
+    CS_RESUME_NONE = 0,
+    CS_RESUME_INIT,  /* initial on_change child popped: proceed to first render */
+    CS_RESUME_NAV,   /* per-navigation on_change child popped: re-render at PRIME */
+} CharSelectResume;
 
 typedef struct {
     uint8_t  phase;          /* CharSelectPhase */
@@ -157,6 +167,7 @@ typedef struct {
     uint8_t  allow_cancel;
     uint8_t  on_change_id;   /* CharSelectOnChangeId */
     uint8_t  check_valid_id; /* CharSelectCheckValidId */
+    uint8_t  resume;         /* CharSelectResume: post-child work pending on POP */
     uint16_t current_index;  /* selected party slot (0-based) */
     uint16_t delay;          /* input poll frames before pagination toggle */
     uint16_t counter;        /* frames elapsed in the current poll window */
@@ -960,6 +971,7 @@ typedef enum {
     DT_RESUME_CC11,             /* CC_11 selection_menu: store result to working_memory */
     DT_RESUME_CC1F_NUMSEL,      /* CC_1F_52 number-select: store entered value / cancel */
     DT_RESUME_CC1A_PARTY_SEL,   /* CC_1A_00/01 overworld party select: cleanup + store result */
+    DT_RESUME_CC1A_BATTLE_SEL,  /* CC_1A_00/01 battle party select: store CHAR_SELECT result */
 } DisplayTextResume;
 
 typedef struct {
