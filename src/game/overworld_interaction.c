@@ -116,11 +116,10 @@ static void process_interaction_finish(ProcessInteractionState *s) {
 
 /* GAME_MODE_PROCESS_INTERACTION step — run-to-completion form of
  * process_queued_interactions(). The text-interaction dispatch (types 0/8/9/10)
- * STEP_PUSHes GAME_MODE_TEXT_WAIT_FADE so the dialogue lives on the mode stack
- * instead of holding this dispatcher's frame on the C stack. The door type (2)
- * still calls door_transition() inline (its own large blocking driver — deferred
- * to a later parent conversion). Non-text types finish inline with no extra
- * yield, exactly as the blocking original did. */
+ * STEP_PUSHes GAME_MODE_TEXT_WAIT_FADE and the door type (2) STEP_PUSHes
+ * GAME_MODE_DOOR_TRANSITION, so the dialogue / door transition lives on the mode
+ * stack instead of holding this dispatcher's frame on the C stack. Non-text /
+ * unknown types finish inline with no extra yield, exactly as the original did. */
 StepResult mode_step_process_interaction(ModeState *st) {
     ProcessInteractionState *s = &st->process_interaction;
 
@@ -159,16 +158,21 @@ StepResult mode_step_process_interaction(ModeState *st) {
                                                            .text_addr = data_ptr };
             return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &twf_init);
         }
-        case 2:
-            /* Door interaction. door_transition() is still a blocking driver and
-             * runs inline (deferred); no display follows, so finish with no extra
-             * yield to match the original. */
-            door_transition(data_ptr);
-            break;
+        case 2: {
+            /* Door interaction: STEP_PUSH the door-transition mode; PI_RESUME does
+             * the trailing bookkeeping after it pops (matches the original, which
+             * ran door_transition() then fell into the pending/clear update). */
+            static ModeState door_init;  /* outlives this dispatch (pump copies it) */
+            door_init.door_transition = (DoorTransitionState){ .phase = DTR_BEGIN,
+                                                               .door_ptr = data_ptr };
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DOOR_TRANSITION, &door_init);
+        }
         default:
             break;
         }
 
+        /* Non-text / unknown types: no pushed child — finish inline with no extra
+         * yield, exactly as the blocking original did. */
         process_interaction_finish(s);
         return STEP_RESULT_POP(0);
     }

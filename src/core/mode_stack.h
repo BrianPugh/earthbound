@@ -59,6 +59,7 @@ typedef enum {
     GAME_MODE_ENTITY_FADE_WAIT,    /* wait until ow.entity_fade_entity == -1 (window_tick) */
     GAME_MODE_TEXT_WAIT_FADE,      /* overworld interaction: dialogue then entity-fade wait */
     GAME_MODE_PROCESS_INTERACTION, /* overworld interaction dispatch (process_queued_interactions) */
+    GAME_MODE_DOOR_TRANSITION,     /* door/teleport transition driver (door_transition) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -138,6 +139,32 @@ typedef struct {
     uint16_t type;        /* dequeued interaction type */
     uint32_t data_ptr;    /* dequeued interaction data (text addr / door ptr) */
 } ProcessInteractionState;
+
+/* GAME_MODE_DOOR_TRANSITION phases. Port of door_transition(): show optional door
+ * text, fade/swirl out, load the destination map + place the party, fade/swirl in,
+ * spawn deliveries. The yielding children (door text → TEXT_WAIT_FADE; the two
+ * screen_transition() calls → SCREEN_TRANSITION) are STEP_PUSHed; the door-field
+ * scalars are hoisted at DTR_BEGIN so no ROM pointer is carried across a yield.
+ * The *_FIN phases run screen_transition_finalize() after the pushed transition
+ * pops (then fall through inline, matching the blocking original's ordering). */
+typedef enum {
+    DTR_BEGIN = 0,       /* read door fields; push door text if any */
+    DTR_AFTER_TEXT,      /* flag check, clear flags, exit-transition out */
+    DTR_TRANS_OUT_FIN,   /* screen_transition_finalize() after exit pop */
+    DTR_AFTER_OUT,       /* load map, place party, enter-transition in */
+    DTR_TRANS_IN_FIN,    /* screen_transition_finalize() after enter pop */
+    DTR_FINALIZE,        /* spawn_buzz_buzz, clear using_door, pop */
+} DoorTransitionPhase;
+
+typedef struct {
+    uint8_t  phase;            /* DoorTransitionPhase */
+    uint8_t  transition_type;  /* door_data::unknown10 */
+    uint32_t door_ptr;         /* original SNES door-data pointer (for re-fetch) */
+    uint32_t text_ptr;         /* door text address (0 = none) */
+    uint16_t event_flag_raw;   /* door_data::event_flag */
+    uint16_t unknown6;         /* dest y (low 14 bits) + direction class (bits 14-15) */
+    uint16_t unknown8;         /* dest x tile */
+} DoorTransitionState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1056,6 +1083,7 @@ union ModeState {
     DisplayTextModeState  display_text;
     TextWaitFadeState     text_wait_fade;
     ProcessInteractionState process_interaction;
+    DoorTransitionState   door_transition;
     uint8_t               _raw[160];
 };
 
@@ -1217,6 +1245,11 @@ StepResult mode_step_text_wait_fade(ModeState *st);
  * with ModeState.process_interaction (phase = PI_DISPATCH) before
  * pump_mode(GAME_MODE_PROCESS_INTERACTION). Always pops 0. */
 StepResult mode_step_process_interaction(ModeState *st);
+
+/* GAME_MODE_DOOR_TRANSITION step (defined in door.c). Init with
+ * ModeState.door_transition (phase = DTR_BEGIN, door_ptr) before
+ * pump_mode(GAME_MODE_DOOR_TRANSITION). Always pops 0. */
+StepResult mode_step_door_transition(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

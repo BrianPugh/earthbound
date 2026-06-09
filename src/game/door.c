@@ -875,8 +875,16 @@ StepResult mode_step_screen_transition(ModeState *st) {
  *
  * transition_type: index into SCREEN_TRANSITION_CONFIG_TABLE (0-33).
  * mode: 1 = exit (fade out), 0 = enter (fade in). */
-void screen_transition(uint8_t transition_type, uint8_t mode) {
-    if (transition_type >= SCREEN_TRANSITION_CONFIG_COUNT) return;
+/* One-shot setup half of screen_transition(): validate, read config, and lay out
+ * the GAME_MODE_SCREEN_TRANSITION child init in *out_init. Returns false (skip the
+ * push + finalize) for an invalid transition type, matching the blocking original's
+ * early return. The exit branch's wait_frames_with_updates(2) stays a blocking
+ * helper here (a deferred sequential N-frame helper). Used by both the blocking
+ * screen_transition() wrapper below and GAME_MODE_DOOR_TRANSITION (door.c), which
+ * STEP_PUSHes the child itself and runs screen_transition_finalize() on the pop. */
+static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
+                                      ModeState *out_init) {
+    if (transition_type >= SCREEN_TRANSITION_CONFIG_COUNT) return false;
     const ScreenTransitionConfig *cfg = &screen_transition_config[transition_type];
 
     /* Read config fields */
@@ -905,7 +913,7 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
     /* The two per-frame frame loops (and the finalize frame) are run-to-
      * completion as GAME_MODE_SCREEN_TRANSITION; the one-shot setup below and the
      * shared cleanup at the bottom stay in this blocking wrapper. */
-    ModeState init = {0};
+    *out_init = (ModeState){0};
 
     if (mode == 1) {
         /* ====== EXIT TRANSITION (fade out) ====== */
@@ -927,11 +935,10 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
         prepare_palette_fade_slopes((int16_t)eff_duration, 0xFFFF);
 
         /* Assembly lines 94-143: exit transition frame loop + finalize. */
-        init.screen_transition.phase      = ST_EXIT_BODY;
-        init.screen_transition.frame      = 0;
-        init.screen_transition.duration   = eff_duration;
-        init.screen_transition.fade_style = fade_style;
-        pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
+        out_init->screen_transition.phase      = ST_EXIT_BODY;
+        out_init->screen_transition.frame      = 0;
+        out_init->screen_transition.duration   = eff_duration;
+        out_init->screen_transition.fade_style = fade_style;
     } else {
         /* ====== ENTER TRANSITION (fade in) ====== */
 
@@ -965,15 +972,17 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
         }
 
         /* Assembly lines 192-230: enter transition frame loop + finalize. */
-        init.screen_transition.phase      = ST_ENTER_BODY;
-        init.screen_transition.frame      = 0;
-        init.screen_transition.duration   = (uint16_t)secondary_duration;
-        init.screen_transition.enter_mode = enter_mode;
-        pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
+        out_init->screen_transition.phase      = ST_ENTER_BODY;
+        out_init->screen_transition.frame      = 0;
+        out_init->screen_transition.duration   = (uint16_t)secondary_duration;
+        out_init->screen_transition.enter_mode = enter_mode;
     }
+    return true;
+}
 
-    /* ====== TRANSITION CLEANUP (shared) ====== */
-
+/* Shared cleanup half of screen_transition(): runs after the
+ * GAME_MODE_SCREEN_TRANSITION child completes. */
+static void screen_transition_finalize(void) {
     /* Assembly lines 232-236: stop oval window (skip during Giygas prayer phase).
      * BCS = unsigned >=, so skip when bt.giygas_phase >= START_PRAYING (4). */
     if (bt.giygas_phase < GIYGAS_START_PRAYING)
@@ -985,6 +994,18 @@ void screen_transition(uint8_t transition_type, uint8_t mode) {
     /* Assembly lines 238-239: clear ladder/stairs state */
     ow.ladder_stairs_tile_y = 0;
     ow.ladder_stairs_tile_x = 0;
+}
+
+/* Blocking wrapper: one-shot setup → pump the SCREEN_TRANSITION child → cleanup.
+ * Unchanged behavior for its callers (teleport in game_main.c / display_text_cc.c).
+ * GAME_MODE_DOOR_TRANSITION does not use this wrapper — it sequences the prepare /
+ * push / finalize itself so the transition lives on the mode stack. */
+void screen_transition(uint8_t transition_type, uint8_t mode) {
+    ModeState init;
+    if (!screen_transition_prepare(transition_type, mode, &init))
+        return;
+    pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
+    screen_transition_finalize();
 }
 
 /* ---- GET_SCREEN_TRANSITION_SOUND_EFFECT ---- */
@@ -1035,126 +1056,169 @@ void process_door_interactions(void) {
 
 /* ---- DOOR_TRANSITION (door_transition.asm) ---- */
 
-void door_transition(uint32_t door_data_snes_ptr) {
-    /* Convert SNES ROM pointer to offset into our door_data ert.buffer.
-     * door_data_snes_ptr is a full 24-bit SNES address ($CFxxxx).
-     * Offset = low 16 bits (since DOOR_DATA is at bank start). */
-    uint16_t door_offset = (uint16_t)(door_data_snes_ptr & 0xFFFF);
-    const uint8_t *door = get_door_data_entry(door_offset);
-    if (!door) {
-        dr.using_door = 0;
-        return;
-    }
+/* GAME_MODE_DOOR_TRANSITION step — run-to-completion port of door_transition().
+ * The door-data scalars are hoisted at DTR_BEGIN so no ROM pointer crosses a
+ * yield; the optional door text and the two screen_transition() calls are
+ * STEP_PUSHed (the latter via screen_transition_prepare/_finalize). The internal
+ * for(;;) lets the no-push branches fall through with no extra yield, matching
+ * the blocking original's zero-yield gaps between sections. load_map_at_position()
+ * runs inline — in the normal path the preceding screen_transition already
+ * completed the fade so its wait_for_fade_complete() returns without yielding;
+ * the disabled_transitions branch leaves it as a deferred blocking helper. */
+StepResult mode_step_door_transition(ModeState *ms) {
+    DoorTransitionState *st = &ms->door_transition;
 
-    /* Assembly lines 11-19: check and display door text if non-NULL */
-    uint32_t text_ptr = read_u32_le(door);
-    if (text_ptr != 0) {
-        display_text_and_wait_for_fade(text_ptr);
-    }
+    for (;;) {
+        switch ((DoorTransitionPhase)st->phase) {
+        case DTR_BEGIN: {
+            /* Convert SNES ROM pointer to offset into our door_data ert.buffer.
+             * door_data_snes_ptr is a full 24-bit SNES address ($CFxxxx).
+             * Offset = low 16 bits (since DOOR_DATA is at bank start). */
+            uint16_t door_offset = (uint16_t)(st->door_ptr & 0xFFFF);
+            const uint8_t *door = get_door_data_entry(door_offset);
+            if (!door) {
+                dr.using_door = 0;
+                return STEP_RESULT_POP(0);
+            }
+            /* Hoist every door-data scalar now so no ROM pointer is held across
+             * the door-text yield (door data is static, so this is exact). */
+            st->text_ptr        = read_u32_le(door);            /* lines 11-19 */
+            st->event_flag_raw  = read_u16_le(door + 4);        /* door_data::event_flag */
+            st->transition_type = door[10];                     /* door_data::unknown10 */
+            st->unknown6        = read_u16_le(door + 6);        /* dest y + dir class */
+            st->unknown8        = read_u16_le(door + 8);        /* dest x tile */
 
-    /* Assembly lines 21-22: clear ladder/stairs tile coords */
-    ow.ladder_stairs_tile_y = 0;
-    ow.ladder_stairs_tile_x = 0;
+            st->phase = DTR_AFTER_TEXT;
+            /* Assembly lines 11-19: display door text if non-NULL. */
+            if (st->text_ptr != 0) {
+                static ModeState twf_init;  /* outlives this dispatch (pump copies it) */
+                twf_init.text_wait_fade = (TextWaitFadeState){
+                    .phase = TWF_TEXT, .text_addr = st->text_ptr };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &twf_init);
+            }
+            continue;
+        }
 
-    /* Assembly lines 23-45: check event flag */
-    uint16_t event_flag_raw = read_u16_le(door + 4);  /* door_data::event_flag */
-    if (event_flag_raw != 0) {
-        uint16_t flag_id = event_flag_raw & 0x7FFF;
-        bool flag_value = event_flag_get(flag_id);
+        case DTR_AFTER_TEXT: {
+            /* Assembly lines 21-22: clear ladder/stairs tile coords */
+            ow.ladder_stairs_tile_y = 0;
+            ow.ladder_stairs_tile_x = 0;
 
-        bool expected = (event_flag_raw > 0x8000);
+            /* Assembly lines 23-45: check event flag */
+            if (st->event_flag_raw != 0) {
+                uint16_t flag_id = st->event_flag_raw & 0x7FFF;
+                bool flag_value = event_flag_get(flag_id);
+                bool expected = (st->event_flag_raw > 0x8000);
+                if (flag_value != expected) {
+                    dr.using_door = 0;
+                    return STEP_RESULT_POP(0);
+                }
+            }
 
-        if (flag_value != expected) {
+            /* Assembly lines 47-59: clear event flags 1-10 */
+            for (uint16_t flag = 1; flag <= 10; flag++)
+                event_flag_clear(flag);
+
+            /* Assembly lines 60-64: process door interactions and clear state */
+            process_door_interactions();
+            clear_party_sprite_hide_flags();
+            ow.entity_fade_entity = -1;
+            ow.player_intangibility_frames = 0;
+
+            /* Assembly lines 65-74: play transition-out sound effect */
+            uint16_t sfx_out = get_screen_transition_sound_effect(st->transition_type, 1);
+            play_sfx(sfx_out);
+
+            /* Assembly lines 75-86: transition out */
+            st->phase = DTR_AFTER_OUT;
+            if (ow.disabled_transitions) {
+                fade_out(1, 1);
+                continue;
+            }
+            static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
+            if (screen_transition_prepare(st->transition_type, 1, &stx_init)) {
+                st->phase = DTR_TRANS_OUT_FIN;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
+            }
+            continue;  /* invalid type: no push, no finalize (matches early return) */
+        }
+
+        case DTR_TRANS_OUT_FIN:
+            screen_transition_finalize();
+            st->phase = DTR_AFTER_OUT;
+            continue;
+
+        case DTR_AFTER_OUT: {
+            /* Assembly lines 87-117: compute destination coordinates + direction.
+             * unknown6 low 14 bits = dest y tile, unknown8 = dest x tile; bits
+             * 14-15 of unknown6 index DOOR_ENTRY_DIRECTION_TABLE. direction 2
+             * (RIGHT) → skip adjustment, otherwise add 8 to X. */
+            uint16_t dest_x = st->unknown8 << 3;
+            uint16_t dest_y = (st->unknown6 & 0x3FFF) << 3;
+            uint16_t dir_class_idx = (st->unknown6 >> 14) & 3;
+            uint16_t dir_class = door_dest_direction_table[dir_class_idx];
+            if (dir_class != 2)
+                dest_x += 8;
+
+            /* Assembly lines 119-140: resolve music for destination sector. */
+            resolve_map_sector_music(dest_x, dest_y);
+
+            /* Assembly lines 141-146: load destination map */
+            load_map_at_position(dest_x, dest_y);
+            ow.player_has_moved_since_map_load = 0;
+            game_state.walking_style = 0;
+
+            /* Assembly lines 147-163: determine direction + place party */
+            uint16_t party_direction = door_dest_direction_table[dir_class_idx];
+            set_leader_position_and_load_party(dest_x, dest_y, party_direction);
+
+            /* Assembly lines 170-171: apply music and flush entity queue */
+            apply_next_map_music();
+            flush_entity_creation_queue();
+
+            /* Assembly lines 172-181: play transition-in sound effect.
+             * SFX 0 means "no ending SFX" — skip play_sfx(0) to avoid stopping the
+             * start SFX prematurely. */
+            uint16_t sfx_out = get_screen_transition_sound_effect(st->transition_type, 0);
+            if (sfx_out != 0)
+                play_sfx(sfx_out);
+
+            /* Assembly lines 182-193: transition in */
+            st->phase = DTR_FINALIZE;
+            if (ow.disabled_transitions) {
+                fade_in(1, 1);
+                continue;
+            }
+            static ModeState stn_init;  /* outlives this dispatch (pump copies it) */
+            if (screen_transition_prepare(st->transition_type, 0, &stn_init)) {
+                st->phase = DTR_TRANS_IN_FIN;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stn_init);
+            }
+            continue;
+        }
+
+        case DTR_TRANS_IN_FIN:
+            screen_transition_finalize();
+            st->phase = DTR_FINALIZE;
+            continue;
+
+        case DTR_FINALIZE:
+        default:
+            /* Assembly lines 194-198: finalize */
+            ow.stairs_direction = 0xFFFF;
+            ow.player_has_done_something_this_frame = 0;
+            spawn_buzz_buzz();
             dr.using_door = 0;
-            return;
+            return STEP_RESULT_POP(0);
         }
     }
+}
 
-    /* Assembly lines 47-59: clear event flags 1-10 */
-    for (uint16_t flag = 1; flag <= 10; flag++) {
-        event_flag_clear(flag);
-    }
-
-    /* Assembly lines 60-64: process door interactions and clear state */
-    process_door_interactions();
-    clear_party_sprite_hide_flags();
-    ow.entity_fade_entity = -1;
-    ow.player_intangibility_frames = 0;
-
-    /* Assembly lines 65-74: play transition-out sound effect */
-    uint8_t transition_type = door[10];  /* door_data::unknown10 */
-    uint16_t sfx_out = get_screen_transition_sound_effect(transition_type, 1);
-    play_sfx(sfx_out);
-
-    /* Assembly lines 75-86: transition out */
-    if (ow.disabled_transitions) {
-        fade_out(1, 1);
-    } else {
-        screen_transition(transition_type, 1);
-    }
-
-    /* Assembly lines 87-100: compute destination coordinates.
-     * unknown6 low 14 bits = dest y tile, unknown8 = dest x tile.
-     * Both shifted left by 3 to get pixel coordinates.
-     * Assembly: @VIRTUAL02 = door[8]<<3 (A=x), @VIRTUAL04 = (door[6]&0x3FFF)<<3 (X=y). */
-    uint16_t unknown6 = read_u16_le(door + 6);
-    uint16_t unknown8 = read_u16_le(door + 8);
-
-    uint16_t dest_x = unknown8 << 3;
-    uint16_t dest_y = (unknown6 & 0x3FFF) << 3;
-
-    /* Assembly lines 101-117: extract bits 14-15 of unknown6 for direction class.
-     * Assembly: SEP; LDA #14; TAY; REP; LDA unknown6; JSL ASR8_POSITIVE; ASL; TAX
-     * ASR8_POSITIVE with Y=14 does 14 logical right shifts → bits 14-15 (0-3).
-     * ASL then multiplies by 2 → byte offset 0,2,4,6 into DOOR_ENTRY_DIRECTION_TABLE.
-     * direction 2 (RIGHT) → skip adjustment, otherwise add 8 to X. */
-    uint16_t dir_class_idx = (unknown6 >> 14) & 3;
-    uint16_t dir_class = door_dest_direction_table[dir_class_idx];
-    if (dir_class != 2) {
-        dest_x += 8;
-    }
-
-    /* Assembly lines 119-140: resolve music for destination sector.
-     * Debug mode 6 skips music resolve — not relevant for retail. */
-    resolve_map_sector_music(dest_x, dest_y);
-
-    /* Assembly lines 141-146: load destination map */
-    load_map_at_position(dest_x, dest_y);
-    ow.player_has_moved_since_map_load = 0;
-    game_state.walking_style = 0;
-
-    /* Assembly lines 147-163: determine direction for party placement */
-    uint16_t party_direction = door_dest_direction_table[dir_class_idx];
-
-    /* Assembly lines 161-163: set leader position and load party */
-    set_leader_position_and_load_party(dest_x, dest_y, party_direction);
-
-    /* Assembly lines 164-169: debug replay save (skipped for now) */
-
-    /* Assembly lines 170-171: apply music and flush entity queue */
-    apply_next_map_music();
-    flush_entity_creation_queue();
-
-    /* Assembly lines 172-181: play transition-in sound effect.
-     * SFX 0 means "no ending SFX" — skip play_sfx(0) to avoid stopping the
-     * start SFX (e.g. SFX::STAIRS) prematurely. On SNES, load_map_at_position
-     * takes many frames of real time so the start SFX finishes naturally before
-     * play_sfx(0) executes; on the C port the map loads instantly. */
-    sfx_out = get_screen_transition_sound_effect(transition_type, 0);
-    if (sfx_out != 0) {
-        play_sfx(sfx_out);
-    }
-
-    /* Assembly lines 182-193: transition in */
-    if (ow.disabled_transitions) {
-        fade_in(1, 1);
-    } else {
-        screen_transition(transition_type, 0);
-    }
-
-    /* Assembly lines 194-198: finalize */
-    ow.stairs_direction = 0xFFFF;
-    ow.player_has_done_something_this_frame = 0;
-    spawn_buzz_buzz();
-    dr.using_door = 0;
+/* Thin bridge over GAME_MODE_DOOR_TRANSITION (STEP_PUSHed directly by
+ * GAME_MODE_PROCESS_INTERACTION; kept for any other/future blocking caller and to
+ * preserve the public symbol). */
+void door_transition(uint32_t door_data_snes_ptr) {
+    ModeState init = { .door_transition = { .phase = DTR_BEGIN,
+                                            .door_ptr = door_data_snes_ptr } };
+    pump_mode(GAME_MODE_DOOR_TRANSITION, &init);
 }
