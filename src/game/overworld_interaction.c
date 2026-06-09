@@ -98,54 +98,95 @@ void display_text_and_wait_for_fade(uint32_t text_addr) {
  *
  * Called from the main loop when interactions are pending and no
  * battle/swirl is in progress. */
-void process_queued_interactions(void) {
-    /* Assembly lines 11-20: dequeue from circular ert.buffer */
-    uint16_t idx = ow.current_queued_interaction;
-    uint16_t type = ow.queued_interactions[idx].type;
-    uint32_t data_ptr = ow.queued_interactions[idx].data_ptr;
+/* Trailing bookkeeping shared by every dispatch path (assembly lines 72-81 +
+ * the type-10 dad-phone follow-up): update the pending flag, clear the current
+ * type, and arm the dad-phone timer if that was the message just shown. */
+static void process_interaction_finish(ProcessInteractionState *s) {
+    /* Type 10 dad-phone follow-up: if this was the dad phone message, set timer.
+     * (Assembly checks the displayed message; runs right after the text.) */
+    if (s->type == 10 && s->data_ptr == MSG_SYS_PHONE_DAD) {
+        ow.dad_phone_timer = 1687;
+        ow.dad_phone_queued = 0;
+    }
+    /* Assembly lines 72-81: update pending flag and clear current type. */
+    ow.pending_interactions =
+        (ow.current_queued_interaction != ow.next_queued_interaction) ? 1 : 0;
+    ow.current_queued_interaction_type = 0xFFFF;
+}
 
-    /* Assembly line 25: store current type for duplicate prevention */
-    ow.current_queued_interaction_type = type;
+/* GAME_MODE_PROCESS_INTERACTION step — run-to-completion form of
+ * process_queued_interactions(). The text-interaction dispatch (types 0/8/9/10)
+ * STEP_PUSHes GAME_MODE_TEXT_WAIT_FADE so the dialogue lives on the mode stack
+ * instead of holding this dispatcher's frame on the C stack. The door type (2)
+ * still calls door_transition() inline (its own large blocking driver — deferred
+ * to a later parent conversion). Non-text types finish inline with no extra
+ * yield, exactly as the blocking original did. */
+StepResult mode_step_process_interaction(ModeState *st) {
+    ProcessInteractionState *s = &st->process_interaction;
 
-    /* Assembly lines 26-29: advance read index (circular, mask 0x03) */
-    ow.current_queued_interaction = (idx + 1) & (INTERACTION_QUEUE_SIZE - 1);
+    switch ((ProcessInteractionPhase)s->phase) {
+    case PI_DISPATCH: {
+        /* Assembly lines 11-20: dequeue from circular ert.buffer */
+        uint16_t idx = ow.current_queued_interaction;
+        uint16_t type = ow.queued_interactions[idx].type;
+        uint32_t data_ptr = ow.queued_interactions[idx].data_ptr;
 
-    /* Assembly lines 30-32: clear intangibility low bit */
-    ow.player_intangibility_frames &= 0xFFFE;
+        /* Assembly line 25: store current type for duplicate prevention */
+        ow.current_queued_interaction_type = type;
 
-    /* Assembly line 33: CLEAR_PARTY_SPRITE_HIDE_FLAGS */
-    clear_party_sprite_hide_flags();
+        /* Assembly lines 26-29: advance read index (circular, mask 0x03) */
+        ow.current_queued_interaction = (idx + 1) & (INTERACTION_QUEUE_SIZE - 1);
 
-    /* Assembly lines 34-71: dispatch by interaction type */
-    switch (type) {
-    case 2:
-        /* Door interaction.
-         * Assembly: JSR DOOR_TRANSITION with data_ptr. */
-        door_transition(data_ptr);
-        break;
-    case 10:
-        /* Screen reload / dad phone text.
-         * Assembly: DISPLAY_TEXT_AND_WAIT_FOR_FADE, then check if this was
-         * the dad phone message (MSG_SYS_PAPA_2H). If so, set timer. */
-        display_text_and_wait_for_fade(data_ptr);
-        if (data_ptr == MSG_SYS_PHONE_DAD) {
-            ow.dad_phone_timer = 1687;
-            ow.dad_phone_queued = 0;
+        /* Assembly lines 30-32: clear intangibility low bit */
+        ow.player_intangibility_frames &= 0xFFFE;
+
+        /* Assembly line 33: CLEAR_PARTY_SPRITE_HIDE_FLAGS */
+        clear_party_sprite_hide_flags();
+
+        s->type = type;
+        s->data_ptr = data_ptr;
+        s->phase = PI_RESUME;
+
+        /* Assembly lines 34-71: dispatch by interaction type */
+        switch (type) {
+        case 10:  /* Screen reload / dad phone text */
+        case 0:   /* Text interaction */
+        case 8:   /* NPC interaction */
+        case 9: { /* Text interaction (variant) */
+            /* STEP_PUSH the dialogue; PI_RESUME does the trailing bookkeeping. */
+            static ModeState twf_init;  /* outlives this dispatch (pump copies it) */
+            twf_init.text_wait_fade = (TextWaitFadeState){ .phase = TWF_TEXT,
+                                                           .text_addr = data_ptr };
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &twf_init);
         }
-        break;
-    case 0:   /* Text interaction */
-    case 8:   /* NPC interaction */
-    case 9:   /* Text interaction (variant) */
-        display_text_and_wait_for_fade(data_ptr);
-        break;
-    default:
-        break;
+        case 2:
+            /* Door interaction. door_transition() is still a blocking driver and
+             * runs inline (deferred); no display follows, so finish with no extra
+             * yield to match the original. */
+            door_transition(data_ptr);
+            break;
+        default:
+            break;
+        }
+
+        process_interaction_finish(s);
+        return STEP_RESULT_POP(0);
     }
 
-    /* Assembly lines 72-81: update pending flag and clear current type.
-     * Check if more interactions are queued. */
-    ow.pending_interactions = (ow.current_queued_interaction != ow.next_queued_interaction) ? 1 : 0;
-    ow.current_queued_interaction_type = 0xFFFF;
+    case PI_RESUME:
+    default:
+        /* The pushed GAME_MODE_TEXT_WAIT_FADE has popped. */
+        process_interaction_finish(s);
+        return STEP_RESULT_POP(0);
+    }
+}
+
+/* Thin bridge over GAME_MODE_PROCESS_INTERACTION (run to completion via pump_mode
+ * while the overworld step is still a blocking loop; STEP_PUSHed directly once
+ * the overworld step becomes a mode at the flip). */
+void process_queued_interactions(void) {
+    ModeState init = { .process_interaction = { .phase = PI_DISPATCH } };
+    pump_mode(GAME_MODE_PROCESS_INTERACTION, &init);
 }
 
 /* ---- RELOAD_HOTSPOTS (port of asm/overworld/reload_hotspots.asm) ----

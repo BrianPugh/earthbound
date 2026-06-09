@@ -58,6 +58,7 @@ typedef enum {
     GAME_MODE_DISPLAY_TEXT,        /* text bytecode interpreter (display_text) */
     GAME_MODE_ENTITY_FADE_WAIT,    /* wait until ow.entity_fade_entity == -1 (window_tick) */
     GAME_MODE_TEXT_WAIT_FADE,      /* overworld interaction: dialogue then entity-fade wait */
+    GAME_MODE_PROCESS_INTERACTION, /* overworld interaction dispatch (process_queued_interactions) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -120,6 +121,23 @@ typedef struct {
     uint8_t  phase;       /* TextWaitFadePhase */
     uint32_t text_addr;   /* dialogue address to resolve + display */
 } TextWaitFadeState;
+
+/* GAME_MODE_PROCESS_INTERACTION phases. Port of process_queued_interactions():
+ * dequeue one interaction and dispatch by type. Text types (0/8/9/10) STEP_PUSH
+ * GAME_MODE_TEXT_WAIT_FADE; the door type (2) calls door_transition() inline
+ * (still a blocking driver — deferred); the trailing pending/clear bookkeeping
+ * runs in PI_RESUME (after the pushed text pops) or inline for the non-text
+ * types (no extra yield, matching the original). */
+typedef enum {
+    PI_DISPATCH = 0,  /* dequeue + dispatch */
+    PI_RESUME,        /* post-text bookkeeping after TEXT_WAIT_FADE pops */
+} ProcessInteractionPhase;
+
+typedef struct {
+    uint8_t  phase;       /* ProcessInteractionPhase */
+    uint16_t type;        /* dequeued interaction type */
+    uint32_t data_ptr;    /* dequeued interaction data (text addr / door ptr) */
+} ProcessInteractionState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1037,6 +1055,7 @@ union ModeState {
     InitIntroState        init_intro;
     DisplayTextModeState  display_text;
     TextWaitFadeState     text_wait_fade;
+    ProcessInteractionState process_interaction;
     uint8_t               _raw[160];
 };
 
@@ -1193,6 +1212,11 @@ StepResult mode_step_display_text(ModeState *st);
  * re-enable entities. Always pops 0. GAME_MODE_ENTITY_FADE_WAIT (the wait child)
  * is defined in mode_stack.c and takes no init. */
 StepResult mode_step_text_wait_fade(ModeState *st);
+
+/* GAME_MODE_PROCESS_INTERACTION step (defined in overworld_interaction.c). Init
+ * with ModeState.process_interaction (phase = PI_DISPATCH) before
+ * pump_mode(GAME_MODE_PROCESS_INTERACTION). Always pops 0. */
+StepResult mode_step_process_interaction(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

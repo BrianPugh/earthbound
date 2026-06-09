@@ -110,6 +110,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_DISPLAY_TEXT]        = mode_step_display_text,        /* display_text.c */
     [GAME_MODE_ENTITY_FADE_WAIT]    = mode_step_entity_fade_wait,
     [GAME_MODE_TEXT_WAIT_FADE]      = mode_step_text_wait_fade,      /* overworld_interaction.c */
+    [GAME_MODE_PROCESS_INTERACTION] = mode_step_process_interaction, /* overworld_interaction.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
