@@ -33,6 +33,7 @@
 #define WINDOW_EQUIP_MENU             0x06
 #define WINDOW_EQUIP_MENU_ITEMLIST    0x07
 #define WINDOW_STATUS_MENU            0x08
+#define WINDOW_CARRIED_MONEY          0x0A  /* special: always linked at the list head (drawn bottom) */
 #define WINDOW_STORE_ITEM_LIST        0x0C
 #define WINDOW_ESCARGO_EXPRESS_ITEM   0x0D
 #define WINDOW_TEXT_BATTLE            0x0E
@@ -87,6 +88,10 @@ typedef struct {
 /* Window info - matches window_stats from structs.asm (82 bytes in asm) */
 typedef struct {
     bool     active;
+    int8_t   next, prev;            /* asm window_stats::next/prev: draw-order linked list
+                                       (slot indices into win.windows[], -1 = none). The list
+                                       order — not the slot index — is the z-order; render walks
+                                       head→tail (bottom→top). See create_window/render_all_windows. */
     uint8_t  id;                    /* asm offset 4 */
     uint8_t  x, y;                  /* position in tiles (asm offset 6/8) */
     uint8_t  content_x, content_y;  /* content origin = (x+1, y+1), inside border */
@@ -168,6 +173,11 @@ typedef struct {
 
     /* Active windows array. */
     WindowInfo windows[MAX_WINDOWS];
+
+    /* Draw-order doubly-linked list over windows[] (asm WINDOW_HEAD / WINDOW_TAIL).
+     * head = bottom-most (drawn first), tail = top-most (drawn last). -1 = empty. */
+    int8_t window_head;
+    int8_t window_tail;
 
     /* Shared tilemap pool for all window content_tilemap buffers.
      * Each window gets a slice via tilemap_pool_alloc/free. */

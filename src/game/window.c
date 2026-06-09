@@ -104,6 +104,9 @@ void window_system_init(void) {
     win.current_focus_window = WINDOW_ID_NONE;
     for (int i = 0; i < MAX_TITLED_WINDOWS; i++)
         win.titled_windows[i] = WINDOW_ID_NONE;
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        win.windows[i].next = win.windows[i].prev = -1;
+    win.window_head = win.window_tail = -1;
 }
 
 /* Allocate a contiguous block from the shared tilemap pool.
@@ -181,6 +184,30 @@ WindowInfo *create_window(uint16_t window_id) {
         }
         w->content_x = w->x + 1;
         w->content_y = w->y + 1;
+
+        /* Link into the draw-order list (asm create_window @ALLOCATE_NEW,
+         * lines 67-116). WINDOW::CARRIED_MONEY (id 10) links before the head so it
+         * always draws at the bottom; every other window appends at the tail so the
+         * newest window draws on top. The render walks head→tail, so z-order follows
+         * insertion order, not the slot index — this is what makes a window created
+         * into a reused (lower) slot still appear above older windows. */
+        if (window_id == WINDOW_CARRIED_MONEY) {
+            w->prev = -1;
+            w->next = win.window_head;
+            if (win.window_head >= 0)
+                win.windows[win.window_head].prev = (int8_t)slot;
+            else
+                win.window_tail = (int8_t)slot;   /* list was empty */
+            win.window_head = (int8_t)slot;
+        } else {
+            w->next = -1;
+            w->prev = win.window_tail;
+            if (win.window_tail >= 0)
+                win.windows[win.window_tail].next = (int8_t)slot;
+            else
+                win.window_head = (int8_t)slot;   /* list was empty */
+            win.window_tail = (int8_t)slot;
+        }
     }
 
     /* Reinitialize window state — shared path for both new and existing windows.
@@ -262,6 +289,18 @@ void close_window(uint16_t window_id) {
             /* Return tilemap allocation to shared pool */
             tilemap_pool_free(&win.windows[i]);
 
+            /* Unlink from the draw-order list (asm close_window.asm:
+             * @UPDATE_NEXT_PREV / @CHECK_PREV_NULL / @UPDATE_PREV_NEXT). */
+            {
+                int8_t nxt = win.windows[i].next;
+                int8_t prv = win.windows[i].prev;
+                if (nxt < 0) win.window_tail = prv;
+                else         win.windows[nxt].prev = prv;
+                if (prv < 0) win.window_head = nxt;
+                else         win.windows[prv].next = nxt;
+                win.windows[i].next = win.windows[i].prev = -1;
+            }
+
             win.windows[i].active = false;
 
             /* Set redraw flag (assembly line 280-281) */
@@ -312,8 +351,10 @@ void close_all_windows(void) {
             clear_window_text(win.windows[i].id);
             tilemap_pool_free(&win.windows[i]);
             win.windows[i].active = false;
+            win.windows[i].next = win.windows[i].prev = -1;
         }
     }
+    win.window_head = win.window_tail = -1;
     win.current_focus_window = WINDOW_ID_NONE;
     dt.pagination_window = WINDOW_ID_NONE;
     ow.redraw_all_windows = 1;
@@ -716,10 +757,14 @@ void render_all_windows(void) {
         draw_active_hppp_windows();
     }
 
-    /* Render each active window */
-    for (int wi = 0; wi < MAX_WINDOWS; wi++) {
+    /* Render each active window in draw-order-list order (asm RENDER_ALL_WINDOWS
+     * walks WINDOW_HEAD → window_stats::next). The list order is the z-order
+     * (head = bottom, tail = top); slot index is irrelevant. This matches the
+     * assembly exactly and fixes windows created into reused (lower) slots that
+     * previously drew underneath older windows. */
+    for (int wi = win.window_head; wi >= 0; wi = win.windows[wi].next) {
         WindowInfo *w = &win.windows[wi];
-        if (!w->active) continue;
+        if (!w->active) continue;  /* defensive: list should only hold active windows */
 
         /* Draw window border using correct tile entries from RENDER_WINDOW_FRAME */
         for (uint16_t ty = 0; ty < w->height; ty++) {
