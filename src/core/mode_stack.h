@@ -64,6 +64,7 @@ typedef enum {
     GAME_MODE_PAUSE_MENU,          /* overworld pause menu (open_menu_button) */
     GAME_MODE_EQUIP_MENU,          /* pause-menu Equip cascade (open_equipment_menu) */
     GAME_MODE_STATUS_MENU,         /* pause-menu Status cascade (open_status_menu) */
+    GAME_MODE_HPPP_DISPLAY,        /* B-button HP/PP + money display (open_hppp_display) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -277,6 +278,25 @@ typedef struct {
     uint8_t  result_ready;  /* 1 = `result` holds an inline early-exit value */
     uint16_t result;        /* inline early-exit selection result */
 } StatusMenuState;
+
+/* GAME_MODE_HPPP_DISPLAY phases. Port of open_hppp_display()
+ * (asm/text/open_hppp_display.asm): the B/Select overworld HP/PP + money
+ * display. Shows the windows, then idles on window frames until A/L opens the
+ * full pause menu (STEP_PUSH GAME_MODE_PAUSE_MENU, which owns ALL the cleanup
+ * — the display just pops after it) or B/Select dismisses. `primed`
+ * reproduces the blocking loop's render-before-first-read order (the input
+ * acted on at the top of a step is what the pump's previous yield latched). */
+typedef enum {
+    HD_ENTER = 0,  /* disable entities, sfx, show HPPP + money windows */
+    HD_TICK,       /* idle window frame + input: A/L → pause menu, B → dismiss */
+    HD_MENU_DONE,  /* the pushed PAUSE_MENU popped (it did all cleanup) → POP */
+    HD_EXIT,       /* post-dismiss-frame: enable entities → POP */
+} HpppDisplayPhase;
+
+typedef struct {
+    uint8_t phase;  /* HpppDisplayPhase */
+    uint8_t primed; /* 0 = first frame: render without reading input */
+} HpppDisplayState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1200,6 +1220,7 @@ union ModeState {
     PauseMenuState        pause_menu;
     EquipMenuState        equip_menu;
     StatusMenuState       status_menu;
+    HpppDisplayState      hppp_display;
     uint8_t               _raw[160];
 };
 
@@ -1386,6 +1407,11 @@ StepResult mode_step_equip_menu(ModeState *st);
  * callbacks live). Init with ModeState.status_menu (phase = SU_SELECT); entered
  * via STEP_PUSH from the pause menu. Always pops 0. */
 StepResult mode_step_status_menu(ModeState *st);
+
+/* GAME_MODE_HPPP_DISPLAY step (defined in text.c). Init with
+ * ModeState.hppp_display (phase = HD_ENTER) before
+ * pump_mode(GAME_MODE_HPPP_DISPLAY). Always pops 0. */
+StepResult mode_step_hppp_display(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

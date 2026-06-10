@@ -2929,31 +2929,54 @@ void open_menu_button_checktalk(void) {
  * When compiled with -DEB_B_OPENS_MAIN_MENU, the wait loop is skipped: after
  * showing the HPPP/money windows, control falls straight into the main pause
  * menu. This lets the game be played with two action buttons (B + L). */
-void open_hppp_display(void) {
-    disable_all_entities();
-    play_sfx(1);  /* SFX::CURSOR1 */
+/* GAME_MODE_HPPP_DISPLAY step — run-to-completion form of open_hppp_display().
+ * See HpppDisplayState in mode_stack.h. The full pause menu is STEP_PUSHed
+ * (GAME_MODE_PAUSE_MENU owns ALL the cleanup — hide HPPP, close windows,
+ * enable entities — so HD_MENU_DONE just pops). */
+StepResult mode_step_hppp_display(ModeState *ms) {
+    HpppDisplayState *st = &ms->hppp_display;
+    static ModeState hd_child_init;  /* outlives the dispatch (pump copies it) */
 
-    /* SHOW_HPPP_AND_MONEY_WINDOWS (asm/text/hp_pp_window/show_hppp_and_money_windows.asm) */
-    show_hppp_windows();
-    display_money_window();
+    switch ((HpppDisplayPhase)st->phase) {
+    case HD_ENTER:
+        disable_all_entities();
+        play_sfx(1);  /* SFX::CURSOR1 */
+
+        /* SHOW_HPPP_AND_MONEY_WINDOWS
+         * (asm/text/hp_pp_window/show_hppp_and_money_windows.asm) */
+        show_hppp_windows();
+        display_money_window();
 
 #ifdef EB_B_OPENS_MAIN_MENU
-    /* open_menu_button() handles all cleanup (hide HPPP, close windows,
-     * enable entities), so we can return immediately after it completes. */
-    open_menu_button();
-    return;
+        /* Skip the wait loop: fall straight into the main pause menu. */
+        hd_child_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
+        st->phase = HD_MENU_DONE;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &hd_child_init);
 #else
-    /* Loop: WINDOW_TICK → wait for button press */
-    for (;;) {
-        window_tick();
-        if (platform_input_quit_requested()) break;
+        st->phase = HD_TICK;
+        st->primed = 0;
+        /* fall through to the first render frame */
+#endif
+        /* FALLTHROUGH */
 
-        /* A or L → open full menu (OPEN_MENU_BUTTON).
-         * OPEN_MENU_BUTTON handles all cleanup (hide HPPP, close windows,
-         * enable entities), so we just return after it completes. */
+    case HD_TICK:
+        /* First frame renders before any input is read (the blocking loop's
+         * leading window_tick); thereafter the input acted on here is what the
+         * pump's previous yield latched — same read-after-yield order. */
+        if (!st->primed) {
+            st->primed = 1;
+            window_tick_work();
+            return STEP_RESULT_CONTINUE();
+        }
+
+        if (platform_input_quit_requested())
+            return STEP_RESULT_POP(0);  /* blocking `break` had no cleanup */
+
+        /* A or L → open the full menu */
         if (core.pad1_pressed & PAD_CONFIRM) {
-            open_menu_button();
-            return;
+            hd_child_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
+            st->phase = HD_MENU_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &hd_child_init);
         }
 
         /* B or Select → dismiss (assembly lines 17-26) */
@@ -2962,12 +2985,34 @@ void open_hppp_display(void) {
             clear_instant_printing();
             hide_hppp_windows();
             close_all_windows();
-            window_tick();
-            enable_all_entities();
-            return;
+            window_tick_work();
+            st->phase = HD_EXIT;
+            return STEP_RESULT_CONTINUE();
         }
+
+        window_tick_work();
+        return STEP_RESULT_CONTINUE();
+
+    case HD_MENU_DONE:
+        /* The pause menu did all cleanup; nothing left to do. */
+        return STEP_RESULT_POP(0);
+
+    case HD_EXIT:
+    default:
+        enable_all_entities();
+        return STEP_RESULT_POP(0);
     }
-#endif
+}
+
+/* Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
+ * Called when B/Select is pressed in the overworld. Shows HP/PP windows and
+ * money, waits until dismissed; A/L opens the full menu (the pause-menu mode).
+ * With -DEB_B_OPENS_MAIN_MENU the wait is skipped and control falls straight
+ * into the main pause menu (two-action-button play: B + L). Thin bridge over
+ * GAME_MODE_HPPP_DISPLAY while overworld_post is still a blocking driver. */
+void open_hppp_display(void) {
+    ModeState init = { .hppp_display = { .phase = HD_ENTER } };
+    pump_mode(GAME_MODE_HPPP_DISPLAY, &init);
 }
 
 void text_setup_bg3(void) {
