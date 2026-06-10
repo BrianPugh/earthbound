@@ -591,33 +591,40 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
     /* --- Battle-style path (assembly lines 127-405): HP/PP column selection,
      * now run as GAME_MODE_CHAR_SELECT (run-to-completion). The input loop lives
      * in mode_step_char_select(). --- */
+    ModeState init;
+    char_select_make_init(&init, mode, allow_cancel,
+                          cs_onchange_id(on_change), cs_checkvalid_id(check_valid));
 
-    /* Initial character index (lines 128-139): start at 0 for mode 2 or when no
-     * character was previously selected, else resume the stored one. */
+    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
+     * pagination_animation_frame = -1) before it pops. */
+    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
+}
+
+/* Build a GAME_MODE_CHAR_SELECT init for the battle-style path (mode 0/2),
+ * replicating char_select_prompt()'s prologue: capture the focus window's
+ * argument_memory (restored by the step before it pops) and the initial
+ * character index (assembly lines 128-139: 0 for mode 2 or when no character was
+ * previously selected, else the stored one). The initial on_change + pagination
+ * reset run in the mode's CSP_INIT phase. Lets an already-converted parent
+ * STEP_PUSH the char select directly instead of calling the blocking wrapper. */
+void char_select_make_init(ModeState *init, uint16_t mode, uint16_t allow_cancel,
+                           uint8_t on_change_id, uint8_t check_valid_id) {
     uint16_t current_index;
     if (win.battle_menu_current_character_id == -1 || mode == 2)
         current_index = 0;
     else
         current_index = (uint16_t)win.battle_menu_current_character_id;
 
-    /* The initial on_change + pagination reset (assembly lines 141-163) now run in
-     * the mode's CSP_INIT phase (so an on_change that pushes a DISPLAY_TEXT child is
-     * a STEP_PUSH, not a C-stack pump). on_change is mapped to its ID below. */
-
-    ModeState init = {0};
-    init.char_select.phase                 = CSP_INIT;
-    init.char_select.mode                  = (uint8_t)mode;
-    init.char_select.allow_cancel          = (uint8_t)allow_cancel;
-    init.char_select.on_change_id          = cs_onchange_id(on_change);
-    init.char_select.check_valid_id        = cs_checkvalid_id(check_valid);
-    init.char_select.current_index         = current_index;
-    init.char_select.delay                 = 10;
-    init.char_select.counter               = 0;
-    init.char_select.saved_argument_memory = saved_argument_memory;
-
-    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
-     * pagination_animation_frame = -1) before it pops. */
-    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
+    memset(init, 0, sizeof(*init));
+    init->char_select.phase                 = CSP_INIT;
+    init->char_select.mode                  = (uint8_t)mode;
+    init->char_select.allow_cancel          = (uint8_t)allow_cancel;
+    init->char_select.on_change_id          = on_change_id;
+    init->char_select.check_valid_id        = check_valid_id;
+    init->char_select.current_index         = current_index;
+    init->char_select.delay                 = 10;
+    init->char_select.counter               = 0;
+    init->char_select.saved_argument_memory = get_argument_memory();
 }
 
 /*

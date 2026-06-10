@@ -61,6 +61,7 @@ typedef enum {
     GAME_MODE_PROCESS_INTERACTION, /* overworld interaction dispatch (process_queued_interactions) */
     GAME_MODE_DOOR_TRANSITION,     /* door/teleport transition driver (door_transition) */
     GAME_MODE_QUICK_CHECKTALK,     /* L-button quick talk/check (open_menu_button_checktalk) */
+    GAME_MODE_PAUSE_MENU,          /* overworld pause menu (open_menu_button) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -179,6 +180,49 @@ typedef enum {
 typedef struct {
     uint8_t phase;   /* QuickChecktalkPhase */
 } QuickChecktalkState;
+
+/* GAME_MODE_PAUSE_MENU phases. Port of open_menu_button() (text.c,
+ * asm/overworld/open_menu.asm): the full overworld pause menu — Talk to, Goods
+ * (with the Use/Give/Drop/Help cascade), PSI, Equip, Check, Status. The former
+ * goto-heavy for(;;) becomes a phase machine in the file_menu idiom: each
+ * sub-menu builds its window synchronously, STEP_PUSHes GAME_MODE_SELECTION_MENU
+ * (or GAME_MODE_CHAR_SELECT / GAME_MODE_DISPLAY_TEXT), and reads the choice back
+ * via mode_child_result() in the matching *_RESULT phase. Phases chain inside an
+ * internal for(;;) so no-yield transitions match the blocking original.
+ *
+ * Four sub-drivers deliberately stay blocking, called inline from the step
+ * (each is its own large driver, pumping its converted children internally —
+ * later parent conversions): overworld_psi_menu(), open_equipment_menu(),
+ * open_status_menu(), and overworld_use_item(). */
+typedef enum {
+    PM_ENTER = 0,           /* one-shot setup (disable entities, command menu); no yield */
+    PM_MAIN,                /* focus command menu; push SELECTION_MENU(1) */
+    PM_MAIN_RESULT,         /* dispatch Talk/Goods/PSI/Equip/Check/Status */
+    PM_GOODS_CHAR,          /* goods character select (single inline / multi push CHAR_SELECT) */
+    PM_GOODS_CHAR_RESULT,   /* after the multi-party CHAR_SELECT pops */
+    PM_GOODS_INV,           /* "Which?" header; push SELECTION_MENU(1) on the inventory */
+    PM_GOODS_INV_RESULT,    /* item chosen or cancelled; build the Use/Give/Drop/Help menu */
+    PM_ACTION_MENU,         /* @ITEM_ACTION_LOOP head; push SELECTION_MENU(1) */
+    PM_ACTION_RESULT,       /* dispatch Use/Give/Drop/Help/cancel */
+    PM_HELP_RESUME,         /* after the help text pops: rebuild menus -> PM_GOODS_INV */
+    PM_GIVE_CHAR_RESULT,    /* after the give-target CHAR_SELECT pops */
+    PM_GIVE_BLOCKED_RESUME, /* after the EXCLUSIVE_CARRIER text pops -> PM_ACTION_MENU */
+    PM_GIVE_MSG_RESUME,     /* after the give message pops: swap item + close -> PM_MAIN */
+    PM_DROP_RESUME,         /* after the drop text pops: close windows -> PM_MAIN */
+    PM_CLEANUP,             /* @CLEANUP_AND_CLOSE; push ENTITY_FADE_WAIT */
+    PM_DONE,                /* enable entities + POP */
+} PauseMenuPhase;
+
+typedef struct {
+    uint8_t  phase;          /* PauseMenuPhase */
+    uint8_t  result_ready;   /* 1 = `result` holds an inline early-exit value (no child pushed) */
+    uint8_t  action_reentry; /* @VIRTUAL02: action-menu re-entry skips the reprint */
+    uint8_t  give_case;      /* give message case index (0-9) */
+    uint16_t result;         /* inline early-exit selection result */
+    uint16_t goods_char;     /* 1-based character whose inventory is open */
+    uint16_t item_slot;      /* 1-based selected item slot */
+    uint16_t give_target;    /* 1-based give recipient */
+} PauseMenuState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1099,6 +1143,7 @@ union ModeState {
     ProcessInteractionState process_interaction;
     DoorTransitionState   door_transition;
     QuickChecktalkState   quick_checktalk;
+    PauseMenuState        pause_menu;
     uint8_t               _raw[160];
 };
 
@@ -1270,6 +1315,11 @@ StepResult mode_step_door_transition(ModeState *st);
  * ModeState.quick_checktalk (phase = QCT_TEXT) before
  * pump_mode(GAME_MODE_QUICK_CHECKTALK). Always pops 0. */
 StepResult mode_step_quick_checktalk(ModeState *st);
+
+/* GAME_MODE_PAUSE_MENU step (defined in text.c, where the command-menu /
+ * inventory / give helpers live). Init with ModeState.pause_menu
+ * (phase = PM_ENTER) before pump_mode(GAME_MODE_PAUSE_MENU). Always pops 0. */
+StepResult mode_step_pause_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

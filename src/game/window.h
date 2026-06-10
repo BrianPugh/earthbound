@@ -277,6 +277,13 @@ uint8_t  cs_checkvalid_id(uint16_t (*fn)(uint16_t));
 bool     cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init);
 uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id);
 
+/* Build a GAME_MODE_CHAR_SELECT init for the battle-style path (mode 0/2),
+ * replicating char_select_prompt()'s prologue, so an already-converted parent
+ * can STEP_PUSH the char select directly. Defined in battle.c. The callback IDs
+ * are CharSelectOnChangeId / CharSelectCheckValidId (mode_stack.h). */
+void char_select_make_init(union ModeState *init, uint16_t mode, uint16_t allow_cancel,
+                           uint8_t on_change_id, uint8_t check_valid_id);
+
 /* CLEAR_FOCUS_WINDOW_MENU_OPTIONS: Port of asm/text/window/clear_focus_window_menu_options.asm.
  * Resets the menu item count of the focus window to 0. */
 void clear_focus_window_menu_options(void);

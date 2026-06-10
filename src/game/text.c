@@ -2184,98 +2184,270 @@ setup_action_window:
     }
 }
 
-/* OPEN_MENU_BUTTON — Port of asm/overworld/open_menu.asm.
+/* ---------------------------------------------------------------------------
+ * GAME_MODE_PAUSE_MENU — run-to-completion port of open_menu_button()
+ * (asm/overworld/open_menu.asm, 614 lines): the full pause menu — Talk to,
+ * Goods (Use/Give/Drop/Help cascade), PSI, Equip, Check, Status. Called when A
+ * is pressed in the overworld, or A/L from the HPPP display.
  *
- * Full pause menu: Talk to, Goods, PSI, Equip, Check, Status.
- * Called when A is pressed in the overworld, or A/L from HPPP display.
+ * The former goto-heavy for(;;) is a phase machine in the file_menu idiom: each
+ * sub-menu builds its window synchronously, STEP_PUSHes SELECTION_MENU /
+ * CHAR_SELECT / DISPLAY_TEXT, and reads the choice back via mode_child_result()
+ * in the matching *_RESULT phase. The internal for(;;) chains no-yield
+ * transitions, matching the blocking original's zero-yield gaps.
  *
- * Assembly: 614 lines (OPEN_MENU_BUTTON) + 29 lines (OPEN_MENU_BUTTON_CHECKTALK).
- */
-void open_menu_button(void) {
-    disable_all_entities();
-    play_sfx(1);  /* SFX::CURSOR1 */
+ * Still blocking, called inline from the step (each its own large driver,
+ * pumping its converted children internally — later parent conversions):
+ * overworld_psi_menu(), open_equipment_menu(), open_status_menu(), and
+ * overworld_use_item(). See PauseMenuState in mode_stack.h.
+ * ------------------------------------------------------------------------- */
 
-    create_window(WINDOW_COMMAND_MENU);
+/* Initial state for a pushed child. Must outlive the dispatch turn
+ * (STEP_RESULT_PUSH_INIT copies it immediately); a file-static is fine since
+ * only one child push is ever pending at a time. */
+static ModeState pm_child_init;
 
-    skip_adding_command_text = 0;
-    build_command_menu();
-    win.restore_menu_backup = 0;  /* STZ RESTORE_MENU_BACKUP (open_menu.asm line 23) */
+/* Push GAME_MODE_SELECTION_MENU as a child after the focus window's menu has
+ * been laid out. Sets the PM phase to read the result in on re-entry.
+ * Replicates selection_menu()'s early-exit (no focus window / empty menu →
+ * result 0 with no push), delivered inline via result_ready. */
+static StepResult pm_push_selection(PauseMenuState *st, uint8_t result_phase,
+                                    uint16_t allow_cancel) {
+    st->phase = result_phase;
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0) {
+        st->result_ready = 1;
+        st->result = 0;
+        return STEP_RESULT_CONTINUE();
+    }
+    st->result_ready = 0;
+    pm_child_init = (ModeState){0};
+    pm_child_init.selection_menu.phase        = SM_SETUP;
+    pm_child_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &pm_child_init);
+}
 
-    /* Main pause menu loop (assembly @MAIN_PAUSE_MENU) */
+/* Read the result of the menu a *_RESULT phase is processing: the popped
+ * child's value, or the inline early-exit value if no child was pushed. */
+static uint16_t pm_take_result(PauseMenuState *st) {
+    uint16_t r = st->result_ready ? st->result : (uint16_t)mode_child_result();
+    st->result_ready = 0;
+    return r;
+}
+
+/* Push a DISPLAY_TEXT child for `addr`, resuming at `resume_phase`. If the
+ * address can't be resolved, warn (like display_text_from_addr) and fall
+ * through to the resume phase inline — the step's for(;;) continues there. */
+static StepResult pm_push_text(PauseMenuState *st, uint8_t resume_phase,
+                               uint32_t addr, bool *pushed) {
+    st->phase = resume_phase;
+    if (dt_make_child_init(&pm_child_init, addr)) {
+        *pushed = true;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &pm_child_init);
+    }
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    *pushed = false;
+    return STEP_RESULT_CONTINUE();
+}
+
+StepResult mode_step_pause_menu(ModeState *ms) {
+    PauseMenuState *st = &ms->pause_menu;
+
     for (;;) {
-        set_window_focus(0);  /* WINDOW::COMMAND_MENU index in open table */
-        uint16_t selection = selection_menu(1);  /* allow cancel */
+        switch ((PauseMenuPhase)st->phase) {
 
-        switch (selection) {
+        case PM_ENTER:
+            /* One-shot setup (open_menu.asm lines 14-23); no yield. */
+            disable_all_entities();
+            play_sfx(1);  /* SFX::CURSOR1 */
+            create_window(WINDOW_COMMAND_MENU);
+            skip_adding_command_text = 0;
+            build_command_menu();
+            win.restore_menu_backup = 0;  /* STZ RESTORE_MENU_BACKUP (line 23) */
+            st->phase = PM_MAIN;
+            continue;
 
-        /* --- Talk to (assembly lines 45-54) --- */
-        case 1: {  /* MENU_OPTIONS::TALK_TO */
-            uint32_t text_ptr = talk_to();
-            if (text_ptr == 0)
-                text_ptr = MSG_SYS_TALK_NO_TARGET;
-            display_text_from_addr(text_ptr);
-            goto cleanup_and_close;
+        case PM_MAIN:
+            /* @MAIN_PAUSE_MENU head */
+            set_window_focus(0);  /* WINDOW::COMMAND_MENU index in open table */
+            return pm_push_selection(st, PM_MAIN_RESULT, 1);
+
+        case PM_MAIN_RESULT: {
+            uint16_t selection = pm_take_result(st);
+            switch (selection) {
+
+            /* --- Talk to (assembly lines 45-54) --- */
+            case 1: {  /* MENU_OPTIONS::TALK_TO */
+                uint32_t text_ptr = talk_to();
+                if (text_ptr == 0)
+                    text_ptr = MSG_SYS_TALK_NO_TARGET;
+                bool pushed;
+                StepResult r = pm_push_text(st, PM_CLEANUP, text_ptr, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            /* --- Goods (assembly lines 55-61) --- */
+            case 2:  /* MENU_OPTIONS::GOODS */
+                /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 56) */
+                show_hppp_windows();
+                display_money_window();
+                st->goods_char = 0;
+                st->item_slot = 0;
+                st->phase = PM_GOODS_CHAR;
+                continue;
+
+            /* --- PSI (assembly lines 552-572) --- */
+            case 3: {  /* MENU_OPTIONS::PSI */
+                show_hppp_windows();
+                display_money_window();
+
+                /* Highlight first PSI-capable party member (lines 554-561) */
+                uint16_t first_psi = find_first_character_with_psi();
+                if (first_psi != 0)
+                    select_battle_menu_character(first_psi - 1);
+
+                /* OVERWORLD_PSI_MENU: full PSI selection, targeting, and
+                 * execution (asm/text/menu/overworld_psi_menu.asm, 571 lines).
+                 * Blocking driver, called inline (deferred parent conversion).
+                 * Note: assembly does NOT set dt.force_left_text_alignment for
+                 * PSI (only STATUS). */
+                uint16_t psi_result = overworld_psi_menu();
+                if (psi_result != 0) {
+                    st->phase = PM_CLEANUP;
+                    continue;
+                }
+
+                /* Single PSI user: play SFX and clear indicator (lines 566-572) */
+                if (count_characters_with_psi() == 1) {
+                    play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
+                    clear_battle_menu_character_indicator();
+                }
+                st->phase = PM_MAIN;
+                continue;
+            }
+
+            /* --- Equip (assembly lines 573-583) --- */
+            case 4:  /* MENU_OPTIONS::EQUIP */
+                show_hppp_windows();
+                display_money_window();
+
+                /* OPEN_EQUIPMENT_MENU: character selection + equipment change
+                 * (src/inventory/equipment/open_equipment_menu.asm, 66 lines).
+                 * Blocking driver, called inline (deferred parent conversion). */
+                open_equipment_menu();
+
+                /* Single party member: play SFX and clear indicator (576-583) */
+                if ((game_state.player_controlled_party_count & 0xFF) == 1) {
+                    play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
+                    clear_battle_menu_character_indicator();
+                }
+                st->phase = PM_MAIN;
+                continue;
+
+            /* --- Check (assembly lines 584-593) --- */
+            case 5: {  /* MENU_OPTIONS::CHECK */
+                uint32_t text_ptr = check_action();
+                if (text_ptr == 0)
+                    text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
+                bool pushed;
+                StepResult r = pm_push_text(st, PM_CLEANUP, text_ptr, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            /* --- Status (assembly lines 594-602) --- */
+            case 6:  /* MENU_OPTIONS::STATUS */
+                show_hppp_windows();
+                display_money_window();
+
+                /* OPEN_STATUS_MENU (asm/text/menu/open_status_menu.asm, 119
+                 * lines). Blocking driver, called inline (deferred — its
+                 * display_text is instant-printed, never a savestate point).
+                 * Sets FORCE_LEFT_TEXT_ALIGNMENT around the call. */
+                dt.force_left_text_alignment = 1;
+                open_status_menu();
+                dt.force_left_text_alignment = 0;
+                st->phase = PM_MAIN;
+                continue;
+
+            /* Cancel (B/Select) or unknown → cleanup */
+            default:
+                st->phase = PM_CLEANUP;
+                continue;
+            }
         }
 
-        /* --- Goods (assembly lines 55-551) --- */
-        case 2: {  /* MENU_OPTIONS::GOODS */
-            /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 56) */
-            show_hppp_windows();
-            display_money_window();
-
-            uint16_t goods_char = 0;     /* 1-based character ID */
-            uint16_t goods_item_slot = 0; /* 1-based item slot from selection */
-
-goods_char_select:
-            /* Character selection: single vs multi-party */
+        case PM_GOODS_CHAR:
+            /* @GOODS character selection: single vs multi-party */
             if ((game_state.player_controlled_party_count & 0xFF) == 1) {
                 /* Single party member (assembly lines 62-83) */
                 uint8_t member = game_state.party_members[0];
 
                 /* Check if character has any items */
-                if (get_character_item(member, 1) == 0)
-                    continue;  /* no items → @MAIN_PAUSE_MENU */
+                if (get_character_item(member, 1) == 0) {
+                    st->phase = PM_MAIN;  /* no items → @MAIN_PAUSE_MENU */
+                    continue;
+                }
 
                 /* Populate inventory window */
                 inventory_get_item_name(member, WINDOW_INVENTORY);
-                goods_char = member;
+                st->goods_char = member;
 
                 /* Highlight character in HPPP window */
                 select_battle_menu_character(0);
-            } else {
-                /* Multi-party path (assembly lines 84-93) */
-                display_menu_header_text(0);  /* "Who?" */
-
-                /* char_select_prompt: mode=0, allow_cancel=1.
-                 * Assembly passes GET_WEAPON_ITEM_NAME as on_change callback
-                 * (shows inventory as cursor moves). */
-                goods_char = char_select_prompt(0, 1, get_weapon_item_name_callback, NULL);
+                st->phase = PM_GOODS_INV;
+                continue;
             }
+            /* Multi-party path (assembly lines 84-93) */
+            display_menu_header_text(0);  /* "Who?" */
 
-            /* After character selection (assembly line 94-101) */
+            /* Assembly: mode=0, allow_cancel=1, on_change=GET_WEAPON_ITEM_NAME
+             * (shows inventory as cursor moves). */
+            char_select_make_init(&pm_child_init, 0, 1,
+                                  CS_ONCHANGE_WEAPON_NAME, CS_CHECKVALID_NONE);
+            st->phase = PM_GOODS_CHAR_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+
+        case PM_GOODS_CHAR_RESULT: {
+            uint16_t goods_char = (uint16_t)mode_child_result();
+            st->goods_char = goods_char;
+
+            /* After character selection (assembly lines 94-101) */
             if (goods_char == 0) {
                 /* Cancelled — close inventory and header, return to main menu */
                 close_window(WINDOW_INVENTORY);
                 close_menu_header_window();
-                continue;  /* @MAIN_PAUSE_MENU */
+                st->phase = PM_MAIN;
+                continue;
             }
 
             /* Verify character has items (assembly lines 102-107) */
-            if (get_character_item(goods_char, 1) == 0)
-                goto goods_char_select;  /* no items → re-select character */
+            if (get_character_item(goods_char, 1) == 0) {
+                st->phase = PM_GOODS_CHAR;  /* no items → re-select character */
+                continue;
+            }
+            st->phase = PM_GOODS_INV;
+            continue;
+        }
 
-goods_show_inventory:
-            /* Show item list (assembly lines 108-117) */
+        case PM_GOODS_INV:
+            /* @GOODS_SHOW_INVENTORY (assembly lines 108-117) */
             display_menu_header_text(1);  /* "Which?" */
             set_window_focus(WINDOW_INVENTORY);
-            goods_item_slot = selection_menu(1);  /* allow cancel */
+            return pm_push_selection(st, PM_GOODS_INV_RESULT, 1);
+
+        case PM_GOODS_INV_RESULT: {
+            uint16_t item_slot = pm_take_result(st);
             backup_selected_menu_option();
             close_menu_header_window();
 
-            if (goods_item_slot == 0) {
+            if (item_slot == 0) {
                 /* Cancelled item selection (assembly lines 120-137) */
-                if ((game_state.player_controlled_party_count & 0xFF) != 1)
-                    goto goods_char_select;  /* multi-party → re-select char */
+                if ((game_state.player_controlled_party_count & 0xFF) != 1) {
+                    st->phase = PM_GOODS_CHAR;  /* multi-party → re-select char */
+                    continue;
+                }
 
                 /* Single party: play SFX if has items, clear indicator */
                 if (get_character_item(game_state.party_members[0], 1) != 0) {
@@ -2283,341 +2455,320 @@ goods_show_inventory:
                     clear_battle_menu_character_indicator();
                 }
                 close_window(WINDOW_INVENTORY);
-                continue;  /* @MAIN_PAUSE_MENU */
+                st->phase = PM_MAIN;
+                continue;
             }
+            st->item_slot = item_slot;
 
             /* --- Item selected: build action menu (assembly lines 138-194) --- */
-            {
-                create_window(WINDOW_INVENTORY_MENU);
+            create_window(WINDOW_INVENTORY_MENU);
 
-                /* Check if character is unconscious/diamondized (lines 140-156).
-                 * If affliction is UNCONSCIOUS(1) or DIAMONDIZED(2), skip "Use". */
-                uint16_t char_idx = goods_char - 1;
-                uint8_t affliction = party_characters[char_idx].afflictions[0];
-                int start_action = 0;  /* 0 = include Use, 1 = skip Use */
-                if (affliction != 0) {
-                    /* Assembly: LDA #4; CLC; SBC affliction; BRANCHLTEQS
-                     * Tests 4 - affliction - 1 <= 0 → affliction >= 4.
-                     * UNCONSCIOUS=1,DIAMONDIZED=2 → 4-1-1=2>0 or 4-2-1=1>0 → alive
-                     * Actually: BRANCHLTEQS = branch if <= 0 → skip to alive.
-                     * So affliction 1,2,3 → start_action=1 (skip Use). */
-                    if (4 - (int)affliction - 1 > 0)
-                        start_action = 1;
-                }
+            /* Check if character is unconscious/diamondized (lines 140-156).
+             * If affliction is UNCONSCIOUS(1) or DIAMONDIZED(2), skip "Use". */
+            uint16_t char_idx = st->goods_char - 1;
+            uint8_t affliction = party_characters[char_idx].afflictions[0];
+            int start_action = 0;  /* 0 = include Use, 1 = skip Use */
+            if (affliction != 0) {
+                /* Assembly: LDA #4; CLC; SBC affliction; BRANCHLTEQS
+                 * Tests 4 - affliction - 1 <= 0 → affliction >= 4.
+                 * So affliction 1,2,3 → start_action=1 (skip Use). */
+                if (4 - (int)affliction - 1 > 0)
+                    start_action = 1;
+            }
 
-                /* Build Use/Give/Drop/Help menu (assembly lines 159-192).
-                 * ITEM_USE_MENU_STRINGS: "Use"(0), "Give"(1), "Drop"(2), "Help!"(3)
-                 * Userdata: Use=1, Give=2, Drop=3, Help!=4 */
-                static const char *item_action_labels[4] EB_NORELOC = {
-                    "Use", "Give", "Drop", "Help!"
-                };
+            /* Build Use/Give/Drop/Help menu (assembly lines 159-192).
+             * ITEM_USE_MENU_STRINGS: "Use"(0), "Give"(1), "Drop"(2), "Help!"(3)
+             * Userdata: Use=1, Give=2, Drop=3, Help!=4 */
+            static const char *item_action_labels[4] EB_NORELOC = {
+                "Use", "Give", "Drop", "Help!"
+            };
 
-                set_focus_text_cursor(0, 0);
-                for (int i = start_action; i < 4; i++) {
-                    add_menu_item_no_position(item_action_labels[i], i + 1);
-                }
-                open_window_and_print_menu(1, 0);
+            set_focus_text_cursor(0, 0);
+            for (int i = start_action; i < 4; i++) {
+                add_menu_item_no_position(item_action_labels[i], i + 1);
+            }
+            open_window_and_print_menu(1, 0);
 
-                uint16_t action_virtual02 = 0;  /* tracks menu re-entry mode */
+            st->action_reentry = 0;  /* @VIRTUAL02 */
+            st->phase = PM_ACTION_MENU;
+            continue;
+        }
 
-                /* Item action selection loop (assembly @ITEM_ACTION_LOOP, lines 195-230) */
-item_action_loop:
-                if (action_virtual02 != 0) {
-                    set_window_focus(WINDOW_INVENTORY);
-                } else {
-                    set_window_focus(WINDOW_INVENTORY_MENU);
-                    print_menu_items();
-                }
-
+        case PM_ACTION_MENU:
+            /* @ITEM_ACTION_LOOP head (assembly lines 195-230) */
+            if (st->action_reentry != 0) {
+                set_window_focus(WINDOW_INVENTORY);
+            } else {
                 set_window_focus(WINDOW_INVENTORY_MENU);
-                uint16_t action = selection_menu(1);  /* allow cancel */
-
-                if (action == 0) {
-                    /* @BACK_TO_ITEM_LIST: cancel → return to item list */
-                    close_focus_window();  /* close INVENTORY_MENU */
-                    set_window_focus(WINDOW_INVENTORY);
-                    goto goods_show_inventory;
-                }
-
-                switch (action) {
-                case 1: {
-                    /* @GOODS_ITEM_USE (assembly lines 236-252) */
-                    uint16_t use_result = overworld_use_item(goods_char, goods_item_slot);
-                    if (use_result != 0)
-                        goto cleanup_and_close;
-                    /* Targeting cancelled — return to item action menu
-                     * (assembly lines 248-252: @VIRTUAL00=0, @LOCAL04=0) */
-                    action_virtual02 = 1;
-                    goto item_action_loop;
-                }
-
-                case 4: {
-                    /* @GOODS_ITEM_HELP (assembly lines 253-263):
-                     * Clear windows, set restore_menu_backup, show item help. */
-                    clear_window_text(0);
-                    clear_window_text(2);
-                    win.restore_menu_backup = 0xFF;
-
-                    create_window(WINDOW_TEXT_STANDARD);
-
-                    /* Get item from inventory */
-                    uint16_t help_item_id = get_character_item(goods_char, goods_item_slot);
-
-                    /* Look up help_text pointer in item config table.
-                     * item::help_text is a 4-byte SNES pointer at offset 35. */
-                    const ItemConfig *item_entry = get_item_entry(help_item_id);
-                    if (item_entry) {
-                        uint32_t help_text_addr = item_entry->help_text & 0xFFFFFF;
-                        /* Dereference: the help_text field contains a pointer to
-                         * the SNES address of the actual text.
-                         * Assembly: DEREFERENCE_PTR_TO @VIRTUAL0A, @VIRTUAL06 */
-                        display_text_from_addr(help_text_addr);
-                    }
-
-                    close_window(WINDOW_TEXT_STANDARD);
-
-                    /* Rebuild command menu and inventory list */
-                    set_window_focus(WINDOW_COMMAND_MENU);
-                    skip_adding_command_text = 1;
-                    build_command_menu();
-
-                    /* Rebuild inventory */
-                    inventory_get_item_name(goods_char, WINDOW_INVENTORY);
-                    close_window(WINDOW_INVENTORY_MENU);
-                    set_window_focus(WINDOW_INVENTORY);
-                    goto goods_show_inventory;
-                }
-
-                case 2: {
-                    /* @GOODS_GIVE (assembly lines 304-533):
-                     * Give item to another party member. */
-                    set_window_focus(WINDOW_INVENTORY);
-
-                    /* Assembly (open_menu.asm:307): CLEAR_FOCUS_WINDOW_CONTENT frees
-                     * the giver inventory window's BG2 content tiles before the
-                     * recipient's inventory is rendered into WINDOW_OVERWORLD_CHAR_SELECT
-                     * during char_select_prompt. Without this, both full inventories
-                     * hold tiles at once and exhaust the ~407-tile BG2 pool
-                     * ("alloc_bg2_tilemap_entry: tile exhaustion!"). */
-                    clear_focus_window_content_far();
-
-                    action_virtual02 = 1;
-                    display_menu_header_text(3);  /* "Whom?" */
-
-                    /* Select target character.
-                     * Assembly: mode=2, allow_cancel=1,
-                     * on_change=GET_BODY_ITEM_NAME. */
-                    uint16_t give_target = char_select_prompt(2, 1,
-                        get_body_item_name_callback, NULL);
-                    close_menu_header_window();
-                    close_window(WINDOW_OVERWORLD_CHAR_SELECT);
-
-                    if (give_target == 0) {
-                        /* Cancelled give → return to action menu */
-                        goto item_action_loop;
-                    }
-
-                    /* Check CANNOT_GIVE flag on item (assembly lines 332-361) */
-                    uint16_t give_item_id = get_character_item(goods_char, goods_item_slot);
-                    const ItemConfig *give_entry = get_item_entry(give_item_id);
-                    if (give_entry && give_target != goods_char &&
-                        (give_entry->flags & ITEM_FLAG_CANNOT_GIVE)) {
-                        /* Can't give this item */
-                        create_window(WINDOW_TEXT_STANDARD);
-                        set_working_memory(goods_char);
-                        set_argument_memory(goods_item_slot);
-                        display_text_from_addr(MSG_SYS_ITEM_EXCLUSIVE_CARRIER);
-                        close_window(WINDOW_TEXT_STANDARD);
-                        goto item_action_loop;
-                    }
-
-                    /* Determine give status case (assembly lines 362-457).
-                     * case_index combines: same_char, giver_dead, has_space, target_dead */
-                    int case_index = 0;
-                    uint16_t giver_idx = goods_char - 1;
-                    uint16_t target_idx = give_target - 1;
-                    uint8_t giver_aff = party_characters[giver_idx].afflictions[0];
-                    bool giver_dead = (giver_aff == 1 || giver_aff == 2);
-                    /* UNCONSCIOUS=1, DIAMONDIZED=2 */
-
-                    if (goods_char == give_target) {
-                        /* Self-give */
-                        case_index = giver_dead ? 5 : 0;
-                    } else {
-                        /* Different character */
-                        case_index = giver_dead ? 5 : 0;
-                        case_index += 1;  /* base: alive→alive fail */
-
-                        /* Check target inventory space */
-                        bool has_space = (find_inventory_space2(give_target) != 0);
-
-                        /* Check target dead */
-                        uint8_t target_aff = party_characters[target_idx].afflictions[0];
-                        bool target_dead = (target_aff == 1 || target_aff == 2);
-
-                        if (giver_dead) {
-                            /* Giver dead: cases 6-9 */
-                            case_index = 6;  /* dead→alive fail */
-                            if (target_dead) case_index = 7;  /* dead→dead fail */
-                            if (has_space) case_index += 2;   /* +2 = success */
-                        } else {
-                            /* Giver alive: cases 1-4 */
-                            case_index = 1;  /* alive→alive fail */
-                            if (target_dead) case_index = 2;  /* alive→dead fail */
-                            if (has_space) case_index += 2;   /* +2 = success */
-                        }
-                    }
-
-                    /* Display appropriate message (assembly lines 458-525) */
-                    static const uint32_t carry_msg_addrs[10] = {
-                        MSG_SYS_ITEM_REARRANGED_SELF,               /* 0 */
-                        MSG_SYS_ITEM_GIVE_FULL_BOTH_ALIVE,   /* 1 */
-                        MSG_SYS_ITEM_GIVE_FULL_ALIVE_KO,    /* 2 */
-                        MSG_SYS_ITEM_GAVE_BOTH_ALIVE,        /* 3 */
-                        MSG_SYS_ITEM_GAVE_ALIVE_TO_KO,         /* 4 */
-                        MSG_SYS_ITEM_REARRANGED_KO,                /* 5 */
-                        MSG_SYS_ITEM_GIVE_FULL_KO_ALIVE,    /* 6 */
-                        MSG_SYS_ITEM_GIVE_FULL_BOTH_KO,     /* 7 */
-                        MSG_SYS_ITEM_TOOK_FROM_KO,         /* 8 */
-                        MSG_SYS_ITEM_MOVED_KO_TO_KO,          /* 9 */
-                    };
-
-                    create_window(WINDOW_TEXT_STANDARD);
-                    /* Assembly @DISPLAY_GIVE_MESSAGE: working_memory = source char,
-                     * working_memory_storage = target char, argument_memory = item slot.
-                     * The give-success/fail messages substitute the recipient's name
-                     * from working_memory_storage — without it, "gave to <X>" renders
-                     * the wrong name (e.g. the giver) for give-to-other. */
-                    set_working_memory(goods_char);
-                    set_working_memory_storage(give_target);
-                    set_argument_memory(goods_item_slot);
-
-                    display_text_from_addr(carry_msg_addrs[case_index]);
-
-                    /* Successful transfers call SWAP_ITEM_INTO_EQUIPMENT.
-                     * Cases 0,3,4,5,8,9 are success (assembly lines 458-523). */
-                    bool give_success = (case_index == 0 || case_index == 3 ||
-                                         case_index == 4 || case_index == 5 ||
-                                         case_index == 8 || case_index == 9);
-                    if (give_success) {
-                        swap_item_into_equipment(goods_char, goods_item_slot,
-                                                 give_target);
-                    }
-
-                    /* Cleanup: close all sub-windows, return to main menu
-                     * (assembly @GOODS_GIVE_DONE, lines 526-533). */
-                    close_window(WINDOW_TEXT_STANDARD);
-                    close_window(WINDOW_INVENTORY_MENU);
-                    close_window(WINDOW_INVENTORY);
-                    continue;  /* @MAIN_PAUSE_MENU */
-                }
-
-                case 3: {
-                    /* @GOODS_DROP (assembly lines 534-551):
-                     * Drop item — display confirmation text, let text script handle it. */
-                    create_window(WINDOW_TEXT_STANDARD);
-                    set_working_memory(goods_char);
-                    set_argument_memory(goods_item_slot);
-                    display_text_from_addr(MSG_SYS_ITEM_DROP);
-                    close_window(WINDOW_TEXT_STANDARD);
-                    close_window(WINDOW_INVENTORY_MENU);
-                    close_window(WINDOW_INVENTORY);
-                    continue;  /* @MAIN_PAUSE_MENU */
-                }
-
-                default:
-                    goto cleanup_and_close;
-                }  /* switch(action) */
+                print_menu_items();
             }
-        }  /* end case 2 (Goods) */
+            set_window_focus(WINDOW_INVENTORY_MENU);
+            return pm_push_selection(st, PM_ACTION_RESULT, 1);
 
-        /* --- PSI (assembly lines 552-572) --- */
-        case 3: {  /* MENU_OPTIONS::PSI */
-            /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 553) */
-            show_hppp_windows();
-            display_money_window();
+        case PM_ACTION_RESULT: {
+            uint16_t action = pm_take_result(st);
 
-            /* Highlight first PSI-capable party member (lines 554-561) */
-            uint16_t first_psi = find_first_character_with_psi();
-            if (first_psi != 0)
-                select_battle_menu_character(first_psi - 1);
-
-            /* OVERWORLD_PSI_MENU: full PSI selection, targeting, and execution.
-             * Port of asm/text/menu/overworld_psi_menu.asm (571 lines).
-             * Note: Assembly does NOT set dt.force_left_text_alignment for PSI (only STATUS). */
-            uint16_t psi_result = overworld_psi_menu();
-            if (psi_result != 0)
-                goto cleanup_and_close;
-
-            /* Single PSI user: play SFX and clear indicator (lines 566-572) */
-            if (count_characters_with_psi() != 1) {
-                continue;  /* multi-PSI → @MAIN_PAUSE_MENU */
+            if (action == 0) {
+                /* @BACK_TO_ITEM_LIST: cancel → return to item list */
+                close_focus_window();  /* close INVENTORY_MENU */
+                set_window_focus(WINDOW_INVENTORY);
+                st->phase = PM_GOODS_INV;
+                continue;
             }
-            play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
-            clear_battle_menu_character_indicator();
-            continue;  /* @MAIN_PAUSE_MENU */
-        }
 
-        /* --- Equip (assembly lines 573-583) --- */
-        case 4: {  /* MENU_OPTIONS::EQUIP */
-            /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 574) */
-            show_hppp_windows();
-            display_money_window();
-
-            /* OPEN_EQUIPMENT_MENU: character selection + equipment change.
-             * Port of src/inventory/equipment/open_equipment_menu.asm (66 lines).
-             * Calls SHOW_EQUIPMENT_AND_STATS, EQUIPMENT_CHANGE_MENU. */
-            open_equipment_menu();
-
-            /* Single party member: play SFX and clear indicator (lines 576-583) */
-            if ((game_state.player_controlled_party_count & 0xFF) != 1) {
-                continue;  /* multi-party → @MAIN_PAUSE_MENU */
+            switch (action) {
+            case 1: {
+                /* @GOODS_ITEM_USE (assembly lines 236-252). overworld_use_item
+                 * is a blocking driver, called inline (deferred conversion). */
+                uint16_t use_result = overworld_use_item(st->goods_char, st->item_slot);
+                if (use_result != 0) {
+                    st->phase = PM_CLEANUP;
+                    continue;
+                }
+                /* Targeting cancelled — return to item action menu
+                 * (assembly lines 248-252: @VIRTUAL00=0, @LOCAL04=0) */
+                st->action_reentry = 1;
+                st->phase = PM_ACTION_MENU;
+                continue;
             }
-            play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
-            clear_battle_menu_character_indicator();
-            continue;  /* @MAIN_PAUSE_MENU */
+
+            case 4: {
+                /* @GOODS_ITEM_HELP (assembly lines 253-263):
+                 * Clear windows, set restore_menu_backup, show item help. */
+                clear_window_text(0);
+                clear_window_text(2);
+                win.restore_menu_backup = 0xFF;
+
+                create_window(WINDOW_TEXT_STANDARD);
+
+                /* Get item from inventory */
+                uint16_t help_item_id = get_character_item(st->goods_char, st->item_slot);
+
+                /* Look up help_text pointer in item config table.
+                 * item::help_text is a 4-byte SNES pointer at offset 35. */
+                const ItemConfig *item_entry = get_item_entry(help_item_id);
+                if (item_entry) {
+                    uint32_t help_text_addr = item_entry->help_text & 0xFFFFFF;
+                    bool pushed;
+                    StepResult r = pm_push_text(st, PM_HELP_RESUME,
+                                                help_text_addr, &pushed);
+                    if (pushed) return r;
+                    continue;
+                }
+                st->phase = PM_HELP_RESUME;  /* no entry → skip the text */
+                continue;
+            }
+
+            case 2:
+                /* @GOODS_GIVE (assembly lines 304-331):
+                 * Give item to another party member. */
+                set_window_focus(WINDOW_INVENTORY);
+
+                /* Assembly (open_menu.asm:307): CLEAR_FOCUS_WINDOW_CONTENT frees
+                 * the giver inventory window's BG2 content tiles before the
+                 * recipient's inventory is rendered into WINDOW_OVERWORLD_CHAR_SELECT
+                 * during the char select. Without this, both full inventories
+                 * hold tiles at once and exhaust the ~407-tile BG2 pool
+                 * ("alloc_bg2_tilemap_entry: tile exhaustion!"). */
+                clear_focus_window_content_far();
+
+                st->action_reentry = 1;
+                display_menu_header_text(3);  /* "Whom?" */
+
+                /* Select target character.
+                 * Assembly: mode=2, allow_cancel=1, on_change=GET_BODY_ITEM_NAME. */
+                char_select_make_init(&pm_child_init, 2, 1,
+                                      CS_ONCHANGE_BODY_NAME, CS_CHECKVALID_NONE);
+                st->phase = PM_GIVE_CHAR_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+
+            case 3: {
+                /* @GOODS_DROP (assembly lines 534-551):
+                 * Drop item — display confirmation text, let text script handle it. */
+                create_window(WINDOW_TEXT_STANDARD);
+                set_working_memory(st->goods_char);
+                set_argument_memory(st->item_slot);
+                bool pushed;
+                StepResult r = pm_push_text(st, PM_DROP_RESUME,
+                                            MSG_SYS_ITEM_DROP, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            default:
+                st->phase = PM_CLEANUP;
+                continue;
+            }  /* switch(action) */
         }
 
-        /* --- Check (assembly lines 584-593) --- */
-        case 5: {  /* MENU_OPTIONS::CHECK */
-            uint32_t text_ptr = check_action();
-            if (text_ptr == 0)
-                text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
-            display_text_from_addr(text_ptr);
-            goto cleanup_and_close;
+        case PM_HELP_RESUME:
+            /* Tail of @GOODS_ITEM_HELP after the help text */
+            close_window(WINDOW_TEXT_STANDARD);
+
+            /* Rebuild command menu and inventory list */
+            set_window_focus(WINDOW_COMMAND_MENU);
+            skip_adding_command_text = 1;
+            build_command_menu();
+
+            /* Rebuild inventory */
+            inventory_get_item_name(st->goods_char, WINDOW_INVENTORY);
+            close_window(WINDOW_INVENTORY_MENU);
+            set_window_focus(WINDOW_INVENTORY);
+            st->phase = PM_GOODS_INV;
+            continue;
+
+        case PM_GIVE_CHAR_RESULT: {
+            uint16_t give_target = (uint16_t)mode_child_result();
+            close_menu_header_window();
+            close_window(WINDOW_OVERWORLD_CHAR_SELECT);
+
+            if (give_target == 0) {
+                /* Cancelled give → return to action menu */
+                st->phase = PM_ACTION_MENU;
+                continue;
+            }
+            st->give_target = give_target;
+
+            /* Check CANNOT_GIVE flag on item (assembly lines 332-361) */
+            uint16_t give_item_id = get_character_item(st->goods_char, st->item_slot);
+            const ItemConfig *give_entry = get_item_entry(give_item_id);
+            if (give_entry && give_target != st->goods_char &&
+                (give_entry->flags & ITEM_FLAG_CANNOT_GIVE)) {
+                /* Can't give this item */
+                create_window(WINDOW_TEXT_STANDARD);
+                set_working_memory(st->goods_char);
+                set_argument_memory(st->item_slot);
+                bool pushed;
+                StepResult r = pm_push_text(st, PM_GIVE_BLOCKED_RESUME,
+                                            MSG_SYS_ITEM_EXCLUSIVE_CARRIER, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            /* Determine give status case (assembly lines 362-457).
+             * case_index combines: same_char, giver_dead, has_space, target_dead */
+            int case_index = 0;
+            uint16_t giver_idx = st->goods_char - 1;
+            uint16_t target_idx = give_target - 1;
+            uint8_t giver_aff = party_characters[giver_idx].afflictions[0];
+            bool giver_dead = (giver_aff == 1 || giver_aff == 2);
+            /* UNCONSCIOUS=1, DIAMONDIZED=2 */
+
+            if (st->goods_char == give_target) {
+                /* Self-give */
+                case_index = giver_dead ? 5 : 0;
+            } else {
+                /* Check target inventory space */
+                bool has_space = (find_inventory_space2(give_target) != 0);
+
+                /* Check target dead */
+                uint8_t target_aff = party_characters[target_idx].afflictions[0];
+                bool target_dead = (target_aff == 1 || target_aff == 2);
+
+                if (giver_dead) {
+                    /* Giver dead: cases 6-9 */
+                    case_index = 6;  /* dead→alive fail */
+                    if (target_dead) case_index = 7;  /* dead→dead fail */
+                    if (has_space) case_index += 2;   /* +2 = success */
+                } else {
+                    /* Giver alive: cases 1-4 */
+                    case_index = 1;  /* alive→alive fail */
+                    if (target_dead) case_index = 2;  /* alive→dead fail */
+                    if (has_space) case_index += 2;   /* +2 = success */
+                }
+            }
+            st->give_case = (uint8_t)case_index;
+
+            /* Display appropriate message (assembly lines 458-525) */
+            static const uint32_t carry_msg_addrs[10] = {
+                MSG_SYS_ITEM_REARRANGED_SELF,               /* 0 */
+                MSG_SYS_ITEM_GIVE_FULL_BOTH_ALIVE,   /* 1 */
+                MSG_SYS_ITEM_GIVE_FULL_ALIVE_KO,    /* 2 */
+                MSG_SYS_ITEM_GAVE_BOTH_ALIVE,        /* 3 */
+                MSG_SYS_ITEM_GAVE_ALIVE_TO_KO,         /* 4 */
+                MSG_SYS_ITEM_REARRANGED_KO,                /* 5 */
+                MSG_SYS_ITEM_GIVE_FULL_KO_ALIVE,    /* 6 */
+                MSG_SYS_ITEM_GIVE_FULL_BOTH_KO,     /* 7 */
+                MSG_SYS_ITEM_TOOK_FROM_KO,         /* 8 */
+                MSG_SYS_ITEM_MOVED_KO_TO_KO,          /* 9 */
+            };
+
+            create_window(WINDOW_TEXT_STANDARD);
+            /* Assembly @DISPLAY_GIVE_MESSAGE: working_memory = source char,
+             * working_memory_storage = target char, argument_memory = item slot.
+             * The give-success/fail messages substitute the recipient's name
+             * from working_memory_storage — without it, "gave to <X>" renders
+             * the wrong name (e.g. the giver) for give-to-other. */
+            set_working_memory(st->goods_char);
+            set_working_memory_storage(give_target);
+            set_argument_memory(st->item_slot);
+
+            bool pushed;
+            StepResult r = pm_push_text(st, PM_GIVE_MSG_RESUME,
+                                        carry_msg_addrs[case_index], &pushed);
+            if (pushed) return r;
+            continue;
         }
 
-        /* --- Status (assembly lines 594-602) --- */
-        case 6: {  /* MENU_OPTIONS::STATUS */
-            /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 595) */
-            show_hppp_windows();
-            display_money_window();
+        case PM_GIVE_BLOCKED_RESUME:
+            /* Tail of the CANNOT_GIVE message → back to the action menu */
+            close_window(WINDOW_TEXT_STANDARD);
+            st->phase = PM_ACTION_MENU;
+            continue;
 
-            /* OPEN_STATUS_MENU: character selection + status/PSI display.
-             * Port of asm/text/menu/open_status_menu.asm (119 lines).
-             * Sets FORCE_LEFT_TEXT_ALIGNMENT around the call. */
-            dt.force_left_text_alignment = 1;
-            open_status_menu();
-            dt.force_left_text_alignment = 0;
-            continue;  /* @MAIN_PAUSE_MENU */
+        case PM_GIVE_MSG_RESUME: {
+            /* Successful transfers call SWAP_ITEM_INTO_EQUIPMENT.
+             * Cases 0,3,4,5,8,9 are success (assembly lines 458-523). */
+            uint8_t c = st->give_case;
+            bool give_success = (c == 0 || c == 3 || c == 4 ||
+                                 c == 5 || c == 8 || c == 9);
+            if (give_success) {
+                swap_item_into_equipment(st->goods_char, st->item_slot,
+                                         st->give_target);
+            }
+
+            /* Cleanup: close all sub-windows, return to main menu
+             * (assembly @GOODS_GIVE_DONE, lines 526-533). */
+            close_window(WINDOW_TEXT_STANDARD);
+            close_window(WINDOW_INVENTORY_MENU);
+            close_window(WINDOW_INVENTORY);
+            st->phase = PM_MAIN;
+            continue;
         }
 
-        /* Cancel (B/Select) or unknown → cleanup */
+        case PM_DROP_RESUME:
+            /* Tail of @GOODS_DROP after the confirmation text */
+            close_window(WINDOW_TEXT_STANDARD);
+            close_window(WINDOW_INVENTORY_MENU);
+            close_window(WINDOW_INVENTORY);
+            st->phase = PM_MAIN;
+            continue;
+
+        case PM_CLEANUP:
+            /* Assembly @CLEANUP_AND_CLOSE (lines 603-614) */
+            clear_instant_printing();
+            hide_hppp_windows();
+            close_all_windows();
+
+            /* Wait for entity fade to complete (assembly @WAIT_ENTITY_FADE) */
+            st->phase = PM_DONE;
+            return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
+
+        case PM_DONE:
         default:
-            goto cleanup_and_close;
+            enable_all_entities();
+            return STEP_RESULT_POP(0);
         }
     }
+}
 
-cleanup_and_close:
-    /* Assembly @CLEANUP_AND_CLOSE (lines 603-614) */
-    clear_instant_printing();
-    hide_hppp_windows();
-    close_all_windows();
-
-    /* Wait for entity fade to complete (assembly @WAIT_ENTITY_FADE) */
-    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
-
-    enable_all_entities();
+/* OPEN_MENU_BUTTON — Port of asm/overworld/open_menu.asm.
+ * Full pause menu: Talk to, Goods, PSI, Equip, Check, Status. Thin bridge over
+ * GAME_MODE_PAUSE_MENU (run to completion via pump_mode while the overworld
+ * post-input driver is still blocking). */
+void open_menu_button(void) {
+    ModeState init = { .pause_menu = { .phase = PM_ENTER } };
+    pump_mode(GAME_MODE_PAUSE_MENU, &init);
 }
 
 /* OPEN_MENU_BUTTON_CHECKTALK — Port of asm/overworld/open_menu.asm lines 616-644.
