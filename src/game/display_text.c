@@ -1573,6 +1573,13 @@ StepResult mode_step_display_text(ModeState *ms) {
          * to working memory — the former party_character_selector return value. */
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1A_TELEPORT) {
+        /* CC_1A_0B teleport menu: GAME_MODE_TELEPORT_MENU did its own window
+         * cleanup before popping; store the chosen destination (0 on cancel)
+         * to working memory — the former open_teleport_destination_menu()
+         * return value. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
 
     ScriptReader *r = &st->reader;

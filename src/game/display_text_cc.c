@@ -2233,14 +2233,16 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         set_working_memory((uint32_t)result);
         break;
     }
-    case 0x0B: {
+    case 0x0B:
         /* OPEN_TELEPORT_MENU: 0 args.
          * Port of tree_1A.asm @OPEN_TELEPORT_MENU.
-         * Calls OPEN_TELEPORT_DESTINATION_MENU (C1AAFA.asm). */
-        uint16_t result = open_teleport_destination_menu();
-        set_working_memory((uint32_t)result);
-        break;
-    }
+         * OPEN_TELEPORT_DESTINATION_MENU (C1AAFA.asm) is now
+         * GAME_MODE_TELEPORT_MENU; STEP_PUSH it and store its result to
+         * working memory in DT_RESUME_CC1A_TELEPORT when it pops. */
+        out_init->teleport_menu.phase = TPM_ENTER;
+        *out_mode   = GAME_MODE_TELEPORT_MENU;
+        *out_resume = DT_RESUME_CC1A_TELEPORT;
+        return true;
     default:
         FATAL("display_text: unknown CC 1A %02X\n", sub);
         break;

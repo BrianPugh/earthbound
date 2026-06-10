@@ -119,6 +119,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_HPPP_DISPLAY]        = mode_step_hppp_display,        /* text.c */
     [GAME_MODE_PSI_MENU]            = mode_step_psi_menu,            /* text.c */
     [GAME_MODE_USE_ITEM]            = mode_step_use_item,            /* text.c */
+    [GAME_MODE_TELEPORT_MENU]       = mode_step_teleport_menu,       /* display_text_menus.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

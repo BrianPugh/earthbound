@@ -224,11 +224,6 @@ void print_psi_ability_name(uint16_t ability_id);
  * Writes a 1-char null-terminated string to out (e.g. "~" for α). */
 void get_psi_suffix_label(uint16_t ability_id, char *out, size_t out_size);
 
-/* OPEN_TELEPORT_DESTINATION_MENU: Port of asm/text/menu/open_teleport_destination_menu.asm.
- * Displays a menu of unlocked PSI Teleport destinations.
- * Returns 1-based selection index, or 0 if cancelled/empty. */
-uint16_t open_teleport_destination_menu(void);
-
 /* EB_TO_ASCII_BUF: Convert an EB-encoded byte string to ASCII.
  * src: EB-encoded bytes from ROM data. max_len: max source bytes to read.
  * dst: output buffer (must be at least max_len+1 bytes).

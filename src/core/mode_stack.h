@@ -67,6 +67,7 @@ typedef enum {
     GAME_MODE_HPPP_DISPLAY,        /* B-button HP/PP + money display (open_hppp_display) */
     GAME_MODE_PSI_MENU,            /* pause-menu PSI cascade (overworld_psi_menu) */
     GAME_MODE_USE_ITEM,            /* pause-menu Goods→Use driver (overworld_use_item) */
+    GAME_MODE_TELEPORT_MENU,       /* PSI Teleport destination menu (open_teleport_destination_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -316,11 +317,12 @@ typedef struct {
  * (DISPLAY_TEXT pushes sharing the PS_FAIL_RESUME tail), then targeting and
  * execution.
  *
- * Still blocking, called inline from the step (each pumps its converted
- * children internally — later conversions): open_teleport_destination_menu()
- * (its own selection-menu driver), determine_targetting() (battle row/enemy
- * targeting driver), and the battle-action execution via
- * jump_temp_function_pointer() (action functions can display text).
+ * The teleport destination menu is a GAME_MODE_TELEPORT_MENU STEP_PUSH
+ * (result read in PS_TELEPORT_RESULT). Still blocking, called inline from the
+ * step (each pumps its converted children internally — later conversions):
+ * determine_targetting() (battle row/enemy targeting driver) and the
+ * battle-action execution via jump_temp_function_pointer() (action functions
+ * can display text).
  *
  * Pops 1 if a PSI was used (the pause menu closes), else 0; the pause-menu
  * parent branches in PM_PSI_RESUME. */
@@ -330,6 +332,7 @@ typedef enum {
     PS_CHAR_RESULT,     /* after the CHAR_SELECT pops: cancel exits */
     PS_ABILITY,         /* @PSI_ABILITY_LOOP head: redisplay + push SELECTION_MENU */
     PS_ABILITY_RESULT,  /* PP/teleport checks; targeting (inline) or failure text */
+    PS_TELEPORT_RESULT, /* after the TELEPORT_MENU pops: store result -> PS_HANDLE */
     PS_FAIL_RESUME,     /* after a failure text pops: close window, retry ability */
     PS_HANDLE,          /* @HANDLE_RESULT: retry/back, or execute (desc text push) */
     PS_EXECUTE,         /* battle-action dispatch + render; sets result 1 */
@@ -378,6 +381,24 @@ typedef struct {
     uint16_t item_id;   /* item being used */
     uint16_t effect_id; /* item's battle-action table index */
 } UseItemState;
+
+/* GAME_MODE_TELEPORT_MENU phases. Port of open_teleport_destination_menu()
+ * (asm/text/menu/open_teleport_destination_menu.asm, 95 lines): the PSI
+ * Teleport "Where?" destination menu. TPM_ENTER builds the window (header
+ * text, "To:" title, one menu item per unlocked destination) and STEP_PUSHes
+ * SELECTION_MENU; the window cleanup runs in TPM_RESULT after it pops. An
+ * empty destination list skips the push and pops 0 after the same cleanup.
+ * Pushed by the PSI menu's teleport case (result read in PS_TELEPORT_RESULT)
+ * and by CC 1A 0x0B (result stored via DT_RESUME_CC1A_TELEPORT).
+ * Pops the 1-based destination index, or 0 if cancelled/empty. */
+typedef enum {
+    TPM_ENTER = 0,  /* build the destination menu; push SELECTION_MENU */
+    TPM_RESULT,     /* close windows, restore text attrs, POP the selection */
+} TeleportMenuPhase;
+
+typedef struct {
+    uint8_t phase;  /* TeleportMenuPhase */
+} TeleportMenuState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1247,6 +1268,7 @@ typedef enum {
     DT_RESUME_CC1F_NUMSEL,      /* CC_1F_52 number-select: store entered value / cancel */
     DT_RESUME_CC1A_PARTY_SEL,   /* CC_1A_00/01 overworld party select: cleanup + store result */
     DT_RESUME_CC1A_BATTLE_SEL,  /* CC_1A_00/01 battle party select: store CHAR_SELECT result */
+    DT_RESUME_CC1A_TELEPORT,    /* CC_1A_0B teleport menu: store TELEPORT_MENU result */
 } DisplayTextResume;
 
 typedef struct {
@@ -1304,6 +1326,7 @@ union ModeState {
     HpppDisplayState      hppp_display;
     PsiMenuState          psi_menu;
     UseItemState          use_item;
+    TeleportMenuState     teleport_menu;
     uint8_t               _raw[160];
 };
 
@@ -1506,6 +1529,12 @@ StepResult mode_step_psi_menu(ModeState *st);
  * item_slot); entered via STEP_PUSH from the pause menu. Pops 0 if targeting
  * was cancelled, else 1. */
 StepResult mode_step_use_item(ModeState *st);
+
+/* GAME_MODE_TELEPORT_MENU step (defined in display_text_menus.c). Init with
+ * ModeState.teleport_menu (phase = TPM_ENTER); entered via STEP_PUSH from the
+ * PSI menu's teleport case or CC 1A 0x0B. Pops the 1-based destination index,
+ * or 0 if cancelled/empty. */
+StepResult mode_step_teleport_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

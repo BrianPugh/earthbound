@@ -1798,9 +1798,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
 /* GAME_MODE_PSI_MENU step — run-to-completion port of overworld_psi_menu()
  * (asm/text/menu/overworld_psi_menu.asm, 571 lines). See PsiMenuState in
- * mode_stack.h. open_teleport_destination_menu(), determine_targetting(), and
- * the battle-action execution stay blocking, called inline from the step
- * (each pumps its converted children internally — later conversions). */
+ * mode_stack.h. The teleport destination menu is a GAME_MODE_TELEPORT_MENU
+ * STEP_PUSH; determine_targetting() and the battle-action execution stay
+ * blocking, called inline from the step (each pumps its converted children
+ * internally — later conversions). */
 StepResult mode_step_psi_menu(ModeState *ms) {
     PsiMenuState *st = &ms->psi_menu;
 
@@ -1943,11 +1944,12 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                     continue;
                 }
 
-                /* Teleport destination menu (assembly line 193) — its own
-                 * selection-menu driver, blocking inline. */
-                st->action_result = open_teleport_destination_menu();
-                st->phase = PS_HANDLE;
-                continue;
+                /* Teleport destination menu (assembly line 193), now
+                 * GAME_MODE_TELEPORT_MENU; result read in PS_TELEPORT_RESULT. */
+                pm_child_init = (ModeState){0};
+                pm_child_init.teleport_menu.phase = TPM_ENTER;
+                st->phase = PS_TELEPORT_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_MENU, &pm_child_init);
             }
 
             /* @NOT_TELEPORT: targeting (lines 206-212) — the battle row/enemy
@@ -1957,6 +1959,13 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             st->phase = PS_HANDLE;
             continue;
         }
+
+        case PS_TELEPORT_RESULT:
+            /* Tail of the teleport destination menu (assembly line 193):
+             * its 1-based destination (0 = cancelled) is the action result. */
+            st->action_result = (uint16_t)mode_child_result();
+            st->phase = PS_HANDLE;
+            continue;
 
         case PS_FAIL_RESUME:
             /* Tail of the not-enough-PP / teleport-blocked message. */

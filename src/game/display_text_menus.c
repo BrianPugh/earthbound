@@ -821,11 +821,13 @@ static void load_menu_title_assets(void) {
 
 
 /*
- * OPEN_TELEPORT_DESTINATION_MENU — Port of asm/text/menu/open_teleport_destination_menu.asm (95 lines).
+ * GAME_MODE_TELEPORT_MENU step — run-to-completion port of
+ * open_teleport_destination_menu() (asm/text/menu/open_teleport_destination_menu.asm,
+ * 95 lines). See TeleportMenuState in mode_stack.h.
  *
  * Displays a menu of unlocked PSI Teleport destinations.
  * Each destination has an event_flag; only destinations with their flag set appear.
- * Returns the 1-based selection index, or 0 if cancelled/empty.
+ * Pops the 1-based selection index, or 0 if cancelled/empty.
  *
  * Assembly flow:
  *   1. DISPLAY_MENU_HEADER_TEXT(2) → "Where?"
@@ -837,23 +839,26 @@ static void load_menu_title_assets(void) {
  *   6. If any items: OPEN_WINDOW_AND_PRINT_MENU(1, 0), SELECTION_MENU(1)
  *   7. Close windows and restore text attributes
  */
-uint16_t open_teleport_destination_menu(void) {
+StepResult mode_step_teleport_menu(ModeState *ms) {
+    TeleportMenuState *st = &ms->teleport_menu;
     uint16_t result = 0;
 
-    display_menu_header_text(2);  /* "Where?" */
-    save_window_text_attributes();
-    create_window(WINDOW_PHONE_MENU);
+    switch ((TeleportMenuPhase)st->phase) {
 
-    /* Set window title: "To:" from STATUS_EQUIP_WINDOW_TEXT_14 */
-    load_menu_title_assets();
-    if (status_equip_text_14) {
-        char title_buf[WINDOW_TITLE_SIZE];
-        eb_to_ascii_buf(status_equip_text_14, (int)status_equip_text_14_size, title_buf);
-        set_window_title(WINDOW_PHONE_MENU, title_buf, 3);
-    }
+    case TPM_ENTER: {
+        display_menu_header_text(2);  /* "Where?" */
+        save_window_text_attributes();
+        create_window(WINDOW_PHONE_MENU);
 
-    /* Load and iterate PSI teleport destination table */
-    {
+        /* Set window title: "To:" from STATUS_EQUIP_WINDOW_TEXT_14 */
+        load_menu_title_assets();
+        if (status_equip_text_14) {
+            char title_buf[WINDOW_TITLE_SIZE];
+            eb_to_ascii_buf(status_equip_text_14, (int)status_equip_text_14_size, title_buf);
+            set_window_title(WINDOW_PHONE_MENU, title_buf, 3);
+        }
+
+        /* Load and iterate PSI teleport destination table */
         int menu_item_count = 0;
         /* Assembly starts index at 1 (skips entry 0 sentinel), loops while first byte != 0 */
         for (int i = 1; ; i++) {
@@ -881,15 +886,31 @@ uint16_t open_teleport_destination_menu(void) {
 
         if (menu_item_count > 0) {
             open_window_and_print_menu(1, 0);
-            result = selection_menu(1);
+            /* SELECTION_MENU(1) — the window cleanup runs in TPM_RESULT
+             * after it pops. Outlives this dispatch (the pump copies it). */
+            static ModeState sel_init;
+            sel_init = (ModeState){0};
+            sel_init.selection_menu.phase        = SM_SETUP;
+            sel_init.selection_menu.allow_cancel = 1;
+            st->phase = TPM_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
         }
+
+        /* No unlocked destinations: same cleanup, result 0, no push. */
+        break;
+    }
+
+    case TPM_RESULT:
+    default:
+        result = (uint16_t)mode_child_result();
+        break;
     }
 
     close_focus_window();
     close_menu_header_window();
     restore_window_text_attributes();
 
-    return result;
+    return STEP_RESULT_POP(result);
 }
 
 
