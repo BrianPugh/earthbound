@@ -1317,277 +1317,9 @@ static uint8_t get_nearby_npc_config_type(void) {
     return get_npc_config_type(ow.interacting_npc_id);
 }
 
-/* OVERWORLD_USE_ITEM: Port of asm/overworld/use_item.asm (545 lines).
- *
- * Called when the player selects "Use" from the Goods item action menu.
- * Determines if the item can be used based on item type, character usability,
- * sector context, and nearby NPCs. If usable, runs targeting, removes consumable
- * items, and executes the item's battle action with affliction writeback.
- *
- * Parameters:
- *   char_id: 1-based character ID (who is using the item)
- *   item_slot: item slot index from inventory selection
- *
- * Returns: 0 if targeting was cancelled, 1 otherwise (item used or message shown).
- */
-static uint16_t overworld_use_item(uint16_t char_id, uint16_t item_slot) {
-    uint32_t desc_text_addr = 0;  /* @LOCAL08: description text SNES address (0=none) */
-    uint16_t can_use = 0;         /* @LOCAL07: whether item is usable */
-    /* @VIRTUAL00: target character. Initially char_id; overwritten by
-     * DETERMINE_TARGETTING result when can_use is true (assembly lines 247-262). */
-    uint8_t target_id = (uint8_t)char_id;
-
-    /* Assembly lines 29-37: get item from inventory */
-    uint16_t item_id = get_character_item(char_id, item_slot) & 0xFF;
-
-    /* Assembly lines 38-50: look up item config entry */
-    const ItemConfig *item_entry = get_item_entry(item_id);
-    if (!item_entry)
-        goto setup_action_window;
-
-    uint8_t item_type = item_entry->type;
-
-    /* Assembly lines 51-61: classify item by type flags.
-     * Check bits: TRANSFORM (0x10) | CANNOT_GIVE (0x20) = 0x30 */
-    uint8_t type_category = item_type & (ITEM_FLAG_TRANSFORM | ITEM_FLAG_CANNOT_GIVE);
-
-    if (type_category == 0) {
-        /* @TYPE_USABLE (lines 62-76): normal usable item */
-        can_use = 1;
-        if (battle_action_table) {
-            uint16_t effect = item_entry->effect_id;
-            desc_text_addr = battle_action_table[effect].description_text_pointer;
-        }
-    } else if (type_category == ITEM_FLAG_TRANSFORM) {
-        /* @TYPE_EQUIPMENT (lines 77-80): equipment item, show equip message */
-        desc_text_addr = MSG_SYS_ITEM_IS_EQUIPMENT;
-    } else if (type_category == ITEM_FLAG_CANNOT_GIVE) {
-        /* @TYPE_CANNOT_GIVE (lines 81-95): can't give but can use */
-        can_use = 1;
-        if (battle_action_table) {
-            uint16_t effect = item_entry->effect_id;
-            desc_text_addr = battle_action_table[effect].description_text_pointer;
-        }
-    } else {
-        /* @TYPE_KEY_ITEM (lines 96-244): TRANSFORM | CANNOT_GIVE — key item.
-         * Complex usability checks. */
-
-        /* Assembly lines 97-112: check per-character usability flags */
-        if (!check_item_usable_by(char_id, item_id)) {
-            /* This character can't use this item */
-            desc_text_addr = MSG_GOODS4_SYS_ITEM_WRONG_USER;
-            goto after_item_type_check;
-        }
-
-        /* Assembly lines 113-122: check context bits (bits 2-3 of item_type).
-         * 0x00 = use anywhere, 0x04 = battle only, 0x08 = check context */
-        uint8_t context_bits = item_type & 0x0C;
-
-        if (context_bits == 0x00) {
-            /* @USE_ANYWHERE (lines 123-137): usable anywhere */
-            can_use = 1;
-            if (battle_action_table) {
-                uint16_t effect = item_entry->effect_id;
-                desc_text_addr = battle_action_table[effect].description_text_pointer;
-            }
-        } else if (context_bits == 0x04) {
-            /* @BATTLE_ONLY (lines 138-141): can only be used in battle */
-            desc_text_addr = MSG_SYS_ITEM_CANT_USE_HERE;
-        } else if (context_bits == 0x08) {
-            /* @CHECK_USE_CONTEXT (lines 142-244): check sub-type (bits 0-1) */
-            uint8_t sub_type = item_type & 0x03;
-
-            if (sub_type == 0 || sub_type == 1) {
-                /* @USE_DEFAULT (lines 153-167): usable */
-                can_use = 1;
-                if (battle_action_table) {
-                    uint16_t effect = item_entry->effect_id;
-                    desc_text_addr = battle_action_table[effect].description_text_pointer;
-                }
-            } else if (sub_type == 2) {
-                /* @CHECK_SECTOR_TYPE (lines 168-203): compare sector item type
-                 * with this item's ID. E.g., bicycle only works in bicycle sectors. */
-                uint16_t sector_item_type = get_sector_item_type();
-                if (sector_item_type != item_id) {
-                    /* @SECTOR_MISMATCH (lines 200-203) */
-                    desc_text_addr = MSG_SYS_ITEM_CANT_USE_HERE;
-                } else if (item_id == ITEM_BICYCLE && get_collision_at_leader() != 0) {
-                    /* Bicycle collision check (lines 176-184) */
-                    desc_text_addr = MSG_SYS_BIKE_TOO_CRAMPED;
-                } else {
-                    /* @SECTOR_MATCH (lines 185-199) */
-                    can_use = 1;
-                    if (battle_action_table) {
-                        uint16_t effect = item_entry->effect_id;
-                        desc_text_addr = battle_action_table[effect].description_text_pointer;
-                    }
-                }
-            } else if (sub_type == 3) {
-                /* @CHECK_NPC_TARGET (lines 204-244): check for nearby NPC
-                 * that has a use-text response. */
-                can_use = 1;
-                uint8_t npc_type = get_nearby_npc_config_type();
-
-                /* Assembly lines 211-214: NPC types 1 (PERSON) and 3 (OBJECT)
-                 * have text_pointer2 for "use item on NPC" text */
-                if (npc_type == 1 || npc_type == 3) {
-                    /* @NPC_HAS_USE_TEXT (lines 215-225): read text_pointer2 */
-                    desc_text_addr = get_npc_config_text_pointer2(ow.interacting_npc_id);
-                }
-
-                /* Assembly lines 226-244: if text pointer is still NULL,
-                 * fall back to battle action description text */
-                if (desc_text_addr == 0 && battle_action_table) {
-                    uint16_t effect = item_entry->effect_id;
-                    desc_text_addr = battle_action_table[effect].description_text_pointer;
-                }
-            }
-        }
-        /* context_bits == 0x0C falls through without setting anything */
-    }
-
-after_item_type_check:
-    /* Assembly lines 245-265: targeting and consume check */
-    {
-        if (can_use) {
-            /* Assembly lines 253-265: call DETERMINE_TARGETTING */
-            uint16_t action_id = item_entry->effect_id;
-            uint16_t target_result = determine_targetting(action_id, char_id);
-            target_id = target_result & 0xFF;
-
-            if (target_id == 0)
-                return 0;  /* Targeting cancelled (assembly line 264-265) */
-
-            /* Assembly lines 266-274: consume item if CONSUMED_ON_USE flag set */
-            if (item_entry->flags & ITEM_FLAG_CONSUMED) {
-                remove_item_from_inventory(char_id, item_slot);
-            }
-        }
-
-setup_action_window:
-        /* Assembly lines 275-334: close inventory windows, set up battle state */
-        close_window(WINDOW_INVENTORY_MENU);
-        close_window(WINDOW_INVENTORY);
-
-        /* Set attacker name from character (assembly lines 280-287) */
-        set_battle_attacker_name(
-            (const char *)party_characters[char_id - 1].name,
-            sizeof(party_characters[0].name));
-
-        /* Set current item (assembly lines 288-291) */
-        set_current_item((uint8_t)item_id);
-
-        /* Open text window (assembly line 292) */
-        create_window(WINDOW_TEXT_STANDARD);
-
-        /* Set working_memory = char_id, argument_memory = item_slot
-         * (assembly lines 293-308) */
-        set_working_memory((uint32_t)char_id);
-        set_argument_memory((uint32_t)item_slot);
-
-        /* Set target name if targeting a specific ally (assembly lines 309-322).
-         * target_id 0xFF = all targets, skip target name. */
-        if (target_id != 0xFF) {
-            set_battle_target_name(
-                (const char *)party_characters[target_id - 1].name,
-                sizeof(party_characters[0].name));
-        }
-
-        /* Assembly lines 323-334: if description text is NULL, use fallback */
-        if (desc_text_addr == 0) {
-            desc_text_addr = MSG_SYS_ITEM_USE_FORBIDDEN;
-        }
-
-        /* Assembly lines 335-357: branch on can_use */
-        if (!can_use) {
-            /* @DISPLAY_TEXT_ONLY (lines 536-539): show message only */
-            display_text_from_addr(desc_text_addr);
-        } else {
-            /* Assembly lines 337-357: look up battle action function pointer */
-            uint32_t func_addr = 0;
-            if (battle_action_table) {
-                uint16_t effect = item_entry->effect_id;
-                func_addr = battle_action_table[effect].battle_function_pointer;
-            }
-
-            if (func_addr == 0) {
-                /* @DISPLAY_TEXT_ONLY: no battle function, just show text */
-                display_text_from_addr(desc_text_addr);
-            } else {
-                /* Assembly lines 358-379: set up attacker battler */
-                bt.current_attacker = 0;  /* BATTLERS_TABLE[0] */
-                battle_init_player_stats(char_id, &bt.battlers_table[0]);
-
-                /* Set item as action argument (assembly lines 364-368) */
-                bt.battlers_table[0].current_action_argument = (uint8_t)item_id;
-
-                /* Set item slot on attacker battler (assembly lines 369-373) */
-                bt.battlers_table[0].action_item_slot = (uint8_t)item_slot;
-
-                /* Display description text (assembly lines 374-376) */
-                display_text_from_addr(desc_text_addr);
-
-                /* Re-set current item after text display (assembly lines 377-380) */
-                set_current_item((uint8_t)item_id);
-
-                /* Set up target battler (assembly line 381-382) */
-                bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
-
-                if (target_id == 0xFF) {
-                    /* All-party target (assembly @ALL_TARGETS_LOOP, lines 388-479).
-                     * Execute action on each party member. */
-                    uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
-                    for (uint16_t i = 0; i < party_count; i++) {
-                        uint8_t member_id = game_state.party_members[i];
-
-                        /* Set target name (assembly lines 392-414) */
-                        set_battle_target_name(
-                            (const char *)party_characters[member_id - 1].name,
-                            sizeof(party_characters[0].name));
-
-                        /* Init target battler (assembly lines 415-421) */
-                        battle_init_player_stats(member_id, &bt.battlers_table[1]);
-
-                        /* Look up and call battle action function (assembly lines 422-435) */
-                        uint16_t effect = item_entry->effect_id;
-                        bt.temp_function_pointer = battle_action_table[effect].battle_function_pointer;
-                        jump_temp_function_pointer();
-
-                        /* Copy afflictions from battler back to char_struct
-                         * (assembly lines 436-468).
-                         * Note: assembly uses loop counter i for party_characters index,
-                         * not the member_id. Ported faithfully per CLAUDE.md. */
-                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                            party_characters[i].afflictions[g] =
-                                bt.battlers_table[1].afflictions[g];
-                        }
-                    }
-                } else {
-                    /* Specific target (assembly @SPECIFIC_TARGET, lines 480-532) */
-                    battle_init_player_stats(target_id, &bt.battlers_table[1]);
-
-                    /* Look up and call battle action function (assembly lines 483-498) */
-                    uint16_t effect = item_entry->effect_id;
-                    bt.temp_function_pointer = battle_action_table[effect].battle_function_pointer;
-                    jump_temp_function_pointer();
-
-                    /* Copy afflictions back (assembly lines 499-532) */
-                    for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                        party_characters[target_id - 1].afflictions[g] =
-                            bt.battlers_table[1].afflictions[g];
-                    }
-                }
-
-                /* @AFTER_ACTION (assembly line 533-534) */
-                render_and_disable_entities();
-            }
-        }
-
-        /* @CLOSE_TEXT_WINDOW (assembly lines 540-543) */
-        close_window(WINDOW_TEXT_STANDARD);
-        return 1;  /* TRUE */
-    }
-}
+/* OVERWORLD_USE_ITEM (asm/overworld/use_item.asm, 545 lines) is now
+ * GAME_MODE_USE_ITEM (mode_step_use_item, with the pause-menu machinery
+ * further down this file), STEP_PUSHed by the pause menu's Goods→Use case. */
 
 /* ---------------------------------------------------------------------------
  * GAME_MODE_PAUSE_MENU — run-to-completion port of open_menu_button()
@@ -1601,10 +1333,10 @@ setup_action_window:
  * in the matching *_RESULT phase. The internal for(;;) chains no-yield
  * transitions, matching the blocking original's zero-yield gaps.
  *
- * Still blocking, called inline from the step (each its own large driver,
- * pumping its converted children internally — later parent conversions):
- * overworld_psi_menu(), open_equipment_menu(), open_status_menu(), and
- * overworld_use_item(). See PauseMenuState in mode_stack.h.
+ * All four former blocking sub-drivers — PSI, Equip, Status, and Goods→Use —
+ * are now their own modes (GAME_MODE_PSI_MENU / EQUIP_MENU / STATUS_MENU /
+ * USE_ITEM), STEP_PUSHed from here with their tails in the PM_*_RESUME
+ * phases. See PauseMenuState in mode_stack.h.
  * ------------------------------------------------------------------------- */
 
 /* Initial state for a pushed child. Must outlive the dispatch turn
@@ -2375,6 +2107,287 @@ StepResult mode_step_psi_menu(ModeState *ms) {
     }
 }
 
+/* GAME_MODE_USE_ITEM step — run-to-completion port of overworld_use_item()
+ * (asm/overworld/use_item.asm, 545 lines): the pause menu's Goods → Use path.
+ * Determines if the item can be used based on item type, character usability,
+ * sector context, and nearby NPCs. If usable, runs targeting, removes
+ * consumable items, and executes the item's battle action with affliction
+ * writeback. See UseItemState in mode_stack.h.
+ *
+ * determine_targetting() and the battle-action execution via
+ * jump_temp_function_pointer() stay blocking, called inline from the step
+ * (each pumps its converted children internally — later conversions).
+ *
+ * Pops 0 if targeting was cancelled, 1 otherwise (item used or message
+ * shown); the pause-menu parent branches in PM_USE_RESUME. */
+StepResult mode_step_use_item(ModeState *ms) {
+    UseItemState *st = &ms->use_item;
+
+    for (;;) {
+        switch ((UseItemPhase)st->phase) {
+
+        case UI_ENTER: {
+            uint32_t desc_text_addr = 0;  /* @LOCAL08: description text SNES address (0=none) */
+            uint16_t can_use = 0;         /* @LOCAL07: whether item is usable */
+            /* @VIRTUAL00: target character. Initially char_id; overwritten by
+             * DETERMINE_TARGETTING result when can_use is true (assembly lines 247-262). */
+            st->target_id = (uint8_t)st->char_id;
+
+            /* Assembly lines 29-37: get item from inventory */
+            st->item_id = get_character_item(st->char_id, st->item_slot) & 0xFF;
+
+            /* Assembly lines 38-50: look up item config entry. A missing entry
+             * skips straight to the action-window setup with can_use=0 (the
+             * blocking form's goto setup_action_window). */
+            const ItemConfig *item_entry = get_item_entry(st->item_id);
+            st->effect_id = item_entry ? item_entry->effect_id : 0;
+
+            if (item_entry) {
+                uint8_t item_type = item_entry->type;
+
+                /* Assembly lines 51-61: classify item by type flags.
+                 * Check bits: TRANSFORM (0x10) | CANNOT_GIVE (0x20) = 0x30 */
+                uint8_t type_category =
+                    item_type & (ITEM_FLAG_TRANSFORM | ITEM_FLAG_CANNOT_GIVE);
+
+                if (type_category == 0) {
+                    /* @TYPE_USABLE (lines 62-76): normal usable item */
+                    can_use = 1;
+                    if (battle_action_table)
+                        desc_text_addr =
+                            battle_action_table[st->effect_id].description_text_pointer;
+                } else if (type_category == ITEM_FLAG_TRANSFORM) {
+                    /* @TYPE_EQUIPMENT (lines 77-80): equipment item, show equip message */
+                    desc_text_addr = MSG_SYS_ITEM_IS_EQUIPMENT;
+                } else if (type_category == ITEM_FLAG_CANNOT_GIVE) {
+                    /* @TYPE_CANNOT_GIVE (lines 81-95): can't give but can use */
+                    can_use = 1;
+                    if (battle_action_table)
+                        desc_text_addr =
+                            battle_action_table[st->effect_id].description_text_pointer;
+                } else if (!check_item_usable_by(st->char_id, st->item_id)) {
+                    /* @TYPE_KEY_ITEM (lines 96-244): TRANSFORM | CANNOT_GIVE.
+                     * Assembly lines 97-112: this character can't use this item */
+                    desc_text_addr = MSG_GOODS4_SYS_ITEM_WRONG_USER;
+                } else {
+                    /* Assembly lines 113-122: check context bits (bits 2-3 of item_type).
+                     * 0x00 = use anywhere, 0x04 = battle only, 0x08 = check context */
+                    uint8_t context_bits = item_type & 0x0C;
+
+                    if (context_bits == 0x00) {
+                        /* @USE_ANYWHERE (lines 123-137): usable anywhere */
+                        can_use = 1;
+                        if (battle_action_table)
+                            desc_text_addr =
+                                battle_action_table[st->effect_id].description_text_pointer;
+                    } else if (context_bits == 0x04) {
+                        /* @BATTLE_ONLY (lines 138-141): can only be used in battle */
+                        desc_text_addr = MSG_SYS_ITEM_CANT_USE_HERE;
+                    } else if (context_bits == 0x08) {
+                        /* @CHECK_USE_CONTEXT (lines 142-244): check sub-type (bits 0-1) */
+                        uint8_t sub_type = item_type & 0x03;
+
+                        if (sub_type == 0 || sub_type == 1) {
+                            /* @USE_DEFAULT (lines 153-167): usable */
+                            can_use = 1;
+                            if (battle_action_table)
+                                desc_text_addr =
+                                    battle_action_table[st->effect_id].description_text_pointer;
+                        } else if (sub_type == 2) {
+                            /* @CHECK_SECTOR_TYPE (lines 168-203): compare sector item type
+                             * with this item's ID. E.g., bicycle only works in bicycle
+                             * sectors. */
+                            uint16_t sector_item_type = get_sector_item_type();
+                            if (sector_item_type != st->item_id) {
+                                /* @SECTOR_MISMATCH (lines 200-203) */
+                                desc_text_addr = MSG_SYS_ITEM_CANT_USE_HERE;
+                            } else if (st->item_id == ITEM_BICYCLE &&
+                                       get_collision_at_leader() != 0) {
+                                /* Bicycle collision check (lines 176-184) */
+                                desc_text_addr = MSG_SYS_BIKE_TOO_CRAMPED;
+                            } else {
+                                /* @SECTOR_MATCH (lines 185-199) */
+                                can_use = 1;
+                                if (battle_action_table)
+                                    desc_text_addr =
+                                        battle_action_table[st->effect_id].description_text_pointer;
+                            }
+                        } else if (sub_type == 3) {
+                            /* @CHECK_NPC_TARGET (lines 204-244): check for nearby NPC
+                             * that has a use-text response. */
+                            can_use = 1;
+                            uint8_t npc_type = get_nearby_npc_config_type();
+
+                            /* Assembly lines 211-214: NPC types 1 (PERSON) and 3 (OBJECT)
+                             * have text_pointer2 for "use item on NPC" text */
+                            if (npc_type == 1 || npc_type == 3) {
+                                /* @NPC_HAS_USE_TEXT (lines 215-225): read text_pointer2 */
+                                desc_text_addr =
+                                    get_npc_config_text_pointer2(ow.interacting_npc_id);
+                            }
+
+                            /* Assembly lines 226-244: if text pointer is still NULL,
+                             * fall back to battle action description text */
+                            if (desc_text_addr == 0 && battle_action_table)
+                                desc_text_addr =
+                                    battle_action_table[st->effect_id].description_text_pointer;
+                        }
+                    }
+                    /* context_bits == 0x0C falls through without setting anything */
+                }
+
+                /* Assembly lines 245-265: targeting and consume check */
+                if (can_use) {
+                    /* Assembly lines 253-265: DETERMINE_TARGETTING — the battle
+                     * row/enemy targeting driver, blocking inline. */
+                    uint16_t target_result =
+                        determine_targetting(st->effect_id, st->char_id);
+                    st->target_id = target_result & 0xFF;
+
+                    if (st->target_id == 0)
+                        return STEP_RESULT_POP(0);  /* Targeting cancelled (lines 264-265) */
+
+                    /* Assembly lines 266-274: consume item if CONSUMED_ON_USE flag set */
+                    if (item_entry->flags & ITEM_FLAG_CONSUMED)
+                        remove_item_from_inventory(st->char_id, st->item_slot);
+                }
+            }
+
+            /* @SETUP_ACTION_WINDOW: close inventory windows, set up battle state
+             * (assembly lines 275-334) */
+            close_window(WINDOW_INVENTORY_MENU);
+            close_window(WINDOW_INVENTORY);
+
+            /* Set attacker name from character (assembly lines 280-287) */
+            set_battle_attacker_name(
+                (const char *)party_characters[st->char_id - 1].name,
+                sizeof(party_characters[0].name));
+
+            /* Set current item (assembly lines 288-291) */
+            set_current_item((uint8_t)st->item_id);
+
+            /* Open text window (assembly line 292) */
+            create_window(WINDOW_TEXT_STANDARD);
+
+            /* Set working_memory = char_id, argument_memory = item_slot
+             * (assembly lines 293-308) */
+            set_working_memory((uint32_t)st->char_id);
+            set_argument_memory((uint32_t)st->item_slot);
+
+            /* Set target name if targeting a specific ally (assembly lines 309-322).
+             * target_id 0xFF = all targets, skip target name. */
+            if (st->target_id != 0xFF) {
+                set_battle_target_name(
+                    (const char *)party_characters[st->target_id - 1].name,
+                    sizeof(party_characters[0].name));
+            }
+
+            /* Assembly lines 323-334: if description text is NULL, use fallback */
+            if (desc_text_addr == 0)
+                desc_text_addr = MSG_SYS_ITEM_USE_FORBIDDEN;
+
+            /* Assembly lines 335-357: branch on can_use / the battle action
+             * function pointer. */
+            uint32_t func_addr = 0;
+            if (can_use && battle_action_table)
+                func_addr = battle_action_table[st->effect_id].battle_function_pointer;
+
+            if (!can_use || func_addr == 0) {
+                /* @DISPLAY_TEXT_ONLY (lines 536-539): show the message only,
+                 * then close the text window in UI_EXIT. */
+                st->phase = UI_EXIT;
+                bool pushed;
+                StepResult r = menu_push_text(desc_text_addr, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            /* Assembly lines 358-379: set up attacker battler */
+            bt.current_attacker = 0;  /* BATTLERS_TABLE[0] */
+            battle_init_player_stats(st->char_id, &bt.battlers_table[0]);
+
+            /* Set item as action argument (assembly lines 364-368) */
+            bt.battlers_table[0].current_action_argument = (uint8_t)st->item_id;
+
+            /* Set item slot on attacker battler (assembly lines 369-373) */
+            bt.battlers_table[0].action_item_slot = (uint8_t)st->item_slot;
+
+            /* Display description text (assembly lines 374-376); the action
+             * execution resumes in UI_EXECUTE after the text pops. */
+            st->phase = UI_EXECUTE;
+            bool pushed;
+            StepResult r = menu_push_text(desc_text_addr, &pushed);
+            if (pushed) return r;
+            continue;
+        }
+
+        case UI_EXECUTE: {
+            /* Re-set current item after text display (assembly lines 377-380) */
+            set_current_item((uint8_t)st->item_id);
+
+            /* Set up target battler (assembly line 381-382) */
+            bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
+
+            if (st->target_id == 0xFF) {
+                /* All-party target (assembly @ALL_TARGETS_LOOP, lines 388-479).
+                 * Execute action on each party member. */
+                uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
+                for (uint16_t i = 0; i < party_count; i++) {
+                    uint8_t member_id = game_state.party_members[i];
+
+                    /* Set target name (assembly lines 392-414) */
+                    set_battle_target_name(
+                        (const char *)party_characters[member_id - 1].name,
+                        sizeof(party_characters[0].name));
+
+                    /* Init target battler (assembly lines 415-421) */
+                    battle_init_player_stats(member_id, &bt.battlers_table[1]);
+
+                    /* Look up and call battle action function (assembly lines 422-435) */
+                    bt.temp_function_pointer =
+                        battle_action_table[st->effect_id].battle_function_pointer;
+                    jump_temp_function_pointer();
+
+                    /* Copy afflictions from battler back to char_struct
+                     * (assembly lines 436-468).
+                     * Note: assembly uses loop counter i for party_characters index,
+                     * not the member_id. Ported faithfully per CLAUDE.md. */
+                    for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                        party_characters[i].afflictions[g] =
+                            bt.battlers_table[1].afflictions[g];
+                    }
+                }
+            } else {
+                /* Specific target (assembly @SPECIFIC_TARGET, lines 480-532) */
+                battle_init_player_stats(st->target_id, &bt.battlers_table[1]);
+
+                /* Look up and call battle action function (assembly lines 483-498) */
+                bt.temp_function_pointer =
+                    battle_action_table[st->effect_id].battle_function_pointer;
+                jump_temp_function_pointer();
+
+                /* Copy afflictions back (assembly lines 499-532) */
+                for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                    party_characters[st->target_id - 1].afflictions[g] =
+                        bt.battlers_table[1].afflictions[g];
+                }
+            }
+
+            /* @AFTER_ACTION (assembly line 533-534) */
+            render_and_disable_entities();
+            st->phase = UI_EXIT;
+            continue;
+        }
+
+        case UI_EXIT:
+        default:
+            /* @CLOSE_TEXT_WINDOW (assembly lines 540-543) */
+            close_window(WINDOW_TEXT_STANDARD);
+            return STEP_RESULT_POP(1);  /* TRUE */
+        }
+    }
+}
+
 StepResult mode_step_pause_menu(ModeState *ms) {
     PauseMenuState *st = &ms->pause_menu;
 
@@ -2632,22 +2645,17 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             }
 
             switch (action) {
-            case 1: {
-                /* @GOODS_ITEM_USE (assembly lines 236-252). overworld_use_item
-                 * is a blocking driver, called inline (deferred conversion). */
-                uint16_t use_result = overworld_use_item(st->goods_char, st->item_slot);
-                if (use_result != 0) {
-                    st->phase = PM_CLEANUP;
-                    continue;
-                }
-                /* Targeting cancelled — return to item action menu
-                 * (assembly lines 248-252: @VIRTUAL00=0, @LOCAL04=0;
-                 * @VIRTUAL02 was set to 1 at @GOODS_ITEM_USE entry) */
+            case 1:
+                /* @GOODS_ITEM_USE (assembly lines 236-252), now
+                 * GAME_MODE_USE_ITEM. @VIRTUAL02=1 is set at entry (line 237);
+                 * the used/cancelled branch runs in PM_USE_RESUME. */
                 st->action_reentry = 1;
-                st->reprint_inventory = 0;
-                st->phase = PM_ACTION_MENU;
-                continue;
-            }
+                pm_child_init = (ModeState){0};
+                pm_child_init.use_item.phase = UI_ENTER;
+                pm_child_init.use_item.char_id = st->goods_char;
+                pm_child_init.use_item.item_slot = st->item_slot;
+                st->phase = PM_USE_RESUME;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_USE_ITEM, &pm_child_init);
 
             case 4: {
                 /* @GOODS_ITEM_HELP (assembly lines 253-263):
@@ -2717,6 +2725,19 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                 continue;
             }  /* switch(action) */
         }
+
+        case PM_USE_RESUME:
+            /* Tail of @GOODS_ITEM_USE after USE_ITEM pops (assembly lines
+             * 240-252): an item used (or message shown) closes the whole pause
+             * menu; a targeting cancel returns to the item action menu
+             * (@VIRTUAL00=0, @LOCAL04=0; @VIRTUAL02 stays 1 from entry). */
+            if (mode_child_result() != 0) {
+                st->phase = PM_CLEANUP;
+                continue;
+            }
+            st->reprint_inventory = 0;
+            st->phase = PM_ACTION_MENU;
+            continue;
 
         case PM_HELP_RESUME:
             /* Tail of @GOODS_ITEM_HELP after the help text */

@@ -66,6 +66,7 @@ typedef enum {
     GAME_MODE_STATUS_MENU,         /* pause-menu Status cascade (open_status_menu) */
     GAME_MODE_HPPP_DISPLAY,        /* B-button HP/PP + money display (open_hppp_display) */
     GAME_MODE_PSI_MENU,            /* pause-menu PSI cascade (overworld_psi_menu) */
+    GAME_MODE_USE_ITEM,            /* pause-menu Goods→Use driver (overworld_use_item) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -194,10 +195,9 @@ typedef struct {
  * via mode_child_result() in the matching *_RESULT phase. Phases chain inside an
  * internal for(;;) so no-yield transitions match the blocking original.
  *
- * Four sub-drivers deliberately stay blocking, called inline from the step
- * (each is its own large driver, pumping its converted children internally —
- * later parent conversions): overworld_psi_menu(), open_equipment_menu(),
- * open_status_menu(), and overworld_use_item(). */
+ * All four former blocking sub-drivers — PSI, Equip, Status, and Goods→Use —
+ * are now their own modes (GAME_MODE_PSI_MENU / EQUIP_MENU / STATUS_MENU /
+ * USE_ITEM), STEP_PUSHed from here with the tails in PM_*_RESUME phases. */
 typedef enum {
     PM_ENTER = 0,           /* one-shot setup (disable entities, command menu); no yield */
     PM_MAIN,                /* focus command menu; push SELECTION_MENU(1) */
@@ -208,6 +208,7 @@ typedef enum {
     PM_GOODS_INV_RESULT,    /* item chosen or cancelled; build the Use/Give/Drop/Help menu */
     PM_ACTION_MENU,         /* @ITEM_ACTION_LOOP head; push SELECTION_MENU(1) */
     PM_ACTION_RESULT,       /* dispatch Use/Give/Drop/Help/cancel */
+    PM_USE_RESUME,          /* after USE_ITEM pops: used->cleanup / cancel->PM_ACTION_MENU */
     PM_HELP_RESUME,         /* after the help text pops: rebuild menus -> PM_GOODS_INV */
     PM_GIVE_CHAR_RESULT,    /* after the give-target CHAR_SELECT pops */
     PM_GIVE_BLOCKED_RESUME, /* after the EXCLUSIVE_CARRIER text pops -> PM_ACTION_MENU */
@@ -346,6 +347,37 @@ typedef struct {
     uint16_t battle_action_id; /* selected ability's battle action */
     uint16_t action_result;    /* @LOCAL09: targeting/teleport result; 1 = PSI used */
 } PsiMenuState;
+
+/* GAME_MODE_USE_ITEM phases. Port of overworld_use_item()
+ * (asm/overworld/use_item.asm, 545 lines): the pause menu's Goods → Use path.
+ * UI_ENTER runs the whole synchronous front half — item classification (type
+ * flags, per-character usability, sector context, nearby NPCs), targeting,
+ * the consume-on-use removal, and the text-window/battle-name setup — then
+ * pushes the description (or failure) text as a DISPLAY_TEXT child. The
+ * action execution resumes in UI_EXECUTE after the text pops.
+ *
+ * Still blocking, called inline from the step (each pumps its converted
+ * children internally — later conversions): determine_targetting() (battle
+ * row/enemy targeting driver) and the battle-action execution via
+ * jump_temp_function_pointer() (action functions can display text).
+ *
+ * Pops 0 if targeting was cancelled (the pause menu re-enters the action
+ * menu), else 1 (item used or message shown — the pause menu closes); the
+ * parent branches in PM_USE_RESUME. */
+typedef enum {
+    UI_ENTER = 0,  /* classify, target (inline), consume, window setup; push text */
+    UI_EXECUTE,    /* after the desc text pops: run the battle action (inline) */
+    UI_EXIT,       /* @CLOSE_TEXT_WINDOW: close the text window, POP 1 */
+} UseItemPhase;
+
+typedef struct {
+    uint8_t  phase;     /* UseItemPhase */
+    uint8_t  target_id; /* @VIRTUAL00: 1-based target; 0xFF = all party */
+    uint16_t char_id;   /* 1-based item user (input, set by the parent) */
+    uint16_t item_slot; /* selected inventory slot (input, set by the parent) */
+    uint16_t item_id;   /* item being used */
+    uint16_t effect_id; /* item's battle-action table index */
+} UseItemState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1271,6 +1303,7 @@ union ModeState {
     StatusMenuState       status_menu;
     HpppDisplayState      hppp_display;
     PsiMenuState          psi_menu;
+    UseItemState          use_item;
     uint8_t               _raw[160];
 };
 
@@ -1467,6 +1500,12 @@ StepResult mode_step_hppp_display(ModeState *st);
  * helpers live). Init with ModeState.psi_menu (phase = PS_ENTER); entered via
  * STEP_PUSH from the pause menu. Pops 1 if a PSI was used, else 0. */
 StepResult mode_step_psi_menu(ModeState *st);
+
+/* GAME_MODE_USE_ITEM step (defined in text.c, with the rest of the pause-menu
+ * machinery). Init with ModeState.use_item (phase = UI_ENTER, char_id,
+ * item_slot); entered via STEP_PUSH from the pause menu. Pops 0 if targeting
+ * was cancelled, else 1. */
+StepResult mode_step_use_item(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
