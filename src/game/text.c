@@ -1700,133 +1700,9 @@ static const char *status_psi_category_names[4] EB_NORELOC = {
     "Offense", "Recover", "Assist", "Other"
 };
 
-/* OPEN_STATUS_MENU — Port of asm/text/menu/open_status_menu.asm (119 lines).
- *
- * Status menu: select a character, show character stats, then browse
- * PSI categories → individual PSI abilities → PSI descriptions.
- *
- * Flow:
- *   1. Character selection with DISPLAY_STATUS_WINDOW as cursor callback
- *   2. Jeff (char 3) has no PSI → loop back to character selection
- *   3. PSI category menu (Offense/Recover/Assist/Other)
- *   4. GENERATE_BATTLE_PSI_LIST as cursor callback populates ability list
- *   5. PSI ability selection with DISPLAY_PSI_DESCRIPTION as cursor callback
- */
-static void open_status_menu(void) {
-    /* Assembly line 12: set left alignment before character selection */
-    dt.force_left_text_alignment = 1;
-
-    for (;;) {
-        /* Assembly lines 13-19: character selection with DISPLAY_STATUS_WINDOW callback.
-         * LOADPTR DISPLAY_STATUS_WINDOW, @LOCAL00 → cursor move callback.
-         * CHAR_SELECT_PROMPT(mode=0, allow_cancel=1). */
-        uint16_t status_char = char_select_prompt(0, 1,
-                                                    display_status_window, NULL);
-
-        /* Assembly line 21: BEQL @EXIT (0 = cancelled) */
-        if (status_char == 0)
-            break;
-
-        /* Assembly line 22-23: Jeff (char 3) has no PSI → @RESET_ALIGNMENT */
-        if (status_char == PARTY_MEMBER_JEFF) {
-            dt.force_left_text_alignment = 1;
-            continue;
-        }
-
-        /* Set win.battle_menu_current_character_id so generate_battle_psi_list_callback
-         * knows which character's PSI to display. In assembly, CHAR_SELECT_PROMPT
-         * sets this as a side effect via SELECT_BATTLE_MENU_CHARACTER. */
-        uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
-        for (uint16_t i = 0; i < party_count; i++) {
-            if (game_state.party_members[i] == status_char) {
-                win.battle_menu_current_character_id = (int16_t)i;
-                break;
-            }
-        }
-
-        /* Assembly lines 25-26: @VIRTUAL02=0 (first-display flag), create category window */
-        bool first_display = true;
-        create_window(WINDOW_STATUS_PSI_CATEGORY);
-
-        /* Assembly lines 27-53: build category menu with 4 items.
-         * Each item has userdata = category_index + 1 (1=Offense, 2=Recover,
-         * 3=Assist, 4=Other). */
-        for (int i = 0; i < 4; i++) {
-            add_menu_item_no_position(status_psi_category_names[i], (uint16_t)(i + 1));
-        }
-        /* Assembly lines 54-57: OPEN_WINDOW_AND_PRINT_MENU(columns=1, start_index=0) */
-        open_window_and_print_menu(1, 0);
-
-        /* Assembly lines 58-102: category menu loop */
-        for (;;) {
-            /* Assembly lines 59-66: focus category window, print items first time */
-            set_window_focus(WINDOW_STATUS_PSI_CATEGORY);
-            if (first_display) {
-                print_menu_items();
-                window_tick_without_instant_printing();
-                first_display = false;
-            }
-
-            /* Assembly line 67: CREATE_WINDOW_NEAR #WINDOW::STATUS_MENU
-             * Refreshes the status display area (for PSI list background). */
-            create_window(WINDOW_STATUS_MENU);
-
-            /* Assembly lines 68-69: restore focus to category window */
-            win.current_focus_window = WINDOW_STATUS_PSI_CATEGORY;
-
-            /* Assembly line 70: clear left alignment for PSI list display */
-            dt.force_left_text_alignment = 0;
-
-            /* Assembly lines 71-74: set callback and run category selection.
-             * GENERATE_BATTLE_PSI_LIST creates TEXT_STANDARD window and fills
-             * it with PSI abilities as cursor moves between categories. */
-            set_cursor_move_callback(generate_battle_psi_list_callback);
-            uint16_t category_selection = selection_menu(1);
-            clear_cursor_move_callback();
-
-            /* Assembly lines 79: BEQ @CLOSE_CATEGORY (cancelled) */
-            if (category_selection == 0)
-                break;
-
-            /* Assembly lines 81-83: check if TEXT_STANDARD has any menu items.
-             * If the selected category has no PSI abilities, loop back. */
-            if (get_window_menu_option_count(WINDOW_TEXT_STANDARD) == 0)
-                continue;
-
-            /* Assembly lines 85-89: focus TEXT_STANDARD for PSI ability selection.
-             * Set DISPLAY_PSI_DESCRIPTION as cursor callback. */
-            set_window_focus(WINDOW_TEXT_STANDARD);
-            bt.last_selected_psi_description = 0x00FF;  /* force first redraw */
-            set_cursor_move_callback(display_psi_description);
-
-            /* Assembly lines 90-94: PSI description browse loop.
-             * User can view each PSI description; pressing B returns to categories. */
-            for (;;) {
-                uint16_t psi_selection = selection_menu(1);
-                if (psi_selection == 0)
-                    break;  /* B pressed → back to categories */
-                /* Non-zero selection: stay in loop (assembly: BNE @PSI_DESCRIPTION_LOOP) */
-            }
-
-            /* Assembly lines 95-101: clean up PSI description windows */
-            clear_cursor_move_callback();
-            close_window(WINDOW_PSI_TARGET_COST);
-            close_window(WINDOW_PSI_DESCRIPTION);
-            bt.last_selected_psi_description = 0x00FF;
-            /* Loop back to @CATEGORY_MENU_LOOP */
-        }
-
-        /* Assembly lines 103-111: close category and status windows,
-         * restore focus and alignment for character selection. */
-        close_window(WINDOW_STATUS_PSI_CATEGORY);
-        close_window(WINDOW_TEXT_STANDARD);
-        win.current_focus_window = WINDOW_STATUS_MENU;
-        dt.force_left_text_alignment = 1;
-    }
-
-    /* Assembly lines 115-116: close STATUS_MENU window */
-    close_window(WINDOW_STATUS_MENU);
-}
+/* OPEN_STATUS_MENU is now GAME_MODE_STATUS_MENU (mode_step_status_menu, with
+ * the pause-menu machinery further down this file), STEP_PUSHed by the pause
+ * menu's Status case. */
 
 /* GET_SECTOR_ITEM_TYPE: Port of src/inventory/get_sector_item_type.asm (29 lines).
  * Returns the item type that matches this map sector (for use-context checking).
@@ -2168,19 +2044,18 @@ setup_action_window:
 static ModeState pm_child_init;
 
 /* Push GAME_MODE_SELECTION_MENU as a child after the focus window's menu has
- * been laid out. Sets the PM phase to read the result in on re-entry.
- * Replicates selection_menu()'s early-exit (no focus window / empty menu →
- * result 0 with no push), delivered inline via result_ready. */
-static StepResult pm_push_selection(PauseMenuState *st, uint8_t result_phase,
-                                    uint16_t allow_cancel) {
-    st->phase = result_phase;
+ * been laid out. Replicates selection_menu()'s early-exit (no focus window /
+ * empty menu → result 0 with no push), delivered inline via *result_ready so
+ * the caller's *_RESULT phase handles both forms uniformly. */
+static StepResult menu_push_selection(uint8_t *result_ready, uint16_t *result,
+                                      uint16_t allow_cancel) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0) {
-        st->result_ready = 1;
-        st->result = 0;
+        *result_ready = 1;
+        *result = 0;
         return STEP_RESULT_CONTINUE();
     }
-    st->result_ready = 0;
+    *result_ready = 0;
     pm_child_init = (ModeState){0};
     pm_child_init.selection_menu.phase        = SM_SETUP;
     pm_child_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
@@ -2189,10 +2064,27 @@ static StepResult pm_push_selection(PauseMenuState *st, uint8_t result_phase,
 
 /* Read the result of the menu a *_RESULT phase is processing: the popped
  * child's value, or the inline early-exit value if no child was pushed. */
-static uint16_t pm_take_result(PauseMenuState *st) {
-    uint16_t r = st->result_ready ? st->result : (uint16_t)mode_child_result();
-    st->result_ready = 0;
+static uint16_t menu_take_result(uint8_t *result_ready, uint16_t *result) {
+    uint16_t r = *result_ready ? *result : (uint16_t)mode_child_result();
+    *result_ready = 0;
     return r;
+}
+
+static StepResult pm_push_selection(PauseMenuState *st, uint8_t result_phase,
+                                    uint16_t allow_cancel) {
+    st->phase = result_phase;
+    return menu_push_selection(&st->result_ready, &st->result, allow_cancel);
+}
+
+static uint16_t pm_take_result(PauseMenuState *st) {
+    return menu_take_result(&st->result_ready, &st->result);
+}
+
+/* Status-menu variant (both its menus allow cancel). */
+static StepResult pm_push_selection_status(StatusMenuState *st,
+                                           uint8_t result_phase) {
+    st->phase = result_phase;
+    return menu_push_selection(&st->result_ready, &st->result, 1);
 }
 
 /* Push a DISPLAY_TEXT child for `addr`, resuming at `resume_phase`. If the
@@ -2274,6 +2166,161 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             close_window(WINDOW_EQUIPMENT_STATS);
             close_window(WINDOW_EQUIP_MENU);
             restore_window_text_attributes();
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
+/* GAME_MODE_STATUS_MENU step — run-to-completion port of open_status_menu()
+ * (asm/text/menu/open_status_menu.asm, 118 lines). See StatusMenuState in
+ * mode_stack.h. The status-window on_change (CS_ONCHANGE_STATUS) is instant-
+ * printed and never yields; the PSI list/description cursor callbacks live in
+ * the re-fetchable WindowInfo, exactly as when the blocking selection_menu()
+ * pumped the same step function. */
+StepResult mode_step_status_menu(ModeState *ms) {
+    StatusMenuState *st = &ms->status_menu;
+
+    for (;;) {
+        switch ((StatusMenuPhase)st->phase) {
+
+        case SU_SELECT:
+            /* Assembly line 12 (and the loop-bottom @RESET_ALIGNMENT): left
+             * alignment on for character selection / the status window. */
+            dt.force_left_text_alignment = 1;
+
+            /* Assembly lines 13-19: char select with DISPLAY_STATUS_WINDOW as
+             * the on_change callback (mode=0, allow_cancel=1). */
+            char_select_make_init(&pm_child_init, 0, 1,
+                                  CS_ONCHANGE_STATUS, CS_CHECKVALID_NONE);
+            st->phase = SU_SELECT_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+
+        case SU_SELECT_RESULT: {
+            uint16_t status_char = (uint16_t)mode_child_result();
+
+            /* Assembly line 21: BEQL @EXIT (0 = cancelled) */
+            if (status_char == 0) {
+                st->phase = SU_EXIT;
+                continue;
+            }
+
+            /* Assembly lines 22-23: Jeff (char 3) has no PSI → re-select */
+            if (status_char == PARTY_MEMBER_JEFF) {
+                st->phase = SU_SELECT;
+                continue;
+            }
+
+            /* Set win.battle_menu_current_character_id so generate_battle_psi_
+             * list_callback knows which character's PSI to display. In assembly
+             * CHAR_SELECT_PROMPT sets this via SELECT_BATTLE_MENU_CHARACTER. */
+            uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
+            for (uint16_t i = 0; i < party_count; i++) {
+                if (game_state.party_members[i] == status_char) {
+                    win.battle_menu_current_character_id = (int16_t)i;
+                    break;
+                }
+            }
+
+            /* Assembly lines 25-57: first-display flag, create the category
+             * window, build the 4-item menu (userdata = category + 1). */
+            st->first_display = 1;
+            create_window(WINDOW_STATUS_PSI_CATEGORY);
+            for (int i = 0; i < 4; i++) {
+                add_menu_item_no_position(status_psi_category_names[i],
+                                          (uint16_t)(i + 1));
+            }
+            open_window_and_print_menu(1, 0);
+            st->phase = SU_CAT_HEAD;
+            continue;
+        }
+
+        case SU_CAT_HEAD:
+            /* @CATEGORY_MENU_LOOP head (assembly lines 59-66): focus the
+             * category window; the first iteration prints the items and takes
+             * one WINDOW_TICK_WITHOUT_INSTANT_PRINTING frame (the yield). */
+            set_window_focus(WINDOW_STATUS_PSI_CATEGORY);
+            if (st->first_display) {
+                st->first_display = 0;
+                print_menu_items();
+                dt.instant_printing = 0;
+                window_tick_work();
+                dt.instant_printing = 1;
+                st->phase = SU_CAT_BODY;
+                return STEP_RESULT_CONTINUE();
+            }
+            st->phase = SU_CAT_BODY;
+            continue;
+
+        case SU_CAT_BODY:
+            /* Assembly line 67: refresh the status display area (PSI list
+             * background), then restore focus + clear the alignment. */
+            create_window(WINDOW_STATUS_MENU);
+            win.current_focus_window = WINDOW_STATUS_PSI_CATEGORY;
+            dt.force_left_text_alignment = 0;
+
+            /* Assembly lines 71-74: GENERATE_BATTLE_PSI_LIST fills the
+             * TEXT_STANDARD window as the cursor moves between categories. */
+            set_cursor_move_callback(generate_battle_psi_list_callback);
+            return pm_push_selection_status(st, SU_CAT_RESULT);
+
+        case SU_CAT_RESULT: {
+            uint16_t category_selection = menu_take_result(&st->result_ready,
+                                                           &st->result);
+            clear_cursor_move_callback();
+
+            /* Assembly line 79: BEQ @CLOSE_CATEGORY (cancelled) */
+            if (category_selection == 0) {
+                /* Assembly lines 103-111: close the cascade, restore focus;
+                 * SU_SELECT re-sets the alignment (the loop-bottom store). */
+                close_window(WINDOW_STATUS_PSI_CATEGORY);
+                close_window(WINDOW_TEXT_STANDARD);
+                win.current_focus_window = WINDOW_STATUS_MENU;
+                st->phase = SU_SELECT;
+                continue;
+            }
+
+            /* Assembly lines 81-83: empty category → loop back. */
+            if (get_window_menu_option_count(WINDOW_TEXT_STANDARD) == 0) {
+                st->phase = SU_CAT_HEAD;
+                continue;
+            }
+
+            /* Assembly lines 85-89: focus the ability list; DISPLAY_PSI_
+             * DESCRIPTION renders each ability's description as cursor moves. */
+            set_window_focus(WINDOW_TEXT_STANDARD);
+            bt.last_selected_psi_description = 0x00FF;  /* force first redraw */
+            set_cursor_move_callback(display_psi_description);
+            st->phase = SU_PSI;
+            continue;
+        }
+
+        case SU_PSI:
+            /* Assembly lines 90-94: PSI description browse loop. */
+            return pm_push_selection_status(st, SU_PSI_RESULT);
+
+        case SU_PSI_RESULT: {
+            uint16_t psi_selection = menu_take_result(&st->result_ready,
+                                                      &st->result);
+            if (psi_selection != 0) {
+                st->phase = SU_PSI;  /* stay browsing (BNE @PSI_DESCRIPTION_LOOP) */
+                continue;
+            }
+
+            /* Assembly lines 95-101: clean up the PSI description windows. */
+            clear_cursor_move_callback();
+            close_window(WINDOW_PSI_TARGET_COST);
+            close_window(WINDOW_PSI_DESCRIPTION);
+            bt.last_selected_psi_description = 0x00FF;
+            st->phase = SU_CAT_HEAD;
+            continue;
+        }
+
+        case SU_EXIT:
+        default:
+            /* Assembly lines 115-116, plus the caller's alignment clear (the
+             * pause menu's bracket now lives inside the mode). */
+            close_window(WINDOW_STATUS_MENU);
+            dt.force_left_text_alignment = 0;
             return STEP_RESULT_POP(0);
         }
     }
@@ -2385,15 +2432,13 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                 show_hppp_windows();
                 display_money_window();
 
-                /* OPEN_STATUS_MENU (asm/text/menu/open_status_menu.asm, 119
-                 * lines). Blocking driver, called inline (deferred — its
-                 * display_text is instant-printed, never a savestate point).
-                 * Sets FORCE_LEFT_TEXT_ALIGNMENT around the call. */
-                dt.force_left_text_alignment = 1;
-                open_status_menu();
-                dt.force_left_text_alignment = 0;
+                /* OPEN_STATUS_MENU, now GAME_MODE_STATUS_MENU. The
+                 * FORCE_LEFT_TEXT_ALIGNMENT bracket lives inside the mode
+                 * (set at SU_SELECT, cleared at SU_EXIT); no resume tail. */
+                pm_child_init = (ModeState){0};
+                pm_child_init.status_menu.phase = SU_SELECT;
                 st->phase = PM_MAIN;
-                continue;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_STATUS_MENU, &pm_child_init);
 
             /* Cancel (B/Select) or unknown → cleanup */
             default:

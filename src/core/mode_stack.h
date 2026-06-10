@@ -63,6 +63,7 @@ typedef enum {
     GAME_MODE_QUICK_CHECKTALK,     /* L-button quick talk/check (open_menu_button_checktalk) */
     GAME_MODE_PAUSE_MENU,          /* overworld pause menu (open_menu_button) */
     GAME_MODE_EQUIP_MENU,          /* pause-menu Equip cascade (open_equipment_menu) */
+    GAME_MODE_STATUS_MENU,         /* pause-menu Status cascade (open_status_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -249,6 +250,33 @@ typedef struct {
     uint8_t  phase;      /* EquipMenuPhase */
     uint16_t equip_char; /* 1-based character being equipped */
 } EquipMenuState;
+
+/* GAME_MODE_STATUS_MENU phases. Port of open_status_menu()
+ * (asm/text/menu/open_status_menu.asm, 118 lines): the pause menu's Status
+ * cascade — character selection (CHAR_SELECT with the status-window on_change,
+ * which is instant-printed and never yields), then the PSI category menu and
+ * the PSI description browse loop (both SELECTION_MENU pushes; their cursor
+ * callbacks live in the re-fetchable WindowInfo, exactly as when the blocking
+ * selection_menu() pumped the same step). The FORCE_LEFT_TEXT_ALIGNMENT
+ * bracket the pause-menu caller used to hold lives inside the mode (set at
+ * SU_SELECT, cleared at SU_EXIT), keeping it self-contained for the push. */
+typedef enum {
+    SU_SELECT = 0,    /* alignment on; push CHAR_SELECT (status on_change) */
+    SU_SELECT_RESULT, /* cancel exits; Jeff re-selects; else build category menu */
+    SU_CAT_HEAD,      /* focus category; first display prints + one window frame */
+    SU_CAT_BODY,      /* status window refresh; push SELECTION_MENU (PSI list cb) */
+    SU_CAT_RESULT,    /* cancel closes cascade; empty category re-loops; else browse */
+    SU_PSI,           /* PSI description browse: push SELECTION_MENU (descr cb) */
+    SU_PSI_RESULT,    /* non-zero stays browsing; cancel closes PSI windows */
+    SU_EXIT,          /* close STATUS_MENU window, alignment off, POP */
+} StatusMenuPhase;
+
+typedef struct {
+    uint8_t  phase;         /* StatusMenuPhase */
+    uint8_t  first_display; /* @VIRTUAL02 == 0: category menu's first render pending */
+    uint8_t  result_ready;  /* 1 = `result` holds an inline early-exit value */
+    uint16_t result;        /* inline early-exit selection result */
+} StatusMenuState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1171,6 +1199,7 @@ union ModeState {
     QuickChecktalkState   quick_checktalk;
     PauseMenuState        pause_menu;
     EquipMenuState        equip_menu;
+    StatusMenuState       status_menu;
     uint8_t               _raw[160];
 };
 
@@ -1352,6 +1381,11 @@ StepResult mode_step_pause_menu(ModeState *st);
  * the equipment-stats helpers live). Init with ModeState.equip_menu
  * (phase = EQ_ENTER); entered via STEP_PUSH from the pause menu. Always pops 0. */
 StepResult mode_step_equip_menu(ModeState *st);
+
+/* GAME_MODE_STATUS_MENU step (defined in text.c, where the PSI list/description
+ * callbacks live). Init with ModeState.status_menu (phase = SU_SELECT); entered
+ * via STEP_PUSH from the pause menu. Always pops 0. */
+StepResult mode_step_status_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
