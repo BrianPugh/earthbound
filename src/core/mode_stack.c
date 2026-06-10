@@ -114,6 +114,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_DOOR_TRANSITION]     = mode_step_door_transition,     /* door.c */
     [GAME_MODE_QUICK_CHECKTALK]     = mode_step_quick_checktalk,     /* text.c */
     [GAME_MODE_PAUSE_MENU]          = mode_step_pause_menu,          /* text.c */
+    [GAME_MODE_EQUIP_MENU]          = mode_step_equip_menu,          /* text.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

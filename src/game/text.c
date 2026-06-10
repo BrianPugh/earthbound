@@ -1359,49 +1359,9 @@ static void equipment_change_menu(uint16_t char_id) {
  * Depends on SHOW_EQUIPMENT_AND_STATS (17 lines → DISPLAY_EQUIPMENT_MENU +
  * DISPLAY_CHARACTER_EQUIPMENT_STATS) and EQUIPMENT_CHANGE_MENU (252 lines).
  */
-static void open_equipment_menu(void) {
-    save_window_text_attributes();
-
-    uint16_t equip_char = game_state.party_members[0];  /* default: first member */
-
-    /* Single party: show equipment display before entering menu loop.
-     * Assembly line 21-23: if party_count==1, call SHOW_EQUIPMENT_AND_STATS
-     * first, then fall through to char selection which auto-selects. */
-    if ((game_state.player_controlled_party_count & 0xFF) == 1) {
-        show_equipment_and_stats(equip_char);
-    }
-
-    for (;;) {
-        /* Multi-party: character selection with "Who?" prompt.
-         * SHOW_EQUIPMENT_AND_STATS is the cursor move callback so
-         * equipment display updates as the player scrolls characters. */
-        if ((game_state.player_controlled_party_count & 0xFF) != 1) {
-            display_menu_header_text(0);  /* "Who?" */
-            equip_char = char_select_prompt(0, 1,
-                                            show_equipment_and_stats_callback, NULL);
-            close_menu_header_window();
-        } else {
-            /* Single party → auto-select, highlight in HPPP */
-            equip_char = game_state.party_members[0];
-            select_battle_menu_character(0);
-        }
-
-        if (equip_char == 0)
-            break;  /* cancelled → exit */
-
-        /* Run the equipment slot selection / item equip loop */
-        equipment_change_menu(equip_char);
-
-        /* Multi-party → loop back to character selection (assembly line 52-55) */
-        if ((game_state.player_controlled_party_count & 0xFF) != 1)
-            continue;
-        break;  /* single party → exit */
-    }
-
-    close_window(WINDOW_EQUIPMENT_STATS);
-    close_window(WINDOW_EQUIP_MENU);
-    restore_window_text_attributes();
-}
+/* OPEN_EQUIPMENT_MENU is now GAME_MODE_EQUIP_MENU (mode_step_equip_menu, with
+ * the pause-menu machinery further down this file), STEP_PUSHed by the pause
+ * menu's Equip case. */
 
 /* ---- Overworld PSI globals ---- */
 
@@ -2250,6 +2210,75 @@ static StepResult pm_push_text(PauseMenuState *st, uint8_t resume_phase,
     return STEP_RESULT_CONTINUE();
 }
 
+/* GAME_MODE_EQUIP_MENU step — run-to-completion port of open_equipment_menu()
+ * (src/inventory/equipment/open_equipment_menu.asm, 66 lines). See
+ * EquipMenuState in mode_stack.h. equipment_change_menu() stays blocking,
+ * called inline (its own selection-menu cascade — a later parent conversion). */
+StepResult mode_step_equip_menu(ModeState *ms) {
+    EquipMenuState *st = &ms->equip_menu;
+
+    for (;;) {
+        switch ((EquipMenuPhase)st->phase) {
+
+        case EQ_ENTER:
+            save_window_text_attributes();
+            /* Single party: show equipment display before entering the loop.
+             * Assembly lines 21-23: if party_count==1, SHOW_EQUIPMENT_AND_STATS
+             * first, then fall through to char selection which auto-selects. */
+            if ((game_state.player_controlled_party_count & 0xFF) == 1)
+                show_equipment_and_stats(game_state.party_members[0]);
+            st->phase = EQ_SELECT;
+            continue;
+
+        case EQ_SELECT:
+            /* Multi-party: character selection with "Who?" prompt.
+             * SHOW_EQUIPMENT_AND_STATS is the on_change callback so the
+             * equipment display updates as the player scrolls characters. */
+            if ((game_state.player_controlled_party_count & 0xFF) != 1) {
+                display_menu_header_text(0);  /* "Who?" */
+                char_select_make_init(&pm_child_init, 0, 1,
+                                      CS_ONCHANGE_EQUIPMENT, CS_CHECKVALID_NONE);
+                st->phase = EQ_SELECT_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+            }
+            /* Single party → auto-select, highlight in HPPP */
+            st->equip_char = game_state.party_members[0];
+            select_battle_menu_character(0);
+            st->phase = EQ_CHANGE;
+            continue;
+
+        case EQ_SELECT_RESULT:
+            st->equip_char = (uint16_t)mode_child_result();
+            close_menu_header_window();
+            if (st->equip_char == 0) {
+                st->phase = EQ_EXIT;  /* cancelled → exit */
+                continue;
+            }
+            st->phase = EQ_CHANGE;
+            continue;
+
+        case EQ_CHANGE:
+            /* Run the equipment slot selection / item equip loop (blocking) */
+            equipment_change_menu(st->equip_char);
+
+            /* Multi-party → loop back to character selection (assembly 52-55) */
+            if ((game_state.player_controlled_party_count & 0xFF) != 1) {
+                st->phase = EQ_SELECT;
+                continue;
+            }
+            st->phase = EQ_EXIT;  /* single party → exit */
+            continue;
+
+        case EQ_EXIT:
+        default:
+            close_window(WINDOW_EQUIPMENT_STATS);
+            close_window(WINDOW_EQUIP_MENU);
+            restore_window_text_attributes();
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
 StepResult mode_step_pause_menu(ModeState *ms) {
     PauseMenuState *st = &ms->pause_menu;
 
@@ -2332,18 +2361,13 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                 show_hppp_windows();
                 display_money_window();
 
-                /* OPEN_EQUIPMENT_MENU: character selection + equipment change
-                 * (src/inventory/equipment/open_equipment_menu.asm, 66 lines).
-                 * Blocking driver, called inline (deferred parent conversion). */
-                open_equipment_menu();
-
-                /* Single party member: play SFX and clear indicator (576-583) */
-                if ((game_state.player_controlled_party_count & 0xFF) == 1) {
-                    play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
-                    clear_battle_menu_character_indicator();
-                }
-                st->phase = PM_MAIN;
-                continue;
+                /* OPEN_EQUIPMENT_MENU: character selection + equipment change,
+                 * now GAME_MODE_EQUIP_MENU. The single-party sfx tail (assembly
+                 * lines 576-583) runs in PM_EQUIP_RESUME after it pops. */
+                pm_child_init = (ModeState){0};
+                pm_child_init.equip_menu.phase = EQ_ENTER;
+                st->phase = PM_EQUIP_RESUME;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_EQUIP_MENU, &pm_child_init);
 
             /* --- Check (assembly lines 584-593) --- */
             case 5: {  /* MENU_OPTIONS::CHECK */
@@ -2756,6 +2780,16 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             close_window(WINDOW_TEXT_STANDARD);
             close_window(WINDOW_INVENTORY_MENU);
             close_window(WINDOW_INVENTORY);
+            st->phase = PM_MAIN;
+            continue;
+
+        case PM_EQUIP_RESUME:
+            /* Tail of the Equip case after EQUIP_MENU pops: single party plays
+             * the close sfx and clears the indicator (assembly lines 576-583). */
+            if ((game_state.player_controlled_party_count & 0xFF) == 1) {
+                play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
+                clear_battle_menu_character_indicator();
+            }
             st->phase = PM_MAIN;
             continue;
 

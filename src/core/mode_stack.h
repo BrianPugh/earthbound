@@ -62,6 +62,7 @@ typedef enum {
     GAME_MODE_DOOR_TRANSITION,     /* door/teleport transition driver (door_transition) */
     GAME_MODE_QUICK_CHECKTALK,     /* L-button quick talk/check (open_menu_button_checktalk) */
     GAME_MODE_PAUSE_MENU,          /* overworld pause menu (open_menu_button) */
+    GAME_MODE_EQUIP_MENU,          /* pause-menu Equip cascade (open_equipment_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -209,6 +210,7 @@ typedef enum {
     PM_GIVE_BLOCKED_RESUME, /* after the EXCLUSIVE_CARRIER text pops -> PM_ACTION_MENU */
     PM_GIVE_MSG_RESUME,     /* after the give message pops: swap item + close -> PM_MAIN */
     PM_DROP_RESUME,         /* after the drop text pops: close windows -> PM_MAIN */
+    PM_EQUIP_RESUME,        /* after EQUIP_MENU pops: single-party sfx tail -> PM_MAIN */
     PM_CLEANUP,             /* @CLEANUP_AND_CLOSE; push ENTITY_FADE_WAIT */
     PM_DONE,                /* enable entities + POP */
 } PauseMenuPhase;
@@ -226,6 +228,27 @@ typedef struct {
     uint16_t item_slot;      /* 1-based selected item slot */
     uint16_t give_target;    /* 1-based give recipient */
 } PauseMenuState;
+
+/* GAME_MODE_EQUIP_MENU phases. Port of open_equipment_menu()
+ * (src/inventory/equipment/open_equipment_menu.asm): the pause menu's Equip
+ * cascade — character selection (multi-party CHAR_SELECT with the
+ * equipment-stats on_change, or single-party auto-select) then the
+ * equipment-change driver. equipment_change_menu() stays blocking, called
+ * inline from the step (its own selection-menu cascade — a later parent
+ * conversion). Always pops 0; the pause-menu parent runs its single-party
+ * sfx tail in PM_EQUIP_RESUME. */
+typedef enum {
+    EQ_ENTER = 0,     /* save text attrs; single-party initial equipment display */
+    EQ_SELECT,        /* loop head: multi pushes CHAR_SELECT, single selects inline */
+    EQ_SELECT_RESULT, /* after the CHAR_SELECT pops: cancel exits, else change */
+    EQ_CHANGE,        /* equipment_change_menu (blocking inline); loop or exit */
+    EQ_EXIT,          /* close windows, restore text attrs, POP */
+} EquipMenuPhase;
+
+typedef struct {
+    uint8_t  phase;      /* EquipMenuPhase */
+    uint16_t equip_char; /* 1-based character being equipped */
+} EquipMenuState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1147,6 +1170,7 @@ union ModeState {
     DoorTransitionState   door_transition;
     QuickChecktalkState   quick_checktalk;
     PauseMenuState        pause_menu;
+    EquipMenuState        equip_menu;
     uint8_t               _raw[160];
 };
 
@@ -1323,6 +1347,11 @@ StepResult mode_step_quick_checktalk(ModeState *st);
  * inventory / give helpers live). Init with ModeState.pause_menu
  * (phase = PM_ENTER) before pump_mode(GAME_MODE_PAUSE_MENU). Always pops 0. */
 StepResult mode_step_pause_menu(ModeState *st);
+
+/* GAME_MODE_EQUIP_MENU step (defined in text.c, where equipment_change_menu and
+ * the equipment-stats helpers live). Init with ModeState.equip_menu
+ * (phase = EQ_ENTER); entered via STEP_PUSH from the pause menu. Always pops 0. */
+StepResult mode_step_equip_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
