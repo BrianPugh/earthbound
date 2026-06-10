@@ -1259,287 +1259,9 @@ static void display_psi_ability_details(uint16_t palette_index, uint16_t ability
     clear_instant_printing();
 }
 
-/* OVERWORLD_PSI_MENU — Port of asm/text/menu/overworld_psi_menu.asm (571 lines).
- *
- * Full overworld PSI selection: character select → ability select →
- * PP cost check → teleport check / targeting → action execution.
- *
- * Returns 1 if a PSI was used (menu should close), 0 if cancelled.
- */
-static uint16_t overworld_psi_menu(void) {
-    uint16_t virtual01 = 0x00FF;  /* last ability selection (0xFF = initial) */
-    uint16_t result = 0;
-    only_one_character_with_psi = 0;
-
-    /* Assembly @CHARACTER_SELECT loop (lines 23-67) */
-    for (;;) {
-        uint16_t char_id;
-
-        uint16_t psi_count = count_characters_with_psi();
-        if (psi_count == 1) {
-            /* Single PSI user — auto-select (assembly lines 26-44) */
-            if ((virtual01 & 0xFF) == 0)
-                goto after_char_select6;
-
-            uint16_t first_idx = find_first_character_with_psi();
-            char_id = game_state.party_members[first_idx - 1];
-            display_character_psi_list(char_id);
-            only_one_character_with_psi = 1;
-        } else {
-            /* Multiple PSI users — character selection (assembly lines 45-56).
-             * CHAR_SELECT_PROMPT mode=0: L/R arrow cycling with pagination arrows,
-             * not a separate character window. */
-            display_menu_header_text(0);  /* "Who?" */
-            char_id = char_select_prompt(0, 1,
-                display_character_psi_list, check_character_psi_availability);
-            close_menu_header_window();
-
-            if (char_id == 0)
-                goto after_char_select6;  /* cancelled */
-        }
-
-        overworld_selected_psi_user = char_id;
-        virtual01 = 0x00FF;
-
-        /* Assembly @PSI_ABILITY_LOOP (lines 68-99) */
-        for (;;) {
-            set_window_focus(WINDOW_TEXT_STANDARD);
-
-            /* Redisplay PSI list if returning from a failed action (lines 73-78) */
-            if ((virtual01 & 0xFF) != 0xFF) {
-                display_psi_ability_details(0, virtual01);
-                print_menu_items();
-            }
-
-            /* Select a PSI ability (lines 80-90) */
-            set_cursor_move_callback(display_psi_target_and_cost);
-            uint16_t psi_selection = selection_menu(1);
-            virtual01 = psi_selection;
-            clear_cursor_move_callback();
-
-            if ((psi_selection & 0xFF) == 0) {
-                /* @CANCELLED: assembly sets VIRTUAL00=1 (lines 213-216).
-                 * VIRTUAL01 is already 0 from selection_menu returning 0.
-                 * At HANDLE_RESULT: VIRTUAL00≠0 → close target/cost window;
-                 * VIRTUAL01==0 → break to character select.
-                 * result (LOCAL09) stays 0 — cancel is not a PSI action. */
-                close_window(WINDOW_PSI_TARGET_COST);
-                break;  /* → @CHARACTER_SELECT */
-            }
-
-            /* Show PSI details for single-PSI case (lines 91-98) */
-            if (!only_one_character_with_psi) {
-                display_psi_ability_details(6, psi_selection);
-            }
-
-            /* @CHECK_PP_COST: look up PP cost (assembly lines 100-154) */
-            if (!ensure_battle_psi_table()) {
-                result = 0;
-                goto handle_result;
-            }
-
-            uint16_t battle_action_id = battle_psi_table[psi_selection].battle_action;
-            uint8_t pp_cost = battle_action_table ?
-                battle_action_table[battle_action_id].pp_cost : 0;
-            uint16_t char_idx = char_id - 1;
-            if (pp_cost > party_characters[char_idx].current_pp) {
-                /* Not enough PP (assembly lines 147-154) */
-                create_window(WINDOW_TEXT_BATTLE);
-                display_text_from_addr(MSG_BTL6_NOT_ENOUGH_PP_MENU);
-                close_focus_window();
-                result = 0;
-                goto handle_result;
-            }
-
-            /* Check if this is a teleport PSI (assembly lines 155-205) */
-            uint8_t psi_category = battle_psi_table[psi_selection].category;
-            if (psi_category == PSI_CAT_OTHER) {
-                /* Teleport checks (assembly lines 166-192) */
-                bool blocked = false;
-                if ((game_state.party_npc_1 & 0xFF) == PARTY_NPC_DUNGEON_MAN)
-                    blocked = true;
-                if ((game_state.party_npc_2 & 0xFF) == PARTY_NPC_DUNGEON_MAN)
-                    blocked = true;
-                if (event_flag_get(EVENT_FLAG_DISABLE_TELEPORT))
-                    blocked = true;
-                uint16_t ws = game_state.walking_style;
-                if (ws == WALKING_STYLE_LADDER || ws == WALKING_STYLE_ROPE ||
-                    ws == WALKING_STYLE_ESCALATOR || ws == WALKING_STYLE_STAIRS)
-                    blocked = true;
-                if (!blocked) {
-                    uint16_t sector_attrs = load_sector_attrs(
-                        game_state.leader_x_coord, game_state.leader_y_coord);
-                    if (sector_attrs & MAP_SECTOR_CANNOT_TELEPORT)
-                        blocked = true;
-                }
-
-                if (blocked) {
-                    /* @TELEPORT_BLOCKED (assembly lines 197-205) */
-                    create_window(WINDOW_TEXT_BATTLE);
-                    display_text_from_addr(MSG_SYS_TELEPORT_BLOCKED);
-                    close_focus_window();
-                    result = 0;
-                    goto handle_result;
-                }
-
-                /* Open teleport destination menu (assembly line 193) */
-                uint16_t dest = open_teleport_destination_menu();
-                result = dest;
-                goto handle_result;
-            }
-
-            /* @NOT_TELEPORT: non-teleport PSI — determine targeting (lines 206-212) */
-            result = determine_targetting(battle_action_id, char_id);
-            goto handle_result;
-
-handle_result:
-            /* @HANDLE_RESULT (assembly lines 217-226) */
-            if ((result & 0xFF) == 0) {
-                /* Result 0 → retry PSI ability selection */
-                continue;  /* → @PSI_ABILITY_LOOP */
-            }
-
-            /* Close PSI target/cost window (line 222-223) */
-            close_window(WINDOW_PSI_TARGET_COST);
-
-            if ((virtual01 & 0xFF) == 0) {
-                /* Cancelled → retry character selection (line 225-226) */
-                break;  /* → @CHARACTER_SELECT */
-            }
-
-            /* ---- Execute PSI action (assembly lines 227-560) ---- */
-
-            /* Deduct PP (assembly lines 232-267).
-             * Assembly: A=char_id, X=pp_cost, Y=1 (flat amount mode).
-             * Y was loaded with 1 at line 242. */
-            reduce_pp_target(char_id, pp_cost, 1);
-
-            /* Read the PSI's category to check if teleport (lines 268-278) */
-            if (psi_category == PSI_CAT_OTHER) {
-                /* @TELEPORT: Set teleport state (assembly lines 279-289)
-                 * psi_ability[ability_id].level = teleport style (α/β) */
-                uint8_t teleport_style = battle_psi_table[psi_selection].level;
-                set_teleport_state((uint8_t)result, teleport_style);
-                goto execute_action;
-            }
-
-            /* @NOT_TELEPORT_ACTION: Set up battler structures for PSI execution
-             * (assembly lines 290-354) */
-            bt.current_attacker = 0;  /* BATTLERS_TABLE[0] = first battler */
-            battle_init_player_stats(char_id, &bt.battlers_table[0]);
-
-            /* Set attacker name (assembly lines 297-304) */
-            set_battle_attacker_name(
-                (const char *)party_characters[char_id - 1].name,
-                sizeof(party_characters[0].name));
-
-            /* Set target name if targeting a specific ally (lines 305-318) */
-            uint8_t target_id = result & 0xFF;
-            if (target_id != 0xFF && target_id > 0) {
-                set_battle_target_name(
-                    (const char *)party_characters[target_id - 1].name,
-                    sizeof(party_characters[0].name));
-            }
-
-            /* Set current item to the PSI ability (line 320-321) */
-            set_current_item((uint8_t)psi_selection);
-
-            /* Display action description text (assembly lines 322-354) */
-            create_window(WINDOW_TEXT_STANDARD);
-            if (battle_action_table) {
-                uint32_t desc_addr =
-                    battle_action_table[battle_action_id].description_text_pointer;
-                if (desc_addr != 0)
-                    display_text_from_addr(desc_addr);
-            }
-
-execute_action:
-            /* Execute the battle action function (assembly lines 355-560).
-             *
-             * Assembly reads the function pointer from
-             * BATTLE_ACTION_TABLE[battle_action_id].battle_function_pointer.
-             * If NULL → skip to @AFTER_CHAR_SELECT5 (result=1, no execution).
-             * If non-NULL → dispatch based on target_id:
-             *   0xFF = all-party (@MULTI_CHARACTER loop)
-             *   other = single target (@AFTER_CHAR_SELECT0) */
-            {
-                uint32_t func_addr = 0;
-                if (battle_action_table)
-                    func_addr = battle_action_table[battle_action_id].battle_function_pointer;
-
-                if (func_addr == 0)
-                    goto after_char_select5;  /* assembly: BEQL @AFTER_CHAR_SELECT5 */
-
-                /* Set up target battler (assembly line 394-395) */
-                bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] offset */
-
-                if (target_id == 0xFF) {
-                    /* All-party target: execute on each member
-                     * (assembly @MULTI_CHARACTER loop, lines 400-503) */
-                    for (uint16_t i = 0;
-                         i < (game_state.player_controlled_party_count & 0xFF);
-                         i++) {
-                        uint8_t member_id = game_state.party_members[i];
-
-                        /* Set target name (assembly lines 404-421) */
-                        set_battle_target_name(
-                            (const char *)party_characters[member_id - 1].name,
-                            sizeof(party_characters[0].name));
-
-                        /* Init target battler (assembly lines 422-428) */
-                        battle_init_player_stats(member_id, &bt.battlers_table[1]);
-
-                        /* Call the action function (assembly lines 429-459) */
-                        bt.temp_function_pointer = func_addr;
-                        jump_temp_function_pointer();
-
-                        /* Copy afflictions from battler back to char struct
-                         * (assembly lines 463-492).
-                         * Note: assembly uses loop counter for party_characters
-                         * index, matching this code's use of i. */
-                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                            party_characters[i].afflictions[g] =
-                                bt.battlers_table[1].afflictions[g];
-                        }
-                    }
-                } else {
-                    /* Single target (@AFTER_CHAR_SELECT0, lines 504-559) */
-                    if (target_id > 0)
-                        battle_init_player_stats(target_id, &bt.battlers_table[1]);
-
-                    bt.temp_function_pointer = func_addr;
-                    jump_temp_function_pointer();
-
-                    /* Copy afflictions back (assembly lines 529-559) */
-                    if (target_id > 0) {
-                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                            party_characters[target_id - 1].afflictions[g] =
-                                bt.battlers_table[1].afflictions[g];
-                        }
-                    }
-                }
-
-                /* @AFTER_CHAR_SELECT4 (assembly line 561) */
-                render_and_disable_entities();
-            }
-
-after_char_select5:
-            /* @AFTER_CHAR_SELECT5 (assembly lines 563-564): set result=1 */
-            result = 1;
-            goto done;
-        }
-        /* Break from inner loop → retry character select */
-    }
-
-after_char_select6:
-    /* @AFTER_CHAR_SELECT6 (assembly lines 566-570): close and return */
-    close_window(WINDOW_TEXT_STANDARD);
-    return result;
-
-done:
-    close_window(WINDOW_TEXT_STANDARD);
-    return result;
-}
+/* OVERWORLD_PSI_MENU (asm/text/menu/overworld_psi_menu.asm, 571 lines) is now
+ * GAME_MODE_PSI_MENU (mode_step_psi_menu, with the pause-menu machinery further
+ * down this file), STEP_PUSHed by the pause menu's PSI case. */
 
 /* PSI category names — structural labels matching asm/data/psi_categories.asm (US).
  * These are 8-byte PADDEDEBTEXT in ROM; we use ASCII equivalents here. */
@@ -1941,12 +1663,17 @@ static StepResult pm_push_selection_equip(EquipMenuState *st,
     return menu_push_selection(&st->result_ready, &st->result, 1);
 }
 
-/* Push a DISPLAY_TEXT child for `addr`, resuming at `resume_phase`. If the
- * address can't be resolved, warn (like display_text_from_addr) and fall
- * through to the resume phase inline — the step's for(;;) continues there. */
-static StepResult pm_push_text(PauseMenuState *st, uint8_t resume_phase,
-                               uint32_t addr, bool *pushed) {
-    st->phase = resume_phase;
+/* PSI-menu variant (the ability menu allows cancel). */
+static StepResult pm_push_selection_psi(PsiMenuState *st,
+                                        uint8_t result_phase) {
+    st->phase = result_phase;
+    return menu_push_selection(&st->result_ready, &st->menu_result, 1);
+}
+
+/* Push a DISPLAY_TEXT child for `addr`. If the address can't be resolved,
+ * warn (like display_text_from_addr) and don't push — the caller has already
+ * set its resume phase, so its for(;;) falls through there inline. */
+static StepResult menu_push_text(uint32_t addr, bool *pushed) {
     if (dt_make_child_init(&pm_child_init, addr)) {
         *pushed = true;
         return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &pm_child_init);
@@ -1954,6 +1681,12 @@ static StepResult pm_push_text(PauseMenuState *st, uint8_t resume_phase,
     LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     *pushed = false;
     return STEP_RESULT_CONTINUE();
+}
+
+static StepResult pm_push_text(PauseMenuState *st, uint8_t resume_phase,
+                               uint32_t addr, bool *pushed) {
+    st->phase = resume_phase;
+    return menu_push_text(addr, pushed);
 }
 
 /* GAME_MODE_EQUIP_MENU step — run-to-completion port of open_equipment_menu()
@@ -2331,6 +2064,317 @@ StepResult mode_step_status_menu(ModeState *ms) {
     }
 }
 
+/* GAME_MODE_PSI_MENU step — run-to-completion port of overworld_psi_menu()
+ * (asm/text/menu/overworld_psi_menu.asm, 571 lines). See PsiMenuState in
+ * mode_stack.h. open_teleport_destination_menu(), determine_targetting(), and
+ * the battle-action execution stay blocking, called inline from the step
+ * (each pumps its converted children internally — later conversions). */
+StepResult mode_step_psi_menu(ModeState *ms) {
+    PsiMenuState *st = &ms->psi_menu;
+
+    for (;;) {
+        switch ((PsiMenuPhase)st->phase) {
+
+        case PS_ENTER:
+            st->last_ability = 0x00FF;  /* @VIRTUAL01 (0xFF = initial) */
+            st->action_result = 0;
+            only_one_character_with_psi = 0;
+            st->phase = PS_CHAR;
+            continue;
+
+        case PS_CHAR: {
+            /* @CHARACTER_SELECT loop head (assembly lines 23-67) */
+            uint16_t psi_count = count_characters_with_psi();
+            if (psi_count == 1) {
+                /* Single PSI user — auto-select (assembly lines 26-44).
+                 * last_ability == 0 here means the ability menu was cancelled
+                 * on the previous round: exit instead of re-entering. */
+                if ((st->last_ability & 0xFF) == 0) {
+                    st->phase = PS_EXIT;
+                    continue;
+                }
+                uint16_t first_idx = find_first_character_with_psi();
+                st->char_id = game_state.party_members[first_idx - 1];
+                display_character_psi_list(st->char_id);
+                only_one_character_with_psi = 1;
+
+                overworld_selected_psi_user = st->char_id;
+                st->last_ability = 0x00FF;
+                st->phase = PS_ABILITY;
+                continue;
+            }
+            /* Multiple PSI users — character selection (assembly lines 45-56).
+             * mode=0: L/R arrow cycling with pagination arrows. */
+            display_menu_header_text(0);  /* "Who?" */
+            char_select_make_init(&pm_child_init, 0, 1,
+                                  CS_ONCHANGE_PSI_LIST, CS_CHECKVALID_PSI);
+            st->phase = PS_CHAR_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+        }
+
+        case PS_CHAR_RESULT:
+            st->char_id = (uint16_t)mode_child_result();
+            close_menu_header_window();
+            if (st->char_id == 0) {
+                st->phase = PS_EXIT;  /* cancelled */
+                continue;
+            }
+            overworld_selected_psi_user = st->char_id;
+            st->last_ability = 0x00FF;
+            st->phase = PS_ABILITY;
+            continue;
+
+        case PS_ABILITY:
+            /* @PSI_ABILITY_LOOP head (assembly lines 68-90) */
+            set_window_focus(WINDOW_TEXT_STANDARD);
+
+            /* Redisplay PSI list if returning from a failed action (73-78) */
+            if ((st->last_ability & 0xFF) != 0xFF) {
+                display_psi_ability_details(0, st->last_ability);
+                print_menu_items();
+            }
+
+            /* Select a PSI ability; the target/cost preview lives in the
+             * re-fetchable WindowInfo, safe across the push. */
+            set_cursor_move_callback(display_psi_target_and_cost);
+            return pm_push_selection_psi(st, PS_ABILITY_RESULT);
+
+        case PS_ABILITY_RESULT: {
+            uint16_t psi_selection = menu_take_result(&st->result_ready,
+                                                      &st->menu_result);
+            st->last_ability = psi_selection;
+            clear_cursor_move_callback();
+
+            if ((psi_selection & 0xFF) == 0) {
+                /* @CANCELLED (assembly lines 213-216): close the target/cost
+                 * window and break to character select; action_result stays as
+                 * is — cancel is not a PSI action. */
+                close_window(WINDOW_PSI_TARGET_COST);
+                st->phase = PS_CHAR;
+                continue;
+            }
+
+            /* Show PSI details for the multi-PSI case (lines 91-98) */
+            if (!only_one_character_with_psi)
+                display_psi_ability_details(6, psi_selection);
+
+            /* @CHECK_PP_COST: look up the PP cost (assembly lines 100-154) */
+            if (!ensure_battle_psi_table()) {
+                st->action_result = 0;
+                st->phase = PS_HANDLE;
+                continue;
+            }
+
+            st->battle_action_id = battle_psi_table[psi_selection].battle_action;
+            st->pp_cost = battle_action_table ?
+                battle_action_table[st->battle_action_id].pp_cost : 0;
+            uint16_t char_idx = st->char_id - 1;
+            if (st->pp_cost > party_characters[char_idx].current_pp) {
+                /* Not enough PP (assembly lines 147-154) */
+                create_window(WINDOW_TEXT_BATTLE);
+                st->phase = PS_FAIL_RESUME;
+                bool pushed;
+                StepResult r = menu_push_text(MSG_BTL6_NOT_ENOUGH_PP_MENU, &pushed);
+                if (pushed) return r;
+                continue;
+            }
+
+            /* Check if this is a teleport PSI (assembly lines 155-205) */
+            st->psi_category = battle_psi_table[psi_selection].category;
+            if (st->psi_category == PSI_CAT_OTHER) {
+                /* Teleport checks (assembly lines 166-192) */
+                bool blocked = false;
+                if ((game_state.party_npc_1 & 0xFF) == PARTY_NPC_DUNGEON_MAN)
+                    blocked = true;
+                if ((game_state.party_npc_2 & 0xFF) == PARTY_NPC_DUNGEON_MAN)
+                    blocked = true;
+                if (event_flag_get(EVENT_FLAG_DISABLE_TELEPORT))
+                    blocked = true;
+                uint16_t ws = game_state.walking_style;
+                if (ws == WALKING_STYLE_LADDER || ws == WALKING_STYLE_ROPE ||
+                    ws == WALKING_STYLE_ESCALATOR || ws == WALKING_STYLE_STAIRS)
+                    blocked = true;
+                if (!blocked) {
+                    uint16_t sector_attrs = load_sector_attrs(
+                        game_state.leader_x_coord, game_state.leader_y_coord);
+                    if (sector_attrs & MAP_SECTOR_CANNOT_TELEPORT)
+                        blocked = true;
+                }
+
+                if (blocked) {
+                    /* @TELEPORT_BLOCKED (assembly lines 197-205) */
+                    create_window(WINDOW_TEXT_BATTLE);
+                    st->phase = PS_FAIL_RESUME;
+                    bool pushed;
+                    StepResult r = menu_push_text(MSG_SYS_TELEPORT_BLOCKED, &pushed);
+                    if (pushed) return r;
+                    continue;
+                }
+
+                /* Teleport destination menu (assembly line 193) — its own
+                 * selection-menu driver, blocking inline. */
+                st->action_result = open_teleport_destination_menu();
+                st->phase = PS_HANDLE;
+                continue;
+            }
+
+            /* @NOT_TELEPORT: targeting (lines 206-212) — the battle row/enemy
+             * targeting driver, blocking inline. */
+            st->action_result = determine_targetting(st->battle_action_id,
+                                                     st->char_id);
+            st->phase = PS_HANDLE;
+            continue;
+        }
+
+        case PS_FAIL_RESUME:
+            /* Tail of the not-enough-PP / teleport-blocked message. */
+            close_focus_window();
+            st->action_result = 0;
+            st->phase = PS_HANDLE;
+            continue;
+
+        case PS_HANDLE: {
+            /* @HANDLE_RESULT (assembly lines 217-226) */
+            if ((st->action_result & 0xFF) == 0) {
+                st->phase = PS_ABILITY;  /* retry ability selection */
+                continue;
+            }
+
+            close_window(WINDOW_PSI_TARGET_COST);
+
+            if ((st->last_ability & 0xFF) == 0) {
+                st->phase = PS_CHAR;  /* cancelled → retry character select */
+                continue;
+            }
+
+            /* ---- Execute PSI action (assembly lines 227-354) ---- */
+
+            /* Deduct PP (assembly lines 232-267): A=char_id, X=pp_cost,
+             * Y=1 (flat amount mode). */
+            reduce_pp_target(st->char_id, st->pp_cost, 1);
+
+            if (st->psi_category == PSI_CAT_OTHER) {
+                /* @TELEPORT: set teleport state (assembly lines 279-289);
+                 * psi_ability[ability_id].level = teleport style (α/β). */
+                uint8_t teleport_style = battle_psi_table[st->last_ability].level;
+                set_teleport_state((uint8_t)st->action_result, teleport_style);
+                st->phase = PS_EXECUTE;  /* no description text */
+                continue;
+            }
+
+            /* @NOT_TELEPORT_ACTION: set up battler structures (lines 290-354) */
+            bt.current_attacker = 0;  /* BATTLERS_TABLE[0] = first battler */
+            battle_init_player_stats(st->char_id, &bt.battlers_table[0]);
+
+            /* Set attacker name (assembly lines 297-304) */
+            set_battle_attacker_name(
+                (const char *)party_characters[st->char_id - 1].name,
+                sizeof(party_characters[0].name));
+
+            /* Set target name if targeting a specific ally (lines 305-318) */
+            uint8_t target_id = st->action_result & 0xFF;
+            if (target_id != 0xFF && target_id > 0) {
+                set_battle_target_name(
+                    (const char *)party_characters[target_id - 1].name,
+                    sizeof(party_characters[0].name));
+            }
+
+            /* Set current item to the PSI ability (lines 320-321) */
+            set_current_item((uint8_t)st->last_ability);
+
+            /* Display the action description text (assembly lines 322-354) */
+            create_window(WINDOW_TEXT_STANDARD);
+            st->phase = PS_EXECUTE;
+            if (battle_action_table) {
+                uint32_t desc_addr =
+                    battle_action_table[st->battle_action_id].description_text_pointer;
+                if (desc_addr != 0) {
+                    bool pushed;
+                    StepResult r = menu_push_text(desc_addr, &pushed);
+                    if (pushed) return r;
+                }
+            }
+            continue;
+        }
+
+        case PS_EXECUTE: {
+            /* Execute the battle action function (assembly lines 355-560).
+             * NULL pointer → @AFTER_CHAR_SELECT5 (result=1, no execution);
+             * target 0xFF = all-party loop, else single target. The action
+             * functions can display text — blocking inline. */
+            uint32_t func_addr = 0;
+            if (battle_action_table)
+                func_addr = battle_action_table[st->battle_action_id].battle_function_pointer;
+
+            if (func_addr != 0) {
+                uint8_t target_id = st->action_result & 0xFF;
+
+                /* Set up target battler (assembly lines 394-395) */
+                bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
+
+                if (target_id == 0xFF) {
+                    /* All-party target (@MULTI_CHARACTER, lines 400-503) */
+                    for (uint16_t i = 0;
+                         i < (game_state.player_controlled_party_count & 0xFF);
+                         i++) {
+                        uint8_t member_id = game_state.party_members[i];
+
+                        /* Set target name (assembly lines 404-421) */
+                        set_battle_target_name(
+                            (const char *)party_characters[member_id - 1].name,
+                            sizeof(party_characters[0].name));
+
+                        /* Init target battler (assembly lines 422-428) */
+                        battle_init_player_stats(member_id, &bt.battlers_table[1]);
+
+                        /* Call the action function (assembly lines 429-459) */
+                        bt.temp_function_pointer = func_addr;
+                        jump_temp_function_pointer();
+
+                        /* Copy afflictions back (assembly lines 463-492).
+                         * Note: assembly uses the loop counter for the
+                         * party_characters index, matching this use of i. */
+                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                            party_characters[i].afflictions[g] =
+                                bt.battlers_table[1].afflictions[g];
+                        }
+                    }
+                } else {
+                    /* Single target (@AFTER_CHAR_SELECT0, lines 504-559) */
+                    if (target_id > 0)
+                        battle_init_player_stats(target_id, &bt.battlers_table[1]);
+
+                    bt.temp_function_pointer = func_addr;
+                    jump_temp_function_pointer();
+
+                    /* Copy afflictions back (assembly lines 529-559) */
+                    if (target_id > 0) {
+                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                            party_characters[target_id - 1].afflictions[g] =
+                                bt.battlers_table[1].afflictions[g];
+                        }
+                    }
+                }
+
+                /* @AFTER_CHAR_SELECT4 (assembly line 561) */
+                render_and_disable_entities();
+            }
+
+            /* @AFTER_CHAR_SELECT5 (assembly lines 563-564) */
+            st->action_result = 1;
+            st->phase = PS_EXIT;
+            continue;
+        }
+
+        case PS_EXIT:
+        default:
+            /* @AFTER_CHAR_SELECT6 / @DONE (assembly lines 566-570) */
+            close_window(WINDOW_TEXT_STANDARD);
+            return STEP_RESULT_POP(st->action_result);
+        }
+    }
+}
+
 StepResult mode_step_pause_menu(ModeState *ms) {
     PauseMenuState *st = &ms->pause_menu;
 
@@ -2388,24 +2432,14 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                 if (first_psi != 0)
                     select_battle_menu_character(first_psi - 1);
 
-                /* OVERWORLD_PSI_MENU: full PSI selection, targeting, and
-                 * execution (asm/text/menu/overworld_psi_menu.asm, 571 lines).
-                 * Blocking driver, called inline (deferred parent conversion).
+                /* OVERWORLD_PSI_MENU, now GAME_MODE_PSI_MENU. The used/
+                 * cancelled branch + single-PSI sfx tail run in PM_PSI_RESUME.
                  * Note: assembly does NOT set dt.force_left_text_alignment for
                  * PSI (only STATUS). */
-                uint16_t psi_result = overworld_psi_menu();
-                if (psi_result != 0) {
-                    st->phase = PM_CLEANUP;
-                    continue;
-                }
-
-                /* Single PSI user: play SFX and clear indicator (lines 566-572) */
-                if (count_characters_with_psi() == 1) {
-                    play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
-                    clear_battle_menu_character_indicator();
-                }
-                st->phase = PM_MAIN;
-                continue;
+                pm_child_init = (ModeState){0};
+                pm_child_init.psi_menu.phase = PS_ENTER;
+                st->phase = PM_PSI_RESUME;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PSI_MENU, &pm_child_init);
             }
 
             /* --- Equip (assembly lines 573-583) --- */
@@ -2837,6 +2871,21 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             /* Tail of the Equip case after EQUIP_MENU pops: single party plays
              * the close sfx and clears the indicator (assembly lines 576-583). */
             if ((game_state.player_controlled_party_count & 0xFF) == 1) {
+                play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
+                clear_battle_menu_character_indicator();
+            }
+            st->phase = PM_MAIN;
+            continue;
+
+        case PM_PSI_RESUME:
+            /* Tail of the PSI case after PSI_MENU pops (assembly 562-572):
+             * a used PSI closes the whole pause menu; otherwise the single-PSI
+             * party plays the close sfx and clears the indicator. */
+            if (mode_child_result() != 0) {
+                st->phase = PM_CLEANUP;
+                continue;
+            }
+            if (count_characters_with_psi() == 1) {
                 play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
                 clear_battle_menu_character_indicator();
             }

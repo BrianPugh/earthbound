@@ -65,6 +65,7 @@ typedef enum {
     GAME_MODE_EQUIP_MENU,          /* pause-menu Equip cascade (open_equipment_menu) */
     GAME_MODE_STATUS_MENU,         /* pause-menu Status cascade (open_status_menu) */
     GAME_MODE_HPPP_DISPLAY,        /* B-button HP/PP + money display (open_hppp_display) */
+    GAME_MODE_PSI_MENU,            /* pause-menu PSI cascade (overworld_psi_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -213,6 +214,7 @@ typedef enum {
     PM_GIVE_MSG_RESUME,     /* after the give message pops: swap item + close -> PM_MAIN */
     PM_DROP_RESUME,         /* after the drop text pops: close windows -> PM_MAIN */
     PM_EQUIP_RESUME,        /* after EQUIP_MENU pops: single-party sfx tail -> PM_MAIN */
+    PM_PSI_RESUME,          /* after PSI_MENU pops: used->cleanup / single-PSI sfx tail */
     PM_CLEANUP,             /* @CLEANUP_AND_CLOSE; push ENTITY_FADE_WAIT */
     PM_DONE,                /* enable entities + POP */
 } PauseMenuPhase;
@@ -304,6 +306,46 @@ typedef struct {
     uint8_t phase;  /* HpppDisplayPhase */
     uint8_t primed; /* 0 = first frame: render without reading input */
 } HpppDisplayState;
+
+/* GAME_MODE_PSI_MENU phases. Port of overworld_psi_menu()
+ * (asm/text/menu/overworld_psi_menu.asm, 571 lines): the pause menu's PSI
+ * cascade — character select (CHAR_SELECT push with the PSI-list on_change +
+ * PSI-availability check_valid), ability select (SELECTION_MENU push with the
+ * target/cost cursor callback), PP-cost / teleport-blocked failure texts
+ * (DISPLAY_TEXT pushes sharing the PS_FAIL_RESUME tail), then targeting and
+ * execution.
+ *
+ * Still blocking, called inline from the step (each pumps its converted
+ * children internally — later conversions): open_teleport_destination_menu()
+ * (its own selection-menu driver), determine_targetting() (battle row/enemy
+ * targeting driver), and the battle-action execution via
+ * jump_temp_function_pointer() (action functions can display text).
+ *
+ * Pops 1 if a PSI was used (the pause menu closes), else 0; the pause-menu
+ * parent branches in PM_PSI_RESUME. */
+typedef enum {
+    PS_ENTER = 0,       /* reset trackers, fall through to the char-select loop */
+    PS_CHAR,            /* @CHARACTER_SELECT: single auto-selects, multi pushes */
+    PS_CHAR_RESULT,     /* after the CHAR_SELECT pops: cancel exits */
+    PS_ABILITY,         /* @PSI_ABILITY_LOOP head: redisplay + push SELECTION_MENU */
+    PS_ABILITY_RESULT,  /* PP/teleport checks; targeting (inline) or failure text */
+    PS_FAIL_RESUME,     /* after a failure text pops: close window, retry ability */
+    PS_HANDLE,          /* @HANDLE_RESULT: retry/back, or execute (desc text push) */
+    PS_EXECUTE,         /* battle-action dispatch + render; sets result 1 */
+    PS_EXIT,            /* close the text window, POP the result */
+} PsiMenuPhase;
+
+typedef struct {
+    uint8_t  phase;            /* PsiMenuPhase */
+    uint8_t  result_ready;     /* 1 = `menu_result` holds an inline early-exit value */
+    uint8_t  pp_cost;          /* selected ability's PP cost */
+    uint8_t  psi_category;     /* selected ability's category (PSI_CAT_*) */
+    uint16_t menu_result;      /* inline early-exit selection result */
+    uint16_t char_id;          /* 1-based PSI user */
+    uint16_t last_ability;     /* @VIRTUAL01: last ability selection (0xFF = initial) */
+    uint16_t battle_action_id; /* selected ability's battle action */
+    uint16_t action_result;    /* @LOCAL09: targeting/teleport result; 1 = PSI used */
+} PsiMenuState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1228,6 +1270,7 @@ union ModeState {
     EquipMenuState        equip_menu;
     StatusMenuState       status_menu;
     HpppDisplayState      hppp_display;
+    PsiMenuState          psi_menu;
     uint8_t               _raw[160];
 };
 
@@ -1419,6 +1462,11 @@ StepResult mode_step_status_menu(ModeState *st);
  * ModeState.hppp_display (phase = HD_ENTER) before
  * pump_mode(GAME_MODE_HPPP_DISPLAY). Always pops 0. */
 StepResult mode_step_hppp_display(ModeState *st);
+
+/* GAME_MODE_PSI_MENU step (defined in text.c, where the PSI list/details
+ * helpers live). Init with ModeState.psi_menu (phase = PS_ENTER); entered via
+ * STEP_PUSH from the pause menu. Pops 1 if a PSI was used, else 0. */
+StepResult mode_step_psi_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
