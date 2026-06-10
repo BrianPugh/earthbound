@@ -231,25 +231,32 @@ typedef struct {
     uint16_t give_target;    /* 1-based give recipient */
 } PauseMenuState;
 
-/* GAME_MODE_EQUIP_MENU phases. Port of open_equipment_menu()
- * (src/inventory/equipment/open_equipment_menu.asm): the pause menu's Equip
+/* GAME_MODE_EQUIP_MENU phases. Port of open_equipment_menu() +
+ * equipment_change_menu() (src/inventory/equipment/open_equipment_menu.asm 66
+ * lines + equipment_change_menu.asm 252 lines): the pause menu's whole Equip
  * cascade — character selection (multi-party CHAR_SELECT with the
- * equipment-stats on_change, or single-party auto-select) then the
- * equipment-change driver. equipment_change_menu() stays blocking, called
- * inline from the step (its own selection-menu cascade — a later parent
- * conversion). Always pops 0; the pause-menu parent runs its single-party
- * sfx tail in PM_EQUIP_RESUME. */
+ * equipment-stats on_change, or single-party auto-select), then the
+ * slot-selection ("Where?") and item-selection ("Which?") menus, both
+ * SELECTION_MENU pushes (the stat-preview cursor callbacks live in the
+ * re-fetchable WindowInfo). Always pops 0; the pause-menu parent runs its
+ * single-party sfx tail in PM_EQUIP_RESUME. */
 typedef enum {
     EQ_ENTER = 0,     /* save text attrs; single-party initial equipment display */
     EQ_SELECT,        /* loop head: multi pushes CHAR_SELECT, single selects inline */
     EQ_SELECT_RESULT, /* after the CHAR_SELECT pops: cancel exits, else change */
-    EQ_CHANGE,        /* equipment_change_menu (blocking inline); loop or exit */
+    EQ_CHANGE,        /* enter the change menu: load the equip text data */
+    EQ_SLOT,          /* "Where?" header; push SELECTION_MENU on the slot menu */
+    EQ_SLOT_RESULT,   /* cancel loops/exits; else build the item list + push */
+    EQ_ITEM_RESULT,   /* unequip/equip/cancel; close list; refresh; -> EQ_SLOT */
     EQ_EXIT,          /* close windows, restore text attrs, POP */
 } EquipMenuPhase;
 
 typedef struct {
-    uint8_t  phase;      /* EquipMenuPhase */
-    uint16_t equip_char; /* 1-based character being equipped */
+    uint8_t  phase;        /* EquipMenuPhase */
+    uint8_t  result_ready; /* 1 = `result` holds an inline early-exit value */
+    uint16_t result;       /* inline early-exit selection result */
+    uint16_t equip_char;   /* 1-based character being equipped */
+    uint16_t slot_type;    /* selected equipment slot (1=Weapon..4=Other) */
 } EquipMenuState;
 
 /* GAME_MODE_STATUS_MENU phases. Port of open_status_menu()

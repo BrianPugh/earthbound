@@ -1192,163 +1192,10 @@ static void (*equip_preview_callbacks[4])(uint16_t) = {
     preview_other_equip_stats,
 };
 
-/* EQUIPMENT_CHANGE_MENU — Port of src/inventory/equipment/equipment_change_menu.asm (252 lines).
- *
- * Inner equipment menu loop: select equipment slot (Weapon/Body/Arms/Other),
- * then select an item to equip in that slot.
- * char_id: 1-based character ID. */
-static void equipment_change_menu(uint16_t char_id) {
-    uint16_t char_idx = char_id - 1;
-
-    load_equip_text_data();
-
-    for (;;) {
-        /* "Where?" header for slot selection (assembly: DISPLAY_MENU_HEADER_TEXT(4)) */
-        display_menu_header_text(4);  /* "Where?" */
-        set_window_focus(WINDOW_EQUIP_MENU);
-
-        /* Select equipment slot: returns userdata 0=cancel, or slot label data.
-         * Assembly lines 22-27: SELECTION_MENU(1) on EQUIP_MENU window.
-         * The 4 menu options were added by display_equipment_menu, each with
-         * text positioned at row 0-3. selection_menu returns userdata.
-         * But our display_equipment_menu set userdata=0 for all items.
-         * We need the selected *index* to determine which slot was picked.
-         * Use the menu item index: selected_option gives 0-based item index.
-         *
-         * Actually, assembly DISPLAY_EQUIPMENT_MENU uses ADD_POSITIONED_MENU_OPTION
-         * which calls ADD_MENU_OPTION (type=1 counted mode). In counted mode,
-         * selection_menu returns the 1-based index. So slot 1=Weapon..4=Other.
-         * In C port, we use add_menu_item (type=2 userdata mode) with userdata=0.
-         * Fix: set proper userdata when adding menu options. */
-        uint16_t slot_type = selection_menu(1);  /* returns userdata: 1-4, or 0=cancel */
-        close_menu_header_window();
-
-        if (slot_type == 0)
-            return;  /* cancelled → back to character selection */
-
-        /* Create the item list window for this equipment slot */
-        create_window(WINDOW_EQUIP_MENU_ITEMLIST);
-
-        /* Set window title from TEXT_11: "Weapons", "Body", "Arms", "Others" */
-        if (equip_text_data) {
-            char title_buf[WINDOW_TITLE_SIZE];
-            const uint8_t *title_src = equip_text_data + ETEXT11_OFF
-                                       + (slot_type - 1) * ETEXT11_STRIDE;
-            eb_to_ascii_buf(title_src, ETEXT11_STRIDE, title_buf);
-            /* STRLEN equivalent: find length excluding trailing spaces/nulls */
-            int title_len = (int)strlen(title_buf);
-            set_window_title(WINDOW_EQUIP_MENU_ITEMLIST, title_buf, title_len);
-        }
-
-        /* Build equippable item list. Loop over inventory (14 slots),
-         * add items that are equippable and match the slot type.
-         * Assembly lines 48-145. */
-        uint16_t item_count = 0;
-        uint16_t currently_equipped_pos = (uint16_t)-1;
-
-        for (uint16_t inv_slot = 0; inv_slot < ITEM_INVENTORY_SIZE; inv_slot++) {
-            uint8_t item_id = party_characters[char_idx].items[inv_slot];
-            if (item_id == 0) continue;
-
-            /* Item must be equippable (type == 2) */
-            if (get_item_type(item_id) != 2) continue;
-
-            /* Item must match the selected slot type */
-            if (get_item_subtype(item_id) != slot_type) continue;
-
-            /* Item must be usable by this character */
-            if (!check_item_usable_by(char_id, item_id)) continue;
-
-            /* Build label: equipped marker + item name */
-            char label[MENU_LABEL_SIZE];
-            int offset = 0;
-
-            /* Track if this is the currently equipped item */
-            if (check_item_equipped(char_id, inv_slot + 1)) {
-                label[0] = EB_CHAR_EQUIPPED;
-                offset = 1;
-                currently_equipped_pos = item_count;
-            }
-
-            const ItemConfig *item_entry = get_item_entry(item_id);
-            if (item_entry) {
-                for (int j = 0; j < ITEM_NAME_LEN && (offset + j) < MENU_LABEL_SIZE - 1; j++)
-                    label[offset + j] = eb_char_to_ascii(item_entry->name[j]);
-            }
-            /* Assembly: STZ TEMPORARY_TEXT_BUFFER+.SIZEOF(item::name)
-             * Null terminator is at a fixed offset regardless of equipped marker. */
-            label[ITEM_NAME_LEN] = '\0';
-
-            /* Trim trailing spaces */
-            int len = (int)strlen(label);
-            while (len > 0 && label[len - 1] == ' ')
-                label[--len] = '\0';
-
-            /* Assembly line 137-144: ADD_MENU_ITEM_NO_POSITION with
-             * userdata = inv_slot+1 (1-based), sound_effect = 115 */
-            add_menu_item_no_position(label, inv_slot + 1);
-
-            WindowInfo *w = get_window(win.current_focus_window);
-            if (w && w->menu_count > 0) {
-                w->menu_items[w->menu_count - 1].sound_effect = 115;
-            }
-
-            item_count++;
-        }
-
-        /* Add "None" option for unequipping (assembly lines 152-155).
-         * Userdata = -1 (0xFFFF) to signal unequip. */
-        {
-            char none_label[8];
-            if (equip_text_data) {
-                eb_to_ascii_buf(equip_text_data + ETEXT13_OFF, ETEXT13_LEN, none_label);
-            } else {
-                snprintf(none_label, sizeof(none_label), "None");
-            }
-            add_menu_item_no_position(none_label, (uint16_t)-1);
-        }
-
-        /* Layout items with initial selection on currently equipped item.
-         * Assembly line 156-159: LAYOUT_AND_PRINT_MENU_AT_SELECTION(A=1, X=0, Y=@LOCAL03). */
-        layout_and_print_menu_at_selection(1, 0, currently_equipped_pos);
-
-        /* Set cursor move callback for stat preview.
-         * Assembly lines 160-190: set callback based on slot_type. */
-        character_for_equip_menu = char_id;
-        if (slot_type >= 1 && slot_type <= 4) {
-            set_cursor_move_callback(equip_preview_callbacks[slot_type - 1]);
-        }
-
-        /* Show header "Which?" and run selection */
-        compare_equipment_mode = 1;
-        display_menu_header_text(1);  /* "Which?" */
-        uint16_t item_selection = selection_menu(1);
-        close_menu_header_window();
-        clear_cursor_move_callback();
-
-        /* Process selection */
-        if (item_selection == (uint16_t)-1) {
-            /* "None" selected → unequip current slot.
-             * Assembly lines 203-236: call CHANGE_EQUIPPED_*(char_id, 0). */
-            switch (slot_type) {
-            case 1: change_equipped_weapon(char_id, 0); break;
-            case 2: change_equipped_body(char_id, 0); break;
-            case 3: change_equipped_arms(char_id, 0); break;
-            case 4: change_equipped_other(char_id, 0); break;
-            }
-        } else if (item_selection != 0) {
-            /* Item selected → equip it.
-             * Assembly line 240-242: EQUIP_ITEM(char_id, item_slot). */
-            equip_item(char_id, item_selection);
-        }
-        /* item_selection == 0 → cancelled, just close and loop */
-
-        /* Close item list, refresh equipment display, loop to slot selection.
-         * Assembly lines 243-249. */
-        close_window(WINDOW_EQUIP_MENU_ITEMLIST);
-        show_equipment_and_stats(char_id);
-    }
-}
+/* EQUIPMENT_CHANGE_MENU (src/inventory/equipment/equipment_change_menu.asm,
+ * 252 lines) is folded into GAME_MODE_EQUIP_MENU (mode_step_equip_menu, with
+ * the pause-menu machinery further down this file) as the EQ_SLOT /
+ * EQ_SLOT_RESULT / EQ_ITEM_RESULT phases. */
 
 /* OPEN_EQUIPMENT_MENU — Port of src/inventory/equipment/open_equipment_menu.asm (66 lines).
  *
@@ -2087,6 +1934,13 @@ static StepResult pm_push_selection_status(StatusMenuState *st,
     return menu_push_selection(&st->result_ready, &st->result, 1);
 }
 
+/* Equip-menu variant (both its menus allow cancel). */
+static StepResult pm_push_selection_equip(EquipMenuState *st,
+                                          uint8_t result_phase) {
+    st->phase = result_phase;
+    return menu_push_selection(&st->result_ready, &st->result, 1);
+}
+
 /* Push a DISPLAY_TEXT child for `addr`, resuming at `resume_phase`. If the
  * address can't be resolved, warn (like display_text_from_addr) and fall
  * through to the resume phase inline — the step's for(;;) continues there. */
@@ -2150,16 +2004,167 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             continue;
 
         case EQ_CHANGE:
-            /* Run the equipment slot selection / item equip loop (blocking) */
-            equipment_change_menu(st->equip_char);
+            /* EQUIPMENT_CHANGE_MENU entry (equipment_change_menu.asm). */
+            load_equip_text_data();
+            st->phase = EQ_SLOT;
+            continue;
 
-            /* Multi-party → loop back to character selection (assembly 52-55) */
-            if ((game_state.player_controlled_party_count & 0xFF) != 1) {
-                st->phase = EQ_SELECT;
+        case EQ_SLOT:
+            /* "Where?" header for slot selection (assembly lines 18-27).
+             * The 4 slot options were added by display_equipment_menu with
+             * userdata 1=Weapon..4=Other; 0 = cancel. */
+            display_menu_header_text(4);  /* "Where?" */
+            set_window_focus(WINDOW_EQUIP_MENU);
+            return pm_push_selection_equip(st, EQ_SLOT_RESULT);
+
+        case EQ_SLOT_RESULT: {
+            st->slot_type = menu_take_result(&st->result_ready, &st->result);
+            close_menu_header_window();
+
+            if (st->slot_type == 0) {
+                /* Cancelled → back to character selection (the former
+                 * equipment_change_menu return + open_equipment_menu's
+                 * loop/exit branch, assembly lines 52-55). */
+                if ((game_state.player_controlled_party_count & 0xFF) != 1) {
+                    st->phase = EQ_SELECT;
+                    continue;
+                }
+                st->phase = EQ_EXIT;  /* single party → exit */
                 continue;
             }
-            st->phase = EQ_EXIT;  /* single party → exit */
+
+            uint16_t char_id = st->equip_char;
+            uint16_t char_idx = char_id - 1;
+            uint16_t slot_type = st->slot_type;
+
+            /* Create the item list window for this equipment slot */
+            create_window(WINDOW_EQUIP_MENU_ITEMLIST);
+
+            /* Set window title from TEXT_11: "Weapons", "Body", "Arms", "Others" */
+            if (equip_text_data) {
+                char title_buf[WINDOW_TITLE_SIZE];
+                const uint8_t *title_src = equip_text_data + ETEXT11_OFF
+                                           + (slot_type - 1) * ETEXT11_STRIDE;
+                eb_to_ascii_buf(title_src, ETEXT11_STRIDE, title_buf);
+                /* STRLEN equivalent: length excluding trailing spaces/nulls */
+                int title_len = (int)strlen(title_buf);
+                set_window_title(WINDOW_EQUIP_MENU_ITEMLIST, title_buf, title_len);
+            }
+
+            /* Build equippable item list. Loop over inventory (14 slots),
+             * add items that are equippable and match the slot type.
+             * Assembly lines 48-145. */
+            uint16_t item_count = 0;
+            uint16_t currently_equipped_pos = (uint16_t)-1;
+
+            for (uint16_t inv_slot = 0; inv_slot < ITEM_INVENTORY_SIZE; inv_slot++) {
+                uint8_t item_id = party_characters[char_idx].items[inv_slot];
+                if (item_id == 0) continue;
+
+                /* Item must be equippable (type == 2) */
+                if (get_item_type(item_id) != 2) continue;
+
+                /* Item must match the selected slot type */
+                if (get_item_subtype(item_id) != slot_type) continue;
+
+                /* Item must be usable by this character */
+                if (!check_item_usable_by(char_id, item_id)) continue;
+
+                /* Build label: equipped marker + item name */
+                char label[MENU_LABEL_SIZE];
+                int offset = 0;
+
+                /* Track if this is the currently equipped item */
+                if (check_item_equipped(char_id, inv_slot + 1)) {
+                    label[0] = EB_CHAR_EQUIPPED;
+                    offset = 1;
+                    currently_equipped_pos = item_count;
+                }
+
+                const ItemConfig *item_entry = get_item_entry(item_id);
+                if (item_entry) {
+                    for (int j = 0; j < ITEM_NAME_LEN && (offset + j) < MENU_LABEL_SIZE - 1; j++)
+                        label[offset + j] = eb_char_to_ascii(item_entry->name[j]);
+                }
+                /* Assembly: STZ TEMPORARY_TEXT_BUFFER+.SIZEOF(item::name)
+                 * Null terminator is at a fixed offset regardless of the marker. */
+                label[ITEM_NAME_LEN] = '\0';
+
+                /* Trim trailing spaces */
+                int len = (int)strlen(label);
+                while (len > 0 && label[len - 1] == ' ')
+                    label[--len] = '\0';
+
+                /* Assembly lines 137-144: ADD_MENU_ITEM_NO_POSITION with
+                 * userdata = inv_slot+1 (1-based), sound_effect = 115 */
+                add_menu_item_no_position(label, inv_slot + 1);
+
+                WindowInfo *w = get_window(win.current_focus_window);
+                if (w && w->menu_count > 0) {
+                    w->menu_items[w->menu_count - 1].sound_effect = 115;
+                }
+
+                item_count++;
+            }
+
+            /* Add "None" option for unequipping (assembly lines 152-155).
+             * Userdata = -1 (0xFFFF) to signal unequip. */
+            {
+                char none_label[8];
+                if (equip_text_data) {
+                    eb_to_ascii_buf(equip_text_data + ETEXT13_OFF, ETEXT13_LEN, none_label);
+                } else {
+                    snprintf(none_label, sizeof(none_label), "None");
+                }
+                add_menu_item_no_position(none_label, (uint16_t)-1);
+            }
+
+            /* Layout items with initial selection on the equipped item.
+             * Assembly lines 156-159: LAYOUT_AND_PRINT_MENU_AT_SELECTION. */
+            layout_and_print_menu_at_selection(1, 0, currently_equipped_pos);
+
+            /* Set cursor move callback for stat preview (assembly 160-190).
+             * Lives in the re-fetchable WindowInfo — safe across the push. */
+            character_for_equip_menu = char_id;
+            if (slot_type >= 1 && slot_type <= 4) {
+                set_cursor_move_callback(equip_preview_callbacks[slot_type - 1]);
+            }
+
+            /* Show header "Which?" and run the item selection */
+            compare_equipment_mode = 1;
+            display_menu_header_text(1);  /* "Which?" */
+            return pm_push_selection_equip(st, EQ_ITEM_RESULT);
+        }
+
+        case EQ_ITEM_RESULT: {
+            uint16_t item_selection = menu_take_result(&st->result_ready,
+                                                       &st->result);
+            close_menu_header_window();
+            clear_cursor_move_callback();
+
+            /* Process selection */
+            if (item_selection == (uint16_t)-1) {
+                /* "None" selected → unequip current slot.
+                 * Assembly lines 203-236: CHANGE_EQUIPPED_*(char_id, 0). */
+                switch (st->slot_type) {
+                case 1: change_equipped_weapon(st->equip_char, 0); break;
+                case 2: change_equipped_body(st->equip_char, 0); break;
+                case 3: change_equipped_arms(st->equip_char, 0); break;
+                case 4: change_equipped_other(st->equip_char, 0); break;
+                }
+            } else if (item_selection != 0) {
+                /* Item selected → equip it (assembly lines 240-242). */
+                equip_item(st->equip_char, item_selection);
+            }
+            /* item_selection == 0 → cancelled, just close and loop */
+
+            /* Close item list, refresh equipment display, loop to slot
+             * selection (assembly lines 243-249). */
+            close_window(WINDOW_EQUIP_MENU_ITEMLIST);
+            show_equipment_and_stats(st->equip_char);
+            st->phase = EQ_SLOT;
             continue;
+        }
 
         case EQ_EXIT:
         default:
