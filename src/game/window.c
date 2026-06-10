@@ -668,9 +668,16 @@ void backup_selected_menu_option(void) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
 
-    /* Assembly: absolute index = selected_option + current_option,
-     * then look up that menu_option's text_x/text_y. */
-    uint16_t abs_idx = w->selected_option + w->current_option;
+    /* Capture the chosen option's text position. The assembly computes the
+     * MENU_OPTIONS pool index as selected_option + current_option, which in
+     * its split-field model equals the chosen option's absolute index. In the
+     * C model the confirm path sets BOTH fields to the absolute index
+     * (mode_step_selection_menu: w->selected_option = w->current_option), so
+     * summing them double-counts and captures the WRONG item's position —
+     * sm_setup's restore then writes that position onto the chosen item,
+     * corrupting its cursor/navigation coordinates (Goods → Help! left the
+     * rebuilt inventory with a misplaced cursor and unreachable items). */
+    uint16_t abs_idx = w->current_option;
     if (abs_idx < w->menu_count) {
         win.menu_backup_text_x = w->menu_items[abs_idx].text_x;
         win.menu_backup_text_y = w->menu_items[abs_idx].text_y;
