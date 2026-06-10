@@ -216,7 +216,10 @@ typedef enum {
 typedef struct {
     uint8_t  phase;          /* PauseMenuPhase */
     uint8_t  result_ready;   /* 1 = `result` holds an inline early-exit value (no child pushed) */
-    uint8_t  action_reentry; /* @VIRTUAL02: action-menu re-entry skips the reprint */
+    uint8_t  action_reentry; /* @VIRTUAL02: action-menu re-entry focuses the inventory */
+    uint8_t  reprint_inventory; /* @LOCAL04: re-entry also reprints the inventory items
+                                 * (set by the give-cancel/give-blocked returns, whose
+                                 * CLEAR_FOCUS_WINDOW_CONTENT wiped the item list) */
     uint8_t  give_case;      /* give message case index (0-9) */
     uint16_t result;         /* inline early-exit selection result */
     uint16_t goods_char;     /* 1-based character whose inventory is open */

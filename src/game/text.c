@@ -2489,7 +2489,8 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             }
             open_window_and_print_menu(1, 0);
 
-            st->action_reentry = 0;  /* @VIRTUAL02 */
+            st->action_reentry = 0;     /* @VIRTUAL02 */
+            st->reprint_inventory = 0;  /* @LOCAL04 */
             st->phase = PM_ACTION_MENU;
             continue;
         }
@@ -2498,6 +2499,12 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             /* @ITEM_ACTION_LOOP head (assembly lines 195-230) */
             if (st->action_reentry != 0) {
                 set_window_focus(WINDOW_INVENTORY);
+                /* @LOCAL04 != 0 → PRINT_MENU_ITEMS on the INVENTORY focus
+                 * (assembly lines 202-209): re-renders the item list that the
+                 * give path's CLEAR_FOCUS_WINDOW_CONTENT wiped. The use-cancel
+                 * return passes 0 (nothing was cleared). */
+                if (st->reprint_inventory != 0)
+                    print_menu_items();
             } else {
                 set_window_focus(WINDOW_INVENTORY_MENU);
                 print_menu_items();
@@ -2526,8 +2533,10 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                     continue;
                 }
                 /* Targeting cancelled — return to item action menu
-                 * (assembly lines 248-252: @VIRTUAL00=0, @LOCAL04=0) */
+                 * (assembly lines 248-252: @VIRTUAL00=0, @LOCAL04=0;
+                 * @VIRTUAL02 was set to 1 at @GOODS_ITEM_USE entry) */
                 st->action_reentry = 1;
+                st->reprint_inventory = 0;
                 st->phase = PM_ACTION_MENU;
                 continue;
             }
@@ -2623,7 +2632,10 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             close_window(WINDOW_OVERWORLD_CHAR_SELECT);
 
             if (give_target == 0) {
-                /* Cancelled give → return to action menu */
+                /* Cancelled give → return to action menu, reprinting the
+                 * inventory that @GOODS_GIVE's CLEAR_FOCUS_WINDOW_CONTENT
+                 * wiped (assembly lines 322-327: @VIRTUAL00=1, @LOCAL04=1) */
+                st->reprint_inventory = 1;
                 st->phase = PM_ACTION_MENU;
                 continue;
             }
@@ -2711,8 +2723,11 @@ StepResult mode_step_pause_menu(ModeState *ms) {
         }
 
         case PM_GIVE_BLOCKED_RESUME:
-            /* Tail of the CANNOT_GIVE message → back to the action menu */
+            /* Tail of the CANNOT_GIVE message → back to the action menu,
+             * reprinting the wiped inventory (assembly lines 357-361:
+             * @VIRTUAL00=1, @LOCAL04=1) */
             close_window(WINDOW_TEXT_STANDARD);
+            st->reprint_inventory = 1;
             st->phase = PM_ACTION_MENU;
             continue;
 
