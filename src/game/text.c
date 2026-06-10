@@ -1798,10 +1798,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
 /* GAME_MODE_PSI_MENU step — run-to-completion port of overworld_psi_menu()
  * (asm/text/menu/overworld_psi_menu.asm, 571 lines). See PsiMenuState in
- * mode_stack.h. The teleport destination menu is a GAME_MODE_TELEPORT_MENU
- * STEP_PUSH; determine_targetting() and the battle-action execution stay
- * blocking, called inline from the step (each pumps its converted children
- * internally — later conversions). */
+ * mode_stack.h. The teleport destination menu and targeting are
+ * GAME_MODE_TELEPORT_MENU / GAME_MODE_DETERMINE_TARGETING STEP_PUSHes; only
+ * the battle-action execution stays blocking, called inline from the step
+ * (action functions can display text — a later conversion). */
 StepResult mode_step_psi_menu(ModeState *ms) {
     PsiMenuState *st = &ms->psi_menu;
 
@@ -1952,17 +1952,27 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_MENU, &pm_child_init);
             }
 
-            /* @NOT_TELEPORT: targeting (lines 206-212) — the battle row/enemy
-             * targeting driver, blocking inline. */
-            st->action_result = determine_targetting(st->battle_action_id,
-                                                     st->char_id);
-            st->phase = PS_HANDLE;
-            continue;
+            /* @NOT_TELEPORT: targeting (lines 206-212), now
+             * GAME_MODE_DETERMINE_TARGETING; result read in PS_TARGET_RESULT. */
+            pm_child_init = (ModeState){0};
+            pm_child_init.targeting.phase     = TGT_ENTER;
+            pm_child_init.targeting.action_id = st->battle_action_id;
+            pm_child_init.targeting.char_id   = st->char_id;
+            st->phase = PS_TARGET_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING,
+                                         &pm_child_init);
         }
 
         case PS_TELEPORT_RESULT:
             /* Tail of the teleport destination menu (assembly line 193):
              * its 1-based destination (0 = cancelled) is the action result. */
+            st->action_result = (uint16_t)mode_child_result();
+            st->phase = PS_HANDLE;
+            continue;
+
+        case PS_TARGET_RESULT:
+            /* Tail of @NOT_TELEPORT targeting (lines 206-212): the packed
+             * targeting result (0 = cancelled) is the action result. */
             st->action_result = (uint16_t)mode_child_result();
             st->phase = PS_HANDLE;
             continue;
@@ -2123,9 +2133,10 @@ StepResult mode_step_psi_menu(ModeState *ms) {
  * consumable items, and executes the item's battle action with affliction
  * writeback. See UseItemState in mode_stack.h.
  *
- * determine_targetting() and the battle-action execution via
- * jump_temp_function_pointer() stay blocking, called inline from the step
- * (each pumps its converted children internally — later conversions).
+ * Targeting is a GAME_MODE_DETERMINE_TARGETING STEP_PUSH (cancel/consume in
+ * UI_TARGET_RESULT); only the battle-action execution via
+ * jump_temp_function_pointer() stays blocking, called inline from the step
+ * (action functions can display text — a later conversion).
  *
  * Pops 0 if targeting was cancelled, 1 otherwise (item used or message
  * shown); the pause-menu parent branches in PM_USE_RESUME. */
@@ -2245,23 +2256,47 @@ StepResult mode_step_use_item(ModeState *ms) {
                     /* context_bits == 0x0C falls through without setting anything */
                 }
 
-                /* Assembly lines 245-265: targeting and consume check */
+                /* Assembly lines 245-265: targeting — now
+                 * GAME_MODE_DETERMINE_TARGETING; the cancel check and the
+                 * consume-on-use removal run in UI_TARGET_RESULT. */
                 if (can_use) {
-                    /* Assembly lines 253-265: DETERMINE_TARGETTING — the battle
-                     * row/enemy targeting driver, blocking inline. */
-                    uint16_t target_result =
-                        determine_targetting(st->effect_id, st->char_id);
-                    st->target_id = target_result & 0xFF;
-
-                    if (st->target_id == 0)
-                        return STEP_RESULT_POP(0);  /* Targeting cancelled (lines 264-265) */
-
-                    /* Assembly lines 266-274: consume item if CONSUMED_ON_USE flag set */
-                    if (item_entry->flags & ITEM_FLAG_CONSUMED)
-                        remove_item_from_inventory(st->char_id, st->item_slot);
+                    st->can_use        = 1;
+                    st->desc_text_addr = desc_text_addr;
+                    pm_child_init = (ModeState){0};
+                    pm_child_init.targeting.phase     = TGT_ENTER;
+                    pm_child_init.targeting.action_id = st->effect_id;
+                    pm_child_init.targeting.char_id   = st->char_id;
+                    st->phase = UI_TARGET_RESULT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING,
+                                                 &pm_child_init);
                 }
             }
 
+            /* Not usable (or no item entry): straight to the action window. */
+            st->can_use        = 0;
+            st->desc_text_addr = desc_text_addr;
+            st->phase = UI_SETUP;
+            continue;
+        }
+
+        case UI_TARGET_RESULT: {
+            /* DETERMINE_TARGETING popped (assembly lines 253-265). */
+            uint16_t target_result = (uint16_t)mode_child_result();
+            st->target_id = target_result & 0xFF;
+
+            if (st->target_id == 0)
+                return STEP_RESULT_POP(0);  /* Targeting cancelled (lines 264-265) */
+
+            /* Assembly lines 266-274: consume item if CONSUMED_ON_USE flag set */
+            const ItemConfig *item_entry = get_item_entry(st->item_id);
+            if (item_entry && (item_entry->flags & ITEM_FLAG_CONSUMED))
+                remove_item_from_inventory(st->char_id, st->item_slot);
+
+            st->phase = UI_SETUP;
+            continue;
+        }
+
+        case UI_SETUP: {
             /* @SETUP_ACTION_WINDOW: close inventory windows, set up battle state
              * (assembly lines 275-334) */
             close_window(WINDOW_INVENTORY_MENU);
@@ -2292,21 +2327,21 @@ StepResult mode_step_use_item(ModeState *ms) {
             }
 
             /* Assembly lines 323-334: if description text is NULL, use fallback */
-            if (desc_text_addr == 0)
-                desc_text_addr = MSG_SYS_ITEM_USE_FORBIDDEN;
+            if (st->desc_text_addr == 0)
+                st->desc_text_addr = MSG_SYS_ITEM_USE_FORBIDDEN;
 
             /* Assembly lines 335-357: branch on can_use / the battle action
              * function pointer. */
             uint32_t func_addr = 0;
-            if (can_use && battle_action_table)
+            if (st->can_use && battle_action_table)
                 func_addr = battle_action_table[st->effect_id].battle_function_pointer;
 
-            if (!can_use || func_addr == 0) {
+            if (!st->can_use || func_addr == 0) {
                 /* @DISPLAY_TEXT_ONLY (lines 536-539): show the message only,
                  * then close the text window in UI_EXIT. */
                 st->phase = UI_EXIT;
                 bool pushed;
-                StepResult r = menu_push_text(desc_text_addr, &pushed);
+                StepResult r = menu_push_text(st->desc_text_addr, &pushed);
                 if (pushed) return r;
                 continue;
             }
@@ -2325,7 +2360,7 @@ StepResult mode_step_use_item(ModeState *ms) {
              * execution resumes in UI_EXECUTE after the text pops. */
             st->phase = UI_EXECUTE;
             bool pushed;
-            StepResult r = menu_push_text(desc_text_addr, &pushed);
+            StepResult r = menu_push_text(st->desc_text_addr, &pushed);
             if (pushed) return r;
             continue;
         }

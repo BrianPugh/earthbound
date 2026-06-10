@@ -540,50 +540,11 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
     if (mode == 1) {
         /* --- Overworld path (assembly lines 41-126) ---
          * Creates a window with party member names and runs SELECTION_MENU. */
-        save_window_text_attributes();
-
-        uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
-        uint16_t window_id;
-        if (party_count == 1) {
-            window_id = WINDOW_SINGLE_CHARACTER_SELECT;
-        } else {
-            window_id = WINDOW_TARGETING_PROMPT + party_count - 1;
-        }
-        create_window(window_id);
-
-        /* Build menu items: one per party member.
-         * Assembly lines 57-108: text_x = i * 6, text_y = 0. */
-        for (uint16_t i = 0; i < party_count; i++) {
-            uint8_t member_id = game_state.party_members[i];
-            char name_buf[8];
-            if (member_id >= 1 && member_id <= 4) {
-                for (int j = 0; j < 5; j++)
-                    name_buf[j] = eb_char_to_ascii(party_characters[member_id - 1].name[j]);
-                name_buf[5] = '\0';
-            } else {
-                name_buf[0] = '\0';
-            }
-            add_menu_item(name_buf, member_id, (uint16_t)(i * 6), 0);
-        }
-
-        print_menu_items();
-
-        /* Set cursor move callback from on_change parameter (assembly lines 112-116). */
-        if (on_change) {
-            set_cursor_move_callback(on_change);
-        }
+        uint16_t window_id = char_select_overworld_prepare(on_change);
 
         result = selection_menu(allow_cancel);
 
-        if (on_change) {
-            clear_cursor_move_callback();
-        }
-
-        close_window(window_id);
-        restore_window_text_attributes();
-
-        /* Cleanup (@CLEANUP_AND_RETURN, lines 406-417). */
-        dt.pagination_animation_frame = -1;
+        char_select_overworld_finish(window_id, on_change != NULL);
         set_argument_memory(saved_argument_memory);
         return result;
     }
@@ -598,6 +559,62 @@ uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
     /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
      * pagination_animation_frame = -1) before it pops. */
     return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
+}
+
+/* char_select_prompt mode-1 (overworld path) prologue, factored out so an
+ * already-converted parent (GAME_MODE_DETERMINE_TARGETING's ally pick) can
+ * build the name window and STEP_PUSH SELECTION_MENU itself: save the window
+ * text attributes, create the party-sized select window, add one name item
+ * per member (assembly lines 41-108: text_x = i * 6, text_y = 0), print, and
+ * set the cursor-move callback. Returns the window id to close on finish.
+ * NOTE: does not save argument_memory — the caller brackets that. */
+uint16_t char_select_overworld_prepare(void (*on_change)(uint16_t)) {
+    save_window_text_attributes();
+
+    uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
+    uint16_t window_id;
+    if (party_count == 1) {
+        window_id = WINDOW_SINGLE_CHARACTER_SELECT;
+    } else {
+        window_id = WINDOW_TARGETING_PROMPT + party_count - 1;
+    }
+    create_window(window_id);
+
+    for (uint16_t i = 0; i < party_count; i++) {
+        uint8_t member_id = game_state.party_members[i];
+        char name_buf[8];
+        if (member_id >= 1 && member_id <= 4) {
+            for (int j = 0; j < 5; j++)
+                name_buf[j] = eb_char_to_ascii(party_characters[member_id - 1].name[j]);
+            name_buf[5] = '\0';
+        } else {
+            name_buf[0] = '\0';
+        }
+        add_menu_item(name_buf, member_id, (uint16_t)(i * 6), 0);
+    }
+
+    print_menu_items();
+
+    /* Set cursor move callback from on_change parameter (assembly lines 112-116). */
+    if (on_change) {
+        set_cursor_move_callback(on_change);
+    }
+    return window_id;
+}
+
+/* char_select_prompt mode-1 epilogue (assembly lines 117-126 + the
+ * @CLEANUP_AND_RETURN pagination reset): clear the cursor callback, close the
+ * select window, restore text attributes. The argument_memory restore stays
+ * with the caller (it captured the value). */
+void char_select_overworld_finish(uint16_t window_id, bool had_on_change) {
+    if (had_on_change) {
+        clear_cursor_move_callback();
+    }
+    close_window(window_id);
+    restore_window_text_attributes();
+
+    /* Cleanup (@CLEANUP_AND_RETURN, lines 406-417). */
+    dt.pagination_animation_frame = -1;
 }
 
 /* Build a GAME_MODE_CHAR_SELECT init for the battle-style path (mode 0/2),

@@ -420,7 +420,10 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
     }
 }
 
-static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_param) {
+/* Build a GAME_MODE_BATTLE_ENEMY_SELECT init (select_battle_target's
+ * prologue), shared by the blocking bridge and DETERMINE_TARGETING's push. */
+static void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
+                                   uint16_t action_param) {
     uint16_t current_row;
     /* Start on front row if it has battlers, otherwise back row */
     if (bt.num_battlers_in_front_row != 0)
@@ -431,13 +434,18 @@ static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_para
     if (bt.giygas_phase != 0)
         current_row = 1;
 
-    ModeState init = {0};
-    init.battle_enemy_select.phase         = ET_DISPLAY;
-    init.battle_enemy_select.allow_cancel  = (uint8_t)allow_cancel;
-    init.battle_enemy_select.action_param  = action_param;
-    init.battle_enemy_select.current_enemy = 0;
-    init.battle_enemy_select.current_row   = current_row;
-    init.battle_enemy_select.target_shown  = 0;
+    *init = (ModeState){0};
+    init->battle_enemy_select.phase         = ET_DISPLAY;
+    init->battle_enemy_select.allow_cancel  = (uint8_t)allow_cancel;
+    init->battle_enemy_select.action_param  = action_param;
+    init->battle_enemy_select.current_enemy = 0;
+    init->battle_enemy_select.current_row   = current_row;
+    init->battle_enemy_select.target_shown  = 0;
+}
+
+static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_param) {
+    ModeState init;
+    enemy_select_make_init(&init, allow_cancel, action_param);
     return (uint16_t)pump_mode(GAME_MODE_BATTLE_ENEMY_SELECT, &init);
 }
 
@@ -532,7 +540,9 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
     }
 }
 
-static uint16_t select_battle_row(uint16_t allow_cancel) {
+/* Build a GAME_MODE_BATTLE_ROW_SELECT init (select_battle_row's prologue),
+ * shared by the blocking bridge and DETERMINE_TARGETING's push. */
+static void row_select_make_init(ModeState *init, uint16_t allow_cancel) {
     uint16_t current_row;
     /* Start on front row if it has battlers, otherwise back row */
     if (bt.num_battlers_in_front_row != 0)
@@ -540,10 +550,15 @@ static uint16_t select_battle_row(uint16_t allow_cancel) {
     else
         current_row = 1;
 
-    ModeState init = {0};
-    init.battle_row_select.phase        = BR_RENDER;
-    init.battle_row_select.allow_cancel = (uint8_t)allow_cancel;
-    init.battle_row_select.current_row  = current_row;
+    *init = (ModeState){0};
+    init->battle_row_select.phase        = BR_RENDER;
+    init->battle_row_select.allow_cancel = (uint8_t)allow_cancel;
+    init->battle_row_select.current_row  = current_row;
+}
+
+static uint16_t select_battle_row(uint16_t allow_cancel) {
+    ModeState init;
+    row_select_make_init(&init, allow_cancel);
     return (uint16_t)pump_mode(GAME_MODE_BATTLE_ROW_SELECT, &init);
 }
 
@@ -570,126 +585,180 @@ uint16_t select_battle_target_dispatch(uint16_t mode, uint16_t allow_cancel,
 
 
 /*
- * DETERMINE_TARGETTING (asm/battle/determine_targetting.asm)
+ * GAME_MODE_DETERMINE_TARGETING step — run-to-completion port of
+ * determine_targetting() (asm/battle/determine_targetting.asm). See
+ * TargetingState in mode_stack.h.
  *
  * Core targeting logic for battle actions (items, PSI, etc.).
  * Looks up the action's direction and target type from battle_action_table,
- * then dispatches to the appropriate targeting UI or auto-selection.
+ * then dispatches to the appropriate targeting UI (a STEP_PUSHed child mode)
+ * or auto-selection (resolved inline, popping without a yield).
+ *
+ * Pops packed value: (targeting_mode << 8) | target_index.
+ *   targeting_mode: TARGETTED_* flags (ENEMIES|SINGLE, ALLIES|ALL, etc.)
+ *   target_index: selected target (0xFF=auto, 1+=enemy/ally index)
+ *   Pops 0 if a targeting UI was cancelled.
+ */
+StepResult mode_step_determine_targeting(ModeState *ms) {
+    TargetingState *st = &ms->targeting;
+    /* Child init for a push this dispatch turn (the pump copies it). */
+    static ModeState child_init;
+
+    switch ((TargetingPhase)st->phase) {
+
+    case TGT_ENTER: {
+        if (!battle_action_table) return STEP_RESULT_POP(0);
+
+        uint8_t direction = battle_action_table[st->action_id].direction;
+        uint8_t target_type = battle_action_table[st->action_id].target;
+        uint8_t target_index = 0xFF;
+
+        if (direction == ACTION_DIRECTION_PARTY) {
+            /* Enemy-targeting action */
+            st->targeting_mode = TARGETTED_ENEMIES;
+
+            switch (target_type) {
+            case ACTION_TARGET_NONE:
+                /* No specific target selection — default to single with
+                 * auto-target. Assembly: stores char_id as VIRTUAL01,
+                 * returns immediately. */
+                st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
+                target_index = (uint8_t)st->char_id;
+                break;
+
+            case ACTION_TARGET_ONE:
+                /* Single enemy selection via target picker
+                 * (select_battle_target_dispatch mode 0, allow_cancel=1) */
+                st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
+                enemy_select_make_init(&child_init, 1, st->action_id);
+                st->phase = TGT_PICK_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT,
+                                             &child_init);
+
+            case ACTION_TARGET_RANDOM: {
+                /* Random enemy — pick from alive enemies */
+                st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
+                uint16_t count = battle_count_chars(1);
+                if (count > 0) {
+                    target_index = (uint8_t)(rand_byte() % count + 1);
+                }
+                break;
+            }
+
+            case ACTION_TARGET_ROW:
+                /* Row selection via target picker
+                 * (select_battle_target_dispatch mode 1, allow_cancel=1) */
+                st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_ROW;
+                row_select_make_init(&child_init, 1);
+                st->phase = TGT_PICK_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ROW_SELECT,
+                                             &child_init);
+
+            case ACTION_TARGET_ALL:
+            default:
+                /* All enemies */
+                st->targeting_mode |= TARGETTED_ALL;
+                break;
+            }
+        } else {
+            /* Ally-targeting action */
+            st->targeting_mode = TARGETTED_ALLIES;
+
+            switch (target_type) {
+            case ACTION_TARGET_NONE:
+                /* No specific target — default to self */
+                st->targeting_mode = TARGETTED_SINGLE | TARGETTED_ALLIES;
+                target_index = (uint8_t)st->char_id;
+                break;
+
+            case ACTION_TARGET_ONE: {
+                /* Single ally selection */
+                st->targeting_mode = TARGETTED_SINGLE | TARGETTED_ALLIES;
+                uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
+                if (party_count <= 1) {
+                    /* Only one party member — auto-select */
+                    target_index = (uint8_t)st->char_id;
+                    break;
+                }
+                /* "Whom?" prompt + char_select_prompt(1, 1, NULL, NULL)'s
+                 * name window, with its SELECTION_MENU STEP_PUSHed; the
+                 * mode-1 epilogue runs in TGT_ALLY_RESULT after it pops. */
+                st->saved_argument_memory = get_argument_memory();
+                display_menu_header_text(3);
+                st->ally_window_id = char_select_overworld_prepare(NULL);
+                child_init = (ModeState){0};
+                child_init.selection_menu.phase        = SM_SETUP;
+                child_init.selection_menu.allow_cancel = 1;
+                st->phase = TGT_ALLY_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU,
+                                             &child_init);
+            }
+
+            case ACTION_TARGET_RANDOM: {
+                /* Random ally */
+                st->targeting_mode = TARGETTED_ALLIES | TARGETTED_SINGLE;
+                uint16_t count = battle_count_chars(0);
+                if (count > 0) {
+                    uint16_t idx = rand_byte() % count;
+                    target_index = game_state.party_order[idx];
+                }
+                break;
+            }
+
+            case ACTION_TARGET_ROW:
+            case ACTION_TARGET_ALL:
+            default:
+                /* All allies */
+                st->targeting_mode |= TARGETTED_ALL;
+                break;
+            }
+        }
+
+        /* Pack result: (targeting_mode << 8) | target_index
+         * Assembly: ASL16_ENTRY2 with Y=8, then ORA with target_index */
+        return STEP_RESULT_POP(((uint16_t)st->targeting_mode << 8) |
+                               (uint16_t)target_index);
+    }
+
+    case TGT_PICK_RESULT: {
+        /* The enemy/row picker popped: 0 = cancelled. */
+        uint16_t result = (uint16_t)mode_child_result();
+        if (result == 0) return STEP_RESULT_POP(0);
+        return STEP_RESULT_POP(((uint16_t)st->targeting_mode << 8) |
+                               (uint16_t)(uint8_t)result);
+    }
+
+    case TGT_ALLY_RESULT:
+    default: {
+        /* The ally SELECTION_MENU popped: run char_select_prompt's mode-1
+         * epilogue (window close, attrs, pagination, argument_memory), then
+         * determine_targetting's own header close. */
+        uint16_t result = (uint16_t)mode_child_result();
+        char_select_overworld_finish(st->ally_window_id, false);
+        set_argument_memory(st->saved_argument_memory);
+        close_menu_header_window();
+        if (result == 0) return STEP_RESULT_POP(0);  /* cancelled */
+        return STEP_RESULT_POP(((uint16_t)st->targeting_mode << 8) |
+                               (uint16_t)(uint8_t)result);
+    }
+    }
+}
+
+/*
+ * DETERMINE_TARGETTING (asm/battle/determine_targetting.asm) — blocking
+ * bridge over GAME_MODE_DETERMINE_TARGETING for the still-blocking battle
+ * drivers (determine_battle_item_target, battle_psi.c); the converted
+ * PSI/use-item steps STEP_PUSH the mode directly.
  *
  * action_id: index into battle_action_table.
  * char_id: 1-indexed character using the action.
- *
- * Returns packed value: (targeting_mode << 8) | target_index.
- *   targeting_mode: TARGETTED_* flags (ENEMIES|SINGLE, ALLIES|ALL, etc.)
- *   target_index: selected target (0xFF=auto, 1+=enemy/ally index, 0=cancelled)
- *   Returns 0 if cancelled.
  */
 uint16_t determine_targetting(uint16_t action_id, uint16_t char_id) {
-    if (!battle_action_table) return 0;
-
-    uint8_t direction = battle_action_table[action_id].direction;
-    uint8_t target_type = battle_action_table[action_id].target;
-    uint8_t targeting_mode;
-    uint8_t target_index = 0xFF;
-
-    if (direction == ACTION_DIRECTION_PARTY) {
-        /* Enemy-targeting action */
-        targeting_mode = TARGETTED_ENEMIES;
-
-        switch (target_type) {
-        case ACTION_TARGET_NONE:
-            /* No specific target selection — default to single with auto-target.
-             * Assembly: stores char_id as VIRTUAL01, returns immediately. */
-            targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
-            target_index = (uint8_t)char_id;
-            break;
-
-        case ACTION_TARGET_ONE: {
-            /* Single enemy selection via target picker */
-            targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
-            uint16_t result = select_battle_target_dispatch(0, 1, action_id);
-            if (result == 0) return 0;  /* cancelled */
-            target_index = (uint8_t)result;
-            break;
-        }
-
-        case ACTION_TARGET_RANDOM: {
-            /* Random enemy — pick from alive enemies */
-            targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
-            uint16_t count = battle_count_chars(1);
-            if (count > 0) {
-                target_index = (uint8_t)(rand_byte() % count + 1);
-            }
-            break;
-        }
-
-        case ACTION_TARGET_ROW: {
-            /* Row selection via target picker */
-            targeting_mode = TARGETTED_ENEMIES | TARGETTED_ROW;
-            uint16_t result = select_battle_target_dispatch(1, 1, action_id);
-            if (result == 0) return 0;  /* cancelled */
-            target_index = (uint8_t)result;
-            break;
-        }
-
-        case ACTION_TARGET_ALL:
-        default:
-            /* All enemies */
-            targeting_mode |= TARGETTED_ALL;
-            break;
-        }
-    } else {
-        /* Ally-targeting action */
-        targeting_mode = TARGETTED_ALLIES;
-
-        switch (target_type) {
-        case ACTION_TARGET_NONE:
-            /* No specific target — default to self */
-            targeting_mode = TARGETTED_SINGLE | TARGETTED_ALLIES;
-            target_index = (uint8_t)char_id;
-            break;
-
-        case ACTION_TARGET_ONE: {
-            /* Single ally selection */
-            targeting_mode = TARGETTED_SINGLE | TARGETTED_ALLIES;
-            uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
-            if (party_count <= 1) {
-                /* Only one party member — auto-select */
-                target_index = (uint8_t)char_id;
-            } else {
-                /* Show "Whom?" prompt and character selection */
-                display_menu_header_text(3);
-                uint16_t result = char_select_prompt(1, 1, NULL, NULL);
-                close_menu_header_window();
-                if (result == 0) return 0;  /* cancelled */
-                target_index = (uint8_t)result;
-            }
-            break;
-        }
-
-        case ACTION_TARGET_RANDOM: {
-            /* Random ally */
-            targeting_mode = TARGETTED_ALLIES | TARGETTED_SINGLE;
-            uint16_t count = battle_count_chars(0);
-            if (count > 0) {
-                uint16_t idx = rand_byte() % count;
-                target_index = game_state.party_order[idx];
-            }
-            break;
-        }
-
-        case ACTION_TARGET_ROW:
-        case ACTION_TARGET_ALL:
-        default:
-            /* All allies */
-            targeting_mode |= TARGETTED_ALL;
-            break;
-        }
-    }
-
-    /* Pack result: (targeting_mode << 8) | target_index
-     * Assembly: ASL16_ENTRY2 with Y=8, then ORA with target_index */
-    return ((uint16_t)targeting_mode << 8) | (uint16_t)target_index;
+    ModeState init = {0};
+    init.targeting.phase     = TGT_ENTER;
+    init.targeting.action_id = action_id;
+    init.targeting.char_id   = char_id;
+    return (uint16_t)pump_mode(GAME_MODE_DETERMINE_TARGETING, &init);
 }
 
 

@@ -138,6 +138,14 @@ void battle_lose_hp_status(Battler *target, uint16_t amount);
 uint16_t battle_fail_attack_on_npcs(void);
 void recalc_character_miss_rate(uint16_t character_id);
 
+/* char_select_prompt mode-1 (overworld name window) prologue/epilogue,
+ * factored out of battle.c so GAME_MODE_DETERMINE_TARGETING can build the
+ * window and STEP_PUSH SELECTION_MENU itself. prepare returns the window id
+ * to pass to finish; the argument_memory save/restore brackets stay with the
+ * caller. */
+uint16_t char_select_overworld_prepare(void (*on_change)(uint16_t));
+void char_select_overworld_finish(uint16_t window_id, bool had_on_change);
+
 /* ---- Functions defined in battle_targeting.c ---- */
 
 /* Target selection UI */
