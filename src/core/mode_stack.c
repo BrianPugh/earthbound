@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "core/log.h"
+
 #include "game_main.h"
 #include "platform/platform.h"
 #include "game/fade.h"
@@ -138,6 +140,14 @@ StepResult mode_dispatch_step(GameMode mode, ModeState *st) {
 
 void mode_push(GameMode mode, const ModeState *init) {
     uint8_t d = g_mode_stack.depth;
+    if (d >= MODE_STACK_MAX) {
+        /* Programming error: a conversion made the real nesting deeper than
+         * MODE_STACK_MAX. Dropping the push misbehaves visibly but does not
+         * corrupt the stack. */
+        LOG_WARN("WARNING: mode stack overflow pushing mode %d (depth %d)\n",
+                 (int)mode, (int)d);
+        return;
+    }
     g_mode_stack.mode[d] = (uint8_t)mode;
     if (init)
         g_mode_stack.state[d] = *init;

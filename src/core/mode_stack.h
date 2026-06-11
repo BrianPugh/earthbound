@@ -1653,7 +1653,16 @@ union ModeState {
     uint8_t               _raw[160];
 };
 
-#define MODE_STACK_MAX 8
+/* Deepest realistic chain (a scripted battle triggered from NPC dialogue):
+ * PROCESS_INTERACTION → TEXT_WAIT_FADE → DISPLAY_TEXT → BATTLE_SCRIPTED →
+ * BATTLE → BATTLE_MENU → BATTLE_PSI_MENU → DETERMINE_TARGETING →
+ * BATTLE_ENEMY_SELECT is 9 levels, plus CC_08 CALL_TEXT can nest extra
+ * DISPLAY_TEXT levels and the Phase-D flip adds the BOOT/OVERWORLD root.
+ * 16 leaves headroom (mode_push logs + drops on overflow rather than
+ * corrupting the stack). Raising this changes the on-disk
+ * SECTION_MODE_STACK size — harmless pre-cutover (savestates are not
+ * cross-build compatible). */
+#define MODE_STACK_MAX 16
 
 typedef struct {
     uint8_t   depth;                          /* number of active modes */
