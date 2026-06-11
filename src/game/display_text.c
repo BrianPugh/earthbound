@@ -1580,6 +1580,12 @@ StepResult mode_step_display_text(ModeState *ms) {
          * return value. */
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1F_BATTLE) {
+        /* CC_1F_23 trigger battle: store the battle result (0 = victory,
+         * 1 = party defeated) to working memory — the former
+         * init_battle_scripted() return value (sign-extended, as before). */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(int32_t)(int16_t)mode_child_result());
     }
 
     ScriptReader *r = &st->reader;
@@ -1895,8 +1901,8 @@ StepResult mode_step_display_text(ModeState *ms) {
             break;
         }
         case 0x1F: {
-            /* Most CC_1F sub-ops run inline; the three yielding ones request a
-             * child push (the entered value / delay / actionscript wait). */
+            /* Most CC_1F sub-ops run inline; the yielding ones request a child
+             * push (battle / entered value / delay / actionscript wait). */
             static ModeState cc1f_init;  /* outlives this dispatch (pump copies it) */
             memset(&cc1f_init, 0, sizeof(cc1f_init));
             GameMode child_mode = GAME_MODE_NONE;

@@ -75,6 +75,7 @@ typedef enum {
     GAME_MODE_BATTLE,              /* main battle loop (battle_routine) */
     GAME_MODE_INSTANT_WIN,         /* auto-victory sequence (instant_win_handler) */
     GAME_MODE_BATTLE_ENTRY,        /* overworld encounter entry/exit (init_battle_overworld) */
+    GAME_MODE_BATTLE_SCRIPTED,     /* scripted/event battle entry/exit (init_battle_scripted) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -533,9 +534,9 @@ typedef struct {
  * vblank helpers.
  *
  * Pops the battle result: 0 = victory, 1 = party defeated, 2 = special
- * defeat code. battle_routine() (battle.c) is the pump bridge for the
- * still-blocking init_battle_common() caller (the battle entry/exit drivers
- * convert later). */
+ * defeat code. Pushed by GAME_MODE_BATTLE_ENTRY (overworld encounters) and
+ * GAME_MODE_BATTLE_SCRIPTED (event-triggered battles), which inline
+ * init_battle_common()'s fade-out/party-update halves around the push. */
 typedef enum {
     BTL_BEGIN = 0,        /* one-time setup (entry-table loads, BG/letterbox) */
     BTL_REINIT,           /* reinit_battle: scene + battler init; pre-debug window_tick */
@@ -654,6 +655,35 @@ typedef enum {
 typedef struct {
     uint8_t phase;    /* BattleEntryPhase */
 } BattleEntryState;
+
+/* GAME_MODE_BATTLE_SCRIPTED — run-to-completion port of init_battle_scripted()
+ * (battle.c, asm/battle/init_scripted.asm), the scripted/event-triggered
+ * battle entry/exit driver, with init_battle_common() inlined around the
+ * GAME_MODE_BATTLE push (same shape as GAME_MODE_BATTLE_ENTRY). BS_ENTER
+ * parses the enemy group, starts the swirl, and pushes the BW_SWIRL_UPDATE
+ * wait; BS_SWIRL_DONE starts the mosaic fade-out and pushes GAME_MODE_BATTLE;
+ * BS_BATTLE_DONE runs the shared post-battle tail and per-result handling;
+ * BS_CLEANUP/BS_FINISH split render_and_disable_entities() at its
+ * render_frame_tick yield (work-then-yield, then the entity disable).
+ *
+ * Kept inline-blocking (documented deferrals): teleport_mainloop() and
+ * reload_map()'s one-shot vblank helpers, as in GAME_MODE_BATTLE_ENTRY.
+ *
+ * Pops 0 = normal victory/post-battle, 1 = party defeated. Pushed by
+ * CC_1F_23 TRIGGER_BATTLE (cc_1f_dispatch push-signal; the result is stored
+ * to working memory in the DT_RESUME_CC1F_BATTLE handler). */
+typedef enum {
+    BS_ENTER = 0,     /* parse enemy group, start the swirl; push the swirl wait */
+    BS_SWIRL_DONE,    /* mosaic fade-out; push GAME_MODE_BATTLE */
+    BS_BATTLE_DONE,   /* post-battle: party update, teleport/reload handling */
+    BS_CLEANUP,       /* render_and_disable front half: party + render work */
+    BS_FINISH,        /* entity disable + intangibility frames; pop the result */
+} BattleScriptedPhase;
+
+typedef struct {
+    uint8_t  phase;         /* BattleScriptedPhase */
+    uint16_t battle_group;  /* input: BTL_ENTRY_PTR_TABLE index */
+} BattleScriptedState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -965,7 +995,7 @@ typedef struct {
  *   BW_SWIRL_WINDOW  - window_tick_work() while is_battle_swirl_active()
  *                      (load_battle_scene swirl-in / swirl-out).
  *   BW_SWIRL_UPDATE  - update_swirl_effect() while is_battle_swirl_active()
- *                      (init_battle_scripted). The blocking loop yields BEFORE the
+ *                      (GAME_MODE_BATTLE_SCRIPTED). The blocking loop yields BEFORE the
  *                      update, so `primed` defers the update to the step that
  *                      follows the prior yield, keeping the yield/update interleave
  *                      frame-identical (no phase shift).
@@ -1553,6 +1583,7 @@ typedef enum {
     DT_RESUME_CC1A_PARTY_SEL,   /* CC_1A_00/01 overworld party select: cleanup + store result */
     DT_RESUME_CC1A_BATTLE_SEL,  /* CC_1A_00/01 battle party select: store CHAR_SELECT result */
     DT_RESUME_CC1A_TELEPORT,    /* CC_1A_0B teleport menu: store TELEPORT_MENU result */
+    DT_RESUME_CC1F_BATTLE,      /* CC_1F_23 trigger battle: store BATTLE_SCRIPTED result */
 } DisplayTextResume;
 
 typedef struct {
@@ -1618,6 +1649,7 @@ union ModeState {
     BattleRoutineState    battle;
     InstantWinState       instant_win;
     BattleEntryState      battle_entry;
+    BattleScriptedState   battle_scripted;
     uint8_t               _raw[160];
 };
 
@@ -1853,9 +1885,9 @@ StepResult mode_step_battle_psi_menu(ModeState *st);
 StepResult mode_step_battle_menu(ModeState *st);
 
 /* GAME_MODE_BATTLE step (defined in battle.c). Init with ModeState.battle
- * (phase = BTL_BEGIN); entered via the battle_routine() pump bridge until
- * the battle entry/exit drivers convert. Pops the battle result (0 =
- * victory, 1 = party defeated, 2 = special defeat code). */
+ * (phase = BTL_BEGIN); pushed by GAME_MODE_BATTLE_ENTRY and
+ * GAME_MODE_BATTLE_SCRIPTED. Pops the battle result (0 = victory, 1 =
+ * party defeated, 2 = special defeat code). */
 StepResult mode_step_battle(ModeState *st);
 
 /* GAME_MODE_INSTANT_WIN step (defined in battle.c, where the battler/money/
@@ -1868,6 +1900,12 @@ StepResult mode_step_instant_win(ModeState *st);
  * init_battle_overworld() pump bridge until the overworld root loop
  * converts (Phase D). Always pops 0. */
 StepResult mode_step_battle_entry(ModeState *st);
+
+/* GAME_MODE_BATTLE_SCRIPTED step (defined in battle.c). Init with
+ * ModeState.battle_scripted (phase = BS_ENTER, battle_group); pushed by
+ * CC_1F_23 TRIGGER_BATTLE via the cc_1f_dispatch push-signal. Pops 0 =
+ * normal victory/post-battle, 1 = party defeated. */
+StepResult mode_step_battle_scripted(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

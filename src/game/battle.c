@@ -3368,9 +3368,8 @@ void play_giygas_weakened_sequence(uint16_t music,
  * the end-of-round level-ups are STEP_PUSHed children; the big synchronous
  * chunks (scene reinit, enemy AI, the debug encounter-setup loop, turn
  * setup) live in btl_* helpers below, verbatim from the blocking original.
- * battle_routine() at the bottom is the pump bridge for the still-blocking
- * init_battle_common() caller. Pops 0 = victory, 1 = party defeated,
- * 2 = special defeat code.
+ * Pushed by GAME_MODE_BATTLE_ENTRY / GAME_MODE_BATTLE_SCRIPTED. Pops 0 =
+ * victory, 1 = party defeated, 2 = special defeat code.
  * ====================================================================== */
 
 /* Asset table references loaded from ROM */
@@ -5077,15 +5076,6 @@ StepResult mode_step_battle(ModeState *ms) {
     }
 }
 
-/* Pump bridge for the still-blocking init_battle_common() caller — the
- * battle entry/exit drivers (swirl, init_battle_overworld/scripted) convert
- * later. Returns 0 = victory, 1 = party defeated, 2 = special defeat code. */
-static uint16_t battle_routine(void) {
-    ModeState init = {0};
-    init.battle.phase = BTL_BEGIN;
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE, &init);
-}
-
 /*
  * UPDATE_NPC_PARTY_LINEUP (asm/overworld/party/update_npc_party_lineup.asm)
  *
@@ -5885,28 +5875,6 @@ void instant_win_pp_recovery(void) {
 }
 
 /*
- * INIT_BATTLE_COMMON (asm/battle/init_common.asm)
- *
- * Shared battle setup called by both overworld and scripted battle paths.
- * Fades out with mosaic, runs the main battle routine, updates party state.
- * Returns the battle result (0 = normal victory, nonzero = party defeated/special).
- */
-uint16_t init_battle_common(void) {
-    /* Assembly: LDY #0; LDX #1; TXA; JSL FADE_OUT_WITH_MOSAIC
-     * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0) */
-    fade_out(1, 1);
-
-    uint16_t result = battle_routine();
-
-    update_party();
-
-    bt.party_members_alive_overworld = 1;
-    ow.battle_mode = 0;
-
-    return result;
-}
-
-/*
  * INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm)
  *
  * Entry point for random/overworld encounters.
@@ -6053,87 +6021,138 @@ void init_battle_overworld(void) {
  *   1 byte: count (how many of this enemy, or 0xFF = terminator)
  *   2 bytes: enemy_id
  *
- * Returns: 0 = normal victory/post-battle, 1 = party defeated.
+ * Run-to-completion: GAME_MODE_BATTLE_SCRIPTED. The swirl wait is a
+ * BW_SWIRL_UPDATE push, the battle a GAME_MODE_BATTLE push (with
+ * init_battle_common's fade-out/party-update halves inlined around it, as
+ * in GAME_MODE_BATTLE_ENTRY), and render_and_disable_entities() is split
+ * at its render_frame_tick yield (BS_CLEANUP work / BS_FINISH disable).
+ * Kept inline-blocking (documented): teleport_mainloop() and reload_map()'s
+ * one-shot vblank helpers. Pushed by CC_1F_23 TRIGGER_BATTLE (cc_1f_dispatch
+ * push-signal; the result is stored to working memory in the
+ * DT_RESUME_CC1F_BATTLE handler).
+ *
+ * Pops: 0 = normal victory/post-battle, 1 = party defeated.
  */
-uint16_t init_battle_scripted(uint16_t battle_group) {
-    bt.current_battle_group = battle_group;
+StepResult mode_step_battle_scripted(ModeState *state) {
+    BattleScriptedState *st = &state->battle_scripted;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
 
-    /* Parse BTL_ENTRY_PTR_TABLE + ENEMY_BATTLE_GROUPS_TABLE to populate
-     * bt.enemies_in_battle_ids[] (port of init_scripted.asm lines 12-48).
-     *
-     * BTL_ENTRY_PTR_TABLE: 8 bytes per entry, first 3 bytes = 24-bit ROM
-     * pointer into ENEMY_BATTLE_GROUPS_TABLE.
-     * Groups table format: count(1), enemy_id(2), repeated, terminated by 0xFF. */
-    bt.enemies_in_battle = 0;
-    {
-        static const uint8_t *ptr_table = NULL;
-        static const uint8_t *groups_table = NULL;
-        if (!ptr_table)
-            ptr_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
-        if (!groups_table)
-            groups_table = ASSET_DATA(ASSET_DATA_ENEMY_BATTLE_GROUPS_TABLE_BIN);
-        if (ptr_table && groups_table) {
-            /* Read 24-bit pointer from table entry (little-endian) */
-            uint32_t entry_off = (uint32_t)battle_group * 8;
-            uint32_t rom_ptr = (uint32_t)ptr_table[entry_off]
-                             | ((uint32_t)ptr_table[entry_off + 1] << 8)
-                             | ((uint32_t)ptr_table[entry_off + 2] << 16);
-            /* Convert ROM address to offset within groups table.
-             * ROM address of ENEMY_BATTLE_GROUPS_TABLE = $D0D52D. */
-            uint32_t groups_offset = rom_ptr - 0xD0D52D;
-            const uint8_t *ptr = groups_table + groups_offset;
+    for (;;) {
+        switch (st->phase) {
+        case BS_ENTER:
+            bt.current_battle_group = st->battle_group;
 
-            while (1) {
-                uint8_t count = *ptr;
-                if (count == 0xFF)
-                    break;
-                uint16_t enemy_id = (uint16_t)ptr[1] | ((uint16_t)ptr[2] << 8);
-                for (uint8_t i = 0; i < count; i++) {
-                    if (bt.enemies_in_battle < MAX_ENEMY_BATTLER_SLOTS)
-                        bt.enemies_in_battle_ids[bt.enemies_in_battle++] = enemy_id;
+            /* Parse BTL_ENTRY_PTR_TABLE + ENEMY_BATTLE_GROUPS_TABLE to populate
+             * bt.enemies_in_battle_ids[] (port of init_scripted.asm lines 12-48).
+             *
+             * BTL_ENTRY_PTR_TABLE: 8 bytes per entry, first 3 bytes = 24-bit ROM
+             * pointer into ENEMY_BATTLE_GROUPS_TABLE.
+             * Groups table format: count(1), enemy_id(2), repeated, terminated by 0xFF. */
+            bt.enemies_in_battle = 0;
+            {
+                static const uint8_t *ptr_table = NULL;
+                static const uint8_t *groups_table = NULL;
+                if (!ptr_table)
+                    ptr_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
+                if (!groups_table)
+                    groups_table = ASSET_DATA(ASSET_DATA_ENEMY_BATTLE_GROUPS_TABLE_BIN);
+                if (ptr_table && groups_table) {
+                    /* Read 24-bit pointer from table entry (little-endian) */
+                    uint32_t entry_off = (uint32_t)st->battle_group * 8;
+                    uint32_t rom_ptr = (uint32_t)ptr_table[entry_off]
+                                     | ((uint32_t)ptr_table[entry_off + 1] << 8)
+                                     | ((uint32_t)ptr_table[entry_off + 2] << 16);
+                    /* Convert ROM address to offset within groups table.
+                     * ROM address of ENEMY_BATTLE_GROUPS_TABLE = $D0D52D. */
+                    uint32_t groups_offset = rom_ptr - 0xD0D52D;
+                    const uint8_t *ptr = groups_table + groups_offset;
+
+                    while (1) {
+                        uint8_t count = *ptr;
+                        if (count == 0xFF)
+                            break;
+                        uint16_t enemy_id = (uint16_t)ptr[1] | ((uint16_t)ptr[2] << 8);
+                        for (uint8_t i = 0; i < count; i++) {
+                            if (bt.enemies_in_battle < MAX_ENEMY_BATTLER_SLOTS)
+                                bt.enemies_in_battle_ids[bt.enemies_in_battle++] = enemy_id;
+                        }
+                        ptr += 3;
+                    }
                 }
-                ptr += 3;
             }
+
+            /* Set battle mode to active */
+            ow.battle_mode = 0xFFFF;
+
+            /* Play battle swirl and wait for completion.
+             * Assembly: JSL WAIT_UNTIL_NEXT_FRAME; JSL UPDATE_SWIRL_EFFECT
+             * (yield-before-update; BW_SWIRL_UPDATE preserves that interleave). */
+            battle_swirl_sequence();
+            child_init = (ModeState){0};
+            child_init.battle_wait.kind = BW_SWIRL_UPDATE;
+            st->phase = BS_SWIRL_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+
+        case BS_SWIRL_DONE:
+            /* Run the actual battle — init_battle_common's front half:
+             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0) */
+            fade_out(1, 1);
+            child_init = (ModeState){0};
+            child_init.battle.phase = BTL_BEGIN;
+            st->phase = BS_BATTLE_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &child_init);
+
+        case BS_BATTLE_DONE: {
+            /* init_battle_common's tail */
+            uint16_t result = (uint16_t)mode_child_result();
+            update_party();
+            bt.party_members_alive_overworld = 1;
+            ow.battle_mode = 0;
+
+            /* Post-battle handling */
+            if (ow.psi_teleport_destination != 0) {
+                /* PSI teleport triggered during battle (inline-blocking —
+                 * its own large driver, deferred) */
+                teleport_mainloop();
+                if (result != 0)
+                    return STEP_RESULT_POP(1);  /* party defeated */
+            } else if (result == 0) {
+                /* Normal victory — reload map and fade in */
+                reload_map();
+                fade_in(1, 1);
+            } else {
+                /* Party defeated — return immediately */
+                return STEP_RESULT_POP(1);
+            }
+            st->phase = BS_CLEANUP;
+            break;
+        }
+
+        case BS_CLEANUP:
+            /* Post-battle cleanup — render_and_disable_entities() split at
+             * its render_frame_tick yield: the work half here, the entity
+             * disable after the yield in BS_FINISH (work-then-yield matches
+             * the blocking helper exactly). */
+            update_party();
+            refresh_party_entities();
+            render_frame_tick_work();
+            st->phase = BS_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case BS_FINISH:
+        default:
+            disable_all_entities();
+            if (ow.entity_fade_entity != -1) {
+                entities.tick_callback_hi[ow.entity_fade_entity] &=
+                    (uint16_t)~(uint16_t)(OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED);
+            }
+
+            /* Non-boss fights grant intangibility frames */
+            if (bt.current_battle_group < ENEMY_GROUP_BOSS_START) {
+                ow.player_intangibility_frames = 120;
+            }
+
+            return STEP_RESULT_POP(0);
         }
     }
-
-    /* Set battle mode to active */
-    ow.battle_mode = 0xFFFF;
-
-    /* Play battle swirl and wait for completion */
-    battle_swirl_sequence();
-    {
-        /* Assembly: JSL WAIT_UNTIL_NEXT_FRAME; JSL UPDATE_SWIRL_EFFECT (yield-
-         * before-update; BW_SWIRL_UPDATE preserves that interleave). */
-        ModeState init = { .battle_wait = { .kind = BW_SWIRL_UPDATE } };
-        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-    }
-
-    /* Run the actual battle */
-    uint16_t result = init_battle_common();
-
-    /* Post-battle handling */
-    if (ow.psi_teleport_destination != 0) {
-        /* PSI teleport triggered during battle */
-        teleport_mainloop();
-        if (result != 0)
-            return 1;  /* party defeated */
-    } else if (result == 0) {
-        /* Normal victory — reload map and fade in */
-        reload_map();
-        fade_in(1, 1);
-    } else {
-        /* Party defeated — return immediately */
-        return 1;
-    }
-
-    /* Post-battle cleanup */
-    render_and_disable_entities();
-
-    /* Non-boss fights grant intangibility frames */
-    if (bt.current_battle_group < ENEMY_GROUP_BOSS_START) {
-        ow.player_intangibility_frames = 120;
-    }
-
-    return 0;
 }

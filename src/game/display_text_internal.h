@@ -102,11 +102,12 @@ void cc_1d_dispatch(ScriptReader *r);
  * zeroes *out_init before the call. */
 bool cc_1e_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume);
-/* cc_1f_dispatch: most sub-ops run inline and return false. The three yielding
- * sub-ops (0x52 number-select, 0x60 text-speed delay, 0x61 wait-for-actionscript)
- * instead fill out_init/out_mode (the child to STEP_PUSH) and out_resume (the
- * DisplayTextResume post-work the parent owes on POP) and return true. The caller
- * (mode_step_display_text) zeroes *out_init before the call. */
+/* cc_1f_dispatch: most sub-ops run inline and return false. The yielding
+ * sub-ops (0x23 trigger-battle, 0x52 number-select, 0x60 text-speed delay,
+ * 0x61 wait-for-actionscript) instead fill out_init/out_mode (the child to
+ * STEP_PUSH) and out_resume (the DisplayTextResume post-work the parent owes
+ * on POP) and return true. The caller (mode_step_display_text) zeroes
+ * *out_init before the call. */
 bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume);
 

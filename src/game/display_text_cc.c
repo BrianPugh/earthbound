@@ -931,13 +931,16 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         /* TRIGGER_BATTLE: 2 args forming a 16-bit battle_group_id.
          * Port of CC_1F_23 (asm/text/ccs/trigger_battle.asm).
          * If battle_group_id == 0, reads from argument_memory instead.
-         * Calls init_battle_scripted and stores result in working_memory. */
+         * STEP_PUSH GAME_MODE_BATTLE_SCRIPTED; the battle result is stored
+         * to working memory in DT_RESUME_CC1F_BATTLE when it pops. */
         uint16_t battle_group = script_read_word(r);
         if (battle_group == 0)
             battle_group = (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = init_battle_scripted(battle_group);
-        set_working_memory((uint32_t)(int32_t)(int16_t)result);
-        break;
+        out_init->battle_scripted.phase        = BS_ENTER;
+        out_init->battle_scripted.battle_group = battle_group;
+        *out_mode   = GAME_MODE_BATTLE_SCRIPTED;
+        *out_resume = DT_RESUME_CC1F_BATTLE;
+        return true;
     }
 
     /* --- Misc commands (0x40, 0x81, 0x90) --- */

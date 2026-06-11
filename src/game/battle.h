@@ -1079,22 +1079,13 @@ void battle_init_player_stats(uint16_t character, Battler *target);
 
 /* ---- Battle entry points (asm/battle/init_*.asm) ---- */
 
-/* INIT_BATTLE_COMMON (asm/battle/init_common.asm)
- * Shared battle setup: fades out, runs BATTLE_ROUTINE, updates party.
- * Returns battle result from BATTLE_ROUTINE. */
-uint16_t init_battle_common(void);
-
 /* INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm)
  * Entry point for random encounters triggered from overworld.
- * Handles instant win, battle, post-battle map reload, entity reset. */
+ * Handles instant win, battle, post-battle map reload, entity reset.
+ * Pump bridge over GAME_MODE_BATTLE_ENTRY (init_battle_common is inlined
+ * in the mode; scripted battles run as GAME_MODE_BATTLE_SCRIPTED pushed
+ * by CC_1F_23). */
 void init_battle_overworld(void);
-
-/* INIT_BATTLE_SCRIPTED (asm/battle/init_scripted.asm)
- * Entry point for scripted battles (from event scripts).
- * Parses enemy group, plays swirl, runs battle, handles post-battle.
- * battle_group: index into BTL_ENTRY_PTR_TABLE.
- * Returns 0=normal, 1=party defeated/special. */
-uint16_t init_battle_scripted(uint16_t battle_group);
 
 /* ---- External dependencies (implemented elsewhere) ---- */
 
