@@ -9,9 +9,12 @@
 #include "game/game_state.h"
 #include "game/audio.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init (PSI-menu text push) */
 #include "game/inventory.h"
 #include "game/text.h"
 #include "game/window.h"
+#include "core/mode_stack.h"
+#include "core/log.h"
 
 #include "data/assets.h"
 #include "data/text_refs.h"
@@ -491,178 +494,196 @@ void display_psi_description(uint16_t ability_id) {
  * Assist/Other), then individual PSI abilities, handles PP cost checking,
  * targeting, and returns the selected action.
  *
- * Reads bt.battle_menu_user for the character ID.
- * On success, populates battle_menu_selection fields (param1, selected_action,
- * targetting, selected_target).
- *
- * Returns 0 if cancelled, nonzero on success.
+ * Run-to-completion: GAME_MODE_BATTLE_PSI_MENU. The former goto machine's
+ * labels map onto the BP_* phases (see BattlePsiMenuState, mode_stack.h);
+ * the selection menus, the not-enough-PP text, and targeting are
+ * STEP_PUSHed children. battle_psi_menu() below is the pump bridge for the
+ * still-blocking battle_selection_menu caller.
  */
-uint16_t battle_psi_menu(void) {
-    if (!ensure_battle_psi_table()) return 0;
+StepResult mode_step_battle_psi_menu(ModeState *ms) {
+    BattlePsiMenuState *st = &ms->battle_psi_menu;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
 
-    uint16_t result = 0;
-    uint8_t char_id = bt.battle_menu_user;
-    uint16_t psi_selection = 0;
-    uint16_t category = 0;
-    uint16_t check_result = 0;
-    uint16_t battle_action_id = 0;
-    uint8_t action_direction = 0;
-    uint8_t action_target = 0;
+    if (!ensure_battle_psi_table()) return STEP_RESULT_POP(0);
 
-open_category_window:
-    /* Create PSI category window (WINDOW::BATTLE_PSI_CATEGORY = 0x10) */
-    create_window(WINDOW_PSI_CATEGORY);
+    for (;;) {
+        switch ((BattlePsiMenuPhase)st->phase) {
 
-    /* Add category menu items (Offense, Recover, Assist, Other)
-     * Assembly: loops 0..2 adding categories 1-3, then adds 4th.
-     * Uses ADD_MENU_ITEM_NO_POSITION with userdata = category (1-based). */
-    for (uint16_t i = 0; i < PSI_CATEGORY_COUNT; i++) {
-        /* Decode EB-encoded category name from ROM data to ASCII for menu */
-        const uint8_t *eb = ASSET_DATA(ASSET_US_DATA_PSI_CATEGORIES_BIN) + i * PSI_CATEGORY_NAME_SIZE;
-        char ascii_buf[PSI_CATEGORY_NAME_SIZE + 1];
-        int len = 0;
-        for (int j = 0; j < PSI_CATEGORY_NAME_SIZE && eb[j] != 0; j++)
-            ascii_buf[len++] = eb_char_to_ascii(eb[j]);
-        ascii_buf[len] = '\0';
-        add_menu_item(ascii_buf, i + 1, 0, i * 2);
-    }
+        case BP_OPEN:
+            /* @OPEN_CATEGORY_WINDOW: create the category window
+             * (WINDOW::BATTLE_PSI_CATEGORY = 0x10) and add the category menu
+             * items (Offense, Recover, Assist, Other). Assembly: loops 0..2
+             * adding categories 1-3, then adds the 4th; userdata = category
+             * (1-based). */
+            create_window(WINDOW_PSI_CATEGORY);
+            for (uint16_t i = 0; i < PSI_CATEGORY_COUNT; i++) {
+                /* Decode EB-encoded category name from ROM data to ASCII */
+                const uint8_t *eb = ASSET_DATA(ASSET_US_DATA_PSI_CATEGORIES_BIN) + i * PSI_CATEGORY_NAME_SIZE;
+                char ascii_buf[PSI_CATEGORY_NAME_SIZE + 1];
+                int len = 0;
+                for (int j = 0; j < PSI_CATEGORY_NAME_SIZE && eb[j] != 0; j++)
+                    ascii_buf[len++] = eb_char_to_ascii(eb[j]);
+                ascii_buf[len] = '\0';
+                add_menu_item(ascii_buf, i + 1, 0, i * 2);
+            }
+            win.current_focus_window = WINDOW_PSI_CATEGORY;
+            /* Layout and print (assembly: OPEN_WINDOW_AND_PRINT_MENU, :57) */
+            open_window_and_print_menu(1, 0);
+            st->phase = BP_CATEGORY;
+            break;
 
-    win.current_focus_window = WINDOW_PSI_CATEGORY;
+        case BP_CATEGORY:
+            /* @CATEGORY_SELECTION (assembly :58-60): SET_WINDOW_FOCUS every
+             * time; the PSI-list cursor callback lives in the re-fetchable
+             * WindowInfo across the push. */
+            set_window_focus(WINDOW_PSI_CATEGORY);
+            set_cursor_move_callback(generate_battle_psi_list_callback);
+            /* Print menu items only on first entry (US: :61-68) */
+            if (!st->menu_printed) {
+                print_menu_items();
+                st->menu_printed = 1;
+            }
+            child_init = (ModeState){0};
+            child_init.selection_menu.phase        = SM_SETUP;
+            child_init.selection_menu.allow_cancel = 1;
+            st->phase = BP_CATEGORY_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
 
-    /* Layout and print category items (assembly: OPEN_WINDOW_AND_PRINT_MENU, battle_psi_menu.asm:57) */
-    open_window_and_print_menu(1, 0);
+        case BP_CATEGORY_RESULT:
+            clear_cursor_move_callback();
+            st->category = (uint16_t)mode_child_result();
+            if (st->category == 0) {
+                /* Cancelled: @CLOSE_AND_RETURN with result 0 */
+                close_window(WINDOW_TEXT_STANDARD);
+                close_window(WINDOW_PSI_CATEGORY);
+                return STEP_RESULT_POP(0);
+            }
+            /* Empty category for this character re-loops */
+            if (check_psi_category_available(st->category, st->char_id) == 0) {
+                st->phase = BP_CATEGORY;
+                break;
+            }
+            st->phase = BP_LIST;
+            break;
 
-    bool psi_menu_printed = false;  /* @LOCALEB — US-only first-entry guard */
+        case BP_LIST:
+            /* @OPEN_PSI_LIST: build the ability list for the category; the
+             * target/cost cursor callback rides the WindowInfo. */
+            create_window(WINDOW_TEXT_STANDARD);
+            generate_battle_psi_list_callback(st->category);
+            set_cursor_move_callback(display_psi_target_and_cost);
+            child_init = (ModeState){0};
+            child_init.selection_menu.phase        = SM_SETUP;
+            child_init.selection_menu.allow_cancel = 1;
+            st->phase = BP_LIST_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
 
-category_selection:
-    /* Assembly (battle_psi_menu.asm:58-60): SET_WINDOW_FOCUS every time */
-    set_window_focus(WINDOW_PSI_CATEGORY);
-    /* Set cursor move callback to generate PSI list when moving between categories */
-    set_cursor_move_callback(generate_battle_psi_list_callback);
+        case BP_LIST_RESULT: {
+            clear_cursor_move_callback();
+            st->psi_selection = (uint16_t)mode_child_result();
+            if (st->psi_selection == 0) {
+                /* @PSI_CANCELLED: check_result=1 -> @CHECK_RESULT closes the
+                 * target/cost window and returns to the category menu. */
+                close_window(0x04);
+                st->phase = BP_CATEGORY;
+                break;
+            }
 
-    /* Print menu items, but only on first entry (US: battle_psi_menu.asm:61-68) */
-    if (!psi_menu_printed) {
-        print_menu_items();
-        psi_menu_printed = true;
-    }
+            /* Look up the battle_action to check PP cost. */
+            st->battle_action_id = battle_psi_table[st->psi_selection].battle_action;
+            {
+                uint8_t pp_cost = battle_action_table ? battle_action_table[st->battle_action_id].pp_cost : 0;
+                CharStruct *ch = &party_characters[st->char_id - 1];
+                if (pp_cost > ch->current_pp_target) {
+                    /* Not enough PP — show message (assembly lines 141-146),
+                     * then check_result=0 -> reopen the ability list. */
+                    create_window(WINDOW_TEXT_BATTLE);
+                    dt.blinking_triangle_flag = 2;
+                    st->phase = BP_PP_RESUME;
+                    if (dt_make_child_init(&child_init, MSG_BTL6_NOT_ENOUGH_PP_MENU))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                             MSG_BTL6_NOT_ENOUGH_PP_MENU);
+                    break;  /* unresolvable: fall through to BP_PP_RESUME inline */
+                }
+            }
 
-    /* Run category selection menu (allow cancel) */
-    category = selection_menu(1);
+            /* Get action direction and target type for window management */
+            st->action_direction = battle_action_table ? battle_action_table[st->battle_action_id].direction : 0;
+            st->action_target = battle_action_table ? battle_action_table[st->battle_action_id].target : 0;
 
-    clear_cursor_move_callback();
+            /* Assembly: for single-target PSI (direction==0 with target==1
+             * or 3), close the PSI windows and show the PSI name in
+             * BATTLE_ACTION_NAME */
+            if (st->action_direction == 0 && (st->action_target == 1 || st->action_target == 3)) {
+                close_window(WINDOW_PSI_CATEGORY);
+                close_window(0x04);
+                close_window(WINDOW_TEXT_STANDARD);
+                create_window(WINDOW_BATTLE_ACTION_NAME);
+                set_window_palette_index(6);
+                print_psi_ability_name(st->psi_selection);
+                set_window_palette_index(0);
+            }
 
-    if (category == 0) {
-        /* Cancelled - close and return */
-        result = 0;
-        goto close_and_return;
-    }
+            /* Determine targeting for the selected PSI */
+            child_init = (ModeState){0};
+            child_init.targeting.phase     = TGT_ENTER;
+            child_init.targeting.action_id = st->battle_action_id;
+            child_init.targeting.char_id   = st->char_id;
+            st->phase = BP_TARGET_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &child_init);
+        }
 
-    /* Check if the selected category has any PSI abilities for this character */
-    if (check_psi_category_available(category, char_id) == 0) {
-        goto category_selection;
-    }
-
-open_psi_list:
-    /* Create text standard window for PSI list */
-    create_window(WINDOW_TEXT_STANDARD);
-
-    /* Generate the PSI list for the selected category */
-    generate_battle_psi_list_callback(category);
-
-    /* Set cursor move callback to display target/cost info */
-    set_cursor_move_callback(display_psi_target_and_cost);
-
-    /* Run PSI selection menu (allow cancel) */
-    psi_selection = selection_menu(1);
-
-    clear_cursor_move_callback();
-
-    if (psi_selection == 0) {
-        /* PSI cancelled: @PSI_CANCELLED sets check_result=1 */
-        check_result = 1;
-        goto check_result_label;
-    }
-
-    /* PSI ability selected. Look up the battle_action to check PP cost. */
-    battle_action_id = battle_psi_table[psi_selection].battle_action;
-
-    /* Check PP cost against character's current PP */
-    {
-        uint8_t pp_cost = battle_action_table ? battle_action_table[battle_action_id].pp_cost : 0;
-        CharStruct *ch = &party_characters[char_id - 1];
-
-        if (pp_cost > ch->current_pp_target) {
-            /* Not enough PP — show message (assembly: battle_psi_menu.asm lines 141-146) */
-            create_window(WINDOW_TEXT_BATTLE);
-            dt.blinking_triangle_flag = 2;
-            display_text_from_addr(MSG_BTL6_NOT_ENOUGH_PP_MENU);
-            dt.blinking_triangle_flag = 0;  /* CLEAR_BLINKING_PROMPT */
+        case BP_PP_RESUME:
+            /* The PP-failure text popped: CLEAR_BLINKING_PROMPT, close the
+             * message window, reopen the ability list (@CHECK_RESULT == 0). */
+            dt.blinking_triangle_flag = 0;
             close_focus_window();
-            check_result = 0;
-            goto check_result_label;
+            st->phase = BP_LIST;
+            break;
+
+        case BP_TARGET_RESULT:
+        default: {
+            uint16_t check_result = (uint16_t)mode_child_result();
+
+            /* Close windows based on whether we opened BATTLE_ACTION_NAME */
+            if (st->action_direction == 0 && (st->action_target == 1 || st->action_target == 3)) {
+                close_window(WINDOW_BATTLE_ACTION_NAME);
+            } else {
+                close_window(WINDOW_PSI_CATEGORY);
+                close_window(0x04);
+                close_window(WINDOW_TEXT_STANDARD);
+            }
+
+            if ((check_result & 0xFF) == 0) {
+                /* Targeting cancelled - go back to a fresh category window */
+                st->phase = BP_OPEN;
+                break;
+            }
+
+            /* @CHECK_RESULT (nonzero): close the target/cost info window,
+             * store the selection, @CLOSE_AND_RETURN with result 1. */
+            close_window(0x04);
+            bt.battle_menu_param1 = (uint8_t)st->psi_selection;
+            bt.battle_menu_selected_action = battle_psi_table[st->psi_selection].battle_action;
+            bt.battle_menu_targetting = (uint8_t)(check_result >> 8);
+            bt.battle_menu_selected_target = (uint8_t)(check_result & 0xFF);
+            close_window(WINDOW_TEXT_STANDARD);
+            close_window(WINDOW_PSI_CATEGORY);
+            return STEP_RESULT_POP(1);
+        }
         }
     }
+}
 
-    /* Get action direction and target type for window management */
-    action_direction = battle_action_table ? battle_action_table[battle_action_id].direction : 0;
-    action_target = battle_action_table ? battle_action_table[battle_action_id].target : 0;
-
-    /* Assembly: for single-target PSI (direction==0 with target==1 or 3),
-     * close the PSI windows and show the PSI name in BATTLE_ACTION_NAME */
-    if (action_direction == 0 && (action_target == 1 || action_target == 3)) {
-        close_window(WINDOW_PSI_CATEGORY);
-        close_window(0x04);
-        close_window(WINDOW_TEXT_STANDARD);
-        create_window(WINDOW_BATTLE_ACTION_NAME);
-        set_window_palette_index(6);
-        print_psi_ability_name(psi_selection);
-        set_window_palette_index(0);
-    }
-
-    /* Determine targeting for the selected PSI */
-    check_result = determine_targetting(battle_action_id, char_id);
-
-    /* Close windows based on whether we opened BATTLE_ACTION_NAME */
-    if (action_direction == 0 && (action_target == 1 || action_target == 3)) {
-        close_window(WINDOW_BATTLE_ACTION_NAME);
-    } else {
-        close_window(WINDOW_PSI_CATEGORY);
-        close_window(0x04);
-        close_window(WINDOW_TEXT_STANDARD);
-    }
-
-    if ((check_result & 0xFF) == 0) {
-        /* Targeting cancelled - go back to category window */
-        goto open_category_window;
-    }
-
-    /* Fall through to check_result_label with non-zero check_result */
-
-check_result_label:
-    /* Assembly @CHECK_RESULT: if check_result == 0 (PP check failed), reopen PSI list */
-    if (check_result == 0) {
-        goto open_psi_list;
-    }
-
-    /* Close the target/cost info window */
-    close_window(0x04);
-
-    /* If PSI was cancelled (psi_selection == 0), go back to category */
-    if (psi_selection == 0) {
-        goto category_selection;
-    }
-
-    /* Store results in battle_menu_selection */
-    bt.battle_menu_param1 = (uint8_t)psi_selection;
-    bt.battle_menu_selected_action = battle_psi_table[psi_selection].battle_action;
-    bt.battle_menu_targetting = (uint8_t)(check_result >> 8);
-    bt.battle_menu_selected_target = (uint8_t)(check_result & 0xFF);
-    result = 1;
-
-close_and_return:
-    close_window(WINDOW_TEXT_STANDARD);
-    close_window(WINDOW_PSI_CATEGORY);
-    return result;
+/* Pump bridge for the still-blocking battle_selection_menu caller.
+ * Reads bt.battle_menu_user for the character ID.
+ * Returns 0 if cancelled, nonzero on success. */
+uint16_t battle_psi_menu(void) {
+    ModeState init = {0};
+    init.battle_psi_menu.phase   = BP_OPEN;
+    init.battle_psi_menu.char_id = bt.battle_menu_user;
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE_PSI_MENU, &init);
 }
 
 

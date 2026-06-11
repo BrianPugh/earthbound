@@ -70,6 +70,7 @@ typedef enum {
     GAME_MODE_TELEPORT_MENU,       /* PSI Teleport destination menu (open_teleport_destination_menu) */
     GAME_MODE_DETERMINE_TARGETING, /* battle-action targeting dispatch (determine_targetting) */
     GAME_MODE_LEVEL_UP,            /* inventory level-up sequence (gain_exp / level_up_char) */
+    GAME_MODE_BATTLE_PSI_MENU,     /* in-battle PSI selection cascade (battle_psi_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -437,6 +438,39 @@ typedef struct {
     uint16_t ally_window_id; /* mode-1 char-select window to close on pop */
     uint32_t saved_argument_memory; /* restored in TGT_ALLY_RESULT */
 } TargetingState;
+
+/* GAME_MODE_BATTLE_PSI_MENU phases. Port of battle_psi_menu()
+ * (asm/battle/battle_psi_menu.asm): the in-battle PSI selection cascade —
+ * the category menu (Offense/Recover/Assist/Other) and the per-category
+ * ability list (both SELECTION_MENU pushes; their cursor callbacks —
+ * generate_battle_psi_list_callback / display_psi_target_and_cost — live in
+ * the re-fetchable WindowInfo, exactly as when the blocking selection_menu()
+ * pumped the same step), the not-enough-PP message (DISPLAY_TEXT push
+ * resuming at BP_PP_RESUME), and targeting (DETERMINE_TARGETING push).
+ *
+ * On success fills the bt.battle_menu_* selection fields and pops 1; pops 0
+ * on cancel. Pushed by GAME_MODE_BATTLE_MENU's PSI case; battle_psi_menu()
+ * stays as a pump bridge until battle_selection_menu converts. */
+typedef enum {
+    BP_OPEN = 0,        /* @OPEN_CATEGORY_WINDOW: (re)create + populate */
+    BP_CATEGORY,        /* @CATEGORY_SELECTION: focus; push SELECTION_MENU */
+    BP_CATEGORY_RESULT, /* cancel exits; empty category re-loops; else list */
+    BP_LIST,            /* @OPEN_PSI_LIST: build the list; push SELECTION_MENU */
+    BP_LIST_RESULT,     /* cancel -> category; PP-fail text; else targeting */
+    BP_PP_RESUME,       /* after the PP-fail text pops: close, retry the list */
+    BP_TARGET_RESULT,   /* close windows; cancel -> BP_OPEN; else store + pop 1 */
+} BattlePsiMenuPhase;
+
+typedef struct {
+    uint8_t  phase;            /* BattlePsiMenuPhase */
+    uint8_t  menu_printed;     /* @LOCALEB: category items printed once (US) */
+    uint8_t  action_direction; /* selected action's direction (window mgmt) */
+    uint8_t  action_target;    /* selected action's target type (window mgmt) */
+    uint16_t char_id;          /* bt.battle_menu_user at entry (input) */
+    uint16_t category;         /* selected PSI category */
+    uint16_t psi_selection;    /* selected ability id */
+    uint16_t battle_action_id; /* selected ability's battle action */
+} BattlePsiMenuState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1397,6 +1431,7 @@ union ModeState {
     TeleportMenuState     teleport_menu;
     TargetingState        targeting;
     LevelUpState          level_up;
+    BattlePsiMenuState    battle_psi_menu;
     uint8_t               _raw[160];
 };
 
@@ -1616,6 +1651,13 @@ StepResult mode_step_determine_targeting(ModeState *st);
  * EXP tables live). Init via level_up_make_init() (inventory.h); entered via
  * STEP_PUSH from CC_1E_09 or the gain_exp() pump bridge. Always pops 0. */
 StepResult mode_step_level_up(ModeState *st);
+
+/* GAME_MODE_BATTLE_PSI_MENU step (defined in battle_psi.c, where the PSI
+ * table and list/cost callbacks live). Init with ModeState.battle_psi_menu
+ * (phase = BP_OPEN, char_id); entered via STEP_PUSH from the battle command
+ * menu or the battle_psi_menu() pump bridge. Pops 1 on success (selection
+ * stored in bt.battle_menu_*), 0 on cancel. */
+StepResult mode_step_battle_psi_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
