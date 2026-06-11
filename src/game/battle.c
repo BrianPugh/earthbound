@@ -5710,8 +5710,7 @@ static void iw_roll_drop(void) {
  * i.e. the blocking epilogue, and falls through inline when the address is
  * unresolvable); the per-battler gain_exp(1, ...) calls are
  * gain_exp_prepare() inline + a GAME_MODE_LEVEL_UP push (the BTL_VICTORY_EXP
- * idiom). instant_win_handler() below is the pump bridge for the
- * still-blocking init_battle_overworld caller.
+ * idiom). Pushed by GAME_MODE_BATTLE_ENTRY's instant-win branch.
  */
 StepResult mode_step_instant_win(ModeState *state) {
     InstantWinState *st = &state->instant_win;
@@ -5839,14 +5838,6 @@ StepResult mode_step_instant_win(ModeState *state) {
     }
 }
 
-/* Pump bridge for the still-blocking init_battle_overworld() caller (the
- * battle entry/exit drivers convert later). */
-static void instant_win_handler(void) {
-    ModeState init = {0};
-    init.instant_win.phase = IW_BEGIN;
-    pump_mode(GAME_MODE_INSTANT_WIN, &init);
-}
-
 /*
  * INSTANT_WIN_PP_RECOVERY — Port of asm/battle/instant_win_pp_recovery.asm (114 lines).
  *
@@ -5919,72 +5910,130 @@ uint16_t init_battle_common(void) {
  * INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm)
  *
  * Entry point for random/overworld encounters.
- * Handles instant win (auto-win), runs battle via init_battle_common,
- * post-battle map reload, entity state reset, and intangibility frames.
+ * Handles instant win (auto-win), runs the battle (with init_battle_common's
+ * fade-out + post-battle party update inlined around the GAME_MODE_BATTLE
+ * push), post-battle map reload, entity state reset, and intangibility
+ * frames.
+ *
+ * Run-to-completion: GAME_MODE_BATTLE_ENTRY. The debug exit-button busy-wait
+ * is BE_DEBUG_WAIT; an instant win pushes GAME_MODE_INSTANT_WIN; the battle
+ * is a GAME_MODE_BATTLE push. Kept inline-blocking (documented):
+ * teleport_mainloop() (the PSI-teleport driver, its own large blocking
+ * machine) and reload_map()'s force_blank/blank_screen one-shot vblank
+ * helpers. init_battle_overworld() below is the pump bridge for the
+ * still-blocking overworld root loop (game_main.c — Phase D).
  */
+StepResult mode_step_battle_entry(ModeState *state) {
+    BattleEntryState *st = &state->battle_entry;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->phase) {
+        case BE_ENTER:
+            if (ow.battle_mode == 0)
+                return STEP_RESULT_POP(0);
+
+            /* CHECK_DEBUG_EXIT_BUTTON (asm/system/debug/check_debug_exit_button.asm).
+             * If ow.debug_mode_number==2: wait for B button press, then skip battle.
+             * Otherwise: if Y is held, skip battle immediately. */
+            if (ow.debug_flag) {
+                if (ow.debug_mode_number == 2) {
+                    /* The blocking original busy-waited on WAIT_UNTIL_NEXT_FRAME;
+                     * BE_DEBUG_WAIT checks before the first yield, like the
+                     * original's pre-loop condition test. */
+                    st->phase = BE_DEBUG_WAIT;
+                    break;
+                }
+                if (core.pad1_held & PAD_Y) {
+                    st->phase = BE_RESET;
+                    break;
+                }
+            }
+
+            /* Check for instant win (high level vs weak enemies) */
+            if (instant_win_check()) {
+                child_init = (ModeState){0};
+                child_init.instant_win.phase = IW_BEGIN;
+                st->phase = BE_IW_DONE;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_INSTANT_WIN, &child_init);
+            }
+
+            /* Run the battle — init_battle_common's front half:
+             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0) */
+            fade_out(1, 1);
+            child_init = (ModeState){0};
+            child_init.battle.phase = BTL_BEGIN;
+            st->phase = BE_BATTLE_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &child_init);
+
+        case BE_DEBUG_WAIT:
+            if (core.pad1_held & PAD_B) {
+                ow.battle_mode = 0;
+                st->phase = BE_RESET;
+                break;
+            }
+            return STEP_RESULT_CONTINUE();
+
+        case BE_IW_DONE:
+            /* After the instant-win sequence pops */
+            ow.battle_mode = 0;
+            st->phase = BE_RESET;
+            break;
+
+        case BE_BATTLE_DONE: {
+            /* init_battle_common's tail */
+            uint16_t result = (uint16_t)mode_child_result();
+            update_party();
+            bt.party_members_alive_overworld = 1;
+            ow.battle_mode = 0;
+
+            refresh_party_entities();
+            ow.overworld_status_suppression = 0;
+
+            if (ow.psi_teleport_destination != 0) {
+                /* PSI teleport triggered during battle (inline-blocking —
+                 * its own large driver, deferred) */
+                teleport_mainloop();
+            } else if (result == 0) {
+                /* Normal victory — reload the map and fade in */
+                /* Debug: CHECK_VIEW_CHARACTER_MODE — skip in C port */
+                reload_map();
+                fade_in(1, 1);
+            } else {
+                /* Party defeated or special result — caller handles */
+                return STEP_RESULT_POP(0);
+            }
+            st->phase = BE_RESET;
+            break;
+        }
+
+        case BE_RESET:
+        default:
+            /* Reset entity collision/pathfinding state for the first 23 entities */
+            for (uint16_t i = 0; i < MAX_ENEMY_ENCOUNTER_SLOTS; i++) {
+                entities.collided_objects[i] = -1; /* ENTITY_COLLISION_NO_OBJECT */
+                entities.pathfinding_states[i] = 0;
+                entities.spritemap_ptr_hi[i] &= 0x7FFF; /* clear hide bit (bit 15) */
+            }
+
+            ow.overworld_status_suppression = 0;
+            enable_all_entities();
+
+            ow.player_intangibility_frames = 120;
+            bt.touched_enemy = (int16_t)0xFFFF;
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
+/* Pump bridge for the still-blocking overworld root loop caller
+ * (game_main.c overworld_step — converts at the Phase D flip). */
 void init_battle_overworld(void) {
     if (ow.battle_mode == 0)
         return;
-
-    /* CHECK_DEBUG_EXIT_BUTTON (asm/system/debug/check_debug_exit_button.asm).
-     * If ow.debug_mode_number==2: wait for B button press, then skip battle.
-     * Otherwise: if Y is held, skip battle immediately. */
-    if (ow.debug_flag) {
-        int16_t debug_result = 0;
-        if (ow.debug_mode_number == 2) {
-            /* Busy-wait for B button (assembly loops on WAIT_UNTIL_NEXT_FRAME) */
-            while (!(core.pad1_held & PAD_B)) {
-                wait_for_vblank();
-                platform_input_poll();
-            }
-            ow.battle_mode = 0;
-            debug_result = -1;
-        } else if (core.pad1_held & PAD_Y) {
-            debug_result = -1;
-        }
-        if (debug_result == -1)
-            goto reset_entities;
-    }
-
-    /* Check for instant win (high level vs weak enemies) */
-    if (instant_win_check()) {
-        instant_win_handler();
-        ow.battle_mode = 0;
-        goto reset_entities;
-    }
-
-    /* Run the battle */
-    uint16_t result = init_battle_common();
-
-    refresh_party_entities();
-    ow.overworld_status_suppression = 0;
-
-    if (ow.psi_teleport_destination != 0) {
-        /* PSI teleport triggered during battle */
-        teleport_mainloop();
-    } else if (result == 0) {
-        /* Normal victory — reload the map and fade in */
-        /* Debug: CHECK_VIEW_CHARACTER_MODE — skip in C port */
-        reload_map();
-        fade_in(1, 1);
-    } else {
-        /* Party defeated or special result — caller handles */
-        return;
-    }
-
-reset_entities:
-    /* Reset entity collision/pathfinding state for the first 23 entities */
-    for (uint16_t i = 0; i < MAX_ENEMY_ENCOUNTER_SLOTS; i++) {
-        entities.collided_objects[i] = -1; /* ENTITY_COLLISION_NO_OBJECT */
-        entities.pathfinding_states[i] = 0;
-        entities.spritemap_ptr_hi[i] &= 0x7FFF; /* clear hide bit (bit 15) */
-    }
-
-    ow.overworld_status_suppression = 0;
-    enable_all_entities();
-
-    ow.player_intangibility_frames = 120;
-    bt.touched_enemy = (int16_t)0xFFFF;
+    ModeState init = {0};
+    init.battle_entry.phase = BE_ENTER;
+    pump_mode(GAME_MODE_BATTLE_ENTRY, &init);
 }
 
 /*

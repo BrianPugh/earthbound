@@ -74,6 +74,7 @@ typedef enum {
     GAME_MODE_BATTLE_MENU,         /* per-character battle command menu (battle_selection_menu) */
     GAME_MODE_BATTLE,              /* main battle loop (battle_routine) */
     GAME_MODE_INSTANT_WIN,         /* auto-victory sequence (instant_win_handler) */
+    GAME_MODE_BATTLE_ENTRY,        /* overworld encounter entry/exit (init_battle_overworld) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -607,8 +608,7 @@ typedef struct {
  * clears the prompt flag, i.e. the blocking epilogue); the per-battler
  * gain_exp(1, ...) calls run as gain_exp_prepare() inline + a
  * GAME_MODE_LEVEL_UP push (the same idiom as BTL_VICTORY_EXP). Always pops
- * 0. instant_win_handler() (battle.c) is the pump bridge for the
- * still-blocking init_battle_overworld caller. */
+ * 0. Pushed by GAME_MODE_BATTLE_ENTRY's instant-win branch. */
 typedef enum {
     IW_BEGIN = 0,   /* music + stop the swirl, then into the flash frames */
     IW_FLASH,       /* 7 one-frame palette fills: green/red/blue x2, black */
@@ -625,6 +625,35 @@ typedef struct {
     uint8_t fade_i;     /* IW_FADE frames run (0 = setup pending) */
     uint8_t battler_i;  /* IW_EXP battler loop index */
 } InstantWinState;
+
+/* GAME_MODE_BATTLE_ENTRY — run-to-completion port of init_battle_overworld()
+ * (battle.c, asm/battle/init_overworld.asm), the random/overworld encounter
+ * entry/exit driver, with init_battle_common() (asm/battle/init_common.asm)
+ * inlined around the GAME_MODE_BATTLE push. The debug exit-button busy-wait
+ * is the BE_DEBUG_WAIT phase; an instant win pushes GAME_MODE_INSTANT_WIN;
+ * otherwise the mosaic fade-out starts and GAME_MODE_BATTLE is pushed.
+ * BE_BATTLE_DONE runs the shared post-battle tail (update_party + flags)
+ * and the per-result handling.
+ *
+ * Kept inline-blocking (documented deferrals): teleport_mainloop() (the PSI
+ * teleport driver, its own large blocking machine in overworld_teleport.c)
+ * and reload_map()'s force_blank/blank_screen one-shot vblank helpers.
+ *
+ * Always pops 0 (the blocking original returns void — a defeat result is
+ * handled by the caller observing game state, not a return value).
+ * init_battle_overworld() (battle.c) is the pump bridge for the
+ * still-blocking overworld root loop caller (game_main.c, Phase D). */
+typedef enum {
+    BE_ENTER = 0,     /* battle_mode gate, debug checks, instant win / battle */
+    BE_DEBUG_WAIT,    /* debug_mode_number==2: wait for the B button, skip battle */
+    BE_IW_DONE,       /* after GAME_MODE_INSTANT_WIN pops: clear battle_mode */
+    BE_BATTLE_DONE,   /* after GAME_MODE_BATTLE pops: party update + map reload */
+    BE_RESET,         /* reset_entities tail: collision/pathfinding/intangibility */
+} BattleEntryPhase;
+
+typedef struct {
+    uint8_t phase;    /* BattleEntryPhase */
+} BattleEntryState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1588,6 +1617,7 @@ union ModeState {
     BattleMenuState       battle_menu;
     BattleRoutineState    battle;
     InstantWinState       instant_win;
+    BattleEntryState      battle_entry;
     uint8_t               _raw[160];
 };
 
@@ -1830,9 +1860,14 @@ StepResult mode_step_battle(ModeState *st);
 
 /* GAME_MODE_INSTANT_WIN step (defined in battle.c, where the battler/money/
  * drop helpers live). Init with ModeState.instant_win (phase = IW_BEGIN);
- * entered via the instant_win_handler() pump bridge until
- * init_battle_overworld converts. Always pops 0. */
+ * pushed by GAME_MODE_BATTLE_ENTRY's instant-win branch. Always pops 0. */
 StepResult mode_step_instant_win(ModeState *st);
+
+/* GAME_MODE_BATTLE_ENTRY step (defined in battle.c). Init with
+ * ModeState.battle_entry (phase = BE_ENTER); entered via the
+ * init_battle_overworld() pump bridge until the overworld root loop
+ * converts (Phase D). Always pops 0. */
+StepResult mode_step_battle_entry(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
