@@ -125,6 +125,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_BATTLE_PSI_MENU]     = mode_step_battle_psi_menu,     /* battle_psi.c */
     [GAME_MODE_BATTLE_MENU]         = mode_step_battle_menu,         /* battle.c */
     [GAME_MODE_BATTLE]              = mode_step_battle,              /* battle.c */
+    [GAME_MODE_INSTANT_WIN]         = mode_step_instant_win,         /* battle.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

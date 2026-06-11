@@ -5593,60 +5593,27 @@ static uint16_t instant_win_check(void) {
 /*
  * FILL_PALETTES_WITH_COLOR (port of C26189)
  *
- * Fills all 256 palette entries with a single color, triggers a full palette
- * upload, and waits one frame.
+ * Fills all 256 palette entries with a single color and triggers a full
+ * palette upload. The blocking original's trailing one-frame wait is the
+ * IW_FLASH phase's yield (the pump owns it).
  */
-static void fill_palettes_with_color(uint16_t color) {
+static void iw_fill_palettes(uint16_t color) {
     for (int i = 0; i < 256; i++) {
         ert.palettes[i] = color;
     }
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    wait_for_vblank();
 }
 
-/*
- * INSTANT_WIN_HANDLER (port of asm/battle/instant_win_handler.asm)
- *
- * Handles the "instant win" sequence when the party is much stronger than the
- * enemies.  Plays the sudden victory music, flashes the screen, fades in,
- * awards money and EXP, handles item drops, and restores overworld music.
- */
-static void instant_win_handler(void) {
-    /* Reset initiative */
-    bt.battle_initiative = 0;
+/* The instant-win screen flash: green, red, blue twice, then black — each
+ * entry one fill_palettes_with_color() frame in the blocking original. */
+static const uint16_t iw_flash_colors[7] = {
+    0x03E0, 0x001F, 0x7C00, 0x03E0, 0x001F, 0x7C00, 0x0000
+};
 
-    /* Play sudden victory music */
-    change_music(183);  /* MUSIC::SUDDEN_VICTORY */
-
-    /* Stop the battle swirl effect */
-    stop_battle_swirl();
-
-    /* Flash screen: green, red, blue × 2 times */
-    for (int flash = 0; flash < 2; flash++) {
-        fill_palettes_with_color(0x03E0);  /* green */
-        fill_palettes_with_color(0x001F);  /* red */
-        fill_palettes_with_color(0x7C00);  /* blue */
-    }
-
-    /* Fill with black */
-    fill_palettes_with_color(0);
-
-    /* Restore saved palettes as fade target */
-    PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
-    memcpy(fade->target, ert.buffer + BUF_BATTLE_PALETTE_SAVE, sizeof(fade->target));
-
-    /* Prepare palette fade from black to original over 6 frames */
-    prepare_palette_fade_slopes(6, 0xFFFF);
-
-    /* Run 6 frames of palette fade */
-    for (int i = 0; i < 6; i++) {
-        update_map_palette_animation();
-        wait_for_vblank();
-    }
-
-    /* Finalize the fade */
-    finalize_palette_fade();
-
+/* The synchronous victory setup between the fade and the "YOU WON" text
+ * (verbatim from the blocking instant_win_handler): entity disable, the
+ * battle text window, the money deposit, battler re-init, and the EXP split. */
+static void iw_victory_setup(void) {
     /* Disable all entities during the victory sequence */
     disable_all_entities();
 
@@ -5697,32 +5664,11 @@ static void instant_win_handler(void) {
     if (alive_count > 0) {
         bt.battle_exp_scratch = (bt.battle_exp_scratch + (uint32_t)(alive_count - 1)) / (uint32_t)alive_count;
     }
+}
 
-    /* Display "YOU WON" message with EXP amount */
-    display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY_FORCED, bt.battle_exp_scratch);
-
-    /* --- Award EXP to eligible battlers --- */
-    for (int i = 0; i < BATTLER_COUNT; i++) {
-        Battler *b = &bt.battlers_table[i];
-
-        /* Must be conscious */
-        if (b->consciousness == 0) continue;
-
-        /* Must be ally (not enemy) */
-        if (b->ally_or_enemy != 0) continue;
-
-        /* Must not be an NPC */
-        if (b->npc_id != 0) continue;
-
-        /* Must not be unconscious or diamondized */
-        uint8_t status0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-        if (status0 == STATUS_0_UNCONSCIOUS) continue;
-        if (status0 == STATUS_0_DIAMONDIZED) continue;
-
-        /* Award EXP: play_sound=1, char_id=b->id */
-        gain_exp(1, b->id, bt.battle_exp_scratch);
-    }
-
+/* The random item-drop roll (verbatim from the blocking instant_win_handler).
+ * Leaves the result in bt.item_dropped (0 = nothing dropped). */
+static void iw_roll_drop(void) {
     /* --- Random item drop --- */
     uint16_t rand_enemy_idx = rand_limit(bt.enemies_in_battle);
     uint16_t selected_enemy_id = bt.enemies_in_battle_ids[rand_enemy_idx];
@@ -5749,23 +5695,156 @@ static void instant_win_handler(void) {
         }
     }
     /* drop_rate >= 7: always drop (no rarity check) */
+}
 
-    if (bt.item_dropped != 0) {
-        set_current_item((uint8_t)bt.item_dropped);
-        display_in_battle_text_addr(MSG_BTL8_ENEMY_PRESENT_DROPPED);
+/*
+ * INSTANT_WIN_HANDLER (port of asm/battle/instant_win_handler.asm)
+ *
+ * Handles the "instant win" sequence when the party is much stronger than the
+ * enemies.  Plays the sudden victory music, flashes the screen, fades in,
+ * awards money and EXP, handles item drops, and restores overworld music.
+ *
+ * Run-to-completion: GAME_MODE_INSTANT_WIN. The former wait_for_vblank loops
+ * are the IW_FLASH / IW_FADE per-frame phases; the texts are DISPLAY_TEXT
+ * pushes via battle_push_text_ex (the resume phase clears the prompt flag,
+ * i.e. the blocking epilogue, and falls through inline when the address is
+ * unresolvable); the per-battler gain_exp(1, ...) calls are
+ * gain_exp_prepare() inline + a GAME_MODE_LEVEL_UP push (the BTL_VICTORY_EXP
+ * idiom). instant_win_handler() below is the pump bridge for the
+ * still-blocking init_battle_overworld caller.
+ */
+StepResult mode_step_instant_win(ModeState *state) {
+    InstantWinState *st = &state->instant_win;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->phase) {
+        case IW_BEGIN:
+            /* Reset initiative */
+            bt.battle_initiative = 0;
+
+            /* Play sudden victory music */
+            change_music(183);  /* MUSIC::SUDDEN_VICTORY */
+
+            /* Stop the battle swirl effect */
+            stop_battle_swirl();
+
+            st->phase = IW_FLASH;
+            st->flash_i = 0;
+            break;
+
+        case IW_FLASH:
+            /* Flash screen green/red/blue twice, then fill with black — one
+             * palette fill per frame, exactly the blocking fill_palettes_
+             * with_color() cadence (work, then the pump's yield). */
+            if (st->flash_i < 7) {
+                iw_fill_palettes(iw_flash_colors[st->flash_i++]);
+                return STEP_RESULT_CONTINUE();
+            }
+            st->phase = IW_FADE;
+            st->fade_i = 0;
+            break;
+
+        case IW_FADE:
+            if (st->fade_i == 0) {
+                /* Restore saved palettes as fade target */
+                PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
+                memcpy(fade->target, ert.buffer + BUF_BATTLE_PALETTE_SAVE,
+                       sizeof(fade->target));
+
+                /* Prepare palette fade from black to original over 6 frames */
+                prepare_palette_fade_slopes(6, 0xFFFF);
+            }
+            /* Run 6 frames of palette fade */
+            if (st->fade_i < 6) {
+                st->fade_i++;
+                update_map_palette_animation();
+                return STEP_RESULT_CONTINUE();
+            }
+            /* Finalize the fade (after the 6th frame's yield, like the
+             * blocking loop's trailing wait_for_vblank). */
+            finalize_palette_fade();
+            st->phase = IW_VICTORY;
+            break;
+
+        case IW_VICTORY:
+            /* Entity disable, battle text window, money, battler re-init,
+             * EXP split — then the "YOU WON" message with the EXP amount. */
+            iw_victory_setup();
+            st->phase = IW_EXP;
+            st->battler_i = 0;
+            if (battle_push_text_ex(&child_init, MSG_BTL8_PLAYER_VICTORY_FORCED,
+                                    false, true, bt.battle_exp_scratch))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+
+        case IW_EXP:
+            /* display_text_wait_addr's epilogue (idempotent on re-entry —
+             * LEVEL_UP clears it itself before popping). */
+            dt.blinking_triangle_flag = 0;
+
+            /* --- Award EXP to eligible battlers --- gain_exp(1, ...) ran
+             * here in the blocking original; the prepare half runs inline
+             * and any pending level-up runs as a pushed GAME_MODE_LEVEL_UP
+             * child (the BTL_VICTORY_EXP idiom). */
+            while (st->battler_i < BATTLER_COUNT) {
+                Battler *b = &bt.battlers_table[st->battler_i++];
+
+                /* Must be a conscious, non-NPC ally, not unconscious or
+                 * diamondized */
+                if (b->consciousness == 0) continue;
+                if (b->ally_or_enemy != 0) continue;
+                if (b->npc_id != 0) continue;
+                uint8_t status0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+                if (status0 == STATUS_0_UNCONSCIOUS) continue;
+                if (status0 == STATUS_0_DIAMONDIZED) continue;
+
+                if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
+                    level_up_make_init(&child_init, b->id);
+                    /* phase stays IW_EXP — the resume re-enters the loop */
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &child_init);
+                }
+            }
+            st->phase = IW_DROP;
+            break;
+
+        case IW_DROP:
+            iw_roll_drop();
+            st->phase = IW_FINISH;
+            if (bt.item_dropped != 0) {
+                set_current_item((uint8_t)bt.item_dropped);
+                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_PRESENT_DROPPED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            }
+            break;
+
+        case IW_FINISH:
+        default:
+            /* display_in_battle_text_addr's epilogue */
+            dt.blinking_triangle_flag = 0;
+
+            /* --- Restore music and re-enable entities --- */
+            close_all_windows();
+            hide_hppp_windows();
+
+            if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
+                change_music(82);  /* MUSIC::BICYCLE */
+            } else {
+                update_map_music_at_leader();
+            }
+
+            enable_all_entities();
+            return STEP_RESULT_POP(0);
+        }
     }
+}
 
-    /* --- Restore music and re-enable entities --- */
-    close_all_windows();
-    hide_hppp_windows();
-
-    if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
-        change_music(82);  /* MUSIC::BICYCLE */
-    } else {
-        update_map_music_at_leader();
-    }
-
-    enable_all_entities();
+/* Pump bridge for the still-blocking init_battle_overworld() caller (the
+ * battle entry/exit drivers convert later). */
+static void instant_win_handler(void) {
+    ModeState init = {0};
+    init.instant_win.phase = IW_BEGIN;
+    pump_mode(GAME_MODE_INSTANT_WIN, &init);
 }
 
 /*

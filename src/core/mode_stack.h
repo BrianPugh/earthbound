@@ -73,6 +73,7 @@ typedef enum {
     GAME_MODE_BATTLE_PSI_MENU,     /* in-battle PSI selection cascade (battle_psi_menu) */
     GAME_MODE_BATTLE_MENU,         /* per-character battle command menu (battle_selection_menu) */
     GAME_MODE_BATTLE,              /* main battle loop (battle_routine) */
+    GAME_MODE_INSTANT_WIN,         /* auto-victory sequence (instant_win_handler) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -597,6 +598,34 @@ typedef struct {
     uint16_t exp_i;             /* BTL_VICTORY_EXP loop index */
 } BattleRoutineState;
 
+/* GAME_MODE_INSTANT_WIN — run-to-completion port of instant_win_handler()
+ * (battle.c, asm/battle/instant_win_handler.asm): the auto-victory sequence
+ * when the party vastly outclasses the enemies. The former raw
+ * wait_for_vblank loops become per-frame phases (the 7 one-frame palette
+ * flashes, the 6-frame fade back from black); the "YOU WON" / item-drop
+ * texts are DISPLAY_TEXT pushes via battle_push_text_ex (each resume phase
+ * clears the prompt flag, i.e. the blocking epilogue); the per-battler
+ * gain_exp(1, ...) calls run as gain_exp_prepare() inline + a
+ * GAME_MODE_LEVEL_UP push (the same idiom as BTL_VICTORY_EXP). Always pops
+ * 0. instant_win_handler() (battle.c) is the pump bridge for the
+ * still-blocking init_battle_overworld caller. */
+typedef enum {
+    IW_BEGIN = 0,   /* music + stop the swirl, then into the flash frames */
+    IW_FLASH,       /* 7 one-frame palette fills: green/red/blue x2, black */
+    IW_FADE,        /* 6-frame palette fade from black back to the saved colors */
+    IW_VICTORY,     /* money deposit, battler re-init, EXP split; "YOU WON" text */
+    IW_EXP,         /* per-battler EXP loop: GAME_MODE_LEVEL_UP pushes */
+    IW_DROP,        /* random item-drop roll; present-dropped text */
+    IW_FINISH,      /* close windows, restore music, re-enable entities; pop */
+} InstantWinPhase;
+
+typedef struct {
+    uint8_t phase;      /* InstantWinPhase */
+    uint8_t flash_i;    /* IW_FLASH index into the 7-color flash sequence */
+    uint8_t fade_i;     /* IW_FADE frames run (0 = setup pending) */
+    uint8_t battler_i;  /* IW_EXP battler loop index */
+} InstantWinState;
+
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
  * level_up_char.asm, 763 lines) for the text-displaying play_sound != 0 path:
@@ -608,10 +637,9 @@ typedef struct {
  * (reset_char_level_one, silent gain_exp) never yields and stays the
  * synchronous level_up_char_silent() loop in inventory.c.
  *
- * Pushed by CC_1E_09 GIVE_EXPERIENCE (cc_1e_dispatch push-signal) and by
- * GAME_MODE_BATTLE's end-of-round EXP loop (BTL_VICTORY_EXP); the
- * still-blocking instant_win_handler (battle.c) reaches it via the
- * gain_exp() pump bridge. Always pops 0. */
+ * Pushed by CC_1E_09 GIVE_EXPERIENCE (cc_1e_dispatch push-signal), by
+ * GAME_MODE_BATTLE's end-of-round EXP loop (BTL_VICTORY_EXP), and by
+ * GAME_MODE_INSTANT_WIN's EXP loop (IW_EXP). Always pops 0. */
 typedef enum {
     LU_LEVEL = 0,   /* loop head: music, level++, push the "reached level" text */
     LU_STAT,        /* apply growth stage `stage`; push the gain text if any */
@@ -1559,6 +1587,7 @@ union ModeState {
     BattlePsiMenuState    battle_psi_menu;
     BattleMenuState       battle_menu;
     BattleRoutineState    battle;
+    InstantWinState       instant_win;
     uint8_t               _raw[160];
 };
 
@@ -1798,6 +1827,12 @@ StepResult mode_step_battle_menu(ModeState *st);
  * the battle entry/exit drivers convert. Pops the battle result (0 =
  * victory, 1 = party defeated, 2 = special defeat code). */
 StepResult mode_step_battle(ModeState *st);
+
+/* GAME_MODE_INSTANT_WIN step (defined in battle.c, where the battler/money/
+ * drop helpers live). Init with ModeState.instant_win (phase = IW_BEGIN);
+ * entered via the instant_win_handler() pump bridge until
+ * init_battle_overworld converts. Always pops 0. */
+StepResult mode_step_instant_win(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
