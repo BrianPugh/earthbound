@@ -1308,15 +1308,20 @@ void battle_reduce_pp(Battler *target, uint16_t cost) {
  * Blocked if afflictions[0] == 1 (UNCONSCIOUS — heal blocked).
  * Displays battle text for full HP or partial recovery.
  */
-void battle_recover_hp(Battler *target, uint16_t heal_amount) {
+void battle_recover_hp_prepare(Battler *target, uint16_t heal_amount,
+                               BattleTailText *out) {
+    out->msg = 0;
+    out->cnum = 0;
+    out->has_cnum = false;
+
     /* Must be conscious */
     if (target->consciousness != 1)
         return;
 
     /* Heal blocked if afflictions[0] == UNCONSCIOUS */
     if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-        /* Display "couldn't be healed" message */
-        display_in_battle_text_addr(MSG_BTL4_RESULT_HEAL_NO_EFFECT);
+        /* "couldn't be healed" message */
+        out->msg = MSG_BTL4_RESULT_HEAL_NO_EFFECT;
         return;
     }
 
@@ -1324,12 +1329,25 @@ void battle_recover_hp(Battler *target, uint16_t heal_amount) {
     battle_set_hp(target, new_hp);
 
     if (new_hp >= target->hp_max) {
-        /* Display "HP maxed out" message */
-        display_in_battle_text_addr(MSG_BTL5_HP_MAXED_OUT);
+        /* "HP maxed out" message */
+        out->msg = MSG_BTL5_HP_MAXED_OUT;
     } else {
-        /* Display "recovered X HP" message with heal_amount as parameter */
-        display_text_wait_addr(MSG_BTL5_HP_RECOVERED, heal_amount);
+        /* "recovered X HP" message with heal_amount as parameter */
+        out->msg = MSG_BTL5_HP_RECOVERED;
+        out->cnum = heal_amount;
+        out->has_cnum = true;
     }
+}
+
+void battle_recover_hp(Battler *target, uint16_t heal_amount) {
+    BattleTailText tail;
+    battle_recover_hp_prepare(target, heal_amount, &tail);
+    if (tail.msg == 0)
+        return;
+    if (tail.has_cnum)
+        display_text_wait_addr(tail.msg, tail.cnum);
+    else
+        display_in_battle_text_addr(tail.msg);
 }
 
 /*
@@ -1340,7 +1358,12 @@ void battle_recover_hp(Battler *target, uint16_t heal_amount) {
  * Blocked if afflictions[0] == UNCONSCIOUS.
  * Caps recovery at pp_max, stores actual amount recovered for display.
  */
-void battle_recover_pp(Battler *target, uint16_t amount) {
+void battle_recover_pp_prepare(Battler *target, uint16_t amount,
+                               BattleTailText *out) {
+    out->msg = 0;
+    out->cnum = 0;
+    out->has_cnum = false;
+
     if (target->consciousness != 1)
         return;
 
@@ -1359,8 +1382,18 @@ void battle_recover_pp(Battler *target, uint16_t amount) {
     uint16_t new_pp = pp_cur + amount;
     battle_set_pp(target, new_pp);
 
-    /* Display "recovered X PP" message */
-    display_text_wait_addr(MSG_BTL5_PP_RECOVERED, actual_recovery);
+    /* "recovered X PP" message */
+    out->msg = MSG_BTL5_PP_RECOVERED;
+    out->cnum = actual_recovery;
+    out->has_cnum = true;
+}
+
+void battle_recover_pp(Battler *target, uint16_t amount) {
+    BattleTailText tail;
+    battle_recover_pp_prepare(target, amount, &tail);
+    if (tail.msg == 0)
+        return;
+    display_text_wait_addr(tail.msg, tail.cnum);
 }
 
 /* ======================================================================

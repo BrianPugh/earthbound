@@ -101,6 +101,24 @@ bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
                          bool has_cnum, uint32_t cnum);
 bool battle_push_text(ModeState *child, uint32_t addr);
 
+/* A helper's tail text, handed back by the *_prepare halves below so a
+ * converted action stepper can push it as a DISPLAY_TEXT child (msg == 0:
+ * nothing to display). has_cnum marks the display_text_wait_addr variant
+ * (set_cnum(cnum) before the text). */
+typedef struct {
+    uint32_t msg;
+    uint32_t cnum;
+    bool     has_cnum;
+} BattleTailText;
+
+/* The mutation halves of RECOVER_HP / RECOVER_PP (battle.c): everything the
+ * blocking battle_recover_hp/pp() does up to the tail text, which is
+ * returned in *out instead of displayed. */
+void battle_recover_hp_prepare(Battler *target, uint16_t heal_amount,
+                               BattleTailText *out);
+void battle_recover_pp_prepare(Battler *target, uint16_t amount,
+                               BattleTailText *out);
+
 /* ---- Functions defined in battle_calc.c ---- */
 
 /* Success/probability checks */

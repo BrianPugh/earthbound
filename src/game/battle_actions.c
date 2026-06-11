@@ -200,42 +200,26 @@ void btlact_level_1_attack(void) {
     battle_heal_strangeness();
 }
 
-/*
- * BTLACT_HEALING_A (asm/battle/actions/healing_alpha.asm)
- *
- * Healing Alpha PSI: cures cold, sunstroke, or sleep.
- * If none of those are active, displays "no effect" message.
- */
-static StepResult btlact_healing_alpha_step(BattleActionState *st) {
+/* ----------------------------------------------------------------------
+ * Shared stepper tail for the most common converted-action shape:
+ * "decide + mutate, then one tail text". pc 0 pushes `msg` (0 = no text:
+ * pop immediately); pc 1 runs the blocking display_in_battle_text epilogue
+ * (the dt.blinking_triangle_flag clear) and pops. The wrapper steppers
+ * MUST compute `msg` (and any state mutation deciding it) only when
+ * st->pc == 0 — at later pcs the argument is unused, pass 0.
+ * ---------------------------------------------------------------------- */
+static StepResult btlact_single_text_step_ex(BattleActionState *st, uint32_t msg,
+                                             bool has_cnum, uint32_t cnum) {
     static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
-    case 0: {
-        Battler *tgt = battler_from_offset(bt.current_target);
-        uint32_t msg;
-
-        /* Check PERSISTENT_EASYHEAL group first */
-        uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-
-        if (easyheal == STATUS_0_COLD) {
-            tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-            msg = MSG_BTL5_CURED_COLD;
-        } else if (easyheal == STATUS_0_SUNSTROKE) {
-            tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-            msg = MSG_BTL5_CURED_SUNSTROKE;
-        } else if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
-            /* TEMPORARY group: sleep */
-            tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            msg = MSG_BTL5_CURED_ASLEEP;
-        } else {
-            /* No curable status — display "no effect" */
-            msg = MSG_BTL4_RESULT_HEAL_NO_EFFECT;
-        }
-
+    case 0:
+        if (msg == 0)
+            return STEP_RESULT_POP(0);
         st->pc = 1;
-        if (battle_push_text(&child, msg))
+        if (battle_push_text_ex(&child, msg, false, has_cnum, cnum))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-    } /* FALLTHROUGH — unresolvable text: epilogue inline */
+        /* FALLTHROUGH — unresolvable text: epilogue inline */
     case 1:
     default:
         dt.blinking_triangle_flag = 0;
@@ -243,251 +227,268 @@ static StepResult btlact_healing_alpha_step(BattleActionState *st) {
     }
 }
 
-void btlact_healing_alpha(void) { btlact_pump_addr(0xC29AEA); }
-
-/*
- * BTLACT_SHIELD_A (asm/battle/actions/shield_alpha.asm)
- *
- * Shield Alpha PSI: applies STATUS_6_SHIELD to current target.
- * Displays appropriate text for new shield or shield refresh.
- */
-static StepResult btlact_shield_alpha_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
-
-    switch (st->pc) {
-    case 0: {
-        Battler *tgt = battler_from_offset(bt.current_target);
-        uint16_t result = battle_shields_common(tgt, STATUS_6_SHIELD);
-
-        /* result == 0: shield already active — refreshed (assembly: BEQ) */
-        uint32_t msg = (result == 0) ? MSG_BTL5_SHIELD_OF_LIGHT_APPLIED
-                                     : MSG_BTL5_SHIELD_OF_LIGHT_STRONGER;
-        st->pc = 1;
-        if (battle_push_text(&child, msg))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-    } /* FALLTHROUGH — unresolvable text: epilogue inline */
-    case 1:
-    default:
-        dt.blinking_triangle_flag = 0;
-        return STEP_RESULT_POP(0);
-    }
+static StepResult btlact_single_text_step(BattleActionState *st, uint32_t msg) {
+    return btlact_single_text_step_ex(st, msg, false, 0);
 }
 
-void btlact_shield_alpha(void) { btlact_pump_addr(0xC29D44); }
-
-/*
- * BTLACT_HEALING_B (asm/battle/actions/healing_beta.asm)
+/* ----------------------------------------------------------------------
+ * The Healing PSI cascade (alpha ⊂ beta ⊂ gamma ⊂ omega).
  *
- * Healing Beta PSI: cures poison, nausea, crying, strangeness.
- * Falls back to Healing Alpha if none of those are active.
- */
-void btlact_healing_beta(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
+ * Each decide helper applies its cures and returns the tail text; the
+ * fallback chain mirrors the blocking originals' tail calls. Returns 0
+ * when the revive path handled everything itself — battle_revive_target()
+ * displays its own text and runs the enemy palette flash inline-blocking
+ * (it converts with the shared battle.c helper pipeline).
+ * ---------------------------------------------------------------------- */
 
-    /* Check PERSISTENT_EASYHEAL group */
+/* BTLACT_HEALING_A (asm/battle/actions/healing_alpha.asm):
+ * cures cold, sunstroke, or sleep; otherwise "no effect". */
+static uint32_t healing_alpha_decide(Battler *tgt) {
+    /* Check PERSISTENT_EASYHEAL group first */
+    uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+
+    if (easyheal == STATUS_0_COLD) {
+        tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+        return MSG_BTL5_CURED_COLD;
+    }
+    if (easyheal == STATUS_0_SUNSTROKE) {
+        tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+        return MSG_BTL5_CURED_SUNSTROKE;
+    }
+
+    /* Check TEMPORARY group for sleep */
+    if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
+        tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+        return MSG_BTL5_CURED_ASLEEP;
+    }
+
+    /* No curable status — "no effect" */
+    return MSG_BTL4_RESULT_HEAL_NO_EFFECT;
+}
+
+/* BTLACT_HEALING_B (asm/battle/actions/healing_beta.asm):
+ * cures poison, nausea, crying, strangeness; falls back to Healing Alpha. */
+static uint32_t healing_beta_decide(Battler *tgt) {
     uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
 
     if (easyheal == STATUS_0_POISONED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_POISONED);
-        return;
+        return MSG_BTL5_CURED_POISONED;
     }
     if (easyheal == STATUS_0_NAUSEOUS) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_NAUSEOUS);
-        return;
+        return MSG_BTL5_CURED_NAUSEOUS;
     }
-
-    /* Check TEMPORARY group for crying */
     if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_CRYING) {
         tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_CRYING);
-        return;
+        return MSG_BTL5_CURED_CRYING;
     }
-
-    /* Check STRANGENESS group */
     if (tgt->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
         tgt->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_STRANGE);
-        return;
+        return MSG_BTL5_CURED_STRANGE;
     }
 
-    /* Fall back to Healing Alpha */
-    btlact_healing_alpha();
+    return healing_alpha_decide(tgt);
 }
 
-/*
- * BTLACT_HEALING_G (asm/battle/actions/healing_gamma.asm)
- *
- * Healing Gamma PSI: cures paralysis, diamondize, unconscious (revive).
- * Revive: 75% success rate (SUCCESS_255 with threshold 192).
- *   On success: revive with hp_max/4.
- *   On failure: display "failed to revive" text.
- * Falls back to Healing Beta if none of those are active.
- */
-void btlact_healing_gamma(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
+/* BTLACT_HEALING_G (asm/battle/actions/healing_gamma.asm):
+ * cures paralysis, diamondize; revives (75%, hp_max/4) — revive failure has
+ * its own text; falls back to Healing Beta. */
+static uint32_t healing_gamma_decide(Battler *tgt) {
     uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
 
     if (easyheal == STATUS_0_PARALYZED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_NUMB);
-        return;
+        return MSG_BTL5_CURED_NUMB;
     }
     if (easyheal == STATUS_0_DIAMONDIZED) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_DIAMONDIZED);
-        return;
+        return MSG_BTL5_CURED_DIAMONDIZED;
     }
     if (easyheal == STATUS_0_UNCONSCIOUS) {
         /* 75% chance to revive */
         if (battle_success_255(192)) {
-            /* Revive with hp_max / 4 */
-            uint16_t revive_hp = tgt->hp_max >> 2;
-            battle_revive_target(tgt, revive_hp);
-        } else {
-            display_in_battle_text_addr(MSG_BTL5_REVIVE_FAILED); /* revive failed */
+            /* Revive with hp_max / 4 (inline-blocking, own text) */
+            battle_revive_target(tgt, tgt->hp_max >> 2);
+            return 0;
         }
-        return;
+        return MSG_BTL5_REVIVE_FAILED;
     }
 
-    /* Fall back to Healing Beta */
-    btlact_healing_beta();
+    return healing_beta_decide(tgt);
 }
 
-/*
- * BTLACT_HEALING_O (asm/battle/actions/healing_omega.asm)
- *
- * Healing Omega PSI: revives with full HP, or falls back to Healing Gamma.
- */
-void btlact_healing_omega(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
-
+/* BTLACT_HEALING_O (asm/battle/actions/healing_omega.asm):
+ * revives with full HP; falls back to Healing Gamma. */
+static uint32_t healing_omega_decide(Battler *tgt) {
     if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-        /* Revive with full hp_max */
-        battle_revive_target(tgt, tgt->hp_max);
-        return;
+        battle_revive_target(tgt, tgt->hp_max);  /* inline-blocking, own text */
+        return 0;
     }
-
-    /* Fall back to Healing Gamma */
-    btlact_healing_gamma();
+    return healing_gamma_decide(tgt);
 }
 
-/*
- * BTLACT_SHIELD_B (asm/battle/actions/shield_beta.asm)
+static StepResult btlact_healing_alpha_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? healing_alpha_decide(battler_from_offset(bt.current_target)) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+static StepResult btlact_healing_beta_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? healing_beta_decide(battler_from_offset(bt.current_target)) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+static StepResult btlact_healing_gamma_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? healing_gamma_decide(battler_from_offset(bt.current_target)) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+static StepResult btlact_healing_omega_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? healing_omega_decide(battler_from_offset(bt.current_target)) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+void btlact_healing_alpha(void) { btlact_pump_addr(0xC29AEA); }
+void btlact_healing_beta(void)  { btlact_pump_addr(0xC29B7A); }
+void btlact_healing_gamma(void) { btlact_pump_addr(0xC29C2C); }
+void btlact_healing_omega(void) { btlact_pump_addr(0xC29CB8); }
+
+/* ----------------------------------------------------------------------
+ * The Shield PSI family (asm/battle/actions/shield_alpha.asm,
+ * shield_beta.asm, psi_shield_alpha.asm, psi_shield_beta.asm).
  *
- * Shield Beta PSI: applies SHIELD_POWER to current target.
- */
-void btlact_shield_beta(void) {
+ * Applies the shield type to the current target; the text picks
+ * applied-vs-stronger on battle_shields_common()'s result (== 0: shield
+ * already active — refreshed; assembly: BEQ).
+ * ---------------------------------------------------------------------- */
+static uint32_t shields_decide(uint16_t shield_type, uint32_t msg_applied,
+                               uint32_t msg_stronger) {
     Battler *tgt = battler_from_offset(bt.current_target);
-
-    uint16_t result = battle_shields_common(tgt, STATUS_6_SHIELD_POWER);
-
-    if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_APPLIED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_STRONGER);
-    }
+    uint16_t result = battle_shields_common(tgt, shield_type);
+    return (result == 0) ? msg_applied : msg_stronger;
 }
 
-/*
- * BTLACT_PSI_SHIELD_A (asm/battle/actions/psi_shield_alpha.asm)
- *
- * PSI Shield Alpha: applies PSI_SHIELD to current target.
- */
-void btlact_psi_shield_alpha(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    uint16_t result = battle_shields_common(tgt, STATUS_6_PSI_SHIELD);
-
-    if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_APPLIED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_STRONGER);
-    }
+static StepResult btlact_shield_alpha_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? shields_decide(STATUS_6_SHIELD, MSG_BTL5_SHIELD_OF_LIGHT_APPLIED,
+                         MSG_BTL5_SHIELD_OF_LIGHT_STRONGER) : 0;
+    return btlact_single_text_step(st, msg);
 }
 
-/*
- * BTLACT_PSI_SHIELD_B (asm/battle/actions/psi_shield_beta.asm)
- *
- * PSI Shield Beta: applies PSI_SHIELD_POWER to current target.
- */
-void btlact_psi_shield_beta(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    uint16_t result = battle_shields_common(tgt, STATUS_6_PSI_SHIELD_POWER);
-
-    if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_APPLIED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_STRONGER);
-    }
+static StepResult btlact_shield_beta_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? shields_decide(STATUS_6_SHIELD_POWER, MSG_BTL5_POWER_SHIELD_APPLIED,
+                         MSG_BTL5_POWER_SHIELD_STRONGER) : 0;
+    return btlact_single_text_step(st, msg);
 }
 
+static StepResult btlact_psi_shield_alpha_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? shields_decide(STATUS_6_PSI_SHIELD, MSG_BTL5_PSYCHIC_SHIELD_APPLIED,
+                         MSG_BTL5_PSYCHIC_SHIELD_STRONGER) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+static StepResult btlact_psi_shield_beta_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? shields_decide(STATUS_6_PSI_SHIELD_POWER, MSG_BTL5_PSI_POWER_SHIELD_APPLIED,
+                         MSG_BTL5_PSI_POWER_SHIELD_STRONGER) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+void btlact_shield_alpha(void)     { btlact_pump_addr(0xC29D44); }
+void btlact_shield_beta(void)      { btlact_pump_addr(0xC29D81); }
+void btlact_psi_shield_alpha(void) { btlact_pump_addr(0xC29DBE); }
+void btlact_psi_shield_beta(void)  { btlact_pump_addr(0xC29DFB); }
 
 /* ======================================================================
  * HP/PP recovery battle actions
+ *
+ * All funnel into battle_recover_hp/pp's prepare halves (battle.c): the
+ * state mutation runs at pc 0, the tail text (HP/PP recovered / maxed out /
+ * couldn't be healed) is the single pushed text. The recovery amounts roll
+ * the RNG, so they are computed ONLY at pc 0 (see btlact_single_text_step).
  * ====================================================================== */
 
-void btlact_hp_recovery_10(void) {
-    uint16_t amount = battle_25pct_variance(10);
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-void btlact_hp_recovery_50(void) {
-    uint16_t amount = battle_25pct_variance(50);
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-void btlact_hp_recovery_100(void) {
-    uint16_t amount = battle_25pct_variance(100);
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-void btlact_hp_recovery_200(void) {
-    uint16_t amount = battle_25pct_variance(200);
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-void btlact_hp_recovery_300(void) {
-    uint16_t amount = battle_25pct_variance(300);
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-/*
- * BTLACT_HP_RECOVERY_1D4 (asm/battle/actions/hp_recovery_1d4.asm)
- *
- * Recover rand(4)+1 HP (1-4 HP). Used by weak healing items.
- */
-void btlact_hp_recovery_1d4(void) {
-    uint16_t amount = rand_limit(4) + 1;
-    battle_recover_hp(battler_from_offset(bt.current_target), amount);
-}
-
-/*
- * BTLACT_HP_RECOVERY_10000 (asm/battle/actions/hp_recovery_10000.asm)
- *
- * If target is Poo, recover 10000 HP (full heal).
- * Otherwise, fall back to 1d4 recovery (Brain Food Lunch flavor text).
- */
-void btlact_hp_recovery_10000(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
-    if (tgt->id == PARTY_MEMBER_POO) {
-        battle_recover_hp(tgt, 10000);
-    } else {
-        btlact_hp_recovery_1d4();
+static StepResult btlact_recover_step(BattleActionState *st, bool pp, uint16_t amount) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        if (pp)
+            battle_recover_pp_prepare(battler_from_offset(bt.current_target),
+                                      amount, &tail);
+        else
+            battle_recover_hp_prepare(battler_from_offset(bt.current_target),
+                                      amount, &tail);
     }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_pp_recovery_20(void) {
-    uint16_t amount = battle_25pct_variance(20);
-    battle_recover_pp(battler_from_offset(bt.current_target), amount);
+static StepResult btlact_hp_recovery_10_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? battle_25pct_variance(10) : 0);
 }
 
-void btlact_pp_recovery_80(void) {
-    uint16_t amount = battle_25pct_variance(80);
-    battle_recover_pp(battler_from_offset(bt.current_target), amount);
+static StepResult btlact_hp_recovery_50_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? battle_25pct_variance(50) : 0);
 }
+
+static StepResult btlact_hp_recovery_100_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? battle_25pct_variance(100) : 0);
+}
+
+static StepResult btlact_hp_recovery_200_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? battle_25pct_variance(200) : 0);
+}
+
+static StepResult btlact_hp_recovery_300_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? battle_25pct_variance(300) : 0);
+}
+
+/* BTLACT_HP_RECOVERY_1D4 (asm/battle/actions/hp_recovery_1d4.asm):
+ * recover rand(4)+1 HP (1-4 HP). Used by weak healing items. */
+static StepResult btlact_hp_recovery_1d4_step(BattleActionState *st) {
+    return btlact_recover_step(st, false,
+                               (st->pc == 0) ? (uint16_t)(rand_limit(4) + 1) : 0);
+}
+
+/* BTLACT_HP_RECOVERY_10000 (asm/battle/actions/hp_recovery_10000.asm):
+ * if target is Poo, recover 10000 HP (full heal); otherwise fall back to
+ * 1d4 recovery (Brain Food Lunch flavor text). The branch condition is
+ * stable across the text push (battler id does not change). */
+static StepResult btlact_hp_recovery_10000_step(BattleActionState *st) {
+    Battler *tgt = battler_from_offset(bt.current_target);
+    if (tgt->id == PARTY_MEMBER_POO)
+        return btlact_recover_step(st, false, (st->pc == 0) ? 10000 : 0);
+    return btlact_hp_recovery_1d4_step(st);
+}
+
+static StepResult btlact_pp_recovery_20_step(BattleActionState *st) {
+    return btlact_recover_step(st, true,
+                               (st->pc == 0) ? battle_25pct_variance(20) : 0);
+}
+
+static StepResult btlact_pp_recovery_80_step(BattleActionState *st) {
+    return btlact_recover_step(st, true,
+                               (st->pc == 0) ? battle_25pct_variance(80) : 0);
+}
+
+void btlact_hp_recovery_10(void)    { btlact_pump_addr(0xC2A360); }
+void btlact_hp_recovery_50(void)    { btlact_pump_addr(0xC2A0BF); }
+void btlact_hp_recovery_100(void)   { btlact_pump_addr(0xC2A370); }
+void btlact_hp_recovery_200(void)   { btlact_pump_addr(0xC2A0CF); }
+void btlact_hp_recovery_300(void)   { btlact_pump_addr(0xC2A26F); }
+void btlact_hp_recovery_1d4(void)   { btlact_pump_addr(0xC2A0AE); }
+void btlact_hp_recovery_10000(void) { btlact_pump_addr(0xC2A380); }
+void btlact_pp_recovery_20(void)    { btlact_pump_addr(0xC2A0DF); }
+void btlact_pp_recovery_80(void)    { btlact_pump_addr(0xC2A0EF); }
 
 /* ======================================================================
  * Simple wrapper actions
@@ -554,77 +555,61 @@ void btlact_freezetime(void) {
 
 /* ======================================================================
  * Status effect actions
+ *
+ * Shared decide: the npc_check inlines battle_fail_attack_on_npcs()'s
+ * test (NPC target → "did not work", no infliction); otherwise the
+ * infliction result picks success-vs-"did not work".
  * ====================================================================== */
 
-/*
- * BTLACT_POISON (asm/battle/actions/poison.asm)
- *
- * Inflict poison on current target. Fails on NPCs.
- */
-void btlact_poison(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+static uint32_t inflict_decide(bool npc_check, uint16_t group, uint16_t value,
+                               uint32_t msg_success) {
+    Battler *tgt = battler_from_offset(bt.current_target);
+    if (npc_check && tgt->npc_id != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;  /* battle_fail_attack_on_npcs */
+    return battle_inflict_status(tgt, group, value) != 0
+               ? msg_success : MSG_BTL4_RESULT_DID_NOT_WORK;
 }
 
-/*
- * BTLACT_NAUSEATE (asm/battle/actions/nauseate.asm)
- *
- * Inflict nausea on current target. Fails on NPCs.
- */
-void btlact_nauseate(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_NAUSEOUS);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_NAUSEOUS);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+/* BTLACT_POISON (asm/battle/actions/poison.asm):
+ * inflict poison on current target. Fails on NPCs. */
+static StepResult btlact_poison_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? inflict_decide(true, STATUS_GROUP_PERSISTENT_EASYHEAL,
+                         STATUS_0_POISONED, MSG_BTL5_STATUS_POISONED) : 0;
+    return btlact_single_text_step(st, msg);
 }
 
-/*
- * BTLACT_FEELSTRANGE (asm/battle/actions/feel_strange.asm)
- *
- * Inflict "strange" status on current target. Fails on NPCs.
- */
-void btlact_feel_strange(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+/* BTLACT_NAUSEATE (asm/battle/actions/nauseate.asm):
+ * inflict nausea on current target. Fails on NPCs. */
+static StepResult btlact_nauseate_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? inflict_decide(true, STATUS_GROUP_PERSISTENT_EASYHEAL,
+                         STATUS_0_NAUSEOUS, MSG_BTL5_STATUS_NAUSEOUS) : 0;
+    return btlact_single_text_step(st, msg);
 }
 
-/*
- * BTLACT_IMMOBILIZE (asm/battle/actions/immobilize.asm)
- *
- * Inflict immobilized status on current target (no NPC check).
- */
-void btlact_immobilize(void) {
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_TEMPORARY, STATUS_2_IMMOBILIZED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_IMMOBILIZED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+/* BTLACT_FEELSTRANGE (asm/battle/actions/feel_strange.asm):
+ * inflict "strange" status on current target. Fails on NPCs. */
+static StepResult btlact_feel_strange_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? inflict_decide(true, STATUS_GROUP_STRANGENESS,
+                         STATUS_3_STRANGE, MSG_BTL5_STATUS_STRANGE) : 0;
+    return btlact_single_text_step(st, msg);
 }
+
+/* BTLACT_IMMOBILIZE (asm/battle/actions/immobilize.asm):
+ * inflict immobilized status on current target (no NPC check). */
+static StepResult btlact_immobilize_step(BattleActionState *st) {
+    uint32_t msg = (st->pc == 0)
+        ? inflict_decide(false, STATUS_GROUP_TEMPORARY,
+                         STATUS_2_IMMOBILIZED, MSG_BTL5_STATUS_IMMOBILIZED) : 0;
+    return btlact_single_text_step(st, msg);
+}
+
+void btlact_poison(void)       { btlact_pump_addr(0xC28B2C); }
+void btlact_nauseate(void)     { btlact_pump_addr(0xC28AEB); }
+void btlact_feel_strange(void) { btlact_pump_addr(0xC28DBB); }
+void btlact_immobilize(void)   { btlact_pump_addr(0xC28CB8); }
 
 /* ======================================================================
  * Null / empty actions
@@ -3803,174 +3788,174 @@ void btlact_giygas_prayer_9(void) {
 
 const BattleActionEntry btlact_dispatch_table[] = {
     /* Sorted by ROM address for binary search */
-    { 0xC1DE43, btlact_switch_weapons },
-    { 0xC1E00F, btlact_switch_armor },
-    { 0xC28523, (void(*)(void))battle_level_2_attack },
-    { 0xC2859F, btlact_bash },
-    { 0xC285DA, (void(*)(void))battle_level_4_attack },
-    { 0xC28651, (void(*)(void))battle_level_3_attack },
-    { 0xC286CB, btlact_level_1_attack },
-    { 0xC28740, btlact_shoot },
+    { 0xC1DE43, btlact_switch_weapons, NULL },
+    { 0xC1E00F, btlact_switch_armor, NULL },
+    { 0xC28523, (void(*)(void))battle_level_2_attack, NULL },
+    { 0xC2859F, btlact_bash, NULL },
+    { 0xC285DA, (void(*)(void))battle_level_4_attack, NULL },
+    { 0xC28651, (void(*)(void))battle_level_3_attack, NULL },
+    { 0xC286CB, btlact_level_1_attack, NULL },
+    { 0xC28740, btlact_shoot, NULL },
     { 0xC28770, btlact_spy, btlact_spy_step },
-    { 0xC2889B, btlact_null },
-    { 0xC2889E, btlact_steal },
-    { 0xC288EB, btlact_freezetime },
-    { 0xC289CE, btlact_diamondize },
-    { 0xC28A92, btlact_paralyze },
-    { 0xC28AEB, btlact_nauseate },
-    { 0xC28B2C, btlact_poison },
-    { 0xC28B6D, btlact_cold },
-    { 0xC28BBE, btlact_mushroomize },
-    { 0xC28BFD, btlact_possess },
-    { 0xC28C69, btlact_crying },
-    { 0xC28CB8, btlact_immobilize },
-    { 0xC28CF1, btlact_solidify },
-    { 0xC28D3A, redirect_btlact_brainshock_alpha },
-    { 0xC28D5A, btlact_distract },
-    { 0xC28DBB, btlact_feel_strange },
-    { 0xC28DFC, btlact_crying2 },
-    { 0xC28E3B, redirect_btlact_hypnosis_alpha },
-    { 0xC28E42, btlact_reduce_pp },
-    { 0xC28EAE, btlact_cut_guts },
-    { 0xC28F21, btlact_reduce_offense_defense },
-    { 0xC28F97, btlact_level_2_attack_poison },
-    { 0xC28FF9, btlact_double_bash },
-    { 0xC2900B, btlact_350_fire_damage },
-    { 0xC2902C, (void(*)(void))battle_level_3_attack },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
-    { 0xC29033, btlact_null2 },
-    { 0xC29036, btlact_null3 },
-    { 0xC29039, btlact_null4 },
-    { 0xC2903C, btlact_null5 },
-    { 0xC2903F, btlact_null6 },
-    { 0xC29042, btlact_null7 },
-    { 0xC29045, btlact_null8 },
-    { 0xC29048, btlact_null9 },
-    { 0xC2904B, btlact_null10 },
-    { 0xC2904E, btlact_null11 },
-    { 0xC29051, btlact_neutralize },
-    { 0xC290C6, apply_neutralize_to_all },
-    { 0xC2916E, btlact_level_2_attack_diamondize },
-    { 0xC29254, btlact_reduce_offense },
-    { 0xC29298, btlact_clumsydeath },
-    { 0xC292EB, btlact_enemy_extend },
-    { 0xC292EE, btlact_masterbarfdeath },
-    { 0xC29556, btlact_psi_rockin_alpha },
-    { 0xC2955F, btlact_psi_rockin_beta },
-    { 0xC29568, btlact_psi_rockin_gamma },
-    { 0xC29571, btlact_psi_rockin_omega },
-    { 0xC295AB, btlact_psi_fire_alpha },
-    { 0xC295B4, btlact_psi_fire_beta },
-    { 0xC295BD, btlact_psi_fire_gamma },
-    { 0xC295C6, btlact_psi_fire_omega },
-    { 0xC29647, btlact_psi_freeze_alpha },
-    { 0xC29650, btlact_psi_freeze_beta },
-    { 0xC29659, btlact_psi_freeze_gamma },
-    { 0xC29662, btlact_psi_freeze_omega },
-    { 0xC29871, btlact_psi_thunder_alpha },
-    { 0xC2987D, btlact_psi_thunder_beta },
-    { 0xC29889, btlact_psi_thunder_gamma },
-    { 0xC29895, btlact_psi_thunder_omega },
-    { 0xC29987, btlact_psi_flash_alpha },
-    { 0xC299AE, btlact_psi_flash_beta },
-    { 0xC299EF, btlact_psi_flash_gamma },
-    { 0xC29A35, btlact_psi_flash_omega },
-    { 0xC29AA6, btlact_psi_starstorm_alpha },
-    { 0xC29AAF, btlact_psi_starstorm_omega },
-    { 0xC29AC6, btlact_lifeup_alpha },
-    { 0xC29ACF, btlact_lifeup_beta },
-    { 0xC29AD8, btlact_lifeup_gamma },
-    { 0xC29AE1, btlact_lifeup_omega },
+    { 0xC2889B, btlact_null, NULL },
+    { 0xC2889E, btlact_steal, NULL },
+    { 0xC288EB, btlact_freezetime, NULL },
+    { 0xC289CE, btlact_diamondize, NULL },
+    { 0xC28A92, btlact_paralyze, NULL },
+    { 0xC28AEB, btlact_nauseate, btlact_nauseate_step },
+    { 0xC28B2C, btlact_poison, btlact_poison_step },
+    { 0xC28B6D, btlact_cold, NULL },
+    { 0xC28BBE, btlact_mushroomize, NULL },
+    { 0xC28BFD, btlact_possess, NULL },
+    { 0xC28C69, btlact_crying, NULL },
+    { 0xC28CB8, btlact_immobilize, btlact_immobilize_step },
+    { 0xC28CF1, btlact_solidify, NULL },
+    { 0xC28D3A, redirect_btlact_brainshock_alpha, NULL },
+    { 0xC28D5A, btlact_distract, NULL },
+    { 0xC28DBB, btlact_feel_strange, btlact_feel_strange_step },
+    { 0xC28DFC, btlact_crying2, NULL },
+    { 0xC28E3B, redirect_btlact_hypnosis_alpha, NULL },
+    { 0xC28E42, btlact_reduce_pp, NULL },
+    { 0xC28EAE, btlact_cut_guts, NULL },
+    { 0xC28F21, btlact_reduce_offense_defense, NULL },
+    { 0xC28F97, btlact_level_2_attack_poison, NULL },
+    { 0xC28FF9, btlact_double_bash, NULL },
+    { 0xC2900B, btlact_350_fire_damage, NULL },
+    { 0xC2902C, (void(*)(void))battle_level_3_attack, NULL },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
+    { 0xC29033, btlact_null2, NULL },
+    { 0xC29036, btlact_null3, NULL },
+    { 0xC29039, btlact_null4, NULL },
+    { 0xC2903C, btlact_null5, NULL },
+    { 0xC2903F, btlact_null6, NULL },
+    { 0xC29042, btlact_null7, NULL },
+    { 0xC29045, btlact_null8, NULL },
+    { 0xC29048, btlact_null9, NULL },
+    { 0xC2904B, btlact_null10, NULL },
+    { 0xC2904E, btlact_null11, NULL },
+    { 0xC29051, btlact_neutralize, NULL },
+    { 0xC290C6, apply_neutralize_to_all, NULL },
+    { 0xC2916E, btlact_level_2_attack_diamondize, NULL },
+    { 0xC29254, btlact_reduce_offense, NULL },
+    { 0xC29298, btlact_clumsydeath, NULL },
+    { 0xC292EB, btlact_enemy_extend, NULL },
+    { 0xC292EE, btlact_masterbarfdeath, NULL },
+    { 0xC29556, btlact_psi_rockin_alpha, NULL },
+    { 0xC2955F, btlact_psi_rockin_beta, NULL },
+    { 0xC29568, btlact_psi_rockin_gamma, NULL },
+    { 0xC29571, btlact_psi_rockin_omega, NULL },
+    { 0xC295AB, btlact_psi_fire_alpha, NULL },
+    { 0xC295B4, btlact_psi_fire_beta, NULL },
+    { 0xC295BD, btlact_psi_fire_gamma, NULL },
+    { 0xC295C6, btlact_psi_fire_omega, NULL },
+    { 0xC29647, btlact_psi_freeze_alpha, NULL },
+    { 0xC29650, btlact_psi_freeze_beta, NULL },
+    { 0xC29659, btlact_psi_freeze_gamma, NULL },
+    { 0xC29662, btlact_psi_freeze_omega, NULL },
+    { 0xC29871, btlact_psi_thunder_alpha, NULL },
+    { 0xC2987D, btlact_psi_thunder_beta, NULL },
+    { 0xC29889, btlact_psi_thunder_gamma, NULL },
+    { 0xC29895, btlact_psi_thunder_omega, NULL },
+    { 0xC29987, btlact_psi_flash_alpha, NULL },
+    { 0xC299AE, btlact_psi_flash_beta, NULL },
+    { 0xC299EF, btlact_psi_flash_gamma, NULL },
+    { 0xC29A35, btlact_psi_flash_omega, NULL },
+    { 0xC29AA6, btlact_psi_starstorm_alpha, NULL },
+    { 0xC29AAF, btlact_psi_starstorm_omega, NULL },
+    { 0xC29AC6, btlact_lifeup_alpha, NULL },
+    { 0xC29ACF, btlact_lifeup_beta, NULL },
+    { 0xC29AD8, btlact_lifeup_gamma, NULL },
+    { 0xC29AE1, btlact_lifeup_omega, NULL },
     { 0xC29AEA, btlact_healing_alpha, btlact_healing_alpha_step },
-    { 0xC29B7A, btlact_healing_beta },
-    { 0xC29C2C, btlact_healing_gamma },
-    { 0xC29CB8, btlact_healing_omega },
+    { 0xC29B7A, btlact_healing_beta, btlact_healing_beta_step },
+    { 0xC29C2C, btlact_healing_gamma, btlact_healing_gamma_step },
+    { 0xC29CB8, btlact_healing_omega, btlact_healing_omega_step },
     { 0xC29D44, btlact_shield_alpha, btlact_shield_alpha_step },
-    { 0xC29D7A, redirect_btlact_shield_alpha },
-    { 0xC29D81, btlact_shield_beta },
-    { 0xC29DB7, redirect_btlact_shield_beta },
-    { 0xC29DBE, btlact_psi_shield_alpha },
-    { 0xC29DF4, redirect_btlact_psi_shield_alpha },
-    { 0xC29DFB, btlact_psi_shield_beta },
-    { 0xC29E31, redirect_btlact_psi_shield_beta },
-    { 0xC29E38, btlact_offense_up_alpha },
-    { 0xC29E7F, redirect_btlact_offense_up_alpha },
-    { 0xC29E86, btlact_defense_down_alpha },
-    { 0xC29EFF, redirect_btlact_defense_down_alpha },
-    { 0xC29F06, btlact_hypnosis_alpha },
-    { 0xC29F57, redirect_btlact_hypnosis_a_copy },
-    { 0xC29F5E, btlact_magnet_a },
-    { 0xC29FE1, btlact_magnet_o },
-    { 0xC29FFE, btlact_paralysis_alpha },
-    { 0xC2A04F, redirect_btlact_paralysis_alpha },
-    { 0xC2A056, btlact_brainshock_alpha },
-    { 0xC2A0A7, redirect_btlact_brainshock_a_copy },
-    { 0xC2A0AE, btlact_hp_recovery_1d4 },
-    { 0xC2A0BF, btlact_hp_recovery_50 },
-    { 0xC2A0CF, btlact_hp_recovery_200 },
-    { 0xC2A0DF, btlact_pp_recovery_20 },
-    { 0xC2A0EF, btlact_pp_recovery_80 },
-    { 0xC2A0FF, btlact_iq_up_1d4 },
-    { 0xC2A14B, btlact_guts_up_1d4 },
-    { 0xC2A193, btlact_speed_up_1d4 },
-    { 0xC2A1DB, btlact_vitality_up_1d4 },
-    { 0xC2A227, btlact_luck_up_1d4 },
-    { 0xC2A26F, btlact_hp_recovery_300 },
-    { 0xC2A27F, btlact_random_stat_up_1d4 },
-    { 0xC2A360, btlact_hp_recovery_10 },
-    { 0xC2A370, btlact_hp_recovery_100 },
-    { 0xC2A380, btlact_hp_recovery_10000 },
-    { 0xC2A39D, btlact_heal_poison },
-    { 0xC2A3D1, btlact_counter_psi },
-    { 0xC2A422, btlact_shield_killer },
-    { 0xC2A46B, (void(*)(void))btlact_hp_sucker },
-    { 0xC2A507, btlact_hungry_hp_sucker },
-    { 0xC2A50E, btlact_mummy_wrap },
-    { 0xC2A5D1, btlact_bottle_rocket },
-    { 0xC2A5DA, btlact_big_bottle_rocket },
-    { 0xC2A5E3, btlact_multi_bottle_rocket },
-    { 0xC2A5EC, btlact_handbag_strap },
-    { 0xC2A818, btlact_bomb },
-    { 0xC2A821, btlact_super_bomb },
-    { 0xC2A82A, btlact_solidify_2 },
-    { 0xC2A86B, btlact_yogurt_dispenser },
-    { 0xC2A89D, btlact_snake },
-    { 0xC2A902, btlact_inflict_solidification },
-    { 0xC2A953, btlact_inflict_poison },
-    { 0xC2A99C, btlact_bag_of_dragonite },
-    { 0xC2AA0C, btlact_insecticide_spray },
-    { 0xC2AA15, btlact_xterminator_spray },
-    { 0xC2AA6D, btlact_rust_promoter },
-    { 0xC2AA76, btlact_rust_promoter_dx },
-    { 0xC2AA7F, btlact_sudden_guts_pill },
-    { 0xC2AAC6, btlact_defense_spray },
-    { 0xC2AB0D, btlact_defense_shower },
-    { 0xC2AB71, (void(*)(void))btlact_teleport_box },
-    { 0xC2AC2A, btlact_pray_subtle },
-    { 0xC2AC3E, btlact_pray_warm },
-    { 0xC2AC51, btlact_pray_golden },
-    { 0xC2AC68, btlact_pray_mysterious },
-    { 0xC2AC7B, btlact_pray_rainbow },
-    { 0xC2AC99, btlact_pray_aroma },
-    { 0xC2ACDA, btlact_pray_rending_sound },
-    { 0xC2AD1B, btlact_pray },
-    { 0xC2B0A1, (void(*)(void))btlact_mirror },
-    { 0xC2B27D, btlact_eat_food },
-    { 0xC2C13C, btlact_sow_seeds },
-    { 0xC2C145, btlact_call_for_help },
-    { 0xC2C14E, (void(*)(void))btlact_rainbow_of_colours },
-    { 0xC2C1BD, btlact_fly_honey },
-    { 0xC2C4C0, btlact_pokey_speech },
-    { 0xC2C513, btlact_null12 },
-    { 0xC2C516, btlact_pokey_speech_2 },
-    { 0xC2C572, btlact_giygas_prayer_1 },
-    { 0xC2C5D1, btlact_giygas_prayer_2 },
-    { 0xC2C5FA, btlact_giygas_prayer_3 },
-    { 0xC2C623, btlact_giygas_prayer_4 },
-    { 0xC2C64C, btlact_giygas_prayer_5 },
-    { 0xC2C675, btlact_giygas_prayer_6 },
-    { 0xC2C69E, btlact_giygas_prayer_7 },
-    { 0xC2C6D0, btlact_giygas_prayer_8 },
-    { 0xC2C6F0, btlact_giygas_prayer_9 },
+    { 0xC29D7A, redirect_btlact_shield_alpha, NULL },
+    { 0xC29D81, btlact_shield_beta, btlact_shield_beta_step },
+    { 0xC29DB7, redirect_btlact_shield_beta, NULL },
+    { 0xC29DBE, btlact_psi_shield_alpha, btlact_psi_shield_alpha_step },
+    { 0xC29DF4, redirect_btlact_psi_shield_alpha, NULL },
+    { 0xC29DFB, btlact_psi_shield_beta, btlact_psi_shield_beta_step },
+    { 0xC29E31, redirect_btlact_psi_shield_beta, NULL },
+    { 0xC29E38, btlact_offense_up_alpha, NULL },
+    { 0xC29E7F, redirect_btlact_offense_up_alpha, NULL },
+    { 0xC29E86, btlact_defense_down_alpha, NULL },
+    { 0xC29EFF, redirect_btlact_defense_down_alpha, NULL },
+    { 0xC29F06, btlact_hypnosis_alpha, NULL },
+    { 0xC29F57, redirect_btlact_hypnosis_a_copy, NULL },
+    { 0xC29F5E, btlact_magnet_a, NULL },
+    { 0xC29FE1, btlact_magnet_o, NULL },
+    { 0xC29FFE, btlact_paralysis_alpha, NULL },
+    { 0xC2A04F, redirect_btlact_paralysis_alpha, NULL },
+    { 0xC2A056, btlact_brainshock_alpha, NULL },
+    { 0xC2A0A7, redirect_btlact_brainshock_a_copy, NULL },
+    { 0xC2A0AE, btlact_hp_recovery_1d4, btlact_hp_recovery_1d4_step },
+    { 0xC2A0BF, btlact_hp_recovery_50, btlact_hp_recovery_50_step },
+    { 0xC2A0CF, btlact_hp_recovery_200, btlact_hp_recovery_200_step },
+    { 0xC2A0DF, btlact_pp_recovery_20, btlact_pp_recovery_20_step },
+    { 0xC2A0EF, btlact_pp_recovery_80, btlact_pp_recovery_80_step },
+    { 0xC2A0FF, btlact_iq_up_1d4, NULL },
+    { 0xC2A14B, btlact_guts_up_1d4, NULL },
+    { 0xC2A193, btlact_speed_up_1d4, NULL },
+    { 0xC2A1DB, btlact_vitality_up_1d4, NULL },
+    { 0xC2A227, btlact_luck_up_1d4, NULL },
+    { 0xC2A26F, btlact_hp_recovery_300, btlact_hp_recovery_300_step },
+    { 0xC2A27F, btlact_random_stat_up_1d4, NULL },
+    { 0xC2A360, btlact_hp_recovery_10, btlact_hp_recovery_10_step },
+    { 0xC2A370, btlact_hp_recovery_100, btlact_hp_recovery_100_step },
+    { 0xC2A380, btlact_hp_recovery_10000, btlact_hp_recovery_10000_step },
+    { 0xC2A39D, btlact_heal_poison, NULL },
+    { 0xC2A3D1, btlact_counter_psi, NULL },
+    { 0xC2A422, btlact_shield_killer, NULL },
+    { 0xC2A46B, (void(*)(void))btlact_hp_sucker, NULL },
+    { 0xC2A507, btlact_hungry_hp_sucker, NULL },
+    { 0xC2A50E, btlact_mummy_wrap, NULL },
+    { 0xC2A5D1, btlact_bottle_rocket, NULL },
+    { 0xC2A5DA, btlact_big_bottle_rocket, NULL },
+    { 0xC2A5E3, btlact_multi_bottle_rocket, NULL },
+    { 0xC2A5EC, btlact_handbag_strap, NULL },
+    { 0xC2A818, btlact_bomb, NULL },
+    { 0xC2A821, btlact_super_bomb, NULL },
+    { 0xC2A82A, btlact_solidify_2, NULL },
+    { 0xC2A86B, btlact_yogurt_dispenser, NULL },
+    { 0xC2A89D, btlact_snake, NULL },
+    { 0xC2A902, btlact_inflict_solidification, NULL },
+    { 0xC2A953, btlact_inflict_poison, NULL },
+    { 0xC2A99C, btlact_bag_of_dragonite, NULL },
+    { 0xC2AA0C, btlact_insecticide_spray, NULL },
+    { 0xC2AA15, btlact_xterminator_spray, NULL },
+    { 0xC2AA6D, btlact_rust_promoter, NULL },
+    { 0xC2AA76, btlact_rust_promoter_dx, NULL },
+    { 0xC2AA7F, btlact_sudden_guts_pill, NULL },
+    { 0xC2AAC6, btlact_defense_spray, NULL },
+    { 0xC2AB0D, btlact_defense_shower, NULL },
+    { 0xC2AB71, (void(*)(void))btlact_teleport_box, NULL },
+    { 0xC2AC2A, btlact_pray_subtle, NULL },
+    { 0xC2AC3E, btlact_pray_warm, NULL },
+    { 0xC2AC51, btlact_pray_golden, NULL },
+    { 0xC2AC68, btlact_pray_mysterious, NULL },
+    { 0xC2AC7B, btlact_pray_rainbow, NULL },
+    { 0xC2AC99, btlact_pray_aroma, NULL },
+    { 0xC2ACDA, btlact_pray_rending_sound, NULL },
+    { 0xC2AD1B, btlact_pray, NULL },
+    { 0xC2B0A1, (void(*)(void))btlact_mirror, NULL },
+    { 0xC2B27D, btlact_eat_food, NULL },
+    { 0xC2C13C, btlact_sow_seeds, NULL },
+    { 0xC2C145, btlact_call_for_help, NULL },
+    { 0xC2C14E, (void(*)(void))btlact_rainbow_of_colours, NULL },
+    { 0xC2C1BD, btlact_fly_honey, NULL },
+    { 0xC2C4C0, btlact_pokey_speech, NULL },
+    { 0xC2C513, btlact_null12, NULL },
+    { 0xC2C516, btlact_pokey_speech_2, NULL },
+    { 0xC2C572, btlact_giygas_prayer_1, NULL },
+    { 0xC2C5D1, btlact_giygas_prayer_2, NULL },
+    { 0xC2C5FA, btlact_giygas_prayer_3, NULL },
+    { 0xC2C623, btlact_giygas_prayer_4, NULL },
+    { 0xC2C64C, btlact_giygas_prayer_5, NULL },
+    { 0xC2C675, btlact_giygas_prayer_6, NULL },
+    { 0xC2C69E, btlact_giygas_prayer_7, NULL },
+    { 0xC2C6D0, btlact_giygas_prayer_8, NULL },
+    { 0xC2C6F0, btlact_giygas_prayer_9, NULL },
 };
 
 #define BTLACT_DISPATCH_COUNT (sizeof(btlact_dispatch_table) / sizeof(btlact_dispatch_table[0]))
