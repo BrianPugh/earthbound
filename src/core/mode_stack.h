@@ -71,6 +71,7 @@ typedef enum {
     GAME_MODE_DETERMINE_TARGETING, /* battle-action targeting dispatch (determine_targetting) */
     GAME_MODE_LEVEL_UP,            /* inventory level-up sequence (gain_exp / level_up_char) */
     GAME_MODE_BATTLE_PSI_MENU,     /* in-battle PSI selection cascade (battle_psi_menu) */
+    GAME_MODE_BATTLE_MENU,         /* per-character battle command menu (battle_selection_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -417,10 +418,9 @@ typedef struct {
  *   ally  ONE  -> (multi-party) "Whom?" header + the char_select_prompt
  *                 mode-1 name window, STEP_PUSH SELECTION_MENU -> TGT_ALLY_RESULT
  *
- * Pushed by the PSI menu (PS_TARGET_RESULT) and the use-item driver
- * (UI_TARGET_RESULT); the still-blocking battle callers
- * (determine_battle_item_target, battle_psi.c) use the determine_targetting()
- * pump bridge.
+ * Pushed by the PSI menu (PS_TARGET_RESULT), the use-item driver
+ * (UI_TARGET_RESULT), the battle PSI menu (BP_TARGET_RESULT), and the battle
+ * command menu's Goods case (BM_ITEM_TGT_RESULT).
  *
  * Pops (targeting_mode << 8) | target_index (TARGETTED_* flags in the high
  * byte; 0xFF = auto/all target), or 0 if a targeting UI was cancelled. */
@@ -449,8 +449,7 @@ typedef struct {
  * resuming at BP_PP_RESUME), and targeting (DETERMINE_TARGETING push).
  *
  * On success fills the bt.battle_menu_* selection fields and pops 1; pops 0
- * on cancel. Pushed by GAME_MODE_BATTLE_MENU's PSI case; battle_psi_menu()
- * stays as a pump bridge until battle_selection_menu converts. */
+ * on cancel. Pushed by GAME_MODE_BATTLE_MENU's PSI case (BM_PSI_RESULT). */
 typedef enum {
     BP_OPEN = 0,        /* @OPEN_CATEGORY_WINDOW: (re)create + populate */
     BP_CATEGORY,        /* @CATEGORY_SELECTION: focus; push SELECTION_MENU */
@@ -471,6 +470,46 @@ typedef struct {
     uint16_t psi_selection;    /* selected ability id */
     uint16_t battle_action_id; /* selected ability's battle action */
 } BattlePsiMenuState;
+
+/* GAME_MODE_BATTLE_MENU phases. Port of battle_selection_menu()
+ * (asm/battle/menu_handler.asm): the per-character battle command menu —
+ * Bash/Shoot, Goods, Auto Fight, PSI/Spy, Defend, Run Away, Pray/Mirror.
+ * BM_ENTER runs the whole synchronous front half (attack palette, weapon-type
+ * classification, the auto-fight AI — which resolves and pops inline without
+ * ever yielding — and the manual menu construction). BM_MAIN is the
+ * @MENU_SELECTION_LOOP head (focus + print-once + SELECTION_MENU push);
+ * BM_MAIN_RESULT handles cancel/debug input and dispatches the chosen command.
+ * Target selection for Bash/Shoot/Spy/Mirror is a BATTLE_ENEMY_SELECT push
+ * (the select_battle_target_dispatch mode-0 path, via enemy_select_make_init);
+ * PSI pushes BATTLE_PSI_MENU; Goods folds the former battle_item_menu() +
+ * determine_battle_item_target() drivers into BM_ITEM/BM_ITEM_RESULT/
+ * BM_ITEM_TGT_RESULT (inventory SELECTION_MENU push, then a
+ * DETERMINE_TARGETING push for item types that target).
+ *
+ * Pops the selected battle action (stored in bt.battle_menu_*), 0 for
+ * cancel/"back", or 0xFFFF for the debug instant win. battle_selection_menu()
+ * (battle.c) is the pump bridge for the still-blocking battle_routine. */
+typedef enum {
+    BM_ENTER = 0,       /* weapon-type calc; auto-fight pops inline; build the menu */
+    BM_MAIN,            /* @MENU_SELECTION_LOOP: focus, print-once, push SELECTION_MENU */
+    BM_MAIN_RESULT,     /* cancel/debug handling, or dispatch the chosen command */
+    BM_TARGET_RESULT,   /* after the enemy select pops (Bash/Shoot/Spy/Mirror) */
+    BM_PSI_RESULT,      /* after BATTLE_PSI_MENU pops */
+    BM_ITEM,            /* Goods: build the inventory window; push SELECTION_MENU */
+    BM_ITEM_RESULT,     /* item chosen/cancelled; classify; push targeting if needed */
+    BM_ITEM_TGT_RESULT, /* after the item's DETERMINE_TARGETING pops */
+} BattleMenuPhase;
+
+typedef struct {
+    uint8_t  phase;           /* BattleMenuPhase */
+    uint8_t  menu_printed;    /* @LOCAL08: command items printed once */
+    uint8_t  window_index;    /* @LOCAL03: battle_window_sizes[] index */
+    uint8_t  weapon_type;     /* @LOCAL06: 0=bash, 1=shoot, 2=paralyzed/immobilized */
+    uint16_t char_id;         /* 1-based character whose turn it is (input) */
+    uint16_t num_selected;    /* characters already committed this round (input) */
+    uint16_t selected_action; /* @LOCAL05/@VIRTUAL02: the action being built */
+    uint16_t item_effect;     /* Goods: effect id carried across DETERMINE_TARGETING */
+} BattleMenuState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1432,6 +1471,7 @@ union ModeState {
     TargetingState        targeting;
     LevelUpState          level_up;
     BattlePsiMenuState    battle_psi_menu;
+    BattleMenuState       battle_menu;
     uint8_t               _raw[160];
 };
 
@@ -1643,8 +1683,8 @@ StepResult mode_step_teleport_menu(ModeState *st);
 
 /* GAME_MODE_DETERMINE_TARGETING step (defined in battle_targeting.c). Init
  * with ModeState.targeting (phase = TGT_ENTER, action_id, char_id); entered
- * via STEP_PUSH from the PSI/use-item steps or the determine_targetting()
- * pump bridge. Pops (targeting_mode << 8) | target_index, or 0 on cancel. */
+ * via STEP_PUSH from the PSI/use-item/battle-menu steps.
+ * Pops (targeting_mode << 8) | target_index, or 0 on cancel. */
 StepResult mode_step_determine_targeting(ModeState *st);
 
 /* GAME_MODE_LEVEL_UP step (defined in inventory.c, where the stat-growth and
@@ -1655,9 +1695,16 @@ StepResult mode_step_level_up(ModeState *st);
 /* GAME_MODE_BATTLE_PSI_MENU step (defined in battle_psi.c, where the PSI
  * table and list/cost callbacks live). Init with ModeState.battle_psi_menu
  * (phase = BP_OPEN, char_id); entered via STEP_PUSH from the battle command
- * menu or the battle_psi_menu() pump bridge. Pops 1 on success (selection
- * stored in bt.battle_menu_*), 0 on cancel. */
+ * menu's PSI case. Pops 1 on success (selection stored in bt.battle_menu_*),
+ * 0 on cancel. */
 StepResult mode_step_battle_psi_menu(ModeState *st);
+
+/* GAME_MODE_BATTLE_MENU step (defined in battle.c, where the battle menu
+ * window tables live). Init with ModeState.battle_menu (phase = BM_ENTER,
+ * char_id, num_selected); entered via the battle_selection_menu() pump bridge
+ * until battle_routine converts. Pops the selected battle action, 0 for
+ * cancel/"back", or 0xFFFF for the debug instant win. */
+StepResult mode_step_battle_menu(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

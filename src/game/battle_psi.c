@@ -497,8 +497,8 @@ void display_psi_description(uint16_t ability_id) {
  * Run-to-completion: GAME_MODE_BATTLE_PSI_MENU. The former goto machine's
  * labels map onto the BP_* phases (see BattlePsiMenuState, mode_stack.h);
  * the selection menus, the not-enough-PP text, and targeting are
- * STEP_PUSHed children. battle_psi_menu() below is the pump bridge for the
- * still-blocking battle_selection_menu caller.
+ * STEP_PUSHed children. Entered via STEP_PUSH from GAME_MODE_BATTLE_MENU's
+ * PSI case (BM_PSI_RESULT).
  */
 StepResult mode_step_battle_psi_menu(ModeState *ms) {
     BattlePsiMenuState *st = &ms->battle_psi_menu;
@@ -674,16 +674,6 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
         }
         }
     }
-}
-
-/* Pump bridge for the still-blocking battle_selection_menu caller.
- * Reads bt.battle_menu_user for the character ID.
- * Returns 0 if cancelled, nonzero on success. */
-uint16_t battle_psi_menu(void) {
-    ModeState init = {0};
-    init.battle_psi_menu.phase   = BP_OPEN;
-    init.battle_psi_menu.char_id = bt.battle_menu_user;
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE_PSI_MENU, &init);
 }
 
 

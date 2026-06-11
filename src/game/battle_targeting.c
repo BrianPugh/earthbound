@@ -27,10 +27,6 @@
 #include "core/mode_stack.h"
 #include "game_main.h"
 
-/* ITEM_USABLE_FLAGS table (from asm/data/item_usable_flags.asm)
- * Indexed by char_id - 1 (0=Ness, 1=Paula, 2=Jeff, 3=Poo) */
-static const uint8_t item_usable_flags[4] = { 0x01, 0x02, 0x04, 0x08 };
-
 /*
  * CHECK_BATTLE_ACTION_TARGETABLE (asm/battle/ui/check_battle_action_targetable.asm)
  *
@@ -421,9 +417,10 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
 }
 
 /* Build a GAME_MODE_BATTLE_ENEMY_SELECT init (select_battle_target's
- * prologue), shared by the blocking bridge and DETERMINE_TARGETING's push. */
-static void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
-                                   uint16_t action_param) {
+ * prologue), shared by the blocking bridge and the DETERMINE_TARGETING /
+ * BATTLE_MENU pushes (declared in battle_internal.h). */
+void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
+                            uint16_t action_param) {
     uint16_t current_row;
     /* Start on front row if it has battlers, otherwise back row */
     if (bt.num_battlers_in_front_row != 0)
@@ -743,104 +740,6 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
     }
     }
 }
-
-/*
- * DETERMINE_TARGETTING (asm/battle/determine_targetting.asm) — blocking
- * bridge over GAME_MODE_DETERMINE_TARGETING for the still-blocking battle
- * drivers (determine_battle_item_target, battle_psi.c); the converted
- * PSI/use-item steps STEP_PUSH the mode directly.
- *
- * action_id: index into battle_action_table.
- * char_id: 1-indexed character using the action.
- */
-uint16_t determine_targetting(uint16_t action_id, uint16_t char_id) {
-    ModeState init = {0};
-    init.targeting.phase     = TGT_ENTER;
-    init.targeting.action_id = action_id;
-    init.targeting.char_id   = char_id;
-    return (uint16_t)pump_mode(GAME_MODE_DETERMINE_TARGETING, &init);
-}
-
-
-/*
- * DETERMINE_BATTLE_ITEM_TARGET (asm/battle/ui/determine_battle_item_target.asm)
- *
- * Determines targeting for the selected battle item.
- * Reads char_id and item slot from battle_menu_selection,
- * looks up the item's type and effect, then calls determine_targetting().
- * Stores results (selected_action, targetting, selected_target) in
- * battle_menu_selection fields.
- *
- * Returns 0 if cancelled, nonzero on success.
- */
-uint16_t determine_battle_item_target(void) {
-    uint16_t result = 0xFF;  /* default: success */
-
-    uint8_t item_slot = bt.battle_menu_param1;
-    uint8_t user_id = bt.battle_menu_user;
-    uint16_t item_id = get_character_item(user_id, item_slot);
-
-    const ItemConfig *item_entry = get_item_entry(item_id);
-    if (!item_entry) return result;
-
-    /* Set defaults in battle_menu_selection:
-     * selected_action = 2 (placeholder), targetting = 1, selected_target = user */
-    bt.battle_menu_selected_action = 2;
-    bt.battle_menu_targetting = 1;
-    bt.battle_menu_selected_target = user_id;
-
-    /* Read item type byte (offset 25) */
-    uint8_t item_type = item_entry->type;
-    uint8_t type_category = item_type & 0x30;
-
-    if (type_category == 0x10 || type_category == 0x20) {
-        /* Offensive (0x10) or Support (0x20) item — has effect field */
-        uint16_t effect = item_entry->effect_id;
-
-        result = determine_targetting(effect, user_id);
-        if ((result & 0xFF) == 0) return 0;  /* cancelled */
-
-        /* Store effect as selected_action */
-        bt.battle_menu_selected_action = effect;
-        /* Unpack targeting: high byte = mode, low byte = target */
-        bt.battle_menu_targetting = (uint8_t)(result >> 8);
-        bt.battle_menu_selected_target = (uint8_t)(result & 0xFF);
-    } else if (type_category == 0x30) {
-        /* Equipment item — check if usable in battle */
-        uint8_t equip_subtype = item_type & 0x0C;
-        if (equip_subtype != 0 && equip_subtype != 4) {
-            /* Not a battle-usable equipment subtype — return with defaults.
-             * Assembly: jumps to SET_DEFAULT_ACTION without modifying selected_action. */
-            goto done;
-        }
-
-        /* Check if this character can use this equipment */
-        if (user_id >= 1 && user_id <= 4) {
-            uint8_t item_flags = item_entry->flags;
-            if (!(item_flags & item_usable_flags[user_id - 1])) {
-                /* Character can't use this item */
-                bt.battle_menu_selected_action = 3;
-                goto done;
-            }
-        }
-
-        /* Equipment is usable — determine targeting from its effect */
-        uint16_t effect = item_entry->effect_id;
-        result = determine_targetting(effect, user_id);
-        if ((result & 0xFF) == 0) return 0;  /* cancelled */
-
-        bt.battle_menu_selected_action = effect;
-        bt.battle_menu_targetting = (uint8_t)(result >> 8);
-        bt.battle_menu_selected_target = (uint8_t)(result & 0xFF);
-    } else {
-        /* Other item type — no targeting needed, use defaults */
-        /* selected_action stays as 2, returns 0xFF */
-    }
-
-done:
-    return result;
-}
-
 
 /*
  * FIND_TARGETTABLE_NPC (asm/battle/find_targettable_npc.asm)

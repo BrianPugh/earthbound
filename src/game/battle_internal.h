@@ -149,7 +149,6 @@ void char_select_overworld_finish(uint16_t window_id, bool had_on_change);
 /* ---- Functions defined in battle_targeting.c ---- */
 
 /* Target selection UI */
-uint16_t determine_targetting(uint16_t action_id, uint16_t char_id);
 void choose_target(uint16_t attacker_offset);
 void set_target_if_targeted(void);
 bool check_battle_target_type(uint16_t ally_effect, uint16_t enemy_effect);
@@ -158,6 +157,12 @@ uint16_t is_row_valid(void);
 
 uint16_t select_battle_target_dispatch(uint16_t mode, uint16_t allow_cancel,
                                               uint16_t action_param);
+
+/* Build a GAME_MODE_BATTLE_ENEMY_SELECT init (select_battle_target's
+ * prologue), for the DETERMINE_TARGETING / BATTLE_MENU pushes. */
+union ModeState;
+void enemy_select_make_init(union ModeState *init, uint16_t allow_cancel,
+                            uint16_t action_param);
 
 /* Mask-based targeting operations */
 void battle_target_battler(uint16_t battler_index);
@@ -175,8 +180,6 @@ void battle_target_allies(void);
 void battle_remove_npc_targeting(void);
 void battle_feeling_strange_retargeting(void);
 
-uint16_t determine_battle_item_target(void);
-
 /* ---- Functions defined in battle_psi.c ---- */
 
 bool ensure_battle_psi_table(void);
@@ -191,7 +194,6 @@ void display_psi_description(uint16_t ability_id);
 void show_psi_animation(uint16_t anim_id);
 void update_psi_animation(void);
 void apply_psi_battle_effect(uint16_t effect_id);
-uint16_t battle_psi_menu(void);
 
 /* ---- Functions defined in battle_ui.c ---- */
 

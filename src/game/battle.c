@@ -81,8 +81,6 @@ static uint16_t instant_win_sorted_defense[4];
 void display_text_with_prompt(const uint8_t *text, size_t size);
 void display_text_with_prompt_addr(uint32_t addr);
 
-static uint16_t battle_item_menu(void);
-
 /* Asset table references loaded from ROM (defined near battle_routine) */
 extern const uint8_t *btl_entry_ptr_table;
 extern const uint8_t *btl_entry_bg_table;
@@ -710,58 +708,6 @@ void inventory_get_item_name(uint16_t char_id, uint16_t window_type) {
      * then OPEN_WINDOW_AND_PRINT_MENU(columns=2, start_index=0). */
     window_tick_without_instant_printing();
     open_window_and_print_menu(2, 0);
-}
-
-/*
- * BATTLE_ITEM_MENU (asm/battle/ui/battle_item_menu.asm)
- *
- * Battle item (Goods) selection menu.
- * Shows the character's inventory, lets the player select an item,
- * then determines targeting for that item.
- *
- * Reads bt.battle_menu_user for the character ID.
- * On success, populates battle_menu_selection fields (param1, selected_action,
- * targetting, selected_target).
- *
- * Returns 0 if cancelled (no item selected), nonzero on success.
- */
-static uint16_t battle_item_menu(void) {
-    uint16_t result = 0;
-    uint8_t char_id = bt.battle_menu_user;
-    uint16_t char_idx = char_id - 1;
-
-    /* Check if character has any items */
-    if (party_characters[char_idx].items[0] == 0)
-        return 0;
-
-select_item:
-    /* Create inventory window and populate with items */
-    inventory_get_item_name(char_id, WINDOW_INVENTORY);
-
-    /* Run selection menu (allow cancel) */
-    uint16_t selection = selection_menu(1);
-    result = selection;
-
-    /* Close the inventory window */
-    close_window(WINDOW_INVENTORY);
-
-    if (selection == 0)
-        goto done;  /* cancelled */
-
-    /* Store selected item slot in bt.battle_menu_param1 */
-    bt.battle_menu_param1 = (uint8_t)selection;
-
-    /* Determine targeting for the selected item */
-    result = determine_battle_item_target();
-
-    /* Close WINDOW::BATTLE_ACTION_NAME (used by some targeting sub-windows) */
-    close_window(WINDOW_BATTLE_ACTION_NAME);
-
-    if (result == 0)
-        goto select_item;  /* targeting cancelled, go back to item selection */
-
-done:
-    return result;
 }
 
 /* ---- PSI ability table accessor (loaded from ROM binary asset) ---- */
@@ -2366,43 +2312,88 @@ sync_afflictions:
  *
  * Returns: selected battle action ID (BACT_*), or 0 for cancel, 0xFFFF for debug exit.
  */
-static uint16_t battle_selection_menu(uint16_t char_id, uint16_t num_selected) {
-    /* Window IDs from BATTLE_WINDOW_SIZES (asm/data/battle/battle_window_sizes.asm):
-     * [0] = WINDOW::BATTLE_MENU_JEFF = 0x12
-     * [1] = WINDOW::BATTLE_MENU      = 0x0F
-     * [2] = WINDOW::BATTLE_MENU_FULL  = 0x30  */
-    static const uint8_t battle_window_sizes[] = { 0x12, 0x0F, 0x30 };
+/* Window IDs from BATTLE_WINDOW_SIZES (asm/data/battle/battle_window_sizes.asm):
+ * [0] = WINDOW::BATTLE_MENU_JEFF = 0x12
+ * [1] = WINDOW::BATTLE_MENU      = 0x0F
+ * [2] = WINDOW::BATTLE_MENU_FULL  = 0x30  */
+static const uint8_t battle_window_sizes[] = { 0x12, 0x0F, 0x30 };
 
-    uint16_t selected_action = 0;        /* @LOCAL05 / @VIRTUAL02 */
+/* ITEM_USABLE_FLAGS table (from asm/data/item_usable_flags.asm)
+ * Indexed by char_id - 1 (0=Ness, 1=Paula, 2=Jeff, 3=Poo) */
+static const uint8_t item_usable_flags[4] = { 0x01, 0x02, 0x04, 0x08 };
 
-    load_attack_palette(0);
+/* The @CLOSE_MENU tail shared by every confirmed selection: refocus the
+ * battle menu window, clear the meter-speed flags (resume music), and pop
+ * the selected action. */
+static StepResult bm_close_menu(BattleMenuState *st) {
+    win.current_focus_window = battle_window_sizes[st->window_index];
+    bt.half_hppp_meter_speed = 0;
+    bt.disable_hppp_rolling = 0;
+    return STEP_RESULT_POP(st->selected_action);
+}
 
-    /* Compute pointer to this character's char_struct */
-    uint16_t char_row = char_id - 1;
-    CharStruct *ch = &party_characters[char_row];
+/* The Goods success tail (battle_item_menu's targeting-window close + the
+ * Goods case's writeback in the blocking original): record the used item and
+ * take the action the item classification chose. */
+static StepResult bm_item_done(BattleMenuState *st) {
+    close_window(WINDOW_BATTLE_ACTION_NAME);
+    bt.battle_item_used = get_character_item(st->char_id, bt.battle_menu_param1);
+    st->selected_action = bt.battle_menu_selected_action;
+    return bm_close_menu(st);
+}
 
-    /* Determine weapon type: 0=bash, 1=shoot (gun), 2=paralyzed/immobilized */
-    uint16_t weapon_type = 0;  /* @LOCAL06 */
-    if (ch->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_PARALYZED ||
-        ch->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED) {
-        weapon_type = 2;  /* Can only do nothing */
-    } else {
-        /* Check if character has an equipped weapon of gun type */
-        uint8_t weapon_slot = ch->equipment[EQUIP_WEAPON];
-        uint8_t item_id = 0;
-        if (weapon_slot != 0) {
-            item_id = ch->items[weapon_slot - 1];
-        }
-        if (item_id != 0) {
-            const ItemConfig *item_entry = get_item_entry(item_id);
-            if (item_entry && (item_entry->type & 0x03) == 1) {
-                weapon_type = 1;  /* Shoot */
+/*
+ * BATTLE_SELECTION_MENU (asm/battle/menu_handler.asm)
+ *
+ * The per-character battle command menu: Bash/Shoot (or Do Nothing), Goods,
+ * Auto Fight, PSI/Spy, Defend, Run Away, Pray/Mirror. Also runs the
+ * auto-fight AI, which picks an action without opening the menu.
+ *
+ * Run-to-completion: GAME_MODE_BATTLE_MENU. The former goto machine's labels
+ * map onto the BM_* phases (see BattleMenuState, mode_stack.h); the command/
+ * inventory selection menus, the enemy target picker (Bash/Shoot/Spy/Mirror),
+ * the PSI cascade, and item targeting are STEP_PUSHed children. The former
+ * battle_item_menu() (asm/battle/ui/battle_item_menu.asm) and
+ * determine_battle_item_target() (asm/battle/ui/determine_battle_item_target
+ * .asm) drivers are folded into the BM_ITEM* phases. battle_selection_menu()
+ * below is the pump bridge for the still-blocking battle_routine caller.
+ */
+StepResult mode_step_battle_menu(ModeState *ms) {
+    BattleMenuState *st = &ms->battle_menu;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch ((BattleMenuPhase)st->phase) {
+
+        case BM_ENTER: {
+            load_attack_palette(0);
+
+            /* Compute pointer to this character's char_struct */
+            CharStruct *ch = &party_characters[st->char_id - 1];
+
+            /* Determine weapon type: 0=bash, 1=shoot (gun), 2=paralyzed/immobilized */
+            st->weapon_type = 0;  /* @LOCAL06 */
+            if (ch->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_PARALYZED ||
+                ch->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED) {
+                st->weapon_type = 2;  /* Can only do nothing */
+            } else {
+                /* Check if character has an equipped weapon of gun type */
+                uint8_t weapon_slot = ch->equipment[EQUIP_WEAPON];
+                uint8_t item_id = 0;
+                if (weapon_slot != 0) {
+                    item_id = ch->items[weapon_slot - 1];
+                }
+                if (item_id != 0) {
+                    const ItemConfig *item_entry = get_item_entry(item_id);
+                    if (item_entry && (item_entry->type & 0x03) == 1) {
+                        st->weapon_type = 1;  /* Shoot */
+                    }
+                }
             }
-        }
-    }
 
-    /* ---- Auto-fight AI ---- */
-    if (game_state.auto_fight_enable & 0xFF) {
+            /* ---- Auto-fight AI (fully synchronous: resolves + pops inline) ---- */
+            if (game_state.auto_fight_enable & 0xFF) {
+                uint16_t char_id = st->char_id;
         /* Check for status conditions that prevent PSI decision-making:
          * afflictions[4] (concentration) nonzero, or
          * afflictions[3] == STRANGE, or
@@ -2544,317 +2535,436 @@ static uint16_t battle_selection_menu(uint16_t char_id, uint16_t num_selected) {
         }
 
     auto_fight_attack:
-        /* Fall through to basic attack */
-        if (weapon_type == 0) {
-            selected_action = BACT_BASH;
-        } else if (weapon_type == 1) {
-            selected_action = BACT_SHOOT;
-        } else {  /* weapon_type == 2: paralyzed/immobilized */
-            return BACT_USE_NO_EFFECT;
-        }
-        /* Select random enemy target */
-        bt.battle_menu_user = (uint8_t)char_id;
-        bt.battle_menu_param1 = 0;
-        bt.battle_menu_selected_action = selected_action;
-        bt.battle_menu_targetting = 17;
-        {
-            uint16_t total_enemies = bt.num_battlers_in_front_row + bt.num_battlers_in_back_row;
-            uint16_t target_idx = rand_limit(total_enemies);
-            bt.battle_menu_selected_target = (uint8_t)(target_idx + 1);
-        }
-        return selected_action;
+                /* Fall through to basic attack */
+                if (st->weapon_type == 0) {
+                    st->selected_action = BACT_BASH;
+                } else if (st->weapon_type == 1) {
+                    st->selected_action = BACT_SHOOT;
+                } else {  /* weapon_type == 2: paralyzed/immobilized */
+                    return STEP_RESULT_POP(BACT_USE_NO_EFFECT);
+                }
+                /* Select random enemy target */
+                bt.battle_menu_user = (uint8_t)char_id;
+                bt.battle_menu_param1 = 0;
+                bt.battle_menu_selected_action = st->selected_action;
+                bt.battle_menu_targetting = 17;
+                {
+                    uint16_t total_enemies = bt.num_battlers_in_front_row + bt.num_battlers_in_back_row;
+                    uint16_t target_idx = rand_limit(total_enemies);
+                    bt.battle_menu_selected_target = (uint8_t)(target_idx + 1);
+                }
+                return STEP_RESULT_POP(st->selected_action);
 
     auto_fight_return:
-        bt.battle_menu_user = (uint8_t)char_id;
-        return bt.battle_menu_selected_action;
-    }
-
-    /* ---- Manual menu setup ---- */
-    bt.half_hppp_meter_speed = 1;
-
-    /* Determine window type index:
-     * Paula/Poo have PSI → index starts at 1
-     * Jeff/Ness without PSI → index starts at 0
-     * If num_selected == 0 (first character), increment by 1 */
-    uint16_t window_index = 0;  /* @LOCAL03 */
-    if (char_id == PARTY_MEMBER_PAULA || char_id == PARTY_MEMBER_POO) {
-        window_index = 1;
-    }
-    if (num_selected == 0) {
-        window_index++;
-    }
-
-    /* Create the battle menu window */
-    uint8_t window_id = battle_window_sizes[window_index];
-    create_window(window_id);
-
-    /* Set window title to character name (assembly: SET_WINDOW_TITLE with X=5) */
-    {
-        CharStruct *ch = &party_characters[char_id - 1];
-        char name_buf[8];
-        int j;
-        for (j = 0; j < 5 && ch->name[j]; j++)
-            name_buf[j] = eb_char_to_ascii(ch->name[j]);
-        name_buf[j] = '\0';
-        set_window_title(window_id, name_buf, 5);
-    }
-
-    /* Add attack option (Bash/Shoot/Do Nothing) */
-    if (weapon_type == 0) {
-        add_menu_item("Bash", 1, 0, 0);
-    } else if (weapon_type == 1) {
-        add_menu_item("Shoot", 1, 0, 0);
-    } else {
-        add_menu_item("Do Nothing", 1, 0, 0);
-    }
-
-    /* Add Goods and Defend options (unless paralyzed/immobilized)
-     * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
-    if (weapon_type != 2) {
-        add_menu_item("Goods", 2, 6, 0);
-        add_menu_item("Defend", 5, 6, 1);
-    }
-
-    /* Add Defend and Run Away (only for first character selecting) */
-    if (num_selected == 0) {
-        uint16_t x_offset;
-        if (window_index == 2) {
-            x_offset = 16;
-        } else {
-            x_offset = 11;
-        }
-        if (char_id == PARTY_MEMBER_PAULA || char_id == PARTY_MEMBER_POO) {
-            x_offset += 2;
-        }
-        add_menu_item("Auto Fight", 3, x_offset, 0);
-        add_menu_item("Run Away", 6, x_offset, 1);
-    }
-
-    /* Add Jeff's Spy or PSI option */
-    if (char_id == PARTY_MEMBER_JEFF) {
-        add_menu_item("Spy", 4, 0, 1);
-    } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
-        /* Can use PSI (not concentration-blocked) */
-        add_menu_item("PSI", 4, 0, 1);
-    }
-
-    /* Add Paula's Pray */
-    if (char_id == PARTY_MEMBER_PAULA) {
-        add_menu_item("Pray", 7, 11, 0);
-    }
-
-    /* Add Poo's Mirror */
-    if (char_id == PARTY_MEMBER_POO) {
-        add_menu_item("Mirror", 7, 13, 0);
-    }
-
-    bool menu_printed = false;  /* @LOCAL08 — first-entry guard */
-
-menu_selection_loop:
-    /* Set focus to battle menu window */
-    win.current_focus_window = battle_window_sizes[window_index];
-
-    /* Print menu items on first entry only (assembly: menu_handler.asm:646-650) */
-    if (!menu_printed) {
-        print_menu_items();
-        menu_printed = true;
-    }
-
-    /* Run selection menu (allow cancel = 1) */
-    {
-        uint16_t result = selection_menu(1);
-        if (result != 0) {
-            goto process_selection;
-        }
-    }
-
-    /* Menu cancelled (B button) */
-
-    /* Debug controls (only when ow.debug_flag is set) */
-    if (ow.debug_flag) {
-        /* SELECT+START = instant win */
-        if ((core.pad1_held & (PAD_SELECT | PAD_START)) ==
-            (PAD_SELECT | PAD_START)) {
-            /* resume_music: clear meter speed flags */
-            bt.half_hppp_meter_speed = 0;
-            bt.disable_hppp_rolling = 0;
-            return 0xFFFF;
-        }
-        /* R button = cycle through battle targets (debug) */
-        if (core.pad1_held & PAD_R) {
-            /* cycle_battle_target — debug-only, skip for now */
-            goto menu_selection_loop;
-        }
-    }
-
-    /* Check if this is a "can't cancel" menu (ow.battle_mode != 0 means can go back) */
-    if (ow.battle_mode != 0) {
-        goto cancel_menu;
-    }
-
-    /* More debug controls */
-    if (ow.debug_flag) {
-        if (core.pad1_held & PAD_L) {
-            /* debug_set_char_level — re-init all battler stats */
-            for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                uint8_t member = game_state.party_members[i];
-                if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
-                battle_init_player_stats(member, &bt.battlers_table[i]);
-            }
-            goto menu_selection_loop;
-        }
-        if (core.pad1_held & PAD_SELECT) {
-            /* debug_y_button_goods — debug-only */
-            goto menu_selection_loop;
-        }
-    }
-
-cancel_menu:
-    /* Resume music: clear meter speed flags */
-    bt.half_hppp_meter_speed = 0;
-    bt.disable_hppp_rolling = 0;
-    return 0;
-
-process_selection:
-    bt.battle_item_used = 0;
-    {
-        /* Get the selected menu item's userdata */
-        WindowInfo *w = get_window(battle_window_sizes[window_index]);
-        if (!w || w->selected_option >= w->menu_count) goto close_menu;
-        uint16_t selection = w->menu_items[w->selected_option].userdata;
-
-        switch (selection) {
-        case 1:  /* Bash/Shoot/Do Nothing */
-            if (weapon_type == 0) {
-                selected_action = BACT_BASH;
-            } else if (weapon_type == 1) {
-                selected_action = BACT_SHOOT;
-            } else {
-                selected_action = BACT_USE_NO_EFFECT;
-            }
-            bt.battle_menu_selected_action = selected_action;
-            bt.battle_menu_targetting = 17;
-            if (weapon_type == 2) {
-                goto close_menu;  /* "Do Nothing" needs no target */
-            }
-            /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-             * A=0 (single target), X=1 (allow cancel), Y=selected_action */
-            {
-                uint16_t target = select_battle_target_dispatch(
-                    0, 1, selected_action);
-                if (target == 0)
-                    goto menu_selection_loop;  /* cancelled */
-                bt.battle_menu_selected_target = (uint8_t)target;
-            }
-            goto close_menu;
-
-        case 2:  /* Goods */
-            bt.battle_menu_user = (uint8_t)char_id;
-            {
-                /* Assembly: JSL BATTLE_ITEM_MENU_FAR with A=&battle_menu_selection */
-                uint16_t item_result = battle_item_menu();
-                if (item_result == 0)
-                    goto menu_selection_loop;  /* cancelled */
-                /* Assembly: GET_CHARACTER_ITEM(char_id, param1) → BATTLE_ITEM_USED */
-                bt.battle_item_used = get_character_item(char_id, bt.battle_menu_param1);
-            }
-            selected_action = bt.battle_menu_selected_action;
-            goto close_menu;
-
-        case 3:  /* Auto Fight (assembly: @ACTION_AUTO_FIGHT, menu_handler.asm:722) */
-            game_state.auto_fight_enable = 1;
-            render_hppp_window_header();
-            selected_action = BACT_NO_EFFECT;
-            goto close_menu;
-
-        case 4:  /* PSI or Spy */
-            if (char_id == PARTY_MEMBER_JEFF) {
-                /* Spy */
-                selected_action = BACT_SPY;
-                bt.battle_menu_selected_action = selected_action;
-                bt.battle_menu_targetting = 17;
-                /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-                 * A=0 (single target), X=1 (allow cancel), Y=BACT_SPY */
-                {
-                    uint16_t target = select_battle_target_dispatch(
-                        0, 1, selected_action);
-                    if (target == 0)
-                        goto menu_selection_loop;  /* cancelled */
-                    bt.battle_menu_selected_target = (uint8_t)target;
-                }
-                goto close_menu;
-            } else {
-                /* PSI menu */
                 bt.battle_menu_user = (uint8_t)char_id;
-                if (battle_psi_menu() == 0)
-                    goto menu_selection_loop;
-                selected_action = bt.battle_menu_selected_action;
-                goto close_menu;
+                return STEP_RESULT_POP(bt.battle_menu_selected_action);
             }
 
-        case 5:  /* Defend/Guard (assembly: @ACTION_GUARD, menu_handler.asm:726) */
-            selected_action = BACT_GUARD;
-            bt.battle_menu_selected_action = selected_action;
-            bt.battle_menu_targetting = 0;
-            goto close_menu;
+            /* ---- Manual menu setup ---- */
+            bt.half_hppp_meter_speed = 1;
 
-        case 6:  /* Run Away */
-            bt.battle_menu_targetting = 1;
-            bt.battle_menu_selected_target = (uint8_t)char_id;
-            selected_action = BACT_RUN_AWAY;
-            bt.battle_menu_selected_action = selected_action;
-            goto close_menu;
+            /* Determine window type index:
+             * Paula/Poo have PSI → index starts at 1
+             * Jeff/Ness without PSI → index starts at 0
+             * If num_selected == 0 (first character), increment by 1 */
+            st->window_index = 0;  /* @LOCAL03 */
+            if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
+                st->window_index = 1;
+            }
+            if (st->num_selected == 0) {
+                st->window_index++;
+            }
 
-        case 7:  /* Pray or Mirror */
-            bt.battle_menu_targetting = 1;
-            bt.battle_menu_selected_target = (uint8_t)char_id;
+            /* Create the battle menu window */
+            uint8_t window_id = battle_window_sizes[st->window_index];
+            create_window(window_id);
 
-            if (char_id == PARTY_MEMBER_PAULA) {
-                /* Pray — check Giygas phase for final prayers */
-                switch (bt.giygas_phase) {
-                case GIYGAS_START_PRAYING:   selected_action = BACT_FINAL_PRAYER_1; break;
-                case GIYGAS_PRAYER_1_USED:   selected_action = BACT_FINAL_PRAYER_2; break;
-                case GIYGAS_PRAYER_2_USED:   selected_action = BACT_FINAL_PRAYER_3; break;
-                case GIYGAS_PRAYER_3_USED:   selected_action = BACT_FINAL_PRAYER_4; break;
-                case GIYGAS_PRAYER_4_USED:   selected_action = BACT_FINAL_PRAYER_5; break;
-                case GIYGAS_PRAYER_5_USED:   selected_action = BACT_FINAL_PRAYER_6; break;
-                case GIYGAS_PRAYER_6_USED:   selected_action = BACT_FINAL_PRAYER_7; break;
-                case GIYGAS_PRAYER_7_USED:   selected_action = BACT_FINAL_PRAYER_8; break;
-                case GIYGAS_PRAYER_8_USED:   selected_action = BACT_FINAL_PRAYER_9; break;
-                default:                     selected_action = BACT_PRAY;            break;
+            /* Set window title to character name (assembly: SET_WINDOW_TITLE with X=5) */
+            {
+                char name_buf[8];
+                int j;
+                for (j = 0; j < 5 && ch->name[j]; j++)
+                    name_buf[j] = eb_char_to_ascii(ch->name[j]);
+                name_buf[j] = '\0';
+                set_window_title(window_id, name_buf, 5);
+            }
+
+            /* Add attack option (Bash/Shoot/Do Nothing) */
+            if (st->weapon_type == 0) {
+                add_menu_item("Bash", 1, 0, 0);
+            } else if (st->weapon_type == 1) {
+                add_menu_item("Shoot", 1, 0, 0);
+            } else {
+                add_menu_item("Do Nothing", 1, 0, 0);
+            }
+
+            /* Add Goods and Defend options (unless paralyzed/immobilized)
+             * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
+            if (st->weapon_type != 2) {
+                add_menu_item("Goods", 2, 6, 0);
+                add_menu_item("Defend", 5, 6, 1);
+            }
+
+            /* Add Defend and Run Away (only for first character selecting) */
+            if (st->num_selected == 0) {
+                uint16_t x_offset;
+                if (st->window_index == 2) {
+                    x_offset = 16;
+                } else {
+                    x_offset = 11;
                 }
-                bt.battle_menu_selected_action = selected_action;
-                goto close_menu;
-            } else if (char_id == PARTY_MEMBER_POO) {
-                /* Mirror — needs target selection */
-                selected_action = BACT_MIRROR;
-                bt.battle_menu_selected_action = selected_action;
+                if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
+                    x_offset += 2;
+                }
+                add_menu_item("Auto Fight", 3, x_offset, 0);
+                add_menu_item("Run Away", 6, x_offset, 1);
+            }
+
+            /* Add Jeff's Spy or PSI option */
+            if (st->char_id == PARTY_MEMBER_JEFF) {
+                add_menu_item("Spy", 4, 0, 1);
+            } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
+                /* Can use PSI (not concentration-blocked) */
+                add_menu_item("PSI", 4, 0, 1);
+            }
+
+            /* Add Paula's Pray */
+            if (st->char_id == PARTY_MEMBER_PAULA) {
+                add_menu_item("Pray", 7, 11, 0);
+            }
+
+            /* Add Poo's Mirror */
+            if (st->char_id == PARTY_MEMBER_POO) {
+                add_menu_item("Mirror", 7, 13, 0);
+            }
+
+            st->phase = BM_MAIN;
+            break;
+        }
+
+        case BM_MAIN:
+            /* @MENU_SELECTION_LOOP: set focus to the battle menu window */
+            win.current_focus_window = battle_window_sizes[st->window_index];
+
+            /* Print menu items on first entry only (assembly: menu_handler.asm:646-650) */
+            if (!st->menu_printed) {
+                print_menu_items();
+                st->menu_printed = 1;
+            }
+
+            /* Run selection menu (allow cancel = 1) */
+            child_init = (ModeState){0};
+            child_init.selection_menu.phase        = SM_SETUP;
+            child_init.selection_menu.allow_cancel = 1;
+            st->phase = BM_MAIN_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
+
+        case BM_MAIN_RESULT: {
+            uint16_t result = (uint16_t)mode_child_result();
+
+            if (result == 0) {
+                /* Menu cancelled (B button) */
+
+                /* Debug controls (only when ow.debug_flag is set) */
+                if (ow.debug_flag) {
+                    /* SELECT+START = instant win */
+                    if ((core.pad1_held & (PAD_SELECT | PAD_START)) ==
+                        (PAD_SELECT | PAD_START)) {
+                        /* resume_music: clear meter speed flags */
+                        bt.half_hppp_meter_speed = 0;
+                        bt.disable_hppp_rolling = 0;
+                        return STEP_RESULT_POP(0xFFFF);
+                    }
+                    /* R button = cycle through battle targets (debug) */
+                    if (core.pad1_held & PAD_R) {
+                        /* cycle_battle_target — debug-only, skip for now */
+                        st->phase = BM_MAIN;
+                        break;
+                    }
+                }
+
+                /* "Can't cancel" menus (ow.battle_mode != 0 means can go back)
+                 * skip the second debug block and return 0 directly. */
+                if (ow.battle_mode == 0 && ow.debug_flag) {
+                    if (core.pad1_held & PAD_L) {
+                        /* debug_set_char_level — re-init all battler stats */
+                        for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                            uint8_t member = game_state.party_members[i];
+                            if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
+                            battle_init_player_stats(member, &bt.battlers_table[i]);
+                        }
+                        st->phase = BM_MAIN;
+                        break;
+                    }
+                    if (core.pad1_held & PAD_SELECT) {
+                        /* debug_y_button_goods — debug-only */
+                        st->phase = BM_MAIN;
+                        break;
+                    }
+                }
+
+                /* @CANCEL_MENU: resume music (clear meter speed flags) */
+                bt.half_hppp_meter_speed = 0;
+                bt.disable_hppp_rolling = 0;
+                return STEP_RESULT_POP(0);
+            }
+
+            /* @PROCESS_SELECTION */
+            bt.battle_item_used = 0;
+
+            /* Get the selected menu item's userdata */
+            WindowInfo *w = get_window(battle_window_sizes[st->window_index]);
+            if (!w || w->selected_option >= w->menu_count)
+                return bm_close_menu(st);
+            uint16_t selection = w->menu_items[w->selected_option].userdata;
+
+            switch (selection) {
+            case 1:  /* Bash/Shoot/Do Nothing */
+                if (st->weapon_type == 0) {
+                    st->selected_action = BACT_BASH;
+                } else if (st->weapon_type == 1) {
+                    st->selected_action = BACT_SHOOT;
+                } else {
+                    st->selected_action = BACT_USE_NO_EFFECT;
+                }
+                bt.battle_menu_selected_action = st->selected_action;
                 bt.battle_menu_targetting = 17;
-                /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-                 * A=0 (single target), X=1 (allow cancel), Y=BACT_MIRROR */
-                {
-                    uint16_t target = select_battle_target_dispatch(
-                        0, 1, selected_action);
-                    if (target == 0)
-                        goto menu_selection_loop;  /* cancelled */
-                    bt.battle_menu_selected_target = (uint8_t)target;
+                if (st->weapon_type == 2) {
+                    return bm_close_menu(st);  /* "Do Nothing" needs no target */
                 }
-                goto close_menu;
-            }
-            goto close_menu;
+                /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
+                 * A=0 (single target), X=1 (allow cancel), Y=selected_action */
+                enemy_select_make_init(&child_init, 1, st->selected_action);
+                st->phase = BM_TARGET_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
 
-        default:
-            goto close_menu;
+            case 2:  /* Goods (assembly: JSL BATTLE_ITEM_MENU_FAR) */
+                bt.battle_menu_user = (uint8_t)st->char_id;
+                st->phase = BM_ITEM;
+                break;
+
+            case 3:  /* Auto Fight (assembly: @ACTION_AUTO_FIGHT, menu_handler.asm:722) */
+                game_state.auto_fight_enable = 1;
+                render_hppp_window_header();
+                st->selected_action = BACT_NO_EFFECT;
+                return bm_close_menu(st);
+
+            case 4:  /* PSI or Spy */
+                if (st->char_id == PARTY_MEMBER_JEFF) {
+                    /* Spy */
+                    st->selected_action = BACT_SPY;
+                    bt.battle_menu_selected_action = st->selected_action;
+                    bt.battle_menu_targetting = 17;
+                    /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
+                     * A=0 (single target), X=1 (allow cancel), Y=BACT_SPY */
+                    enemy_select_make_init(&child_init, 1, st->selected_action);
+                    st->phase = BM_TARGET_RESULT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
+                } else {
+                    /* PSI menu */
+                    bt.battle_menu_user = (uint8_t)st->char_id;
+                    child_init = (ModeState){0};
+                    child_init.battle_psi_menu.phase   = BP_OPEN;
+                    child_init.battle_psi_menu.char_id = bt.battle_menu_user;
+                    st->phase = BM_PSI_RESULT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_PSI_MENU, &child_init);
+                }
+
+            case 5:  /* Defend/Guard (assembly: @ACTION_GUARD, menu_handler.asm:726) */
+                st->selected_action = BACT_GUARD;
+                bt.battle_menu_selected_action = st->selected_action;
+                bt.battle_menu_targetting = 0;
+                return bm_close_menu(st);
+
+            case 6:  /* Run Away */
+                bt.battle_menu_targetting = 1;
+                bt.battle_menu_selected_target = (uint8_t)st->char_id;
+                st->selected_action = BACT_RUN_AWAY;
+                bt.battle_menu_selected_action = st->selected_action;
+                return bm_close_menu(st);
+
+            case 7:  /* Pray or Mirror */
+                bt.battle_menu_targetting = 1;
+                bt.battle_menu_selected_target = (uint8_t)st->char_id;
+
+                if (st->char_id == PARTY_MEMBER_PAULA) {
+                    /* Pray — check Giygas phase for final prayers */
+                    switch (bt.giygas_phase) {
+                    case GIYGAS_START_PRAYING:   st->selected_action = BACT_FINAL_PRAYER_1; break;
+                    case GIYGAS_PRAYER_1_USED:   st->selected_action = BACT_FINAL_PRAYER_2; break;
+                    case GIYGAS_PRAYER_2_USED:   st->selected_action = BACT_FINAL_PRAYER_3; break;
+                    case GIYGAS_PRAYER_3_USED:   st->selected_action = BACT_FINAL_PRAYER_4; break;
+                    case GIYGAS_PRAYER_4_USED:   st->selected_action = BACT_FINAL_PRAYER_5; break;
+                    case GIYGAS_PRAYER_5_USED:   st->selected_action = BACT_FINAL_PRAYER_6; break;
+                    case GIYGAS_PRAYER_6_USED:   st->selected_action = BACT_FINAL_PRAYER_7; break;
+                    case GIYGAS_PRAYER_7_USED:   st->selected_action = BACT_FINAL_PRAYER_8; break;
+                    case GIYGAS_PRAYER_8_USED:   st->selected_action = BACT_FINAL_PRAYER_9; break;
+                    default:                     st->selected_action = BACT_PRAY;            break;
+                    }
+                    bt.battle_menu_selected_action = st->selected_action;
+                    return bm_close_menu(st);
+                } else if (st->char_id == PARTY_MEMBER_POO) {
+                    /* Mirror — needs target selection */
+                    st->selected_action = BACT_MIRROR;
+                    bt.battle_menu_selected_action = st->selected_action;
+                    bt.battle_menu_targetting = 17;
+                    /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
+                     * A=0 (single target), X=1 (allow cancel), Y=BACT_MIRROR */
+                    enemy_select_make_init(&child_init, 1, st->selected_action);
+                    st->phase = BM_TARGET_RESULT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
+                }
+                return bm_close_menu(st);
+
+            default:
+                return bm_close_menu(st);
+            }
+            break;
+        }
+
+        case BM_TARGET_RESULT: {
+            /* The enemy target picker popped (Bash/Shoot/Spy/Mirror). */
+            uint16_t target = (uint16_t)mode_child_result();
+            if (target == 0) {
+                /* Cancelled: back to the command menu */
+                st->phase = BM_MAIN;
+                break;
+            }
+            bt.battle_menu_selected_target = (uint8_t)target;
+            return bm_close_menu(st);
+        }
+
+        case BM_PSI_RESULT:
+            /* The BATTLE_PSI_MENU cascade popped: 0 = cancelled. */
+            if ((uint16_t)mode_child_result() == 0) {
+                st->phase = BM_MAIN;
+                break;
+            }
+            st->selected_action = bt.battle_menu_selected_action;
+            return bm_close_menu(st);
+
+        case BM_ITEM:
+            /* battle_item_menu entry: no items → back to the command menu */
+            if (party_characters[st->char_id - 1].items[0] == 0) {
+                st->phase = BM_MAIN;
+                break;
+            }
+            /* @SELECT_ITEM: create the inventory window and populate it.
+             * inventory_get_item_name's embedded window_tick yield is the
+             * accepted precedent (the pause menu's Goods path calls it the
+             * same way from a step). */
+            inventory_get_item_name(st->char_id, WINDOW_INVENTORY);
+            child_init = (ModeState){0};
+            child_init.selection_menu.phase        = SM_SETUP;
+            child_init.selection_menu.allow_cancel = 1;
+            st->phase = BM_ITEM_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
+
+        case BM_ITEM_RESULT: {
+            uint16_t selection = (uint16_t)mode_child_result();
+
+            /* Close the inventory window */
+            close_window(WINDOW_INVENTORY);
+
+            if (selection == 0) {
+                /* Cancelled: back to the command menu */
+                st->phase = BM_MAIN;
+                break;
+            }
+
+            /* Store selected item slot in bt.battle_menu_param1 */
+            bt.battle_menu_param1 = (uint8_t)selection;
+
+            /* DETERMINE_BATTLE_ITEM_TARGET, folded inline: the defaults and
+             * the item classification are synchronous; only the targeting UI
+             * is a child push. */
+            uint8_t user_id = bt.battle_menu_user;
+            uint16_t item_id = get_character_item(user_id, bt.battle_menu_param1);
+
+            const ItemConfig *item_entry = get_item_entry(item_id);
+            if (!item_entry) {
+                /* Assembly: returns success with the defaults untouched. */
+                return bm_item_done(st);
+            }
+
+            /* Set defaults in battle_menu_selection:
+             * selected_action = 2 (placeholder), targetting = 1, selected_target = user */
+            bt.battle_menu_selected_action = 2;
+            bt.battle_menu_targetting = 1;
+            bt.battle_menu_selected_target = user_id;
+
+            /* Read item type byte (offset 25) */
+            uint8_t item_type = item_entry->type;
+            uint8_t type_category = item_type & 0x30;
+
+            if (type_category == 0x10 || type_category == 0x20) {
+                /* Offensive (0x10) or Support (0x20) item — has effect field */
+                st->item_effect = item_entry->effect_id;
+            } else if (type_category == 0x30) {
+                /* Equipment item — check if usable in battle */
+                uint8_t equip_subtype = item_type & 0x0C;
+                if (equip_subtype != 0 && equip_subtype != 4) {
+                    /* Not a battle-usable equipment subtype — finish with the
+                     * defaults. Assembly: jumps to SET_DEFAULT_ACTION without
+                     * modifying selected_action. */
+                    return bm_item_done(st);
+                }
+
+                /* Check if this character can use this equipment */
+                if (user_id >= 1 && user_id <= 4 &&
+                    !(item_entry->flags & item_usable_flags[user_id - 1])) {
+                    /* Character can't use this item */
+                    bt.battle_menu_selected_action = 3;
+                    return bm_item_done(st);
+                }
+
+                /* Equipment is usable — determine targeting from its effect */
+                st->item_effect = item_entry->effect_id;
+            } else {
+                /* Other item type — no targeting needed, use the defaults */
+                return bm_item_done(st);
+            }
+
+            child_init = (ModeState){0};
+            child_init.targeting.phase     = TGT_ENTER;
+            child_init.targeting.action_id = st->item_effect;
+            child_init.targeting.char_id   = user_id;
+            st->phase = BM_ITEM_TGT_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &child_init);
+        }
+
+        case BM_ITEM_TGT_RESULT:
+        default: {
+            uint16_t result = (uint16_t)mode_child_result();
+
+            if ((result & 0xFF) == 0) {
+                /* Targeting cancelled: close the targeting sub-window and go
+                 * back to item selection (battle_item_menu's select_item). */
+                close_window(WINDOW_BATTLE_ACTION_NAME);
+                st->phase = BM_ITEM;
+                break;
+            }
+
+            /* Store effect as selected_action; unpack targeting:
+             * high byte = mode, low byte = target */
+            bt.battle_menu_selected_action = st->item_effect;
+            bt.battle_menu_targetting = (uint8_t)(result >> 8);
+            bt.battle_menu_selected_target = (uint8_t)(result & 0xFF);
+            return bm_item_done(st);
+        }
         }
     }
+}
 
-close_menu:
-    /* Set focus back to battle menu window and close it */
-    win.current_focus_window = battle_window_sizes[window_index];
-    /* Resume music: clear meter speed flags */
-    bt.half_hppp_meter_speed = 0;
-    bt.disable_hppp_rolling = 0;
-    return selected_action;
+/* Pump bridge for the still-blocking battle_routine caller. Returns the
+ * selected battle action, 0 for cancel/"back", or 0xFFFF for the debug
+ * instant win. */
+static uint16_t battle_selection_menu(uint16_t char_id, uint16_t num_selected) {
+    ModeState init = {0};
+    init.battle_menu.phase        = BM_ENTER;
+    init.battle_menu.char_id      = char_id;
+    init.battle_menu.num_selected = num_selected;
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE_MENU, &init);
 }
 
 /*

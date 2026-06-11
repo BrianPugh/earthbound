@@ -1339,11 +1339,6 @@ void display_psi_description(uint16_t ability_id);
 
 /* ---- Targeting ---- */
 
-/* DETERMINE_TARGETTING (asm/battle/determine_targetting.asm).
- * Core targeting logic for battle actions (items, PSI, etc.).
- * Returns packed (targeting_mode << 8) | target_index, or 0 if cancelled. */
-uint16_t determine_targetting(uint16_t action_id, uint16_t char_id);
-
 /* JUMP_TEMP_FUNCTION_POINTER (asm/overworld/jump_temp_function_pointer.asm).
  * Dispatches the battle action at the ROM address stored in
  * temp_function_pointer.  Looks up the address in the btlact_dispatch_table
