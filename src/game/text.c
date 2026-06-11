@@ -1799,9 +1799,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
 /* GAME_MODE_PSI_MENU step — run-to-completion port of overworld_psi_menu()
  * (asm/text/menu/overworld_psi_menu.asm, 571 lines). See PsiMenuState in
  * mode_stack.h. The teleport destination menu and targeting are
- * GAME_MODE_TELEPORT_MENU / GAME_MODE_DETERMINE_TARGETING STEP_PUSHes; only
- * the battle-action execution stays blocking, called inline from the step
- * (action functions can display text — a later conversion). */
+ * GAME_MODE_TELEPORT_MENU / GAME_MODE_DETERMINE_TARGETING STEP_PUSHes; the
+ * battle-action execution dispatches via battle_action_dispatch() in the
+ * PS_EXEC_* phases (converted actions are GAME_MODE_BATTLE_ACTION pushes,
+ * unconverted ones run inline-blocking). */
 StepResult mode_step_psi_menu(ModeState *ms) {
     PsiMenuState *st = &ms->psi_menu;
 
@@ -2051,67 +2052,99 @@ StepResult mode_step_psi_menu(ModeState *ms) {
         case PS_EXECUTE: {
             /* Execute the battle action function (assembly lines 355-560).
              * NULL pointer → @AFTER_CHAR_SELECT5 (result=1, no execution);
-             * target 0xFF = all-party loop, else single target. The action
-             * functions can display text — blocking inline. */
+             * target 0xFF = all-party loop (PS_EXEC_STEP), else single
+             * target. Converted actions are GAME_MODE_BATTLE_ACTION
+             * STEP_PUSHes via battle_action_dispatch(); unconverted ones run
+             * inline-blocking. */
             uint32_t func_addr = 0;
             if (battle_action_table)
                 func_addr = battle_action_table[st->battle_action_id].battle_function_pointer;
 
-            if (func_addr != 0) {
-                uint8_t target_id = st->action_result & 0xFF;
-
-                /* Set up target battler (assembly lines 394-395) */
-                bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
-
-                if (target_id == 0xFF) {
-                    /* All-party target (@MULTI_CHARACTER, lines 400-503) */
-                    for (uint16_t i = 0;
-                         i < (game_state.player_controlled_party_count & 0xFF);
-                         i++) {
-                        uint8_t member_id = game_state.party_members[i];
-
-                        /* Set target name (assembly lines 404-421) */
-                        set_battle_target_name(
-                            (const char *)party_characters[member_id - 1].name,
-                            sizeof(party_characters[0].name));
-
-                        /* Init target battler (assembly lines 422-428) */
-                        battle_init_player_stats(member_id, &bt.battlers_table[1]);
-
-                        /* Call the action function (assembly lines 429-459) */
-                        bt.temp_function_pointer = func_addr;
-                        jump_temp_function_pointer();
-
-                        /* Copy afflictions back (assembly lines 463-492).
-                         * Note: assembly uses the loop counter for the
-                         * party_characters index, matching this use of i. */
-                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                            party_characters[i].afflictions[g] =
-                                bt.battlers_table[1].afflictions[g];
-                        }
-                    }
-                } else {
-                    /* Single target (@AFTER_CHAR_SELECT0, lines 504-559) */
-                    if (target_id > 0)
-                        battle_init_player_stats(target_id, &bt.battlers_table[1]);
-
-                    bt.temp_function_pointer = func_addr;
-                    jump_temp_function_pointer();
-
-                    /* Copy afflictions back (assembly lines 529-559) */
-                    if (target_id > 0) {
-                        for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                            party_characters[target_id - 1].afflictions[g] =
-                                bt.battlers_table[1].afflictions[g];
-                        }
-                    }
-                }
-
-                /* @AFTER_CHAR_SELECT4 (assembly line 561) */
-                render_and_disable_entities();
+            if (func_addr == 0) {
+                /* @AFTER_CHAR_SELECT5 (assembly lines 563-564) */
+                st->action_result = 1;
+                st->phase = PS_EXIT;
+                continue;
             }
 
-            /* @AFTER_CHAR_SELECT5 (assembly lines 563-564) */
+            /* Set up target battler (assembly lines 394-395) */
+            bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
+
+            if ((st->action_result & 0xFF) == 0xFF) {
+                /* All-party target (@MULTI_CHARACTER, lines 400-503) */
+                st->exec_i = 0;
+                st->phase = PS_EXEC_STEP;
+                continue;
+            }
+
+            /* Single target (@AFTER_CHAR_SELECT0, lines 504-559) */
+            uint8_t target_id = st->action_result & 0xFF;
+            if (target_id > 0)
+                battle_init_player_stats(target_id, &bt.battlers_table[1]);
+
+            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
+            st->phase = PS_EXEC_DONE;
+            if (battle_action_dispatch(func_addr, &ba_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            continue;  /* ran inline */
+        }
+
+        case PS_EXEC_STEP: {
+            /* All-party loop head: one member per entry (assembly lines
+             * 400-459). */
+            if (st->exec_i >= (game_state.player_controlled_party_count & 0xFF)) {
+                /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564) */
+                render_and_disable_entities();
+                st->action_result = 1;
+                st->phase = PS_EXIT;
+                continue;
+            }
+
+            uint8_t member_id = game_state.party_members[st->exec_i];
+
+            /* Set target name (assembly lines 404-421) */
+            set_battle_target_name(
+                (const char *)party_characters[member_id - 1].name,
+                sizeof(party_characters[0].name));
+
+            /* Init target battler (assembly lines 422-428) */
+            battle_init_player_stats(member_id, &bt.battlers_table[1]);
+
+            /* Call the action function (assembly lines 429-459) */
+            uint32_t func_addr =
+                battle_action_table[st->battle_action_id].battle_function_pointer;
+            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
+            st->phase = PS_EXEC_STEP_DONE;
+            if (battle_action_dispatch(func_addr, &ba_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            continue;  /* ran inline */
+        }
+
+        case PS_EXEC_STEP_DONE: {
+            /* Copy afflictions back (assembly lines 463-492).
+             * Note: assembly uses the loop counter for the party_characters
+             * index, matching this use of exec_i. */
+            for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                party_characters[st->exec_i].afflictions[g] =
+                    bt.battlers_table[1].afflictions[g];
+            }
+            st->exec_i++;
+            st->phase = PS_EXEC_STEP;
+            continue;
+        }
+
+        case PS_EXEC_DONE: {
+            /* Copy afflictions back (assembly lines 529-559) */
+            uint8_t target_id = st->action_result & 0xFF;
+            if (target_id > 0) {
+                for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                    party_characters[target_id - 1].afflictions[g] =
+                        bt.battlers_table[1].afflictions[g];
+                }
+            }
+
+            /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564) */
+            render_and_disable_entities();
             st->action_result = 1;
             st->phase = PS_EXIT;
             continue;
@@ -2134,9 +2167,9 @@ StepResult mode_step_psi_menu(ModeState *ms) {
  * writeback. See UseItemState in mode_stack.h.
  *
  * Targeting is a GAME_MODE_DETERMINE_TARGETING STEP_PUSH (cancel/consume in
- * UI_TARGET_RESULT); only the battle-action execution via
- * jump_temp_function_pointer() stays blocking, called inline from the step
- * (action functions can display text — a later conversion).
+ * UI_TARGET_RESULT); the battle-action execution dispatches via
+ * battle_action_dispatch() in the UI_EXEC_* phases (converted actions are
+ * GAME_MODE_BATTLE_ACTION pushes, unconverted ones run inline-blocking).
  *
  * Pops 0 if targeting was cancelled, 1 otherwise (item used or message
  * shown); the pause-menu parent branches in PM_USE_RESUME. */
@@ -2373,48 +2406,76 @@ StepResult mode_step_use_item(ModeState *ms) {
             bt.current_target = sizeof(Battler);  /* BATTLERS_TABLE[1] */
 
             if (st->target_id == 0xFF) {
-                /* All-party target (assembly @ALL_TARGETS_LOOP, lines 388-479).
-                 * Execute action on each party member. */
-                uint16_t party_count = game_state.player_controlled_party_count & 0xFF;
-                for (uint16_t i = 0; i < party_count; i++) {
-                    uint8_t member_id = game_state.party_members[i];
+                /* All-party target (assembly @ALL_TARGETS_LOOP, lines
+                 * 388-479): one member per UI_EXEC_STEP entry. */
+                st->exec_i = 0;
+                st->phase = UI_EXEC_STEP;
+                continue;
+            }
 
-                    /* Set target name (assembly lines 392-414) */
-                    set_battle_target_name(
-                        (const char *)party_characters[member_id - 1].name,
-                        sizeof(party_characters[0].name));
+            /* Specific target (assembly @SPECIFIC_TARGET, lines 480-532) */
+            battle_init_player_stats(st->target_id, &bt.battlers_table[1]);
 
-                    /* Init target battler (assembly lines 415-421) */
-                    battle_init_player_stats(member_id, &bt.battlers_table[1]);
+            /* Look up and dispatch the battle action function (assembly lines
+             * 483-498): converted actions are a GAME_MODE_BATTLE_ACTION
+             * STEP_PUSH, unconverted ones run inline-blocking. */
+            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
+            st->phase = UI_EXEC_DONE;
+            if (battle_action_dispatch(
+                    battle_action_table[st->effect_id].battle_function_pointer,
+                    &ba_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            continue;  /* ran inline */
+        }
 
-                    /* Look up and call battle action function (assembly lines 422-435) */
-                    bt.temp_function_pointer =
-                        battle_action_table[st->effect_id].battle_function_pointer;
-                    jump_temp_function_pointer();
+        case UI_EXEC_STEP: {
+            /* All-party loop head (assembly lines 388-435). */
+            if (st->exec_i >= (game_state.player_controlled_party_count & 0xFF)) {
+                /* @AFTER_ACTION (assembly line 533-534) */
+                render_and_disable_entities();
+                st->phase = UI_EXIT;
+                continue;
+            }
 
-                    /* Copy afflictions from battler back to char_struct
-                     * (assembly lines 436-468).
-                     * Note: assembly uses loop counter i for party_characters index,
-                     * not the member_id. Ported faithfully per CLAUDE.md. */
-                    for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                        party_characters[i].afflictions[g] =
-                            bt.battlers_table[1].afflictions[g];
-                    }
-                }
-            } else {
-                /* Specific target (assembly @SPECIFIC_TARGET, lines 480-532) */
-                battle_init_player_stats(st->target_id, &bt.battlers_table[1]);
+            uint8_t member_id = game_state.party_members[st->exec_i];
 
-                /* Look up and call battle action function (assembly lines 483-498) */
-                bt.temp_function_pointer =
-                    battle_action_table[st->effect_id].battle_function_pointer;
-                jump_temp_function_pointer();
+            /* Set target name (assembly lines 392-414) */
+            set_battle_target_name(
+                (const char *)party_characters[member_id - 1].name,
+                sizeof(party_characters[0].name));
 
-                /* Copy afflictions back (assembly lines 499-532) */
-                for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
-                    party_characters[st->target_id - 1].afflictions[g] =
-                        bt.battlers_table[1].afflictions[g];
-                }
+            /* Init target battler (assembly lines 415-421) */
+            battle_init_player_stats(member_id, &bt.battlers_table[1]);
+
+            /* Look up and dispatch the action (assembly lines 422-435) */
+            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
+            st->phase = UI_EXEC_STEP_DONE;
+            if (battle_action_dispatch(
+                    battle_action_table[st->effect_id].battle_function_pointer,
+                    &ba_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            continue;  /* ran inline */
+        }
+
+        case UI_EXEC_STEP_DONE: {
+            /* Copy afflictions from battler back to char_struct (assembly
+             * lines 436-468). Note: assembly uses the loop counter for the
+             * party_characters index, not the member_id. Ported faithfully
+             * per CLAUDE.md. */
+            for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                party_characters[st->exec_i].afflictions[g] =
+                    bt.battlers_table[1].afflictions[g];
+            }
+            st->exec_i++;
+            st->phase = UI_EXEC_STEP;
+            continue;
+        }
+
+        case UI_EXEC_DONE: {
+            /* Copy afflictions back (assembly lines 499-532) */
+            for (int g = 0; g < AFFLICTION_GROUP_COUNT; g++) {
+                party_characters[st->target_id - 1].afflictions[g] =
+                    bt.battlers_table[1].afflictions[g];
             }
 
             /* @AFTER_ACTION (assembly line 533-534) */

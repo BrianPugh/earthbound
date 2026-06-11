@@ -1333,8 +1333,20 @@ void display_psi_description(uint16_t ability_id);
 /* JUMP_TEMP_FUNCTION_POINTER (asm/overworld/jump_temp_function_pointer.asm).
  * Dispatches the battle action at the ROM address stored in
  * temp_function_pointer.  Looks up the address in the btlact_dispatch_table
- * and calls the corresponding C function. */
+ * and calls the corresponding C function. Converted actions (those with a
+ * resumable GAME_MODE_BATTLE_ACTION stepper) are pumped to completion here —
+ * this is the blocking bridge for unconverted drivers and action→action
+ * calls. */
 void jump_temp_function_pointer(void);
+
+/* Driver-side battle-action dispatch for converted mode steps (battle.c
+ * BTL_TARGET, text.c PS_EXEC_* / UI_EXEC_*). Writes `func_addr` to
+ * bt.temp_function_pointer (as the assembly does before the JML), then either
+ * fills *init for a GAME_MODE_BATTLE_ACTION STEP_PUSH (converted action —
+ * returns true) or runs the action inline-blocking via
+ * jump_temp_function_pointer (returns false). */
+union ModeState;
+bool battle_action_dispatch(uint32_t func_addr, union ModeState *init);
 
 /* --- Shared utility functions (promoted from static for sound stone, etc.) --- */
 

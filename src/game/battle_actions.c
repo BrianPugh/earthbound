@@ -33,9 +33,21 @@
 
 #include "game_main.h"
 
+/* Blocking bridge for converted actions (defined with the dispatch table at
+ * the bottom of this file): looks up the action's resumable stepper by its
+ * ROM address and pumps it to completion. */
+static void btlact_pump_addr(uint32_t rom_addr);
 
 /* ======================================================================
  * Battle action handlers
+ *
+ * Converted actions (the GAME_MODE_BATTLE_ACTION long tail) are small
+ * btlact_*_step() pc-machines: texts are DISPLAY_TEXT pushes via
+ * battle_push_text / battle_push_text_ex (battle.c), and every resume pc
+ * starts with the dt.blinking_triangle_flag clear (the blocking
+ * display_in_battle_text epilogue). The blocking btlact_*() form remains as
+ * a btlact_pump_addr() bridge for direct action→action C calls; table
+ * dispatch prefers the stepper (see jump_temp_function_pointer).
  * ====================================================================== */
 
 /*
@@ -79,47 +91,95 @@ void btlact_shoot(void) {
  * Displays enemy's offense, defense, and elemental vulnerabilities.
  * If the enemy has a stealable item and the player has inventory space,
  * gives the item to the player.
+ *
+ * Resumable: each text is one pc stage; the conditions re-derive from the
+ * target battler each step (battler state does not change during the text
+ * displays). pc 8/9 keep the original ordering of bt.item_dropped = 0
+ * AFTER its text completes.
  */
-void btlact_spy(void) {
+static StepResult btlact_spy_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *tgt = battler_from_offset(bt.current_target);
 
-    /* Display offense */
-    display_text_wait_addr(MSG_BTL5_CHECK_OFFENSE_STAT, tgt->offense);
-
-    /* Display defense */
-    display_text_wait_addr(MSG_BTL5_CHECK_DEFENSE_STAT, tgt->defense);
-
-    /* Check elemental resistances — display if 0xFF (complete immunity) */
-    if (tgt->fire_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FIRE);
-    }
-    if (tgt->freeze_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FREEZE);
-    }
-    if (tgt->flash_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PSI_FLASH);
-    }
-    if (tgt->paralysis_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_PARALYSIS);
-    }
-    if (tgt->hypnosis_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_OPEN_TO_HYPNOSIS);
-    }
-    if (tgt->brainshock_resist == 0xFF) {
-        display_in_battle_text_addr(MSG_BTL5_CHECK_VULN_BRAIN_SHOCK);
-    }
-
-    /* Check for stealable item drop */
-    if (tgt->ally_or_enemy == 1) {
-        if (find_inventory_space2(3) != 0) {
-            if (bt.item_dropped != 0) {
+    for (;;) {
+        switch (st->pc) {
+        case 0:  /* offense */
+            st->pc = 1;
+            if (battle_push_text_ex(&child, MSG_BTL5_CHECK_OFFENSE_STAT,
+                                    false, true, tgt->offense))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 1:  /* defense */
+            dt.blinking_triangle_flag = 0;
+            st->pc = 2;
+            if (battle_push_text_ex(&child, MSG_BTL5_CHECK_DEFENSE_STAT,
+                                    false, true, tgt->defense))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        /* Elemental resistances — display if 0xFF (complete immunity) */
+        case 2:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 3;
+            if (tgt->fire_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FIRE))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 3:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 4;
+            if (tgt->freeze_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FREEZE))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 4:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 5;
+            if (tgt->flash_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FLASH))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 5:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 6;
+            if (tgt->paralysis_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PARALYSIS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 6:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 7;
+            if (tgt->hypnosis_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_OPEN_TO_HYPNOSIS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 7:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 8;
+            if (tgt->brainshock_resist == 0xFF &&
+                battle_push_text(&child, MSG_BTL5_CHECK_VULN_BRAIN_SHOCK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        case 8:  /* stealable item drop */
+            dt.blinking_triangle_flag = 0;
+            if (tgt->ally_or_enemy == 1 && find_inventory_space2(3) != 0 &&
+                bt.item_dropped != 0) {
                 set_current_item((uint8_t)bt.item_dropped);
-                display_in_battle_text_addr(MSG_BTL8_PRESENT_BEHIND_ENEMY);
-                bt.item_dropped = 0;
+                st->pc = 9;  /* the item_dropped clear runs after the text */
+                if (battle_push_text(&child, MSG_BTL8_PRESENT_BEHIND_ENEMY))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
             }
+            return STEP_RESULT_POP(0);
+        case 9:
+        default:
+            dt.blinking_triangle_flag = 0;
+            bt.item_dropped = 0;
+            return STEP_RESULT_POP(0);
         }
     }
 }
+
+void btlact_spy(void) { btlact_pump_addr(0xC28770); }
 
 /*
  * BTLACT_LEVEL_1_ATTACK (wrapper — asm/battle/actions/level_1_attack.asm)
@@ -146,35 +206,44 @@ void btlact_level_1_attack(void) {
  * Healing Alpha PSI: cures cold, sunstroke, or sleep.
  * If none of those are active, displays "no effect" message.
  */
-void btlact_healing_alpha(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
+static StepResult btlact_healing_alpha_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Check PERSISTENT_EASYHEAL group first */
-    uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+    switch (st->pc) {
+    case 0: {
+        Battler *tgt = battler_from_offset(bt.current_target);
+        uint32_t msg;
 
-    if (easyheal == STATUS_0_COLD) {
-        tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_COLD);
-        return;
+        /* Check PERSISTENT_EASYHEAL group first */
+        uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+
+        if (easyheal == STATUS_0_COLD) {
+            tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+            msg = MSG_BTL5_CURED_COLD;
+        } else if (easyheal == STATUS_0_SUNSTROKE) {
+            tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+            msg = MSG_BTL5_CURED_SUNSTROKE;
+        } else if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
+            /* TEMPORARY group: sleep */
+            tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+            msg = MSG_BTL5_CURED_ASLEEP;
+        } else {
+            /* No curable status — display "no effect" */
+            msg = MSG_BTL4_RESULT_HEAL_NO_EFFECT;
+        }
+
+        st->pc = 1;
+        if (battle_push_text(&child, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+    } /* FALLTHROUGH — unresolvable text: epilogue inline */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
     }
-    if (easyheal == STATUS_0_SUNSTROKE) {
-        tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_SUNSTROKE);
-        return;
-    }
-
-    /* Check TEMPORARY group for sleep */
-    uint8_t temp = tgt->afflictions[STATUS_GROUP_TEMPORARY];
-
-    if (temp == STATUS_2_ASLEEP) {
-        tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
-        return;
-    }
-
-    /* No curable status — display "no effect" */
-    display_in_battle_text_addr(MSG_BTL4_RESULT_HEAL_NO_EFFECT);
 }
+
+void btlact_healing_alpha(void) { btlact_pump_addr(0xC29AEA); }
 
 /*
  * BTLACT_SHIELD_A (asm/battle/actions/shield_alpha.asm)
@@ -182,19 +251,29 @@ void btlact_healing_alpha(void) {
  * Shield Alpha PSI: applies STATUS_6_SHIELD to current target.
  * Displays appropriate text for new shield or shield refresh.
  */
-void btlact_shield_alpha(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
+static StepResult btlact_shield_alpha_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    uint16_t result = battle_shields_common(tgt, STATUS_6_SHIELD);
+    switch (st->pc) {
+    case 0: {
+        Battler *tgt = battler_from_offset(bt.current_target);
+        uint16_t result = battle_shields_common(tgt, STATUS_6_SHIELD);
 
-    if (result == 0) {
-        /* Shield already active — refreshed (assembly: BEQ = result==0) */
-        display_in_battle_text_addr(MSG_BTL5_SHIELD_OF_LIGHT_APPLIED);
-    } else {
-        /* New shield applied */
-        display_in_battle_text_addr(MSG_BTL5_SHIELD_OF_LIGHT_STRONGER);
+        /* result == 0: shield already active — refreshed (assembly: BEQ) */
+        uint32_t msg = (result == 0) ? MSG_BTL5_SHIELD_OF_LIGHT_APPLIED
+                                     : MSG_BTL5_SHIELD_OF_LIGHT_STRONGER;
+        st->pc = 1;
+        if (battle_push_text(&child, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+    } /* FALLTHROUGH — unresolvable text: epilogue inline */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
     }
 }
+
+void btlact_shield_alpha(void) { btlact_pump_addr(0xC29D44); }
 
 /*
  * BTLACT_HEALING_B (asm/battle/actions/healing_beta.asm)
@@ -3732,7 +3811,7 @@ const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC28651, (void(*)(void))battle_level_3_attack },
     { 0xC286CB, btlact_level_1_attack },
     { 0xC28740, btlact_shoot },
-    { 0xC28770, btlact_spy },
+    { 0xC28770, btlact_spy, btlact_spy_step },
     { 0xC2889B, btlact_null },
     { 0xC2889E, btlact_steal },
     { 0xC288EB, btlact_freezetime },
@@ -3801,11 +3880,11 @@ const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC29ACF, btlact_lifeup_beta },
     { 0xC29AD8, btlact_lifeup_gamma },
     { 0xC29AE1, btlact_lifeup_omega },
-    { 0xC29AEA, btlact_healing_alpha },
+    { 0xC29AEA, btlact_healing_alpha, btlact_healing_alpha_step },
     { 0xC29B7A, btlact_healing_beta },
     { 0xC29C2C, btlact_healing_gamma },
     { 0xC29CB8, btlact_healing_omega },
-    { 0xC29D44, btlact_shield_alpha },
+    { 0xC29D44, btlact_shield_alpha, btlact_shield_alpha_step },
     { 0xC29D7A, redirect_btlact_shield_alpha },
     { 0xC29D81, btlact_shield_beta },
     { 0xC29DB7, redirect_btlact_shield_beta },
@@ -3896,20 +3975,78 @@ const BattleActionEntry btlact_dispatch_table[] = {
 
 #define BTLACT_DISPATCH_COUNT (sizeof(btlact_dispatch_table) / sizeof(btlact_dispatch_table[0]))
 
-void jump_temp_function_pointer(void) {
-    /* Binary search the sorted dispatch table */
+/* Binary search the sorted dispatch table. Returns the entry index, or -1. */
+static int btlact_find(uint32_t rom_addr) {
     int lo = 0, hi = (int)BTLACT_DISPATCH_COUNT - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
-        if (btlact_dispatch_table[mid].rom_addr == bt.temp_function_pointer) {
-            btlact_dispatch_table[mid].func();
-            return;
-        } else if (btlact_dispatch_table[mid].rom_addr < bt.temp_function_pointer) {
+        if (btlact_dispatch_table[mid].rom_addr == rom_addr)
+            return mid;
+        if (btlact_dispatch_table[mid].rom_addr < rom_addr)
             lo = mid + 1;
-        } else {
+        else
             hi = mid - 1;
-        }
     }
-    LOG_WARN("WARN: unknown battle action ROM addr $%06X\n", bt.temp_function_pointer);
+    return -1;
+}
+
+/* Blocking bridge: run a converted action's resumable stepper to completion.
+ * Used by jump_temp_function_pointer (unconverted drivers / action→action
+ * dispatch through the table) and by the converted actions' own btlact_*()
+ * wrappers (direct C calls from other actions, e.g. healing_beta →
+ * healing_alpha). Deleted at cutover with pump_mode. */
+static void btlact_pump(uint16_t table_index) {
+    ModeState init = {0};
+    init.battle_action.table_index = table_index;
+    pump_mode(GAME_MODE_BATTLE_ACTION, &init);
+}
+
+/* Bridge variant for the converted actions' blocking btlact_*() wrappers:
+ * looks the action up by its own ROM address (the same constant as its table
+ * row) WITHOUT touching bt.temp_function_pointer — a direct JSR in the
+ * assembly does not rewrite it. */
+static void btlact_pump_addr(uint32_t rom_addr) {
+    int idx = btlact_find(rom_addr);
+    if (idx < 0 || !btlact_dispatch_table[idx].step) {
+        LOG_WARN("WARN: btlact_pump_addr($%06X): no resumable form\n", rom_addr);
+        return;
+    }
+    btlact_pump((uint16_t)idx);
+}
+
+void jump_temp_function_pointer(void) {
+    int idx = btlact_find(bt.temp_function_pointer);
+    if (idx < 0) {
+        LOG_WARN("WARN: unknown battle action ROM addr $%06X\n", bt.temp_function_pointer);
+        return;
+    }
+    if (btlact_dispatch_table[idx].step) {
+        btlact_pump((uint16_t)idx);  /* converted: pump the resumable form */
+        return;
+    }
+    btlact_dispatch_table[idx].func();
+}
+
+bool battle_action_dispatch(uint32_t func_addr, ModeState *init) {
+    bt.temp_function_pointer = func_addr;
+    int idx = btlact_find(func_addr);
+    if (idx >= 0 && btlact_dispatch_table[idx].step) {
+        memset(init, 0, sizeof(*init));
+        init->battle_action.table_index = (uint16_t)idx;
+        return true;
+    }
+    jump_temp_function_pointer();  /* unconverted/unknown: inline (warns) */
+    return false;
+}
+
+StepResult mode_step_battle_action(ModeState *ms) {
+    BattleActionState *st = &ms->battle_action;
+    if (st->table_index >= BTLACT_DISPATCH_COUNT ||
+        !btlact_dispatch_table[st->table_index].step) {
+        LOG_WARN("WARN: BATTLE_ACTION with no stepper (index %u)\n",
+                 (unsigned)st->table_index);
+        return STEP_RESULT_POP(0);
+    }
+    return btlact_dispatch_table[st->table_index].step(st);
 }
 

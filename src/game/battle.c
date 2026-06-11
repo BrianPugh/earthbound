@@ -3384,9 +3384,10 @@ const uint8_t *consolation_item_table;
  * blinking_triangle_flag = 1; `has_cnum` is the wait_addr variant's
  * set_cnum(cnum). Returns false (warn, like display_text_from_addr) when the
  * address is unresolvable — the caller falls through to its resume phase
- * inline, which runs the epilogue (clearing the prompt flag). */
-static bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
-                                bool has_cnum, uint32_t cnum) {
+ * inline, which runs the epilogue (clearing the prompt flag). Shared with the
+ * battle_actions.c action steppers (battle_internal.h). */
+bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
+                         bool has_cnum, uint32_t cnum) {
     if (prompt)
         dt.blinking_triangle_flag = 1;
     if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
@@ -3403,7 +3404,7 @@ static bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
     return false;
 }
 
-static bool battle_push_text(ModeState *child, uint32_t addr) {
+bool battle_push_text(ModeState *child, uint32_t addr) {
     return battle_push_text_ex(child, addr, false, false, 0);
 }
 
@@ -4753,87 +4754,94 @@ StepResult mode_step_battle(ModeState *ms) {
         }
 
         case BTL_TARGET: {
-            /* ---- Target loop: apply action to each targeted battler ---- */
+            /* ---- Target loop head: apply action to each targeted battler.
+             * One iteration per entry; re-entering via `break` (no yield)
+             * replaces the former inner while loop so the action execution
+             * can yield mid-loop. ---- */
             dt.blinking_triangle_flag = 0;
             Battler *attacker = &bt.battlers_table[st->attacker];
 
-            while (st->target_i < BATTLER_COUNT) {
-                uint16_t target_i = st->target_i;
-                if (!battle_is_char_targeted(target_i)) {
-                    st->target_i++;
-                    continue;
-                }
-
-                bt.current_target = target_i * sizeof(Battler);
-                Battler *target = &bt.battlers_table[target_i];
-                fix_target_name();
-
-                /* Check if target is dead — only some actions can target dead battlers */
-                if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-                    bool can_target_dead = false;
-                    for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
-                        if (dead_targettable_actions[di] == attacker->current_action) {
-                            can_target_dead = true;
-                            break;
-                        }
-                    }
-                    if (!can_target_dead) {
-                        st->target_i++;  /* the resume re-enters this loop */
-                        if (battle_push_text(&child_init, MSG_BTL4_RESULT_TARGET_ALREADY_GONE))
-                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                        dt.blinking_triangle_flag = 0;  /* unresolvable: epilogue inline */
-                        continue;
-                    }
-                }
-
-                /* Execute the action callback. Stays inline-blocking
-                 * (documented): the battle_actions.c action functions are
-                 * the long tail — convertible incrementally now that
-                 * GAME_MODE_BATTLE exists. */
-                if (battle_action_table) {
-                    uint32_t func_ptr =
-                        battle_action_table[attacker->current_action].battle_function_pointer;
-                    if (func_ptr != 0) {
-                        bt.temp_function_pointer = func_ptr;
-                        jump_temp_function_pointer();
-                    }
-                }
-
-                check_dead_players();
-                ow.redraw_all_windows = 1;
-
-                if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
-                    consume_used_battle_item();
-                    st->phase = BTL_END_CHECK;
-                    goto target_done;
-                }
-
-                /* Handle special defeat codes */
-                if (bt.special_defeat == 3) {
-                    st->battle_result = 0;
-                    st->phase = BTL_ENDING;
-                    goto target_done;
-                }
-                if (bt.special_defeat == 2) {
-                    consume_used_battle_item();
-                    st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
-                    goto target_done;
-                }
-                if (bt.special_defeat == 1) {
-                    st->battle_result = 2;
-                    st->phase = BTL_ENDING;
-                    goto target_done;
-                }
-
-                /* Wait for screen effects */
-                st->target_i++;
-                child_init = (ModeState){0};
-                child_init.battle_wait.kind = BW_SCREEN_EFFECT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+            if (st->target_i >= BATTLER_COUNT) {
+                st->phase = BTL_AFTER_ACTION;
+                break;
             }
-            st->phase = BTL_AFTER_ACTION;
-        target_done:
-            break;
+
+            uint16_t target_i = st->target_i;
+            if (!battle_is_char_targeted(target_i)) {
+                st->target_i++;
+                break;  /* next target, no yield */
+            }
+
+            bt.current_target = target_i * sizeof(Battler);
+            Battler *target = &bt.battlers_table[target_i];
+            fix_target_name();
+
+            /* Check if target is dead — only some actions can target dead battlers */
+            if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
+                bool can_target_dead = false;
+                for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
+                    if (dead_targettable_actions[di] == attacker->current_action) {
+                        can_target_dead = true;
+                        break;
+                    }
+                }
+                if (!can_target_dead) {
+                    st->target_i++;  /* the resume re-enters the loop head */
+                    if (battle_push_text(&child_init, MSG_BTL4_RESULT_TARGET_ALREADY_GONE))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                    dt.blinking_triangle_flag = 0;  /* unresolvable: epilogue inline */
+                    break;
+                }
+            }
+
+            /* Execute the action callback: converted actions are a
+             * GAME_MODE_BATTLE_ACTION STEP_PUSH (resume in BTL_TARGET_POST);
+             * unconverted ones run inline-blocking through the same dispatch
+             * (the battle_actions.c long tail, convertible incrementally). */
+            st->phase = BTL_TARGET_POST;
+            if (battle_action_table) {
+                uint32_t func_ptr =
+                    battle_action_table[attacker->current_action].battle_function_pointer;
+                if (func_ptr != 0 && battle_action_dispatch(func_ptr, &child_init))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child_init);
+            }
+            break;  /* ran inline (or no function): post checks, no yield */
+        }
+
+        case BTL_TARGET_POST: {
+            /* ---- Post-action checks for the current target ---- */
+            check_dead_players();
+            ow.redraw_all_windows = 1;
+
+            if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
+                consume_used_battle_item();
+                st->phase = BTL_END_CHECK;
+                break;
+            }
+
+            /* Handle special defeat codes */
+            if (bt.special_defeat == 3) {
+                st->battle_result = 0;
+                st->phase = BTL_ENDING;
+                break;
+            }
+            if (bt.special_defeat == 2) {
+                consume_used_battle_item();
+                st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
+                break;
+            }
+            if (bt.special_defeat == 1) {
+                st->battle_result = 2;
+                st->phase = BTL_ENDING;
+                break;
+            }
+
+            /* Wait for screen effects, then the next target */
+            st->target_i++;
+            child_init = (ModeState){0};
+            child_init.battle_wait.kind = BW_SCREEN_EFFECT;
+            st->phase = BTL_TARGET;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
         }
 
         case BTL_AFTER_ACTION: {

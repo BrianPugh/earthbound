@@ -9,6 +9,7 @@
 
 #include "game/battle.h"
 #include "core/math.h"
+#include "core/mode_stack.h"
 
 /* ---- RNG helpers ---- */
 static inline uint8_t rand_byte(void) {
@@ -84,8 +85,21 @@ void close_all_windows_and_hide_hppp(void);
 /* ---- Dispatch table type ---- */
 typedef struct {
     uint32_t rom_addr;
-    void (*func)(void);
+    void (*func)(void);   /* blocking form (a pump bridge once converted) */
+    /* Resumable form for GAME_MODE_BATTLE_ACTION (NULL = not yet converted:
+     * the action runs inline-blocking via `func`). See mode_stack.h. */
+    StepResult (*step)(BattleActionState *st);
 } BattleActionEntry;
+
+/* The battle text prologue (display_in_battle_text_addr /
+ * display_text_wait_addr / display_text_with_prompt_addr's front half) + a
+ * DISPLAY_TEXT child init for `addr` (defined in battle.c). Returns false
+ * (warn) when the address is unresolvable — the caller falls through to its
+ * resume point inline, which runs the epilogue (dt.blinking_triangle_flag
+ * clear). */
+bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
+                         bool has_cnum, uint32_t cnum);
+bool battle_push_text(ModeState *child, uint32_t addr);
 
 /* ---- Functions defined in battle_calc.c ---- */
 

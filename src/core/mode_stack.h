@@ -76,6 +76,7 @@ typedef enum {
     GAME_MODE_INSTANT_WIN,         /* auto-victory sequence (instant_win_handler) */
     GAME_MODE_BATTLE_ENTRY,        /* overworld encounter entry/exit (init_battle_overworld) */
     GAME_MODE_BATTLE_SCRIPTED,     /* scripted/event battle entry/exit (init_battle_scripted) */
+    GAME_MODE_BATTLE_ACTION,       /* one battle-action function (btlact_* long tail) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -327,9 +328,9 @@ typedef struct {
  *
  * The teleport destination menu and targeting are GAME_MODE_TELEPORT_MENU /
  * GAME_MODE_DETERMINE_TARGETING STEP_PUSHes (results read in
- * PS_TELEPORT_RESULT / PS_TARGET_RESULT). Still blocking, called inline from
- * the step: the battle-action execution via jump_temp_function_pointer()
- * (action functions can display text — a later conversion).
+ * PS_TELEPORT_RESULT / PS_TARGET_RESULT). The action execution dispatches via
+ * battle_action_dispatch(): converted actions are GAME_MODE_BATTLE_ACTION
+ * STEP_PUSHes (PS_EXEC_* phases), unconverted ones run inline-blocking.
  *
  * Pops 1 if a PSI was used (the pause menu closes), else 0; the pause-menu
  * parent branches in PM_PSI_RESUME. */
@@ -343,12 +344,16 @@ typedef enum {
     PS_TARGET_RESULT,   /* after DETERMINE_TARGETING pops: store result -> PS_HANDLE */
     PS_FAIL_RESUME,     /* after a failure text pops: close window, retry ability */
     PS_HANDLE,          /* @HANDLE_RESULT: retry/back, or execute (desc text push) */
-    PS_EXECUTE,         /* battle-action dispatch + render; sets result 1 */
+    PS_EXECUTE,         /* battle-action dispatch head: teleport/null/all-vs-single */
+    PS_EXEC_STEP,       /* all-party loop head: per-member setup + action dispatch */
+    PS_EXEC_STEP_DONE,  /* after one member's action: affliction copy, next member */
+    PS_EXEC_DONE,       /* after a single-target action: affliction copy + render */
     PS_EXIT,            /* close the text window, POP the result */
 } PsiMenuPhase;
 
 typedef struct {
     uint8_t  phase;            /* PsiMenuPhase */
+    uint8_t  exec_i;           /* PS_EXEC_STEP all-party loop index */
     uint8_t  result_ready;     /* 1 = `menu_result` holds an inline early-exit value */
     uint8_t  pp_cost;          /* selected ability's PP cost */
     uint8_t  psi_category;     /* selected ability's category (PSI_CAT_*) */
@@ -368,9 +373,9 @@ typedef struct {
  * description (or failure) text as a DISPLAY_TEXT child; the action execution
  * resumes in UI_EXECUTE after the text pops.
  *
- * Still blocking, called inline from the step: the battle-action execution
- * via jump_temp_function_pointer() (action functions can display text — a
- * later conversion).
+ * The action execution dispatches via battle_action_dispatch(): converted
+ * actions are GAME_MODE_BATTLE_ACTION STEP_PUSHes (UI_EXEC_* phases),
+ * unconverted ones run inline-blocking.
  *
  * Pops 0 if targeting was cancelled (the pause menu re-enters the action
  * menu), else 1 (item used or message shown — the pause menu closes); the
@@ -379,12 +384,16 @@ typedef enum {
     UI_ENTER = 0,      /* classify; usable items push DETERMINE_TARGETING */
     UI_TARGET_RESULT,  /* cancel pops 0; else consume-on-use -> UI_SETUP */
     UI_SETUP,          /* @SETUP_ACTION_WINDOW: window/name setup; push text */
-    UI_EXECUTE,        /* after the desc text pops: run the battle action (inline) */
+    UI_EXECUTE,        /* after the desc text pops: battle-action dispatch head */
+    UI_EXEC_STEP,      /* all-party loop head: per-member setup + action dispatch */
+    UI_EXEC_STEP_DONE, /* after one member's action: affliction copy, next member */
+    UI_EXEC_DONE,      /* after a single-target action: affliction copy + render */
     UI_EXIT,           /* @CLOSE_TEXT_WINDOW: close the text window, POP 1 */
 } UseItemPhase;
 
 typedef struct {
     uint8_t  phase;          /* UseItemPhase */
+    uint8_t  exec_i;         /* UI_EXEC_STEP all-party loop index */
     uint8_t  target_id;      /* @VIRTUAL00: 1-based target; 0xFF = all party */
     uint8_t  can_use;        /* @LOCAL07: item passed the usability checks */
     uint16_t char_id;        /* 1-based item user (input, set by the parent) */
@@ -527,11 +536,12 @@ typedef struct {
  * before the push, the resume phase runs the epilogue prompt-flag clear),
  * and the former BATTLE_WAIT / FADE_WAIT pumps are STEP_PUSHes.
  *
- * Kept inline-blocking (documented deferrals): the action execution
- * (jump_temp_function_pointer — the battle_actions.c long tail, convertible
- * incrementally now that this mode exists), the debug-only encounter-setup
- * loop (+ enemy_select_mode), and the force_blank/blank_screen one-shot
- * vblank helpers.
+ * The action execution dispatches via battle_action_dispatch() in BTL_TARGET:
+ * converted actions are GAME_MODE_BATTLE_ACTION STEP_PUSHes (resume in
+ * BTL_TARGET_POST), unconverted ones run inline-blocking (the battle_actions.c
+ * long tail, convertible incrementally). Kept inline-blocking (documented
+ * deferrals): the debug-only encounter-setup loop (+ enemy_select_mode), and
+ * the force_blank/blank_screen one-shot vblank helpers.
  *
  * Pops the battle result: 0 = victory, 1 = party defeated, 2 = special
  * defeat code. Pushed by GAME_MODE_BATTLE_ENTRY (overworld encounters) and
@@ -558,7 +568,8 @@ typedef enum {
     BTL_EXEC_RETARGET2,   /* "acting funky" text */
     BTL_EXEC_DESC,        /* action description text (with prompt) */
     BTL_EXEC_ACT,         /* action-0 skip; PSI-animation wait */
-    BTL_TARGET,           /* per-target loop: gone text, action exec, screen-effect wait */
+    BTL_TARGET,           /* per-target loop head: gone text, action dispatch */
+    BTL_TARGET_POST,      /* after the action: defeat checks, screen-effect wait */
     BTL_AFTER_ACTION,     /* consume item; mirror countdown text */
     BTL_AFTER_STATUS,     /* post-action recovery rolls: cured text */
     BTL_AFTER_CURED,      /* clear the cured temporary status after its text */
@@ -684,6 +695,29 @@ typedef struct {
     uint8_t  phase;         /* BattleScriptedPhase */
     uint16_t battle_group;  /* input: BTL_ENTRY_PTR_TABLE index */
 } BattleScriptedState;
+
+/* GAME_MODE_BATTLE_ACTION — one battle-action function (the btlact_* /
+ * battle_actions.c long tail), run-to-completion. The mode is generic: the
+ * step dispatches to the action's resumable stepper via the `step` column of
+ * btlact_dispatch_table (battle_actions.c); each converted action is a small
+ * pc-machine whose texts are DISPLAY_TEXT pushes (battle_push_text_ex idiom —
+ * the resume pc clears dt.blinking_triangle_flag, i.e. the blocking
+ * epilogue). Actions without a stepper still run inline-blocking through
+ * jump_temp_function_pointer(), which doubles as the pump bridge for
+ * converted actions (so unconverted drivers and action→action calls keep
+ * working unchanged).
+ *
+ * Pushed by GAME_MODE_BATTLE's BTL_TARGET (resume BTL_TARGET_POST), the PSI
+ * menu's PS_EXEC_* phases and the use-item UI_EXEC_* phases (both text.c),
+ * via battle_action_dispatch(). Always pops 0 (action functions return
+ * nothing — their results flow through `bt`). */
+typedef struct {
+    uint8_t  pc;            /* per-action resume point (0 = entry) */
+    uint8_t  exec_i;        /* generic loop counter for actions that need one */
+    uint16_t table_index;   /* btlact_dispatch_table index (which action) */
+    uint16_t scratch16[2];  /* per-action hoisted locals */
+    uint32_t scratch32;     /* per-action hoisted 32-bit local */
+} BattleActionState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1650,6 +1684,7 @@ union ModeState {
     InstantWinState       instant_win;
     BattleEntryState      battle_entry;
     BattleScriptedState   battle_scripted;
+    BattleActionState     battle_action;
     uint8_t               _raw[160];
 };
 
@@ -1915,6 +1950,12 @@ StepResult mode_step_battle_entry(ModeState *st);
  * CC_1F_23 TRIGGER_BATTLE via the cc_1f_dispatch push-signal. Pops 0 =
  * normal victory/post-battle, 1 = party defeated. */
 StepResult mode_step_battle_scripted(ModeState *st);
+
+/* GAME_MODE_BATTLE_ACTION step (defined in battle_actions.c, where the
+ * btlact_dispatch_table and the per-action steppers live). Dispatches to the
+ * resumable stepper named by BattleActionState.table_index. Init via
+ * battle_action_dispatch() (battle.h). Always pops 0. */
+StepResult mode_step_battle_action(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
