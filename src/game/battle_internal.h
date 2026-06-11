@@ -155,9 +155,6 @@ bool check_battle_target_type(uint16_t ally_effect, uint16_t enemy_effect);
 uint16_t pick_random_enemy_target(uint16_t attacker_offset);
 uint16_t is_row_valid(void);
 
-uint16_t select_battle_target_dispatch(uint16_t mode, uint16_t allow_cancel,
-                                              uint16_t action_param);
-
 /* Build a GAME_MODE_BATTLE_ENEMY_SELECT init (select_battle_target's
  * prologue), for the DETERMINE_TARGETING / BATTLE_MENU pushes. */
 union ModeState;

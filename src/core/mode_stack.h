@@ -72,6 +72,7 @@ typedef enum {
     GAME_MODE_LEVEL_UP,            /* inventory level-up sequence (gain_exp / level_up_char) */
     GAME_MODE_BATTLE_PSI_MENU,     /* in-battle PSI selection cascade (battle_psi_menu) */
     GAME_MODE_BATTLE_MENU,         /* per-character battle command menu (battle_selection_menu) */
+    GAME_MODE_BATTLE,              /* main battle loop (battle_routine) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -511,6 +512,91 @@ typedef struct {
     uint16_t item_effect;     /* Goods: effect id carried across DETERMINE_TARGETING */
 } BattleMenuState;
 
+/* GAME_MODE_BATTLE phases. Port of battle_routine()
+ * (asm/battle/main_battle_routine.asm): the main battle loop — init/reinit,
+ * encounter texts, the per-turn player menus (GAME_MODE_BATTLE_MENU pushes),
+ * enemy AI, the run-away check, turn execution, battle-end checks, EXP
+ * distribution (GAME_MODE_LEVEL_UP pushes via gain_exp_prepare) and the
+ * battle ending. The former goto labels map onto the BTL_* phases; every
+ * display_in_battle_text_addr / display_text_wait_addr /
+ * display_text_with_prompt_addr site is a DISPLAY_TEXT push via
+ * battle_push_text_ex() (battle.c — the battle text prologue runs inline
+ * before the push, the resume phase runs the epilogue prompt-flag clear),
+ * and the former BATTLE_WAIT / FADE_WAIT pumps are STEP_PUSHes.
+ *
+ * Kept inline-blocking (documented deferrals): the action execution
+ * (jump_temp_function_pointer — the battle_actions.c long tail, convertible
+ * incrementally now that this mode exists), the debug-only encounter-setup
+ * loop (+ enemy_select_mode), and the force_blank/blank_screen one-shot
+ * vblank helpers.
+ *
+ * Pops the battle result: 0 = victory, 1 = party defeated, 2 = special
+ * defeat code. battle_routine() (battle.c) is the pump bridge for the
+ * still-blocking init_battle_common() caller (the battle entry/exit drivers
+ * convert later). */
+typedef enum {
+    BTL_BEGIN = 0,        /* one-time setup (entry-table loads, BG/letterbox) */
+    BTL_REINIT,           /* reinit_battle: scene + battler init; pre-debug window_tick */
+    BTL_DEBUG,            /* debug encounter-setup loop (inline-blocking) / battle music */
+    BTL_PREP,             /* buzz-buzz/possessed, item drop, initiative, encounter text */
+    BTL_AURA,             /* party-first "Green/blue/red aura!" text */
+    BTL_ANNOUNCE,         /* per-enemy initial status texts (announce_i/announce_stage) */
+    BTL_TURN,             /* start_turn: initiative rolls; reset the menu loop */
+    BTL_MENU,             /* player menu loop head: skip checks or push BATTLE_MENU */
+    BTL_MENU_RESULT,      /* selection writeback / back / run-away / debug exits */
+    BTL_ENEMY_AI,         /* enemy action selection; enemy-first announce text */
+    BTL_RUN_CHECK,        /* run-away attempt: success/failure text */
+    BTL_RUN_SUCCESS,      /* after the escape text: battle over */
+    BTL_RUN_FAIL,         /* after the failure text: clear initiative, execute turns */
+    BTL_EXEC,             /* execute_turns: pick attacker, overrides, status-damage text */
+    BTL_EXEC_DMG,         /* apply status damage after its text */
+    BTL_EXEC_SETUP,       /* targeting, PP check (fail text), attack palette, bob wait */
+    BTL_EXEC_RETARGET1,   /* after the bob: "acting unusual" text */
+    BTL_EXEC_RETARGET2,   /* "acting funky" text */
+    BTL_EXEC_DESC,        /* action description text (with prompt) */
+    BTL_EXEC_ACT,         /* action-0 skip; PSI-animation wait */
+    BTL_TARGET,           /* per-target loop: gone text, action exec, screen-effect wait */
+    BTL_AFTER_ACTION,     /* consume item; mirror countdown text */
+    BTL_AFTER_STATUS,     /* post-action recovery rolls: cured text */
+    BTL_AFTER_CURED,      /* clear the cured temporary status after its text */
+    BTL_AFTER_CONC,       /* concentration countdown: cured text */
+    BTL_AFTER_TAIL,       /* clear alt spritemaps, re-show HP/PP windows */
+    BTL_END_CHECK,        /* party defeated: enemy-victory text */
+    BTL_DEFEAT_DONE,      /* after the defeat text: flag battle end */
+    BTL_END_CHECK2,       /* enemies dead -> victory; else continue the turn */
+    BTL_VICTORY,          /* money/EXP split; victory text */
+    BTL_VICTORY_DROP,     /* item-drop announce text */
+    BTL_VICTORY_EXP,      /* per-member EXP loop: GAME_MODE_LEVEL_UP pushes */
+    BTL_TURN_CONT,        /* check_turn_continue */
+    BTL_CLOSE_WINDOW,     /* close_battle_window + check_new_turn */
+    BTL_ENDING,           /* battle_ending: HP/PP-stable wait */
+    BTL_ENDING_MIRROR,    /* mirror restore + cleanup; debug reinit; fade-out wait */
+    BTL_EXIT,             /* final window/effect teardown; pop the result */
+} BattleRoutinePhase;
+
+typedef struct {
+    uint8_t  phase;             /* BattleRoutinePhase */
+    uint8_t  announce_stage;    /* BTL_ANNOUNCE: which status text is next (0-2) */
+    uint16_t battle_result;     /* 0 victory / 1 defeat / 2 special */
+    uint16_t initiative_mode;   /* INITIATIVE_* (+ the run-away variants 3/4) */
+    uint16_t turn_counter;
+    uint16_t run_attempt;
+    uint16_t post_battle_exit;
+    uint16_t bg_id;             /* battle background config (debug loop can change) */
+    uint16_t palette_id;
+    uint16_t letterbox_style;
+    uint16_t debug_party_flags; /* debug loop: party bitmask */
+    uint16_t debug_enemy_level; /* debug loop: enemy level */
+    uint16_t announce_i;        /* BTL_ANNOUNCE enemy index */
+    uint16_t num_selected;      /* player menu: actions committed this turn */
+    uint16_t party_slot;        /* player menu loop index */
+    int16_t  attacker;          /* execute_turns: best-battler index */
+    uint16_t target_i;          /* BTL_TARGET loop index */
+    uint16_t retargeted;        /* mushroomized/strange retarget flag */
+    uint16_t status_damage;     /* per-turn status damage carried across its text */
+    uint16_t exp_i;             /* BTL_VICTORY_EXP loop index */
+} BattleRoutineState;
+
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
  * level_up_char.asm, 763 lines) for the text-displaying play_sound != 0 path:
@@ -522,10 +608,10 @@ typedef struct {
  * (reset_char_level_one, silent gain_exp) never yields and stays the
  * synchronous level_up_char_silent() loop in inventory.c.
  *
- * Pushed by CC_1E_09 GIVE_EXPERIENCE (cc_1e_dispatch push-signal); the
- * still-blocking battle end-of-round drivers (battle.c) reach it via the
- * gain_exp() pump bridge — they convert with the battle system. Always
- * pops 0. */
+ * Pushed by CC_1E_09 GIVE_EXPERIENCE (cc_1e_dispatch push-signal) and by
+ * GAME_MODE_BATTLE's end-of-round EXP loop (BTL_VICTORY_EXP); the
+ * still-blocking instant_win_handler (battle.c) reaches it via the
+ * gain_exp() pump bridge. Always pops 0. */
 typedef enum {
     LU_LEVEL = 0,   /* loop head: music, level++, push the "reached level" text */
     LU_STAT,        /* apply growth stage `stage`; push the gain text if any */
@@ -1472,6 +1558,7 @@ union ModeState {
     LevelUpState          level_up;
     BattlePsiMenuState    battle_psi_menu;
     BattleMenuState       battle_menu;
+    BattleRoutineState    battle;
     uint8_t               _raw[160];
 };
 
@@ -1701,10 +1788,16 @@ StepResult mode_step_battle_psi_menu(ModeState *st);
 
 /* GAME_MODE_BATTLE_MENU step (defined in battle.c, where the battle menu
  * window tables live). Init with ModeState.battle_menu (phase = BM_ENTER,
- * char_id, num_selected); entered via the battle_selection_menu() pump bridge
- * until battle_routine converts. Pops the selected battle action, 0 for
- * cancel/"back", or 0xFFFF for the debug instant win. */
+ * char_id, num_selected); entered via STEP_PUSH from GAME_MODE_BATTLE's
+ * player-menu phase. Pops the selected battle action, 0 for cancel/"back",
+ * or 0xFFFF for the debug instant win. */
 StepResult mode_step_battle_menu(ModeState *st);
+
+/* GAME_MODE_BATTLE step (defined in battle.c). Init with ModeState.battle
+ * (phase = BTL_BEGIN); entered via the battle_routine() pump bridge until
+ * the battle entry/exit drivers convert. Pops the battle result (0 =
+ * victory, 1 = party defeated, 2 = special defeat code). */
+StepResult mode_step_battle(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

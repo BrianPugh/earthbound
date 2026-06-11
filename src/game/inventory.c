@@ -1907,8 +1907,9 @@ StepResult mode_step_level_up(ModeState *state) {
  * A=play_sound, X=char_id, PARAM_INT32=exp_amount.
  * Adds EXP, then loops level-ups while the next threshold is met. The
  * play_sound path displays text, so it runs as GAME_MODE_LEVEL_UP — a pump
- * bridge for the still-blocking battle end-of-round callers (CC_1E_09 pushes
- * the mode directly instead); the silent path never yields and loops inline. */
+ * bridge for the still-blocking instant_win_handler caller (CC_1E_09 and the
+ * battle end-of-round EXP loop push the mode directly instead); the silent
+ * path never yields and loops inline. */
 void gain_exp(uint16_t play_sound, uint16_t char_id, uint32_t exp_amount) {
     if (!gain_exp_prepare(char_id, exp_amount)) return;
 

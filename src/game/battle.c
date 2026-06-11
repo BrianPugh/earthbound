@@ -37,6 +37,8 @@
 #include "core/decomp.h"
 #include "platform/platform.h"
 #include "data/text_refs.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init (battle text pushes) */
+#include "core/log.h"
 #include <string.h>
 
 /* EarthBound character encoding constants (from include/macros.asm EBTEXT) */
@@ -2355,8 +2357,8 @@ static StepResult bm_item_done(BattleMenuState *st) {
  * the PSI cascade, and item targeting are STEP_PUSHed children. The former
  * battle_item_menu() (asm/battle/ui/battle_item_menu.asm) and
  * determine_battle_item_target() (asm/battle/ui/determine_battle_item_target
- * .asm) drivers are folded into the BM_ITEM* phases. battle_selection_menu()
- * below is the pump bridge for the still-blocking battle_routine caller.
+ * .asm) drivers are folded into the BM_ITEM* phases. Pushed by
+ * GAME_MODE_BATTLE's player-menu phase (BTL_MENU below).
  */
 StepResult mode_step_battle_menu(ModeState *ms) {
     BattleMenuState *st = &ms->battle_menu;
@@ -2956,17 +2958,6 @@ StepResult mode_step_battle_menu(ModeState *ms) {
     }
 }
 
-/* Pump bridge for the still-blocking battle_routine caller. Returns the
- * selected battle action, 0 for cancel/"back", or 0xFFFF for the debug
- * instant win. */
-static uint16_t battle_selection_menu(uint16_t char_id, uint16_t num_selected) {
-    ModeState init = {0};
-    init.battle_menu.phase        = BM_ENTER;
-    init.battle_menu.char_id      = char_id;
-    init.battle_menu.num_selected = num_selected;
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE_MENU, &init);
-}
-
 /*
  * CONSUME_USED_BATTLE_ITEM (asm/battle/consume_used_battle_item.asm)
  *
@@ -3370,7 +3361,16 @@ void play_giygas_weakened_sequence(uint16_t music,
  *
  * The main battle loop. Initializes battlers, runs the player menu →
  * enemy AI → turn execution → win/loss check cycle.
- * Returns: 0 = victory, 1 = party defeated, 2 = special defeat code.
+ *
+ * Run-to-completion: GAME_MODE_BATTLE. The former goto machine's labels map
+ * onto the BTL_* phases (see BattleRoutineState, mode_stack.h). The player
+ * command menus, every battle text, the battle waits, the ending fade and
+ * the end-of-round level-ups are STEP_PUSHed children; the big synchronous
+ * chunks (scene reinit, enemy AI, the debug encounter-setup loop, turn
+ * setup) live in btl_* helpers below, verbatim from the blocking original.
+ * battle_routine() at the bottom is the pump bridge for the still-blocking
+ * init_battle_common() caller. Pops 0 = victory, 1 = party defeated,
+ * 2 = special defeat code.
  * ====================================================================== */
 
 /* Asset table references loaded from ROM */
@@ -3379,15 +3379,40 @@ const uint8_t *btl_entry_bg_table;
 const uint8_t *npc_ai_table;
 const uint8_t *consolation_item_table;
 
-static uint16_t battle_routine(void) {
-    uint16_t battle_result = 0;
-    uint16_t initiative_mode = 0;
-    uint16_t turn_counter = 0;
-    uint16_t run_attempt = 0;
-    uint16_t post_battle_exit = 0;
-    uint16_t bg_id, palette_id, letterbox_style;
-    uint16_t debug_party_flags = 1;
-    uint16_t debug_enemy_level = 1;
+/* The display_in_battle_text_addr / display_text_wait_addr /
+ * display_text_with_prompt_addr prologue (see the top of this file) + a
+ * DISPLAY_TEXT child init for `addr`. `prompt` is the with-prompt variant's
+ * blinking_triangle_flag = 1; `has_cnum` is the wait_addr variant's
+ * set_cnum(cnum). Returns false (warn, like display_text_from_addr) when the
+ * address is unresolvable — the caller falls through to its resume phase
+ * inline, which runs the epilogue (clearing the prompt flag). */
+static bool battle_push_text_ex(ModeState *child, uint32_t addr, bool prompt,
+                                bool has_cnum, uint32_t cnum) {
+    if (prompt)
+        dt.blinking_triangle_flag = 1;
+    if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
+        game_state.auto_fight_enable = 0;
+        clear_hppp_window_header();
+    }
+    if (has_cnum)
+        set_cnum(cnum);
+    if (bt.battle_mode_flag)
+        dt.blinking_triangle_flag = 2;
+    if (dt_make_child_init(child, addr))
+        return true;
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    return false;
+}
+
+static bool battle_push_text(ModeState *child, uint32_t addr) {
+    return battle_push_text_ex(child, addr, false, false, 0);
+}
+
+/* One-time entry setup (assembly lines 26-133): normal-battle-mode party
+ * defaults, the Giygas phase, and the BG/palette/letterbox lookups. */
+static void btl_begin(BattleRoutineState *st) {
+    st->debug_party_flags = 1;
+    st->debug_enemy_level = 1;
 
     /* Load asset tables if not yet loaded */
     if (!btl_entry_ptr_table)
@@ -3404,8 +3429,8 @@ static uint16_t battle_routine(void) {
      * ================================================================ */
     if (ow.battle_mode == 0) {
         /* Normal battle mode: set up single-character party with 1 enemy */
-        debug_enemy_level = 1;
-        debug_party_flags = 1;
+        st->debug_enemy_level = 1;
+        st->debug_party_flags = 1;
         game_state.player_controlled_party_count = 1;
 
         /* Clear party_members and party_order */
@@ -3436,29 +3461,31 @@ static uint16_t battle_routine(void) {
     /* Load BG table entries for this battle group */
     if (btl_entry_bg_table) {
         uint16_t offset = bt.current_battle_group * 4;
-        bg_id = read_u16_le(&btl_entry_bg_table[offset]);
-        palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
+        st->bg_id = read_u16_le(&btl_entry_bg_table[offset]);
+        st->palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
     } else {
-        bg_id = 0;
-        palette_id = 0;
+        st->bg_id = 0;
+        st->palette_id = 0;
     }
 
     /* Get letterbox style from btl_entry_ptr_table */
     if (btl_entry_ptr_table) {
         uint16_t entry_offset = bt.current_battle_group * 8 + 7; /* battle_entry_ptr_entry::letterbox_style */
-        letterbox_style = btl_entry_ptr_table[entry_offset];
+        st->letterbox_style = btl_entry_ptr_table[entry_offset];
     } else {
-        letterbox_style = 0;
+        st->letterbox_style = 0;
     }
+}
 
-reinit_battle:
-    /* ================================================================
-     * Phase 2: Battle initialization (lines 134-480)
-     * ================================================================ */
+/* reinit_battle scene setup (assembly lines 134-480, through the fade-in):
+ * sprite/BG loads, battler-table init, battle music. The force_blank/
+ * blank_screen one-shot vblank yields stay inline (documented deferral,
+ * matching door.c's sequential-frame helpers). */
+static void btl_reinit_scene(BattleRoutineState *st) {
     bt.mirror_enemy = 0;
-    run_attempt = 0;
+    st->run_attempt = 0;
     bt.battle_item_used = 0;
-    turn_counter = 0;
+    st->turn_counter = 0;
     bt.battle_money_scratch = 0;
     bt.battle_exp_scratch = 0;
 
@@ -3467,7 +3494,7 @@ reinit_battle:
     load_enemy_battle_sprites();
     text_load_window_gfx();
     upload_text_tiles_to_vram(1);
-    load_battle_bg(bg_id, palette_id, letterbox_style);
+    load_battle_bg(st->bg_id, st->palette_id, st->letterbox_style);
     setup_battle_enemy_sprites();
 
     /* Clear all battler slots */
@@ -3530,13 +3557,13 @@ reinit_battle:
 
     blank_screen_and_wait_vblank();
     fade_in(1, 0);
+}
 
-    if (ow.battle_mode != 0) {
-        goto check_buzz_buzz;
-    }
-
+/* The normal-mode (ow.battle_mode == 0) reinit tail (assembly lines
+ * 410-480): battle party display + party re-init from current game state. */
+static void btl_reinit_party(BattleRoutineState *st) {
     /* Initialize battle party display */
-    initialize_battle_party(debug_enemy_level);
+    initialize_battle_party(st->debug_enemy_level);
 
     /* Re-init party members from current game state */
     for (uint16_t slot = 0; slot < 6; slot++) {
@@ -3569,23 +3596,24 @@ reinit_battle:
     }
 
     redirect_show_hppp_windows();
-    window_tick();
+}
 
-    /* Debug battle loop (assembly lines 482-740).
-     * When ow.debug_flag is set, this loop lets the developer interactively
-     * change enemy groups (SELECT), party composition (LEFT/RIGHT),
-     * enemy level (UP/DOWN/X), preview PSI animations (A), and
-     * swirl effects (B). Press START to proceed to actual battle. */
-    if (!ow.debug_flag)
-        goto start_battle_music;
-
+/* Debug battle loop (assembly lines 482-740).
+ * When ow.debug_flag is set, this loop lets the developer interactively
+ * change enemy groups (SELECT), party composition (LEFT/RIGHT),
+ * enemy level (UP/DOWN/X), preview PSI animations (A), and
+ * swirl effects (B). Press START to proceed to actual battle.
+ * Kept inline-blocking (debug-only; documented deferral). Returns true on
+ * apply_debug_party (the caller re-runs the whole battle reinit), false on
+ * START (proceed to battle). */
+static bool btl_debug_loop(BattleRoutineState *st) {
     for (;;) {
         wait_for_vblank();
         update_battle_screen_effects();
 
         /* START: exit debug loop, start battle (line 486-488) */
         if (core.pad1_pressed & PAD_START)
-            break;
+            return false;
 
         /* SELECT: open enemy_select_mode to change battle group (lines 489-533) */
         if (core.pad1_pressed & PAD_SELECT) {
@@ -3594,48 +3622,48 @@ reinit_battle:
             /* Reload BG/palette/letterbox from tables for the new group */
             if (btl_entry_bg_table) {
                 uint16_t offset = new_group * 4;
-                bg_id = read_u16_le(&btl_entry_bg_table[offset]);
-                palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
+                st->bg_id = read_u16_le(&btl_entry_bg_table[offset]);
+                st->palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
             }
             if (btl_entry_ptr_table) {
-                letterbox_style = btl_entry_ptr_table[new_group * 8 + 7];
+                st->letterbox_style = btl_entry_ptr_table[new_group * 8 + 7];
             }
             goto apply_debug_party;
         }
 
         /* RIGHT: add next party member flag (lines 534-542) */
         if (core.pad1_autorepeat & PAD_RIGHT) {
-            if (debug_party_flags < 15) {
-                debug_party_flags++;
+            if (st->debug_party_flags < 15) {
+                st->debug_party_flags++;
                 goto apply_debug_party;
             }
         }
         /* LEFT: remove last party member flag (lines 543-551) */
         else if (core.pad1_autorepeat & PAD_LEFT) {
-            if (debug_party_flags > 1) {
-                debug_party_flags--;
+            if (st->debug_party_flags > 1) {
+                st->debug_party_flags--;
                 goto apply_debug_party;
             }
         }
 
         /* DOWN: decrease enemy level (lines 552-560) */
         if (core.pad1_autorepeat & PAD_DOWN) {
-            if (debug_enemy_level > 1) {
-                debug_enemy_level--;
+            if (st->debug_enemy_level > 1) {
+                st->debug_enemy_level--;
                 goto apply_debug_party;
             }
         }
         /* UP: increase enemy level (lines 561-569) */
         else if (core.pad1_autorepeat & PAD_UP) {
-            if (debug_enemy_level < 99) {  /* MAX_LEVEL */
-                debug_enemy_level++;
+            if (st->debug_enemy_level < 99) {  /* MAX_LEVEL */
+                st->debug_enemy_level++;
                 goto apply_debug_party;
             }
         }
 
         /* X: set level to highest enemy level (lines 570-576) */
         if (core.pad1_pressed & PAD_X) {
-            debug_enemy_level = bt.highest_enemy_level_in_battle;
+            st->debug_enemy_level = bt.highest_enemy_level_in_battle;
             goto apply_debug_party;
         }
 
@@ -3664,24 +3692,22 @@ reinit_battle:
          * Bits 0-3 select Ness/Paula/Jeff/Poo respectively. */
         {
             uint8_t slot = 0;
-            if (debug_party_flags & 1) game_state.party_members[slot++] = 1; /* Ness */
-            if (debug_party_flags & 2) game_state.party_members[slot++] = 2; /* Paula */
-            if (debug_party_flags & 4) game_state.party_members[slot++] = 3; /* Jeff */
-            if (debug_party_flags & 8) game_state.party_members[slot++] = 4; /* Poo */
+            if (st->debug_party_flags & 1) game_state.party_members[slot++] = 1; /* Ness */
+            if (st->debug_party_flags & 2) game_state.party_members[slot++] = 2; /* Paula */
+            if (st->debug_party_flags & 4) game_state.party_members[slot++] = 3; /* Jeff */
+            if (st->debug_party_flags & 8) game_state.party_members[slot++] = 4; /* Poo */
             game_state.player_controlled_party_count = slot;
             while (slot < 6) game_state.party_members[slot++] = 0;
         }
-        goto reinit_battle;  /* Re-setup the entire battle scene */
+        return true;  /* Re-setup the entire battle scene */
     }
+}
 
-start_battle_music:
-    /* Play music for current enemy group */
-    if (enemy_config_table) {
-        uint8_t music_id = enemy_config_table[bt.enemies_in_battle_ids[0]].music;
-        change_music(music_id);
-    }
-
-check_buzz_buzz:
+/* check_buzz_buzz through the initiative setup (assembly lines 741-1109,
+ * minus the encounter texts): Buzz Buzz / possessed-party battlers, the
+ * item-drop roll, initiative, and the battle text window. Returns the first
+ * enemy's encounter text address (0 = none). */
+static uint32_t btl_prep(BattleRoutineState *st) {
     /* Check if Buzz Buzz is in party (event flag) */
     if (event_flag_get(EVENT_FLAG_BUNBUN)) {
         Battler *buzz = &bt.battlers_table[TOTAL_PARTY_COUNT]; /* slot 6 */
@@ -3754,11 +3780,11 @@ setup_item_drop:
     /* ================================================================
      * Phase 3: Initiative setup (lines 1008-1109)
      * ================================================================ */
-    initiative_mode = 0;
+    st->initiative_mode = 0;
     if (bt.battle_initiative == 1) {
-        initiative_mode = INITIATIVE_PARTY_FIRST;
+        st->initiative_mode = INITIATIVE_PARTY_FIRST;
     } else if (bt.battle_initiative == 2) {
-        initiative_mode = INITIATIVE_ENEMIES_FIRST;
+        st->initiative_mode = INITIATIVE_ENEMIES_FIRST;
     }
     bt.battle_initiative = 0;
 
@@ -3768,46 +3794,18 @@ setup_item_drop:
     bt.current_attacker = FIRST_ENEMY_INDEX * sizeof(Battler);
     fix_attacker_name(1);
 
-    /* Display encounter text from first enemy's config */
+    /* Encounter text from the first enemy's config (the BTL_PREP push) */
     if (enemy_config_table) {
-        uint32_t encounter_addr = enemy_config_table[bt.enemies_in_battle_ids[0]].encounter_text_ptr;
-        if (encounter_addr != 0) {
-            display_in_battle_text_addr(encounter_addr);
-        }
+        return enemy_config_table[bt.enemies_in_battle_ids[0]].encounter_text_ptr;
     }
+    return 0;
+}
 
-    /* Announce "Green/blue/red aura!" for party-first initiative */
-    if (initiative_mode == INITIATIVE_PARTY_FIRST) {
-        display_in_battle_text_addr(MSG_BTL8_SURPRISE_ATTACK_PLAYER);
-    }
-
-    /* Announce initial enemy statuses (asleep, sealed, strange) */
-    for (uint16_t i = 0; i < bt.enemies_in_battle; i++) {
-        Battler *enemy = &bt.battlers_table[FIRST_ENEMY_INDEX + i];
-        bt.current_target = (FIRST_ENEMY_INDEX + i) * sizeof(Battler);
-        fix_target_name();
-
-        if (enemy->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
-            display_in_battle_text_addr(MSG_BTL0_STATUS_ASLEEP_AT_START);
-        }
-        if (enemy->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-            display_in_battle_text_addr(MSG_BTL0_STATUS_PSI_BLOCKED_AT_START);
-        }
-        if (enemy->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
-            display_in_battle_text_addr(MSG_BTL0_STATUS_STRANGE_AT_START);
-        }
-    }
-
-    redirect_close_focus_window();
-    post_battle_exit = 0;
-    bt.special_defeat = 0;
-    goto check_new_turn;
-
-    /* ================================================================
-     * Phase 4: Start turn (lines 1110-1176)
-     * ================================================================ */
-start_turn:
-    turn_counter++;
+/* ================================================================
+ * Phase 4: Start turn (lines 1110-1176)
+ * ================================================================ */
+static void btl_start_turn(BattleRoutineState *st) {
+    st->turn_counter++;
     sort_battlers_into_rows();
 
     /* Calculate initiative for all battlers */
@@ -3827,151 +3825,64 @@ start_turn:
         party_characters[i].unknown94 = 0;
     }
 
-    /* ================================================================
-     * Phase 5: Player menu (lines 1177-1496)
-     * ================================================================ */
-    {
-        uint16_t num_selected = 0;
-        uint16_t party_slot = 0;
+    /* Reset the player-menu loop (the blocking original's block locals) */
+    st->num_selected = 0;
+    st->party_slot = 0;
+}
 
-        for (party_slot = 0; party_slot < 6; party_slot++) {
-            check_dead_players();
-            if (battle_count_chars(0) == 0) {
-                create_window(0x0E);
-                goto check_battle_end;
-            }
+/* The player-menu writeback (assembly lines 1404-1496): find the battler
+ * slot for this party member and store the selected action/item/targeting.
+ * Shared by the skip-menu and menu paths, like the blocking original. */
+static void btl_store_action(uint16_t member_id, uint16_t selected_action) {
+    /* Find the battler slot for this party member */
+    for (uint16_t slot = 0; slot < BATTLER_COUNT; slot++) {
+        Battler *b = &bt.battlers_table[slot];
+        if (b->consciousness == 0) continue;
+        if (b->ally_or_enemy != 0) continue;
+        if (b->id != member_id) continue;
 
-            uint8_t member_id = game_state.party_members[party_slot];
-            if (member_id == 0 || member_id > 4) continue;
+        /* Store action */
+        b->current_action = selected_action;
 
-            /* Check if this character should skip the menu */
-            bool skip_menu = false;
+        if (bt.battle_item_used != 0) {
+            b->action_item_slot = bt.battle_menu_param1;
+            b->current_action_argument = bt.battle_item_used;
+        } else {
+            b->action_item_slot = 0;
+            b->current_action_argument = bt.battle_menu_param1;
+        }
 
-            if (initiative_mode == 2 || initiative_mode == 3 || initiative_mode == 4) {
-                skip_menu = true;
-            }
+        /* Store targeting info */
+        b->action_targetting = bt.battle_menu_targetting;
+        b->current_target = bt.battle_menu_selected_target;
 
-            /* Poo with mirror active skips menu */
-            if (!skip_menu && member_id == PARTY_MEMBER_POO && bt.mirror_enemy != 0) {
-                skip_menu = true;
-            }
-
-            /* Check for incapacitation */
-            if (!skip_menu) {
-                uint8_t *aff = party_characters[member_id - 1].afflictions;
-                if (aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS ||
-                    aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) {
-                    skip_menu = true;
+        /* If targeting type is 1 (single target by ID), find the slot index */
+        if ((bt.battle_menu_targetting & 0xFF) == 1) {
+            for (uint16_t search = 0; search < 6; search++) {
+                Battler *tb = &bt.battlers_table[search];
+                if (tb->consciousness == 0) continue;
+                if (tb->npc_id != 0) continue;
+                if (tb->id == bt.battle_menu_selected_target) {
+                    b->current_target = (uint8_t)(search + 1);
+                    break;
                 }
-                uint8_t temp_status = aff[STATUS_GROUP_TEMPORARY];
-                if (temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED) {
-                    skip_menu = true;
-                }
-            }
-
-            uint16_t selected_action;
-
-            if (skip_menu) {
-                selected_action = BACT_NO_EFFECT;
-                bt.battle_item_used = 0;
-            } else {
-                /* Show battle menu for this character */
-                select_battle_menu_character_far(party_slot);
-                selected_action = battle_selection_menu(member_id, num_selected);
-                clear_battle_menu_character_indicator_far();
-                redirect_close_focus_window();
-
-                /* Check for Giygas battle abort */
-                if (ow.battle_mode != 0 && selected_action == 0xFFFF) {
-                    battle_result = 0;
-                    goto battle_ending;
-                }
-
-                /* Handle run away */
-                if (selected_action == BACT_RUN_AWAY) {
-                    selected_action = BACT_USE_NO_EFFECT;
-                    if (initiative_mode == 1) {
-                        initiative_mode = 4;
-                    } else {
-                        initiative_mode = 3;
-                    }
-                    run_attempt = 1;
-                }
-
-                /* Handle "back" (action == 0 from battle_selection_menu) */
-                if (selected_action == 0) {
-                    if (num_selected == 0) {
-                        party_slot--;
-                        continue;
-                    }
-                    num_selected--;
-                    party_slot = bt.party_members_with_selected_actions[num_selected];
-                    party_slot--;
-                    continue;
-                }
-
-                /* Reinit battle if -1 returned */
-                if (selected_action == 0xFFFF) {
-                    goto reinit_battle;
-                }
-
-                /* Store selected action index */
-                bt.party_members_with_selected_actions[num_selected] = party_slot;
-                num_selected++;
-
-                /* Map action 1 to 0 */
-                if (selected_action == 1) selected_action = 0;
-            }
-
-            /* Find the battler slot for this party member */
-            for (uint16_t slot = 0; slot < BATTLER_COUNT; slot++) {
-                Battler *b = &bt.battlers_table[slot];
-                if (b->consciousness == 0) continue;
-                if (b->ally_or_enemy != 0) continue;
-                if (b->id != member_id) continue;
-
-                /* Store action */
-                b->current_action = selected_action;
-
-                if (bt.battle_item_used != 0) {
-                    b->action_item_slot = bt.battle_menu_param1;
-                    b->current_action_argument = bt.battle_item_used;
-                } else {
-                    b->action_item_slot = 0;
-                    b->current_action_argument = bt.battle_menu_param1;
-                }
-
-                /* Store targeting info */
-                b->action_targetting = bt.battle_menu_targetting;
-                b->current_target = bt.battle_menu_selected_target;
-
-                /* If targeting type is 1 (single target by ID), find the slot index */
-                if ((bt.battle_menu_targetting & 0xFF) == 1) {
-                    for (uint16_t search = 0; search < 6; search++) {
-                        Battler *tb = &bt.battlers_table[search];
-                        if (tb->consciousness == 0) continue;
-                        if (tb->npc_id != 0) continue;
-                        if (tb->id == bt.battle_menu_selected_target) {
-                            b->current_target = (uint8_t)(search + 1);
-                            break;
-                        }
-                    }
-                }
-
-                /* Set guarding flag */
-                if (b->current_action == BACT_GUARD) {
-                    b->guarding = 1;
-                } else {
-                    b->guarding = 0;
-                }
-                break;
             }
         }
-    }
 
-    /* ================================================================
-     * Phase 6: Enemy AI — select actions (lines 1497-1921)
-     * ================================================================ */
+        /* Set guarding flag */
+        if (b->current_action == BACT_GUARD) {
+            b->guarding = 1;
+        } else {
+            b->guarding = 0;
+        }
+        break;
+    }
+}
+
+/* ================================================================
+ * Phase 6: Enemy AI — select actions (lines 1497-1921)
+ * ================================================================ */
+static void btl_enemy_ai(BattleRoutineState *st) {
     {
         for (uint16_t bi = 0; bi < BATTLER_COUNT; bi++) {
             Battler *b = &bt.battlers_table[bi];
@@ -3992,13 +3903,13 @@ start_turn:
             }
 
             /* Check initiative skip */
-            if (initiative_mode == 1 || initiative_mode == 4) {
+            if (st->initiative_mode == 1 || st->initiative_mode == 4) {
                 if (b->ally_or_enemy == 1) {
                     b->current_action = 0;
                     goto next_battler_action;
                 }
             }
-            if (initiative_mode == 2) {
+            if (st->initiative_mode == 2) {
                 if (b->ally_or_enemy == 0) {
                     b->current_action = 0;
                     goto next_battler_action;
@@ -4088,145 +3999,114 @@ next_battler_action:
             (void)0;
         }
     }
+}
 
-    /* ================================================================
-     * Phase 7: Announce enemy-first initiative (lines 1922-1931)
-     * ================================================================ */
-    create_window(0x0E);
-    if (initiative_mode == INITIATIVE_ENEMIES_FIRST) {
-        display_in_battle_text_addr(MSG_BTL8_SURPRISE_ATTACK_ENEMY);
-    }
+/* The Phase 8 run-away computation (assembly lines 1932-2078, minus the
+ * result texts): speed comparison + the escape roll. */
+static bool btl_run_success(BattleRoutineState *st) {
+    uint16_t max_enemy_speed = 0;
+    uint16_t max_player_speed = 0;
+    bool boss_present = false;
 
-    /* ================================================================
-     * Phase 8: Run away check (lines 1932-2078)
-     * ================================================================ */
-    if (run_attempt) {
-        uint16_t max_enemy_speed = 0;
-        uint16_t max_player_speed = 0;
-        bool boss_present = false;
+    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0) continue;
+        if (b->npc_id != 0) continue;
 
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            Battler *b = &bt.battlers_table[i];
-            if (b->consciousness == 0) continue;
-            if (b->npc_id != 0) continue;
-
-            if (b->ally_or_enemy == 1) {
-                /* Enemy: check if boss */
-                if (enemy_config_table && enemy_config_table[b->id].boss != 0) {
-                    boss_present = true;
-                    break;
-                }
-                /* Skip incapacitated enemies */
-                uint8_t s0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-                if (s0 == STATUS_0_UNCONSCIOUS || s0 == STATUS_0_DIAMONDIZED ||
-                    s0 == STATUS_0_PARALYZED) continue;
-                uint8_t s2 = b->afflictions[STATUS_GROUP_TEMPORARY];
-                if (s2 == STATUS_2_ASLEEP || s2 == STATUS_2_IMMOBILIZED ||
-                    s2 == STATUS_2_SOLIDIFIED) continue;
-
-                if (b->speed > max_enemy_speed) {
-                    max_enemy_speed = b->speed;
-                }
-            } else {
-                /* Player */
-                if (b->speed > max_player_speed) {
-                    max_player_speed = b->speed;
-                }
+        if (b->ally_or_enemy == 1) {
+            /* Enemy: check if boss */
+            if (enemy_config_table && enemy_config_table[b->id].boss != 0) {
+                boss_present = true;
+                break;
             }
-        }
+            /* Skip incapacitated enemies */
+            uint8_t s0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+            if (s0 == STATUS_0_UNCONSCIOUS || s0 == STATUS_0_DIAMONDIZED ||
+                s0 == STATUS_0_PARALYZED) continue;
+            uint8_t s2 = b->afflictions[STATUS_GROUP_TEMPORARY];
+            if (s2 == STATUS_2_ASLEEP || s2 == STATUS_2_IMMOBILIZED ||
+                s2 == STATUS_2_SOLIDIFIED) continue;
 
-        bool run_success = false;
-        if (boss_present) {
-            /* Can't run from bosses */
-            run_success = false;
-        } else if (max_enemy_speed == 0) {
-            run_success = true;
-        } else if (initiative_mode == 4) {
-            /* Party first + run = guaranteed */
-            run_success = true;
-        } else {
-            /* Speed-based run check */
-            uint16_t run_threshold = turn_counter * 10 + max_player_speed;
-            if (run_threshold >= max_enemy_speed) {
-                uint16_t roll = rand_limit(100);
-                uint16_t diff = run_threshold - max_enemy_speed;
-                if (roll < diff) {
-                    run_success = true;
-                }
+            if (b->speed > max_enemy_speed) {
+                max_enemy_speed = b->speed;
             }
-        }
-
-        if (run_success) {
-            display_in_battle_text_addr(MSG_BTL0_ESCAPE_SUCCESS);
-            battle_result = 0;
-            goto battle_ending;
         } else {
-            run_attempt = 0;
-            display_in_battle_text_addr(MSG_BTL0_ESCAPE_FAILED);
+            /* Player */
+            if (b->speed > max_player_speed) {
+                max_player_speed = b->speed;
+            }
         }
     }
 
-    /* Clear initiative mode for next turn */
-    initiative_mode = 0;
-    goto check_turn_continue;
-
-    /* ================================================================
-     * Phase 9: Execute turns (lines 2085-2926)
-     * ================================================================ */
-execute_turns:
-    check_dead_players();
-    if (battle_count_chars(0) == 0) goto check_battle_end;
-    if (battle_count_chars(1) == 0) goto check_battle_end;
-
-    /* Find battler with highest initiative who hasn't acted yet */
-    {
-        int16_t best_battler = -1;
-        uint16_t best_initiative = 0;
-
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            Battler *b = &bt.battlers_table[i];
-            if (b->consciousness == 0) continue;
-            if (b->has_taken_turn != 0) continue;
-            if (b->initiative >= best_initiative) {
-                best_initiative = b->initiative;
-                best_battler = i;
+    bool run_success = false;
+    if (boss_present) {
+        /* Can't run from bosses */
+        run_success = false;
+    } else if (max_enemy_speed == 0) {
+        run_success = true;
+    } else if (st->initiative_mode == 4) {
+        /* Party first + run = guaranteed */
+        run_success = true;
+    } else {
+        /* Speed-based run check */
+        uint16_t run_threshold = st->turn_counter * 10 + max_player_speed;
+        if (run_threshold >= max_enemy_speed) {
+            uint16_t roll = rand_limit(100);
+            uint16_t diff = run_threshold - max_enemy_speed;
+            if (roll < diff) {
+                run_success = true;
             }
         }
+    }
+    return run_success;
+}
 
-        if (best_battler < 0) {
-            goto close_battle_window;
+/* execute_turns: find the battler with the highest initiative who hasn't
+ * acted yet (assembly lines 2090-2114). Returns -1 when everyone acted. */
+static int16_t btl_find_attacker(void) {
+    int16_t best_battler = -1;
+    uint16_t best_initiative = 0;
+
+    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0) continue;
+        if (b->has_taken_turn != 0) continue;
+        if (b->initiative >= best_initiative) {
+            best_initiative = b->initiative;
+            best_battler = (int16_t)i;
+        }
+    }
+    return best_battler;
+}
+
+/* execute_turns status overrides (assembly lines 2128-2280): paralyzed/
+ * immobilized, asleep, solidified, can't-concentrate, homesick, and the
+ * self-target check. All synchronous. */
+static void btl_status_overrides(Battler *attacker) {
+    uint8_t status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+
+    /* ---- Status override: Paralyzed/Immobilized ---- */
+    if (status0 == STATUS_0_PARALYZED ||
+        attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED) {
+
+        /* Check if action is PSI (can still use PSI while paralyzed) */
+        uint16_t action_id = attacker->current_action;
+        bool exempt = false;
+        if (battle_action_table &&
+            battle_action_table[action_id].type == ACTION_TYPE_PSI) {
+            exempt = true;
         }
 
-        clear_focus_window_content_far();
-        bt.current_attacker = best_battler * sizeof(Battler);
-        Battler *attacker = &bt.battlers_table[best_battler];
-        attacker->has_taken_turn = 1;
-
-        /* Check if attacker is incapacitated */
-        uint8_t status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-        if (status0 == STATUS_0_UNCONSCIOUS || status0 == STATUS_0_DIAMONDIZED) {
-            goto check_turn_continue;
+        /* Check exempt actions (pray, final prayers, spy, mirror, no_effect) */
+        if (action_id == BACT_PRAY ||
+            (action_id >= BACT_FINAL_PRAYER_1 && action_id <= BACT_FINAL_PRAYER_9) ||
+            action_id == BACT_SPY ||
+            action_id == BACT_MIRROR ||
+            action_id == BACT_NO_EFFECT) {
+            exempt = true;
         }
 
-        /* ---- Status override: Paralyzed/Immobilized ---- */
-        if (status0 == STATUS_0_PARALYZED ||
-            attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED) {
-
-            /* Check if action is PSI (can still use PSI while paralyzed) */
-            uint16_t action_id = attacker->current_action;
-            if (battle_action_table) {
-                if (battle_action_table[action_id].type == ACTION_TYPE_PSI) goto check_asleep;
-            }
-
-            /* Check exempt actions (pray, final prayers, spy, mirror, no_effect) */
-            if (action_id == BACT_PRAY ||
-                (action_id >= BACT_FINAL_PRAYER_1 && action_id <= BACT_FINAL_PRAYER_9) ||
-                action_id == BACT_SPY ||
-                action_id == BACT_MIRROR ||
-                action_id == BACT_NO_EFFECT) {
-                goto check_asleep;
-            }
-
+        if (!exempt) {
             /* Override action: paralyzed → action 252, immobilized → action 254 */
             if (status0 == STATUS_0_PARALYZED) {
                 attacker->current_action = BACT_ACTION_252;
@@ -4235,385 +4115,147 @@ execute_turns:
             }
             attacker->action_item_slot = 0;
         }
+    }
 
-check_asleep:
-        /* ---- Status override: Asleep ---- */
-        if (attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
-            if (attacker->current_action != 0) {
-                attacker->current_action = BACT_ACTION_253;
-                attacker->action_item_slot = 0;
-            }
+    /* ---- Status override: Asleep ---- */
+    if (attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
+        if (attacker->current_action != 0) {
+            attacker->current_action = BACT_ACTION_253;
+            attacker->action_item_slot = 0;
         }
+    }
 
-        /* ---- Status override: Solidified ---- */
-        if (attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_SOLIDIFIED) {
-            if (attacker->current_action != 0) {
-                attacker->current_action = BACT_ACTION_255;
-                attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-                attacker->action_item_slot = 0;
-            }
-        }
-
-        /* ---- Status override: Can't concentrate (blocks PSI) ---- */
-        if (attacker->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-            uint16_t action_id = attacker->current_action;
-            if (battle_action_table && action_id != 0) {
-                uint8_t action_type = battle_action_table[action_id].type;
-                if (action_type == ACTION_TYPE_PSI) {
-                    attacker->current_action = BACT_ACTION_256;
-                }
-            }
-        }
-
-        /* ---- Status override: Homesick (1/8 chance of wasting turn) ---- */
-        if (attacker->afflictions[STATUS_GROUP_HOMESICKNESS] == STATUS_5_HOMESICK) {
-            if (attacker->current_action != 0) {
-                if ((rand_byte() & 7) == 0) {
-                    attacker->current_action = BACT_ACTION_251;
-                    attacker->action_item_slot = 0;
-                }
-            }
-        }
-
-        /* ---- Lookup action from table ---- */
-        uint16_t action_id = attacker->current_action;
-
-        /* Self-target check: if action direction is PARTY (0) and target is NONE (0) */
-        if (battle_action_table) {
-            uint8_t direction = battle_action_table[action_id].direction;
-            uint8_t target_type = battle_action_table[action_id].target;
-
-            if (direction == ACTION_DIRECTION_PARTY && target_type == ACTION_TARGET_NONE) {
-                if (attacker->ally_or_enemy == 0) {
-                    /* Ally self-targeting */
-                    attacker->action_targetting = 1;
-                    uint16_t self_index = (bt.current_attacker / sizeof(Battler)) + 1;
-                    attacker->current_target = (uint8_t)self_index;
-                } else {
-                    /* Enemy self-targeting */
-                    attacker->action_targetting = 17;
-                    uint16_t self_index = bt.current_attacker / sizeof(Battler);
-                    set_battler_target(bt.current_attacker, self_index);
-                }
-            }
-        }
-
-        /* Set up names and status damage */
-        uint16_t retargeted = 0;
-        bt.current_target = bt.current_attacker;
-        fix_attacker_name(0);
-        fix_target_name();
-
-        /* Status damage (nauseous, poisoned, sunstroke, cold) */
-        uint16_t status_damage = 0;
-        status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-
-        if (status0 == STATUS_0_NAUSEOUS) {
-            status_damage = battle_25pct_variance(20);
-            display_text_wait_addr(MSG_BTL4_STATUS_SICK_HP_DAMAGE, status_damage);
-        } else if (status0 == STATUS_0_POISONED) {
-            status_damage = battle_25pct_variance(20);
-            display_text_wait_addr(MSG_BTL4_STATUS_POISON_HP_DAMAGE, status_damage);
-        } else if (status0 == STATUS_0_SUNSTROKE) {
-            status_damage = battle_25pct_variance(4);
-            display_text_wait_addr(MSG_BTL4_STATUS_DIZZY_HP_DAMAGE, status_damage);
-        } else if (status0 == STATUS_0_COLD) {
-            status_damage = battle_25pct_variance(4);
-            display_text_wait_addr(MSG_BTL4_STATUS_SNEEZE_HP_DAMAGE, status_damage);
-        }
-
-        /* Apply status damage */
-        if (status_damage > 0) {
-            battle_lose_hp_status(attacker, status_damage);
-
-            if (attacker->hp == 0) {
-                battle_ko_target(attacker);
-                if (battle_count_chars(0) == 0) goto check_battle_end;
-                if (battle_count_chars(1) == 0) goto check_battle_end;
-                goto check_turn_continue;
-            }
-        }
-
-        /* Re-choose target for enemies */
-        if (attacker->ally_or_enemy == 1) {
-            choose_target(bt.current_attacker);
-
-            /* Re-select stealable item for steal actions */
-            if (attacker->current_action == BACT_STEAL) {
-                uint16_t stolen = select_stealable_item();
-                attacker->current_action_argument = (uint8_t)stolen;
-            }
-        }
-
-        /* Set targets by action */
-        set_battler_targets_by_action(bt.current_attacker);
-
-        /* For party members with target-none actions: remove untargettable then re-pick if empty */
-        if (attacker->ally_or_enemy == 0 && battle_action_table) {
-            uint8_t direction = battle_action_table[attacker->current_action].direction;
-            if (direction == ACTION_DIRECTION_PARTY) {
-                battle_remove_status_untargettable_targets();
-                if (bt.battler_target_flags == 0) {
-                    choose_target(bt.current_attacker);
-                    set_battler_targets_by_action(bt.current_attacker);
-                    battle_remove_status_untargettable_targets();
-                }
-            }
-        }
-
-        /* Mushroomized/strange retargeting */
-        if (attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED) {
-            if (rand_limit(100) < MUSHROOMIZED_TARGET_CHANGE_CHANCE) {
-                retargeted = 1;
-            }
-        }
-        if (attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
-            retargeted = 1;
-        }
-        if (retargeted && battle_action_table) {
-            uint8_t target_type = battle_action_table[attacker->current_action].target;
-            if (target_type != ACTION_TARGET_NONE) {
-                do {
-                    battle_feeling_strange_retargeting();
-                    battle_remove_status_untargettable_targets();
-                } while (bt.battler_target_flags == 0);
-            } else {
-                retargeted = 0;
-            }
-        }
-
-        /* Validate steal target */
-        if (attacker->current_action == BACT_STEAL) {
-            if (!is_item_stealable(attacker->current_action_argument)) {
-                attacker->current_action_argument = 0;
-            }
-        }
-
-        /* ---- Prepare and execute the action ---- */
-        fix_attacker_name(0);
-        set_current_item_far(attacker->current_action_argument);
-        set_target_if_targeted();
-
-        /* Highlight party member during their turn */
-        if (attacker->ally_or_enemy == 0 && attacker->id <= PLAYER_CHAR_COUNT) {
-            for (uint16_t slot = 0; slot < 6; slot++) {
-                if (game_state.party_members[slot] == attacker->id) {
-                    select_battle_menu_character_far(slot);
-                    break;
-                }
-            }
-        }
-
-        /* Check PP cost */
-        if (battle_action_table) {
-            uint8_t pp_cost = battle_action_table[action_id].pp_cost;
-            if (pp_cost > 0) {
-                if (pp_cost > attacker->pp_target) {
-                    display_in_battle_text_addr(MSG_BTL6_NOT_ENOUGH_PP_BATTLE);
-                    goto after_action;
-                }
-                set_battler_pp_from_target(bt.current_attacker, pp_cost);
-            }
-        }
-
-        /* Enemy attack palette effect */
-        if (attacker->ally_or_enemy == 1 && attacker->current_action != 0 && battle_action_table) {
-            uint8_t action_type = battle_action_table[attacker->current_action].type;
-            if (action_type == ACTION_TYPE_PHYSICAL || action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
-                load_attack_palette(1);
-            } else if (action_type == ACTION_TYPE_PSI) {
-                load_attack_palette(2);
-            } else if (action_type == ACTION_TYPE_OTHER) {
-                load_attack_palette(3);
-            }
-        }
-
-        /* Animate attacker (12-frame bob) */
-        attacker->shake_timer = 12;
-        {
-            ModeState init = { .battle_wait = { .kind = BW_FRAMES, .remaining = 12 } };
-            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-        }
-
-        /* Display status text for confused/mushroomized */
-        if (retargeted) {
-            if (attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
-                display_in_battle_text_addr(MSG_BTL0_ACTING_UNUSUAL);
-            }
-            if (attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED) {
-                display_in_battle_text_addr(MSG_BTL0_ACTING_FUNKY);
-            }
-        }
-
-        /* Display action description text */
-        if (battle_action_table) {
-            uint32_t desc_addr = battle_action_table[attacker->current_action].description_text_pointer;
-            if (desc_addr != 0) {
-                display_text_with_prompt_addr(desc_addr);
-            }
-        }
-
-        /* Skip if action is 0 (no effect) */
-        if (attacker->current_action == 0) goto after_action;
-
-        /* Wait for PSI animation to complete */
-        {
-            ModeState init = { .battle_wait = { .kind = BW_PSI_ANIM } };
-            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-        }
-
-        /* ---- Target loop: apply action to each targeted battler ---- */
-        for (uint16_t target_i = 0; target_i < BATTLER_COUNT; target_i++) {
-            if (!battle_is_char_targeted(target_i)) continue;
-
-            bt.current_target = target_i * sizeof(Battler);
-            Battler *target = &bt.battlers_table[target_i];
-            fix_target_name();
-
-            /* Check if target is dead — only some actions can target dead battlers */
-            if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-                bool can_target_dead = false;
-                for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
-                    if (dead_targettable_actions[di] == attacker->current_action) {
-                        can_target_dead = true;
-                        break;
-                    }
-                }
-                if (!can_target_dead) {
-                    display_in_battle_text_addr(MSG_BTL4_RESULT_TARGET_ALREADY_GONE);
-                    continue;
-                }
-            }
-
-            /* Execute the action callback */
-            if (battle_action_table) {
-                uint32_t func_ptr = battle_action_table[attacker->current_action].battle_function_pointer;
-                if (func_ptr != 0) {
-                    bt.temp_function_pointer = func_ptr;
-                    jump_temp_function_pointer();
-                }
-            }
-
-            check_dead_players();
-            ow.redraw_all_windows = 1;
-
-            if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
-                consume_used_battle_item();
-                goto check_battle_end;
-            }
-
-            /* Handle special defeat codes */
-            if (bt.special_defeat == 3) {
-                battle_result = 0;
-                goto battle_ending;
-            }
-            if (bt.special_defeat == 2) {
-                consume_used_battle_item();
-                goto enemies_are_dead;
-            }
-            if (bt.special_defeat == 1) {
-                battle_result = 2;
-                goto battle_ending;
-            }
-
-            /* Wait for screen effects */
-            {
-                ModeState init = { .battle_wait = { .kind = BW_SCREEN_EFFECT } };
-                pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-            }
-        }
-
-after_action:
-        /* ---- Post-action processing (lines 2927-3035) ---- */
-
-        /* Consume item if attacker is a party member */
-        if (attacker->ally_or_enemy == 0) {
-            consume_used_battle_item();
-
-            /* Mirror turn timer countdown */
-            if (bt.mirror_enemy != 0 && attacker->id == PARTY_MEMBER_POO) {
-                bt.mirror_turn_timer--;
-                if (bt.mirror_turn_timer == 0) {
-                    bt.mirror_enemy = 0;
-                    battle_copy_mirror_data(attacker, &bt.mirror_battler_backup);
-                    display_in_battle_text_addr(MSG_BTL5_MORPH_NEUTRALIZED);
-                }
-            }
-        }
-
-        /* Clear menu indicator */
-        clear_battle_menu_character_indicator_far();
-
-        /* Post-action status recovery */
-        check_dead_players();
-        bt.current_target = bt.current_attacker;
-        fix_target_name();
-
-        /* Check for status recovery */
-        uint8_t temp_status = attacker->afflictions[STATUS_GROUP_TEMPORARY];
-        if (temp_status == STATUS_2_ASLEEP) {
-            /* 1/4 chance of waking up */
-            if ((rand_byte() & 3) == 0) {
-                display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
-                attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            }
-        } else if (temp_status == STATUS_2_IMMOBILIZED) {
-            /* CHANCE_OF_BODY_MOVING_AGAIN% chance of recovery */
-            if (rand_limit(100) < (100 - CHANCE_OF_BODY_MOVING_AGAIN)) {
-                display_in_battle_text_addr(MSG_BTL5_CURED_IMMOBILIZED);
-                attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            }
-        } else if (temp_status == STATUS_2_SOLIDIFIED) {
-            /* Always recover from solidified after acting */
-            display_in_battle_text_addr(MSG_BTL5_CURED_SOLIDIFIED);
+    /* ---- Status override: Solidified ---- */
+    if (attacker->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_SOLIDIFIED) {
+        if (attacker->current_action != 0) {
+            attacker->current_action = BACT_ACTION_255;
             attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+            attacker->action_item_slot = 0;
         }
+    }
 
-        /* Concentration timer countdown */
-        {
-            uint8_t conc = attacker->afflictions[STATUS_GROUP_CONCENTRATION];
-            if (conc > 0) {
-                conc--;
-                attacker->afflictions[STATUS_GROUP_CONCENTRATION] = conc;
-                if (conc == 0) {
-                    display_in_battle_text_addr(MSG_BTL5_CURED_PSI_BLOCKED);
-                }
+    /* ---- Status override: Can't concentrate (blocks PSI) ---- */
+    if (attacker->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
+        uint16_t action_id = attacker->current_action;
+        if (battle_action_table && action_id != 0) {
+            uint8_t action_type = battle_action_table[action_id].type;
+            if (action_type == ACTION_TYPE_PSI) {
+                attacker->current_action = BACT_ACTION_256;
             }
         }
+    }
 
-        /* Clear alt spritemaps for all battlers */
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            bt.battlers_table[i].use_alt_spritemap = 0;
+    /* ---- Status override: Homesick (1/8 chance of wasting turn) ---- */
+    if (attacker->afflictions[STATUS_GROUP_HOMESICKNESS] == STATUS_5_HOMESICK) {
+        if (attacker->current_action != 0) {
+            if ((rand_byte() & 7) == 0) {
+                attacker->current_action = BACT_ACTION_251;
+                attacker->action_item_slot = 0;
+            }
         }
-
-        check_dead_players();
-        redirect_show_hppp_windows();
     }
 
-    /* ================================================================
-     * Phase 10: Battle end checks (lines 3036-3159)
-     * ================================================================ */
-check_battle_end:
-    if (battle_count_chars(0) == 0) {
-        /* Party defeated */
-        battle_result = 1;
-        reset_hppp_rolling();
-        display_in_battle_text_addr(MSG_BTL8_ENEMY_VICTORY);
-        post_battle_exit = 1;
+    /* Self-target check: if action direction is PARTY (0) and target is NONE (0) */
+    if (battle_action_table) {
+        uint16_t action_id = attacker->current_action;
+        uint8_t direction = battle_action_table[action_id].direction;
+        uint8_t target_type = battle_action_table[action_id].target;
+
+        if (direction == ACTION_DIRECTION_PARTY && target_type == ACTION_TARGET_NONE) {
+            if (attacker->ally_or_enemy == 0) {
+                /* Ally self-targeting */
+                attacker->action_targetting = 1;
+                uint16_t self_index = (bt.current_attacker / sizeof(Battler)) + 1;
+                attacker->current_target = (uint8_t)self_index;
+            } else {
+                /* Enemy self-targeting */
+                attacker->action_targetting = 17;
+                uint16_t self_index = bt.current_attacker / sizeof(Battler);
+                set_battler_target(bt.current_attacker, self_index);
+            }
+        }
+    }
+}
+
+/* execute_turns targeting setup (assembly lines 2398-2520): enemy target
+ * re-pick, set targets by action, untargettable removal, the mushroomized/
+ * strange retarget rolls, steal validation, names and the party highlight.
+ * Updates st->retargeted. All synchronous. */
+static void btl_exec_setup_targets(BattleRoutineState *st, Battler *attacker) {
+    /* Re-choose target for enemies */
+    if (attacker->ally_or_enemy == 1) {
+        choose_target(bt.current_attacker);
+
+        /* Re-select stealable item for steal actions */
+        if (attacker->current_action == BACT_STEAL) {
+            uint16_t stolen = select_stealable_item();
+            attacker->current_action_argument = (uint8_t)stolen;
+        }
     }
 
-    if (battle_count_chars(1) == 0) {
-        goto enemies_are_dead;
+    /* Set targets by action */
+    set_battler_targets_by_action(bt.current_attacker);
+
+    /* For party members with target-none actions: remove untargettable then re-pick if empty */
+    if (attacker->ally_or_enemy == 0 && battle_action_table) {
+        uint8_t direction = battle_action_table[attacker->current_action].direction;
+        if (direction == ACTION_DIRECTION_PARTY) {
+            battle_remove_status_untargettable_targets();
+            if (bt.battler_target_flags == 0) {
+                choose_target(bt.current_attacker);
+                set_battler_targets_by_action(bt.current_attacker);
+                battle_remove_status_untargettable_targets();
+            }
+        }
     }
 
-    goto check_turn_continue;
+    /* Mushroomized/strange retargeting */
+    if (attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED) {
+        if (rand_limit(100) < MUSHROOMIZED_TARGET_CHANGE_CHANCE) {
+            st->retargeted = 1;
+        }
+    }
+    if (attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
+        st->retargeted = 1;
+    }
+    if (st->retargeted && battle_action_table) {
+        uint8_t target_type = battle_action_table[attacker->current_action].target;
+        if (target_type != ACTION_TARGET_NONE) {
+            do {
+                battle_feeling_strange_retargeting();
+                battle_remove_status_untargettable_targets();
+            } while (bt.battler_target_flags == 0);
+        } else {
+            st->retargeted = 0;
+        }
+    }
 
-enemies_are_dead:
-    battle_result = 0;
-    reset_hppp_rolling();
-    bt.letterbox_effect_ending = 1;
-    bt.enable_background_darkening = 1;
+    /* Validate steal target */
+    if (attacker->current_action == BACT_STEAL) {
+        if (!is_item_stealable(attacker->current_action_argument)) {
+            attacker->current_action_argument = 0;
+        }
+    }
 
+    /* ---- Prepare and execute the action ---- */
+    fix_attacker_name(0);
+    set_current_item_far(attacker->current_action_argument);
+    set_target_if_targeted();
+
+    /* Highlight party member during their turn */
+    if (attacker->ally_or_enemy == 0 && attacker->id <= PLAYER_CHAR_COUNT) {
+        for (uint16_t slot = 0; slot < 6; slot++) {
+            if (game_state.party_members[slot] == attacker->id) {
+                select_battle_menu_character_far(slot);
+                break;
+            }
+        }
+    }
+}
+
+/* enemies_are_dead bookkeeping (assembly lines 3060-3105): money deposit +
+ * the per-member EXP split. */
+static void btl_victory_money_exp(void) {
     /* Deposit battle money */
     uint32_t deposited = deposit_into_atm(bt.battle_money_scratch);
 
@@ -4636,59 +4278,10 @@ enemies_are_dead:
             bt.battle_exp_scratch /= alive_count;
         }
     }
+}
 
-    /* Display victory message with EXP amount */
-    if (bt.current_battle_group >= 0x01C0) {  /* ENEMY_GROUP_BOSS_START */
-        display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY_BOSS, bt.battle_exp_scratch);
-    } else {
-        display_text_wait_addr(MSG_BTL8_PLAYER_VICTORY, bt.battle_exp_scratch);
-    }
-
-    /* Announce item drop */
-    if (bt.item_dropped != 0) {
-        set_current_item_far((uint8_t)bt.item_dropped);
-        display_in_battle_text_addr(MSG_BTL8_ENEMY_PRESENT_DROPPED);
-    }
-
-    /* Distribute EXP to all conscious, non-NPC, non-dead party members */
-    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-        Battler *b = &bt.battlers_table[i];
-        if (b->consciousness == 0) continue;
-        if (b->ally_or_enemy != 0) continue;
-        if (b->npc_id != 0) continue;
-        if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) continue;
-        if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) continue;
-
-        gain_exp(1, b->id, bt.battle_exp_scratch);
-    }
-
-    post_battle_exit = 1;
-
-check_turn_continue:
-    if (post_battle_exit == 0) {
-        goto execute_turns;
-    }
-
-close_battle_window:
-    redirect_close_focus_window();
-
-check_new_turn:
-    if (post_battle_exit == 0) {
-        goto start_turn;
-    }
-
-    /* ================================================================
-     * Phase 11: Battle ending (lines 3176-3306)
-     * ================================================================ */
-battle_ending:
-    reset_hppp_rolling();
-
-    /* Wait for HP/PP meters to stabilize */
-    {
-        ModeState init = { .battle_wait = { .kind = BW_HPPP_STABLE } };
-        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-    }
-
+/* battle_ending mirror restore + cleanup (assembly lines 3190-3240). */
+static void btl_ending_cleanup(void) {
     /* Restore mirror if still active */
     if (bt.mirror_enemy != 0) {
         for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
@@ -4711,28 +4304,786 @@ battle_ending:
     battle_reset_post_battle_stats();
     game_state.auto_fight_enable = 0;
     bt.battle_mode_flag = 0;
+}
 
-    if (ow.battle_mode == 0) {
-        /* Debug mode: loop back to reinit */
-        goto reinit_battle;
+/* GAME_MODE_BATTLE step — run-to-completion port of battle_routine(). The
+ * former goto labels map onto the BTL_* phases (see BattleRoutineState,
+ * mode_stack.h); the synchronous chunks live in the btl_* helpers above. */
+StepResult mode_step_battle(ModeState *ms) {
+    BattleRoutineState *st = &ms->battle;
+    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch ((BattleRoutinePhase)st->phase) {
+
+        case BTL_BEGIN:
+            /* Phase 1: initial setup (lines 26-133) */
+            btl_begin(st);
+            st->phase = BTL_REINIT;
+            break;
+
+        case BTL_REINIT:
+            /* reinit_battle (lines 134-480) */
+            btl_reinit_scene(st);
+            if (ow.battle_mode != 0) {
+                st->phase = BTL_PREP;  /* goto check_buzz_buzz */
+                break;
+            }
+            btl_reinit_party(st);
+            /* The blocking original's window_tick(): same work, the pump
+             * owns the yield. */
+            window_tick_work();
+            st->phase = BTL_DEBUG;
+            return STEP_RESULT_CONTINUE();
+
+        case BTL_DEBUG:
+            if (ow.debug_flag && btl_debug_loop(st)) {
+                st->phase = BTL_REINIT;  /* apply_debug_party: re-setup the scene */
+                break;
+            }
+            /* start_battle_music: play music for current enemy group */
+            if (enemy_config_table) {
+                uint8_t music_id = enemy_config_table[bt.enemies_in_battle_ids[0]].music;
+                change_music(music_id);
+            }
+            st->phase = BTL_PREP;
+            break;
+
+        case BTL_PREP: {
+            /* check_buzz_buzz .. initiative setup; push the encounter text */
+            uint32_t encounter_addr = btl_prep(st);
+            st->announce_i = 0;
+            st->announce_stage = 0;
+            st->phase = BTL_AURA;
+            if (encounter_addr != 0 &&
+                battle_push_text(&child_init, encounter_addr))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+        }
+
+        case BTL_AURA:
+            dt.blinking_triangle_flag = 0;
+            /* Announce "Green/blue/red aura!" for party-first initiative */
+            st->phase = BTL_ANNOUNCE;
+            if (st->initiative_mode == INITIATIVE_PARTY_FIRST &&
+                battle_push_text(&child_init, MSG_BTL8_SURPRISE_ATTACK_PLAYER))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+
+        case BTL_ANNOUNCE:
+            /* Announce initial enemy statuses (asleep, sealed, strange) —
+             * resumable per enemy (announce_i) and per text (announce_stage). */
+            dt.blinking_triangle_flag = 0;
+            while (st->announce_i < bt.enemies_in_battle) {
+                Battler *enemy = &bt.battlers_table[FIRST_ENEMY_INDEX + st->announce_i];
+                if (st->announce_stage == 0) {
+                    bt.current_target =
+                        (uint16_t)((FIRST_ENEMY_INDEX + st->announce_i) * sizeof(Battler));
+                    fix_target_name();
+                    st->announce_stage = 1;
+                    if (enemy->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP &&
+                        battle_push_text(&child_init, MSG_BTL0_STATUS_ASLEEP_AT_START))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                }
+                if (st->announce_stage == 1) {
+                    st->announce_stage = 2;
+                    if (enemy->afflictions[STATUS_GROUP_CONCENTRATION] != 0 &&
+                        battle_push_text(&child_init, MSG_BTL0_STATUS_PSI_BLOCKED_AT_START))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                }
+                st->announce_stage = 0;
+                st->announce_i++;
+                if (enemy->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE &&
+                    battle_push_text(&child_init, MSG_BTL0_STATUS_STRANGE_AT_START))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            }
+            redirect_close_focus_window();
+            st->post_battle_exit = 0;
+            bt.special_defeat = 0;
+            st->phase = BTL_TURN;  /* goto check_new_turn (post_battle_exit == 0) */
+            break;
+
+        case BTL_TURN:
+            /* start_turn (lines 1110-1176) */
+            btl_start_turn(st);
+            st->phase = BTL_MENU;
+            break;
+
+        case BTL_MENU:
+            /* Phase 5: player menu loop (lines 1177-1496) */
+            while (st->party_slot < 6) {
+                check_dead_players();
+                if (battle_count_chars(0) == 0) {
+                    create_window(0x0E);
+                    st->phase = BTL_END_CHECK;
+                    goto menu_done;
+                }
+
+                uint8_t member_id = game_state.party_members[st->party_slot];
+                if (member_id == 0 || member_id > 4) {
+                    st->party_slot++;
+                    continue;
+                }
+
+                /* Check if this character should skip the menu */
+                bool skip_menu = false;
+
+                if (st->initiative_mode == 2 || st->initiative_mode == 3 ||
+                    st->initiative_mode == 4) {
+                    skip_menu = true;
+                }
+
+                /* Poo with mirror active skips menu */
+                if (!skip_menu && member_id == PARTY_MEMBER_POO && bt.mirror_enemy != 0) {
+                    skip_menu = true;
+                }
+
+                /* Check for incapacitation */
+                if (!skip_menu) {
+                    uint8_t *aff = party_characters[member_id - 1].afflictions;
+                    if (aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS ||
+                        aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) {
+                        skip_menu = true;
+                    }
+                    uint8_t temp_status = aff[STATUS_GROUP_TEMPORARY];
+                    if (temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED) {
+                        skip_menu = true;
+                    }
+                }
+
+                if (skip_menu) {
+                    bt.battle_item_used = 0;
+                    btl_store_action(member_id, BACT_NO_EFFECT);
+                    st->party_slot++;
+                    continue;
+                }
+
+                /* Show battle menu for this character */
+                select_battle_menu_character_far(st->party_slot);
+                child_init = (ModeState){0};
+                child_init.battle_menu.phase        = BM_ENTER;
+                child_init.battle_menu.char_id      = member_id;
+                child_init.battle_menu.num_selected = st->num_selected;
+                st->phase = BTL_MENU_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &child_init);
+            }
+            st->phase = BTL_ENEMY_AI;
+        menu_done:
+            break;
+
+        case BTL_MENU_RESULT: {
+            uint16_t selected_action = (uint16_t)mode_child_result();
+            uint8_t member_id = game_state.party_members[st->party_slot];
+
+            clear_battle_menu_character_indicator_far();
+            redirect_close_focus_window();
+
+            /* Check for Giygas battle abort */
+            if (ow.battle_mode != 0 && selected_action == 0xFFFF) {
+                st->battle_result = 0;
+                st->phase = BTL_ENDING;
+                break;
+            }
+
+            /* Handle run away */
+            if (selected_action == BACT_RUN_AWAY) {
+                selected_action = BACT_USE_NO_EFFECT;
+                if (st->initiative_mode == 1) {
+                    st->initiative_mode = 4;
+                } else {
+                    st->initiative_mode = 3;
+                }
+                st->run_attempt = 1;
+            }
+
+            /* Handle "back" (action == 0 from the battle menu) */
+            if (selected_action == 0) {
+                if (st->num_selected == 0) {
+                    /* The original's party_slot--/continue: retry this slot */
+                    st->phase = BTL_MENU;
+                    break;
+                }
+                st->num_selected--;
+                st->party_slot = bt.party_members_with_selected_actions[st->num_selected];
+                st->phase = BTL_MENU;
+                break;
+            }
+
+            /* Reinit battle if -1 returned (debug instant win, battle_mode 0) */
+            if (selected_action == 0xFFFF) {
+                st->phase = BTL_REINIT;
+                break;
+            }
+
+            /* Store selected action index */
+            bt.party_members_with_selected_actions[st->num_selected] = st->party_slot;
+            st->num_selected++;
+
+            /* Map action 1 to 0 */
+            if (selected_action == 1) selected_action = 0;
+
+            btl_store_action(member_id, selected_action);
+            st->party_slot++;
+            st->phase = BTL_MENU;
+            break;
+        }
+
+        case BTL_ENEMY_AI:
+            /* Phase 6: enemy AI (lines 1497-1921) */
+            btl_enemy_ai(st);
+
+            /* Phase 7: announce enemy-first initiative (lines 1922-1931) */
+            create_window(0x0E);
+            st->phase = BTL_RUN_CHECK;
+            if (st->initiative_mode == INITIATIVE_ENEMIES_FIRST &&
+                battle_push_text(&child_init, MSG_BTL8_SURPRISE_ATTACK_ENEMY))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+
+        case BTL_RUN_CHECK:
+            /* Phase 8: run away check (lines 1932-2078) */
+            dt.blinking_triangle_flag = 0;
+            if (st->run_attempt) {
+                if (btl_run_success(st)) {
+                    st->phase = BTL_RUN_SUCCESS;
+                    if (battle_push_text(&child_init, MSG_BTL0_ESCAPE_SUCCESS))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                    break;
+                }
+                st->run_attempt = 0;
+                st->phase = BTL_RUN_FAIL;
+                if (battle_push_text(&child_init, MSG_BTL0_ESCAPE_FAILED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                break;
+            }
+            /* Clear initiative mode for next turn */
+            st->initiative_mode = 0;
+            st->phase = BTL_TURN_CONT;
+            break;
+
+        case BTL_RUN_SUCCESS:
+            dt.blinking_triangle_flag = 0;
+            st->battle_result = 0;
+            st->phase = BTL_ENDING;
+            break;
+
+        case BTL_RUN_FAIL:
+            dt.blinking_triangle_flag = 0;
+            /* Clear initiative mode for next turn */
+            st->initiative_mode = 0;
+            st->phase = BTL_TURN_CONT;
+            break;
+
+        case BTL_EXEC: {
+            /* Phase 9: execute_turns (lines 2085-2926) */
+            check_dead_players();
+            if (battle_count_chars(0) == 0) { st->phase = BTL_END_CHECK; break; }
+            if (battle_count_chars(1) == 0) { st->phase = BTL_END_CHECK; break; }
+
+            /* Find battler with highest initiative who hasn't acted yet */
+            int16_t best_battler = btl_find_attacker();
+            if (best_battler < 0) {
+                st->phase = BTL_CLOSE_WINDOW;
+                break;
+            }
+
+            clear_focus_window_content_far();
+            bt.current_attacker = best_battler * sizeof(Battler);
+            st->attacker = best_battler;
+            Battler *attacker = &bt.battlers_table[best_battler];
+            attacker->has_taken_turn = 1;
+
+            /* Check if attacker is incapacitated */
+            uint8_t status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+            if (status0 == STATUS_0_UNCONSCIOUS || status0 == STATUS_0_DIAMONDIZED) {
+                st->phase = BTL_TURN_CONT;
+                break;
+            }
+
+            /* Status overrides + the self-target check */
+            btl_status_overrides(attacker);
+
+            /* Set up names and status damage */
+            st->retargeted = 0;
+            bt.current_target = bt.current_attacker;
+            fix_attacker_name(0);
+            fix_target_name();
+
+            /* Status damage (nauseous, poisoned, sunstroke, cold) */
+            st->status_damage = 0;
+            uint32_t dmg_text = 0;
+            status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+
+            if (status0 == STATUS_0_NAUSEOUS) {
+                st->status_damage = battle_25pct_variance(20);
+                dmg_text = MSG_BTL4_STATUS_SICK_HP_DAMAGE;
+            } else if (status0 == STATUS_0_POISONED) {
+                st->status_damage = battle_25pct_variance(20);
+                dmg_text = MSG_BTL4_STATUS_POISON_HP_DAMAGE;
+            } else if (status0 == STATUS_0_SUNSTROKE) {
+                st->status_damage = battle_25pct_variance(4);
+                dmg_text = MSG_BTL4_STATUS_DIZZY_HP_DAMAGE;
+            } else if (status0 == STATUS_0_COLD) {
+                st->status_damage = battle_25pct_variance(4);
+                dmg_text = MSG_BTL4_STATUS_SNEEZE_HP_DAMAGE;
+            }
+            st->phase = BTL_EXEC_DMG;
+            if (dmg_text != 0 &&
+                battle_push_text_ex(&child_init, dmg_text, false,
+                                    true, st->status_damage))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+        }
+
+        case BTL_EXEC_DMG: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+
+            /* Apply status damage */
+            if (st->status_damage > 0) {
+                battle_lose_hp_status(attacker, st->status_damage);
+
+                if (attacker->hp == 0) {
+                    battle_ko_target(attacker);
+                    if (battle_count_chars(0) == 0) { st->phase = BTL_END_CHECK; break; }
+                    if (battle_count_chars(1) == 0) { st->phase = BTL_END_CHECK; break; }
+                    st->phase = BTL_TURN_CONT;
+                    break;
+                }
+            }
+            st->phase = BTL_EXEC_SETUP;
+            break;
+        }
+
+        case BTL_EXEC_SETUP: {
+            Battler *attacker = &bt.battlers_table[st->attacker];
+
+            /* Targeting setup, retarget rolls, steal validation, highlight */
+            btl_exec_setup_targets(st, attacker);
+
+            /* Check PP cost */
+            if (battle_action_table) {
+                uint8_t pp_cost = battle_action_table[attacker->current_action].pp_cost;
+                if (pp_cost > 0) {
+                    if (pp_cost > attacker->pp_target) {
+                        st->phase = BTL_AFTER_ACTION;  /* goto after_action */
+                        if (battle_push_text(&child_init, MSG_BTL6_NOT_ENOUGH_PP_BATTLE))
+                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                        break;
+                    }
+                    set_battler_pp_from_target(bt.current_attacker, pp_cost);
+                }
+            }
+
+            /* Enemy attack palette effect */
+            if (attacker->ally_or_enemy == 1 && attacker->current_action != 0 &&
+                battle_action_table) {
+                uint8_t action_type = battle_action_table[attacker->current_action].type;
+                if (action_type == ACTION_TYPE_PHYSICAL ||
+                    action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
+                    load_attack_palette(1);
+                } else if (action_type == ACTION_TYPE_PSI) {
+                    load_attack_palette(2);
+                } else if (action_type == ACTION_TYPE_OTHER) {
+                    load_attack_palette(3);
+                }
+            }
+
+            /* Animate attacker (12-frame bob) */
+            attacker->shake_timer = 12;
+            child_init = (ModeState){0};
+            child_init.battle_wait.kind = BW_FRAMES;
+            child_init.battle_wait.remaining = 12;
+            st->phase = BTL_EXEC_RETARGET1;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+        }
+
+        case BTL_EXEC_RETARGET1: {
+            /* Display status text for confused/mushroomized */
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            st->phase = BTL_EXEC_RETARGET2;
+            if (st->retargeted &&
+                attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE &&
+                battle_push_text(&child_init, MSG_BTL0_ACTING_UNUSUAL))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+        }
+
+        case BTL_EXEC_RETARGET2: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            st->phase = BTL_EXEC_DESC;
+            if (st->retargeted &&
+                attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED &&
+                battle_push_text(&child_init, MSG_BTL0_ACTING_FUNKY))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+        }
+
+        case BTL_EXEC_DESC: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            st->phase = BTL_EXEC_ACT;
+            /* Display action description text (display_text_with_prompt_addr) */
+            if (battle_action_table) {
+                uint32_t desc_addr =
+                    battle_action_table[attacker->current_action].description_text_pointer;
+                if (desc_addr != 0 &&
+                    battle_push_text_ex(&child_init, desc_addr, true, false, 0))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            }
+            break;
+        }
+
+        case BTL_EXEC_ACT: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+
+            /* Skip if action is 0 (no effect) */
+            if (attacker->current_action == 0) {
+                st->phase = BTL_AFTER_ACTION;
+                break;
+            }
+
+            /* Wait for PSI animation to complete */
+            st->target_i = 0;
+            child_init = (ModeState){0};
+            child_init.battle_wait.kind = BW_PSI_ANIM;
+            st->phase = BTL_TARGET;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+        }
+
+        case BTL_TARGET: {
+            /* ---- Target loop: apply action to each targeted battler ---- */
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+
+            while (st->target_i < BATTLER_COUNT) {
+                uint16_t target_i = st->target_i;
+                if (!battle_is_char_targeted(target_i)) {
+                    st->target_i++;
+                    continue;
+                }
+
+                bt.current_target = target_i * sizeof(Battler);
+                Battler *target = &bt.battlers_table[target_i];
+                fix_target_name();
+
+                /* Check if target is dead — only some actions can target dead battlers */
+                if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
+                    bool can_target_dead = false;
+                    for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
+                        if (dead_targettable_actions[di] == attacker->current_action) {
+                            can_target_dead = true;
+                            break;
+                        }
+                    }
+                    if (!can_target_dead) {
+                        st->target_i++;  /* the resume re-enters this loop */
+                        if (battle_push_text(&child_init, MSG_BTL4_RESULT_TARGET_ALREADY_GONE))
+                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                        dt.blinking_triangle_flag = 0;  /* unresolvable: epilogue inline */
+                        continue;
+                    }
+                }
+
+                /* Execute the action callback. Stays inline-blocking
+                 * (documented): the battle_actions.c action functions are
+                 * the long tail — convertible incrementally now that
+                 * GAME_MODE_BATTLE exists. */
+                if (battle_action_table) {
+                    uint32_t func_ptr =
+                        battle_action_table[attacker->current_action].battle_function_pointer;
+                    if (func_ptr != 0) {
+                        bt.temp_function_pointer = func_ptr;
+                        jump_temp_function_pointer();
+                    }
+                }
+
+                check_dead_players();
+                ow.redraw_all_windows = 1;
+
+                if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
+                    consume_used_battle_item();
+                    st->phase = BTL_END_CHECK;
+                    goto target_done;
+                }
+
+                /* Handle special defeat codes */
+                if (bt.special_defeat == 3) {
+                    st->battle_result = 0;
+                    st->phase = BTL_ENDING;
+                    goto target_done;
+                }
+                if (bt.special_defeat == 2) {
+                    consume_used_battle_item();
+                    st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
+                    goto target_done;
+                }
+                if (bt.special_defeat == 1) {
+                    st->battle_result = 2;
+                    st->phase = BTL_ENDING;
+                    goto target_done;
+                }
+
+                /* Wait for screen effects */
+                st->target_i++;
+                child_init = (ModeState){0};
+                child_init.battle_wait.kind = BW_SCREEN_EFFECT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+            }
+            st->phase = BTL_AFTER_ACTION;
+        target_done:
+            break;
+        }
+
+        case BTL_AFTER_ACTION: {
+            /* ---- Post-action processing (lines 2927-3035) ---- */
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            st->phase = BTL_AFTER_STATUS;
+
+            /* Consume item if attacker is a party member */
+            if (attacker->ally_or_enemy == 0) {
+                consume_used_battle_item();
+
+                /* Mirror turn timer countdown */
+                if (bt.mirror_enemy != 0 && attacker->id == PARTY_MEMBER_POO) {
+                    bt.mirror_turn_timer--;
+                    if (bt.mirror_turn_timer == 0) {
+                        bt.mirror_enemy = 0;
+                        battle_copy_mirror_data(attacker, &bt.mirror_battler_backup);
+                        if (battle_push_text(&child_init, MSG_BTL5_MORPH_NEUTRALIZED))
+                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                    }
+                }
+            }
+            break;
+        }
+
+        case BTL_AFTER_STATUS: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+
+            /* Clear menu indicator */
+            clear_battle_menu_character_indicator_far();
+
+            /* Post-action status recovery */
+            check_dead_players();
+            bt.current_target = bt.current_attacker;
+            fix_target_name();
+
+            /* Check for status recovery (the affliction clear runs after the
+             * text, like the assembly — see BTL_AFTER_CURED) */
+            uint8_t temp_status = attacker->afflictions[STATUS_GROUP_TEMPORARY];
+            uint32_t cured_text = 0;
+            if (temp_status == STATUS_2_ASLEEP) {
+                /* 1/4 chance of waking up */
+                if ((rand_byte() & 3) == 0) {
+                    cured_text = MSG_BTL5_CURED_ASLEEP;
+                }
+            } else if (temp_status == STATUS_2_IMMOBILIZED) {
+                /* CHANCE_OF_BODY_MOVING_AGAIN% chance of recovery */
+                if (rand_limit(100) < (100 - CHANCE_OF_BODY_MOVING_AGAIN)) {
+                    cured_text = MSG_BTL5_CURED_IMMOBILIZED;
+                }
+            } else if (temp_status == STATUS_2_SOLIDIFIED) {
+                /* Always recover from solidified after acting */
+                cured_text = MSG_BTL5_CURED_SOLIDIFIED;
+            }
+            if (cured_text != 0) {
+                st->phase = BTL_AFTER_CURED;
+                if (battle_push_text(&child_init, cured_text))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                break;
+            }
+            st->phase = BTL_AFTER_CONC;
+            break;
+        }
+
+        case BTL_AFTER_CURED: {
+            dt.blinking_triangle_flag = 0;
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+            st->phase = BTL_AFTER_CONC;
+            break;
+        }
+
+        case BTL_AFTER_CONC: {
+            /* Concentration timer countdown */
+            Battler *attacker = &bt.battlers_table[st->attacker];
+            st->phase = BTL_AFTER_TAIL;
+            uint8_t conc = attacker->afflictions[STATUS_GROUP_CONCENTRATION];
+            if (conc > 0) {
+                conc--;
+                attacker->afflictions[STATUS_GROUP_CONCENTRATION] = conc;
+                if (conc == 0 &&
+                    battle_push_text(&child_init, MSG_BTL5_CURED_PSI_BLOCKED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            }
+            break;
+        }
+
+        case BTL_AFTER_TAIL:
+            dt.blinking_triangle_flag = 0;
+            /* Clear alt spritemaps for all battlers */
+            for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+                bt.battlers_table[i].use_alt_spritemap = 0;
+            }
+            check_dead_players();
+            redirect_show_hppp_windows();
+            st->phase = BTL_END_CHECK;
+            break;
+
+        case BTL_END_CHECK:
+            /* Phase 10: battle end checks (lines 3036-3159) */
+            if (battle_count_chars(0) == 0) {
+                /* Party defeated */
+                st->battle_result = 1;
+                reset_hppp_rolling();
+                st->phase = BTL_DEFEAT_DONE;
+                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_VICTORY))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                break;
+            }
+            st->phase = BTL_END_CHECK2;
+            break;
+
+        case BTL_DEFEAT_DONE:
+            dt.blinking_triangle_flag = 0;
+            st->post_battle_exit = 1;
+            st->phase = BTL_END_CHECK2;
+            break;
+
+        case BTL_END_CHECK2:
+            if (battle_count_chars(1) == 0) {
+                st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
+                break;
+            }
+            st->phase = BTL_TURN_CONT;
+            break;
+
+        case BTL_VICTORY: {
+            /* enemies_are_dead (lines 3050-3158) */
+            st->battle_result = 0;
+            reset_hppp_rolling();
+            bt.letterbox_effect_ending = 1;
+            bt.enable_background_darkening = 1;
+
+            btl_victory_money_exp();
+
+            /* Display victory message with EXP amount */
+            uint32_t victory_addr = (bt.current_battle_group >= 0x01C0)  /* ENEMY_GROUP_BOSS_START */
+                ? MSG_BTL8_PLAYER_VICTORY_BOSS
+                : MSG_BTL8_PLAYER_VICTORY;
+            st->phase = BTL_VICTORY_DROP;
+            if (battle_push_text_ex(&child_init, victory_addr, false,
+                                    true, bt.battle_exp_scratch))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            break;
+        }
+
+        case BTL_VICTORY_DROP:
+            dt.blinking_triangle_flag = 0;
+            st->exp_i = 0;
+            st->phase = BTL_VICTORY_EXP;
+            /* Announce item drop */
+            if (bt.item_dropped != 0) {
+                set_current_item_far((uint8_t)bt.item_dropped);
+                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_PRESENT_DROPPED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+            }
+            break;
+
+        case BTL_VICTORY_EXP:
+            /* Distribute EXP to all conscious, non-NPC, non-dead party
+             * members. gain_exp(1, ...) ran here in the blocking original;
+             * the prepare half runs inline and any pending level-up runs as
+             * a pushed GAME_MODE_LEVEL_UP child (was the pump bridge). */
+            dt.blinking_triangle_flag = 0;
+            while (st->exp_i < BATTLER_COUNT) {
+                Battler *b = &bt.battlers_table[st->exp_i++];
+                if (b->consciousness == 0) continue;
+                if (b->ally_or_enemy != 0) continue;
+                if (b->npc_id != 0) continue;
+                if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) continue;
+                if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) continue;
+
+                if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
+                    level_up_make_init(&child_init, b->id);
+                    /* phase stays BTL_VICTORY_EXP — the resume re-enters the loop */
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &child_init);
+                }
+            }
+            st->post_battle_exit = 1;
+            st->phase = BTL_TURN_CONT;
+            break;
+
+        case BTL_TURN_CONT:
+            /* check_turn_continue */
+            if (st->post_battle_exit == 0) {
+                st->phase = BTL_EXEC;  /* goto execute_turns */
+                break;
+            }
+            st->phase = BTL_CLOSE_WINDOW;
+            break;
+
+        case BTL_CLOSE_WINDOW:
+            /* close_battle_window + check_new_turn */
+            redirect_close_focus_window();
+            if (st->post_battle_exit == 0) {
+                st->phase = BTL_TURN;  /* goto start_turn */
+                break;
+            }
+            st->phase = BTL_ENDING;
+            break;
+
+        case BTL_ENDING:
+            /* Phase 11: battle ending (lines 3176-3306) */
+            reset_hppp_rolling();
+
+            /* Wait for HP/PP meters to stabilize */
+            child_init = (ModeState){0};
+            child_init.battle_wait.kind = BW_HPPP_STABLE;
+            st->phase = BTL_ENDING_MIRROR;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+
+        case BTL_ENDING_MIRROR:
+            /* Mirror restore + post-battle cleanup */
+            btl_ending_cleanup();
+
+            if (ow.battle_mode == 0) {
+                /* Debug mode: loop back to reinit */
+                st->phase = BTL_REINIT;
+                break;
+            }
+
+            /* Fade out; the former loop body (update_battle_screen_effects)
+             * is the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick. */
+            fade_out(1, 0);
+            child_init = (ModeState){0};
+            child_init.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
+            st->phase = BTL_EXIT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child_init);
+
+        case BTL_EXIT:
+        default:
+            clear_hppp_window_header();
+            force_blank_and_wait_vblank();
+            close_all_windows_and_hide_hppp();
+            clear_battle_visual_effects();
+            return STEP_RESULT_POP(st->battle_result);
+        }
     }
+}
 
-    /* Fade out */
-    fade_out(1, 0);
-    /* Run-to-completion form: the former loop body (update_battle_screen_effects)
-     * is now the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick.
-     * pump_mode owns the single yield. See docs/plans/savestate-unified-loop.md. */
-    {
-        ModeState init = { .fade_wait = { .tick_kind = FADE_TICK_BATTLE_EFFECTS } };
-        pump_mode(GAME_MODE_FADE_WAIT, &init);
-    }
-
-    clear_hppp_window_header();
-    force_blank_and_wait_vblank();
-    close_all_windows_and_hide_hppp();
-    clear_battle_visual_effects();
-
-    return battle_result;
+/* Pump bridge for the still-blocking init_battle_common() caller — the
+ * battle entry/exit drivers (swirl, init_battle_overworld/scripted) convert
+ * later. Returns 0 = victory, 1 = party defeated, 2 = special defeat code. */
+static uint16_t battle_routine(void) {
+    ModeState init = {0};
+    init.battle.phase = BTL_BEGIN;
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE, &init);
 }
 
 /*

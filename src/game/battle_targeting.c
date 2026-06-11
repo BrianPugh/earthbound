@@ -417,8 +417,8 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
 }
 
 /* Build a GAME_MODE_BATTLE_ENEMY_SELECT init (select_battle_target's
- * prologue), shared by the blocking bridge and the DETERMINE_TARGETING /
- * BATTLE_MENU pushes (declared in battle_internal.h). */
+ * prologue) for the DETERMINE_TARGETING / BATTLE_MENU pushes (declared in
+ * battle_internal.h). */
 void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
                             uint16_t action_param) {
     uint16_t current_row;
@@ -439,13 +439,6 @@ void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
     init->battle_enemy_select.current_row   = current_row;
     init->battle_enemy_select.target_shown  = 0;
 }
-
-static uint16_t select_battle_target(uint16_t allow_cancel, uint16_t action_param) {
-    ModeState init;
-    enemy_select_make_init(&init, allow_cancel, action_param);
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE_ENEMY_SELECT, &init);
-}
-
 
 /*
  * SELECT_BATTLE_ROW (asm/battle/ui/select_battle_row.asm)
@@ -537,8 +530,8 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
     }
 }
 
-/* Build a GAME_MODE_BATTLE_ROW_SELECT init (select_battle_row's prologue),
- * shared by the blocking bridge and DETERMINE_TARGETING's push. */
+/* Build a GAME_MODE_BATTLE_ROW_SELECT init (select_battle_row's prologue)
+ * for DETERMINE_TARGETING's push. */
 static void row_select_make_init(ModeState *init, uint16_t allow_cancel) {
     uint16_t current_row;
     /* Start on front row if it has battlers, otherwise back row */
@@ -553,32 +546,11 @@ static void row_select_make_init(ModeState *init, uint16_t allow_cancel) {
     init->battle_row_select.current_row  = current_row;
 }
 
-static uint16_t select_battle_row(uint16_t allow_cancel) {
-    ModeState init;
-    row_select_make_init(&init, allow_cancel);
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE_ROW_SELECT, &init);
-}
-
-
-/*
- * SELECT_BATTLE_TARGET_DISPATCH (asm/battle/ui/select_battle_target_dispatch.asm)
- *
- * Dispatches to SELECT_BATTLE_TARGET (single target) or SELECT_BATTLE_ROW
- * based on the mode parameter.
- *
- * mode: 0 = single target, nonzero = row selection.
- * allow_cancel: 1 = can cancel with B/SELECT.
- * action_param: battle action index for targetability check.
- *
- * Returns: 1-based target (single) or row+1 (row), or 0 on cancel.
- */
-uint16_t select_battle_target_dispatch(uint16_t mode, uint16_t allow_cancel,
-                                              uint16_t action_param) {
-    if (mode == 0)
-        return select_battle_target(allow_cancel, action_param);
-    else
-        return select_battle_row(allow_cancel);
-}
+/* SELECT_BATTLE_TARGET_DISPATCH (asm/battle/ui/select_battle_target_dispatch
+ * .asm) — the blocking mode-0/mode-1 dispatcher — was deleted when its last
+ * caller (battle_routine's command menu) became GAME_MODE_BATTLE_MENU; its
+ * callers now push GAME_MODE_BATTLE_ENEMY_SELECT / GAME_MODE_BATTLE_ROW_SELECT
+ * directly via the *_make_init builders above. */
 
 
 /*
