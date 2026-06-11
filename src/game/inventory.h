@@ -269,10 +269,23 @@ uint32_t get_required_exp(uint16_t char_id);
 
 /* GAIN_EXP: Port of asm/misc/gain_exp.asm.
  * Adds experience to character, checks level thresholds, triggers level-ups.
- * play_sound: if non-zero, plays MUSIC::LEVEL_UP on level up.
+ * play_sound: if non-zero, plays MUSIC::LEVEL_UP on level up and displays the
+ * level/stat texts (runs as GAME_MODE_LEVEL_UP via a pump bridge).
  * char_id: 1-indexed (1=Ness, 2=Paula, 3=Jeff, 4=Poo).
  * exp: experience points to add. */
 void gain_exp(uint16_t play_sound, uint16_t char_id, uint32_t exp);
+
+union ModeState;  /* forward decl (defined in core/mode_stack.h) */
+
+/* GAIN_EXP prologue (asm/misc/gain_exp.asm lines 20-66): add exp to the
+ * character's EXP and check the next level threshold. Returns true when at
+ * least one level-up is pending — the caller then runs GAME_MODE_LEVEL_UP
+ * (STEP_PUSH via level_up_make_init, or the gain_exp() bridge) for the text
+ * path, or the silent loop. Used by CC_1E_09 to push the mode directly. */
+bool gain_exp_prepare(uint16_t char_id, uint32_t exp);
+
+/* Fill a GAME_MODE_LEVEL_UP child init (LU_LEVEL phase) for char_id. */
+void level_up_make_init(union ModeState *init, uint16_t char_id);
 
 /* --- Financial functions --- */
 

@@ -121,6 +121,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_USE_ITEM]            = mode_step_use_item,            /* text.c */
     [GAME_MODE_TELEPORT_MENU]       = mode_step_teleport_menu,       /* display_text_menus.c */
     [GAME_MODE_DETERMINE_TARGETING] = mode_step_determine_targeting, /* battle_targeting.c */
+    [GAME_MODE_LEVEL_UP]            = mode_step_level_up,            /* inventory.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

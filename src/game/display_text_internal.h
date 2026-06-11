@@ -95,7 +95,13 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
 void cc_1b_dispatch(ScriptReader *r);
 void cc_1c_dispatch(ScriptReader *r);
 void cc_1d_dispatch(ScriptReader *r);
-void cc_1e_dispatch(ScriptReader *r);
+/* cc_1e_dispatch: most sub-ops run inline and return false. Sub 0x09
+ * GIVE_EXPERIENCE with a level-up pending instead fills out_init/out_mode
+ * (GAME_MODE_LEVEL_UP to STEP_PUSH) and out_resume (DT_RESUME_NONE — gain_exp
+ * has no result to store) and returns true. The caller (mode_step_display_text)
+ * zeroes *out_init before the call. */
+bool cc_1e_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume);
 /* cc_1f_dispatch: most sub-ops run inline and return false. The three yielding
  * sub-ops (0x52 number-select, 0x60 text-speed delay, 0x61 wait-for-actionscript)
  * instead fill out_init/out_mode (the child to STEP_PUSH) and out_resume (the

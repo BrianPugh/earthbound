@@ -10,8 +10,11 @@
 #include "core/log.h"
 #include "data/text_refs.h"
 #include "include/constants.h"
+#include "core/mode_stack.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init (LEVEL_UP text pushes) */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /* Forward declarations for party management (defined later in this file,
  * exported via inventory.h for CC_1F_11/12 in display_text.c) */
@@ -1501,151 +1504,128 @@ static int16_t calculate_stat_gain_simple(uint8_t growth_var, uint8_t base_stat,
 /* LEVEL_UP_CHAR: Port of asm/misc/level_up_char.asm (763 lines).
  * Increments level, applies stat growths, increases max HP/PP,
  * checks for new PSI abilities.
- * char_id: 1-indexed. play_sound_flag: passed through from GAIN_EXP. */
-static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
-    if (char_id < 1 || char_id > 4) return;
+ *
+ * Split for the run-to-completion conversion: the per-stage stat math lives
+ * in level_up_apply_stage() (shared so both paths run the exact assembly
+ * math, including the rand() call order); the silent play_sound == 0 path
+ * (no music, no texts, no PSI-learn scan — the assembly gates all of those
+ * on the play-sound flag) is level_up_char_silent(); the text-displaying
+ * play_sound != 0 path is mode_step_level_up() (GAME_MODE_LEVEL_UP), defined
+ * with gain_exp() below. */
+
+/* Growth stages applied per level-up, in assembly order. */
+enum {
+    LU_STAGE_OFFENSE = 0,
+    LU_STAGE_DEFENSE,
+    LU_STAGE_SPEED,
+    LU_STAGE_GUTS,
+    LU_STAGE_VITALITY,
+    LU_STAGE_IQ,
+    LU_STAGE_LUCK,
+    LU_STAGE_HP,
+    LU_STAGE_PP,
+    LU_STAGE_COUNT,
+};
+
+/* Gain message per stage (set_cnum(gain), then this text). */
+static const uint32_t lu_stage_text[LU_STAGE_COUNT] = {
+    MSG_BTL8_LEVEL_OFFENSE_UP,
+    MSG_BTL8_LEVEL_DEFENSE_UP,
+    MSG_BTL8_LEVEL_SPEED_UP,
+    MSG_BTL8_LEVEL_GUTS_UP,
+    MSG_BTL8_LEVEL_VITALITY_UP,
+    MSG_BTL8_LEVEL_IQ_UP,
+    MSG_BTL8_LEVEL_LUCK_UP,
+    MSG_BTL8_LEVEL_MAX_HP_UP,
+    MSG_BTL8_LEVEL_MAX_PP_UP,
+};
+
+/* Apply one LU_STAGE_* growth: compute the gain, mutate the base stat /
+ * max HP / max PP, recalculate the post-math stat. Returns the gain
+ * (0 = nothing changed -> no message). char_id: 1-indexed, validated by the
+ * caller. */
+static int16_t level_up_apply_stage(uint16_t char_id, uint16_t old_level, uint8_t stage) {
     uint16_t char_index = char_id - 1;
     CharStruct *ch = &party_characters[char_index];
 
-    /* Assembly lines 29-40: read old level, increment */
-    uint16_t old_level = (uint16_t)ch->level;
-    ch->level++;
-
-    /* Assembly lines 42-59: if play_sound_flag, display "reached level XX" */
-    if (play_sound_flag) {
-        dt.blinking_triangle_flag = 1;
-        set_battle_target_name((const char *)ch->name, 5);
-        set_cnum((uint32_t)ch->level);
-        display_text_from_addr(MSG_BTL8_LEVEL_UP);
-        dt.blinking_triangle_flag = 2;
-    }
-
-    if (!ensure_stats_growth()) return;
-
+    switch (stage) {
     /* --- Offense growth (assembly lines 62-107) ---
      * STATS_GROWTH_VARS[char_index * 7 + 0] */
-    {
+    case LU_STAGE_OFFENSE: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 0];
         int16_t gain = calculate_stat_gain(growth, ch->base_offense, old_level);
-        if (gain > 0) {
-            ch->base_offense += (uint8_t)gain;
-            recalc_character_postmath_offense(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_OFFENSE_UP);
-            }
-        }
+        if (gain <= 0) return 0;
+        ch->base_offense += (uint8_t)gain;
+        recalc_character_postmath_offense(char_id);
+        return gain;
     }
-
-    /* --- Defense growth (assembly lines 108-155) ---
-     * STATS_GROWTH_VARS[char_index * 7 + 1] */
-    {
+    /* --- Defense growth (assembly lines 108-155) --- */
+    case LU_STAGE_DEFENSE: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 1];
         int16_t gain = calculate_stat_gain(growth, ch->base_defense, old_level);
-        if (gain > 0) {
-            ch->base_defense += (uint8_t)gain;
-            recalc_character_postmath_defense(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_DEFENSE_UP);
-            }
-        }
+        if (gain <= 0) return 0;
+        ch->base_defense += (uint8_t)gain;
+        recalc_character_postmath_defense(char_id);
+        return gain;
     }
-
-    /* --- Speed growth (assembly lines 156-209) ---
-     * STATS_GROWTH_VARS[char_index * 7 + 2] */
-    {
+    /* --- Speed growth (assembly lines 156-209) --- */
+    case LU_STAGE_SPEED: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 2];
         int16_t gain = calculate_stat_gain(growth, ch->base_speed, old_level);
-        if (gain > 0) {
-            ch->base_speed += (uint8_t)gain;
-            recalc_character_postmath_speed(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_SPEED_UP);
-            }
-        }
+        if (gain <= 0) return 0;
+        ch->base_speed += (uint8_t)gain;
+        recalc_character_postmath_speed(char_id);
+        return gain;
     }
-
-    /* --- Guts growth (assembly lines 210-259) ---
-     * STATS_GROWTH_VARS[char_index * 7 + 3] */
-    {
+    /* --- Guts growth (assembly lines 210-259) --- */
+    case LU_STAGE_GUTS: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 3];
         int16_t gain = calculate_stat_gain(growth, ch->base_guts, old_level);
-        if (gain > 0) {
-            ch->base_guts += (uint8_t)gain;
-            recalc_character_postmath_guts(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_GUTS_UP);
-            }
-        }
+        if (gain <= 0) return 0;
+        ch->base_guts += (uint8_t)gain;
+        recalc_character_postmath_guts(char_id);
+        return gain;
     }
-
     /* --- Vitality growth (assembly lines 260-349) ---
-     * Uses CALCULATE_STAT_GAIN for level >= 10, simpler formula for level < 10.
-     * STATS_GROWTH_VARS[char_index * 7 + 4] */
-    {
+     * Simple formula for old_level < 10 (lines 265-294), standard
+     * CALCULATE_STAT_GAIN otherwise (lines 296-318).
+     * Assembly: CLC; SBC #0; BRANCHLTEQS — skips gain <= 0. */
+    case LU_STAGE_VITALITY: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 4];
-        int16_t gain;
-        if (old_level < 10) {
-            /* Assembly lines 265-294: simple formula */
-            gain = calculate_stat_gain_simple(growth, ch->base_vitality, old_level);
-        } else {
-            /* Assembly lines 296-318: standard CALCULATE_STAT_GAIN */
-            gain = calculate_stat_gain(growth, ch->base_vitality, old_level);
-        }
-        if (gain > 0) {  /* Assembly: CLC; SBC #0; BRANCHLTEQS — skips gain <= 0 */
-            ch->base_vitality += (uint8_t)gain;
-            recalc_character_postmath_vitality(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_VITALITY_UP);
-            }
-        }
+        int16_t gain = (old_level < 10)
+            ? calculate_stat_gain_simple(growth, ch->base_vitality, old_level)
+            : calculate_stat_gain(growth, ch->base_vitality, old_level);
+        if (gain <= 0) return 0;
+        ch->base_vitality += (uint8_t)gain;
+        recalc_character_postmath_vitality(char_id);
+        return gain;
     }
-
-    /* --- IQ growth (assembly lines 350-435) ---
-     * Same level<10 branching as vitality.
-     * STATS_GROWTH_VARS[char_index * 7 + 5] */
-    {
+    /* --- IQ growth (assembly lines 350-435): same level<10 branching --- */
+    case LU_STAGE_IQ: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 5];
-        int16_t gain;
-        if (old_level < 10) {
-            gain = calculate_stat_gain_simple(growth, ch->base_iq, old_level);
-        } else {
-            gain = calculate_stat_gain(growth, ch->base_iq, old_level);
-        }
-        if (gain > 0) {  /* Assembly: CLC; SBC #0; BRANCHLTEQS — skips gain <= 0 */
-            ch->base_iq += (uint8_t)gain;
-            recalc_character_postmath_iq(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_IQ_UP);
-            }
-        }
+        int16_t gain = (old_level < 10)
+            ? calculate_stat_gain_simple(growth, ch->base_iq, old_level)
+            : calculate_stat_gain(growth, ch->base_iq, old_level);
+        if (gain <= 0) return 0;
+        ch->base_iq += (uint8_t)gain;
+        recalc_character_postmath_iq(char_id);
+        return gain;
     }
-
-    /* --- Luck growth (assembly lines 436-489) ---
-     * STATS_GROWTH_VARS[char_index * 7 + 6] */
-    {
+    /* --- Luck growth (assembly lines 436-489) --- */
+    case LU_STAGE_LUCK: {
         uint8_t growth = stats_growth_data[char_index * STATS_GROWTH_STATS + 6];
         int16_t gain = calculate_stat_gain(growth, ch->base_luck, old_level);
-        if (gain > 0) {
-            ch->base_luck += (uint8_t)gain;
-            recalc_character_postmath_luck(char_id);
-            if (play_sound_flag) {
-                set_cnum((uint32_t)gain);
-                display_text_from_addr(MSG_BTL8_LEVEL_LUCK_UP);
-            }
-        }
+        if (gain <= 0) return 0;
+        ch->base_luck += (uint8_t)gain;
+        recalc_character_postmath_luck(char_id);
+        return gain;
     }
-
     /* --- Max HP increase (assembly lines 490-540) ---
      * hp_potential = vitality * 15 - max_hp
-     * If hp_potential > 2: hp_increase = hp_potential
-     * Otherwise: hp_increase = rand()%3 + 1 (i.e., 1-3) */
-    {
+     * If hp_potential > 1: hp_increase = hp_potential
+     * Otherwise: hp_increase = rand()%3 + 1 (i.e., 1-3) — always >= 1, so
+     * the HP message always shows. */
+    case LU_STAGE_HP: {
         int16_t hp_potential = (int16_t)ch->vitality * 15 - (int16_t)ch->max_hp;
         uint16_t hp_increase;
         if (hp_potential > 1) {
@@ -1655,20 +1635,17 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
         }
         ch->max_hp += hp_increase;
         ch->current_hp_target += hp_increase;
-        if (play_sound_flag) {
-            set_cnum((uint32_t)hp_increase);
-            display_text_from_addr(MSG_BTL8_LEVEL_MAX_HP_UP);
-        }
+        return (int16_t)hp_increase;
     }
-
     /* --- Max PP increase (assembly lines 541-626) ---
      * Skip for Jeff (char_index == 2).
      * For Ness with FLG_WIN_OSCAR: pp_base = iq * 2
      * Otherwise: pp_base = iq
      * pp_potential = pp_base * 5 - max_pp
-     * If pp_potential > 2: pp_increase = pp_potential
-     * Otherwise: pp_increase = rand()%3 (i.e., 0-2) */
-    if (char_index != 2) {
+     * If pp_potential > 1: pp_increase = pp_potential
+     * Otherwise: pp_increase = rand()%3 (0-2; 0 -> no change, no message) */
+    case LU_STAGE_PP: {
+        if (char_index == 2) return 0;
         uint16_t pp_base = (uint16_t)ch->iq;
         if (char_index == 0 && event_flag_get(FLG_WIN_OSCAR)) {
             pp_base <<= 1;  /* ASL: iq * 2 */
@@ -1680,46 +1657,30 @@ static void level_up_char(uint16_t char_id, uint16_t play_sound_flag) {
         } else {
             pp_increase = (uint16_t)(rand() % 3);  /* RAND_MOD(2) */
         }
-        if (pp_increase != 0) {
-            ch->max_pp += pp_increase;
-            ch->current_pp_target += pp_increase;
-            if (play_sound_flag) {
-                set_cnum((uint32_t)pp_increase);
-                display_text_from_addr(MSG_BTL8_LEVEL_MAX_PP_UP);
-            }
-        }
+        if (pp_increase == 0) return 0;
+        ch->max_pp += pp_increase;
+        ch->current_pp_target += pp_increase;
+        return (int16_t)pp_increase;
     }
-
-    /* --- PSI learning check (assembly lines 627-757) ---
-     * Only when play_sound_flag is set (battle context).
-     * For Ness/Paula/Poo, check all PSI abilities to see if any are learned
-     * at the new level. */
-    if (play_sound_flag && ensure_psi_table_inv()) {
-        /* Only Ness (0), Paula (1), and Poo (3) can learn PSI */
-        bool can_learn_psi = (char_index == 0 || char_index == 1 || char_index == 3);
-
-        if (can_learn_psi) {
-            uint8_t new_level = ch->level;
-            for (int psi_id = 1; psi_id < PSI_MAX_ENTRIES; psi_id++) {
-                if ((size_t)psi_id * sizeof(PsiAbility) + sizeof(PsiAbility) > psi_table_size_inv) break;
-                const PsiAbility *psi = &psi_table_data_inv[psi_id];
-                /* Assembly: if name byte == 0, end of entries */
-                if (psi->name == 0) break;
-                uint8_t learn_level = 0;
-                if (char_index == 0) learn_level = psi->ness_level;
-                else if (char_index == 1) learn_level = psi->paula_level;
-                else if (char_index == 3) learn_level = psi->poo_level;
-                if (learn_level == new_level) {
-                    set_current_item((uint8_t)psi_id);
-                    display_text_from_addr(MSG_BTL8_LEARNED_PSI);
-                }
-            }
-        }
+    default:
+        return 0;
     }
+}
 
-    /* Assembly line 759-761: clear blinking prompt if play_sound_flag */
-    if (play_sound_flag) {
-        dt.blinking_triangle_flag = 0;
+/* Silent (play_sound == 0) level-up — reset_char_level_one and silent
+ * gain_exp. Never yields. char_id: 1-indexed. */
+static void level_up_char_silent(uint16_t char_id) {
+    if (char_id < 1 || char_id > 4) return;
+    CharStruct *ch = &party_characters[char_id - 1];
+
+    /* Assembly lines 29-40: read old level, increment */
+    uint16_t old_level = (uint16_t)ch->level;
+    ch->level++;
+
+    if (!ensure_stats_growth()) return;
+
+    for (uint8_t stage = 0; stage < LU_STAGE_COUNT; stage++) {
+        (void)level_up_apply_stage(char_id, old_level, stage);
     }
 }
 
@@ -1776,7 +1737,7 @@ void reset_char_level_one(uint16_t char_id, uint16_t target_level, uint16_t set_
 
     /* Assembly lines 81-92: level up (target_level - 1) times */
     for (uint16_t i = 1; i < target_level; i++) {
-        level_up_char(char_id, 0);  /* play_sound = 0 */
+        level_up_char_silent(char_id);  /* play_sound = 0 */
     }
 
     /* Assembly lines 93-125: if set_exp, set EXP from EXP_TABLE */
@@ -1792,55 +1753,175 @@ void reset_char_level_one(uint16_t char_id, uint16_t target_level, uint16_t set_
     }
 }
 
-/* GAIN_EXP: Port of asm/misc/gain_exp.asm.
- * A=play_sound, X=char_id, PARAM_INT32=exp_amount.
- * Adds EXP, then loops checking level thresholds. */
-void gain_exp(uint16_t play_sound, uint16_t char_id, uint32_t exp_amount) {
-    if (!ensure_exp_table()) return;
-    if (char_id < 1 || char_id > 4) return;
-
+/* True when char_id's EXP meets the next level's threshold — gain_exp's loop
+ * condition (asm/misc/gain_exp.asm lines 33-66 / 78-118): not at MAX_LEVEL,
+ * the EXP_TABLE entry exists, and exp >= threshold. char_id: 1-indexed,
+ * validated by the caller. */
+static bool level_up_pending(uint16_t char_id) {
+    if (!ensure_exp_table()) return false;
     uint16_t char_index = char_id - 1;
     CharStruct *ch = &party_characters[char_index];
 
-    /* Assembly lines 20-30: add exp to character */
-    ch->exp += exp_amount;
-
-    /* Assembly lines 33-40: check if at max level */
     uint8_t level = ch->level;
-    if (level >= MAX_LEVEL) return;
+    if (level >= MAX_LEVEL) return false;
 
-    /* Assembly lines 42-66: compute next level threshold and compare.
-     * EXP_TABLE layout: 4 chars x 100 levels x 4 bytes.
+    /* EXP_TABLE layout: 4 chars x 100 levels x 4 bytes.
      * threshold = EXP_TABLE[char_index * 100 + level + 1] */
     size_t offset = ((size_t)char_index * EXP_LEVELS_PER_CHAR + (size_t)level) * EXP_ENTRY_SIZE;
     offset += EXP_ENTRY_SIZE; /* skip to next level entry */
-    if (offset + EXP_ENTRY_SIZE > exp_table_size) return;
+    if (offset + EXP_ENTRY_SIZE > exp_table_size) return false;
 
-    uint32_t threshold = read_exp_at(offset);
     /* Assembly CLC;SBC comparison: level up when current_exp >= threshold */
-    if (ch->exp < threshold) return;
+    return ch->exp >= read_exp_at(offset);
+}
 
-    /* Level-up loop */
-    do {
-        /* Assembly lines 68-71: play level-up music if requested */
-        if (play_sound != 0) {
+bool gain_exp_prepare(uint16_t char_id, uint32_t exp_amount) {
+    if (!ensure_exp_table()) return false;
+    if (char_id < 1 || char_id > 4) return false;
+
+    /* Assembly lines 20-30: add exp to character */
+    party_characters[char_id - 1].exp += exp_amount;
+
+    return level_up_pending(char_id);
+}
+
+void level_up_make_init(ModeState *init, uint16_t char_id) {
+    memset(init, 0, sizeof(*init));
+    init->level_up.phase = LU_LEVEL;
+    init->level_up.char_id = char_id;
+}
+
+/* Push a DISPLAY_TEXT child for `addr`. If the address can't be resolved,
+ * warn (like display_text_from_addr) and don't push — the step's for(;;)
+ * falls through inline. Same idiom as menu_push_text (text.c). */
+static ModeState lu_child_init;  /* outlives the dispatch (the pump copies it) */
+static StepResult lu_push_text(uint32_t addr, bool *pushed) {
+    if (dt_make_child_init(&lu_child_init, addr)) {
+        *pushed = true;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &lu_child_init);
+    }
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    *pushed = false;
+    return STEP_RESULT_CONTINUE();
+}
+
+/* GAME_MODE_LEVEL_UP step — run-to-completion port of the gain_exp()
+ * level-up loop (asm/misc/gain_exp.asm lines 68-118) + LEVEL_UP_CHAR
+ * (asm/misc/level_up_char.asm) for the text-displaying play_sound != 0 path.
+ * Phases chain inside an internal for(;;) so everything between two texts
+ * runs with no extra yield; each message is a DISPLAY_TEXT STEP_PUSH. See
+ * LevelUpState (mode_stack.h). */
+StepResult mode_step_level_up(ModeState *state) {
+    LevelUpState *st = &state->level_up;
+    if (st->char_id < 1 || st->char_id > 4) return STEP_RESULT_POP(0);
+    CharStruct *ch = &party_characters[st->char_id - 1];
+    bool pushed;
+
+    for (;;) {
+        switch (st->phase) {
+        case LU_LEVEL: {
+            /* gain_exp lines 68-71: per-iteration level-up music. */
             change_music(6); /* MUSIC::LEVEL_UP */
+
+            /* level_up_char lines 29-40: read old level, increment. */
+            st->old_level = (uint16_t)ch->level;
+            ch->level++;
+
+            /* Lines 42-59: display "reached level XX". */
+            dt.blinking_triangle_flag = 1;
+            set_battle_target_name((const char *)ch->name, 5);
+            set_cnum((uint32_t)ch->level);
+            st->phase = LU_STAT;
+            st->stage = 0;
+            StepResult r = lu_push_text(MSG_BTL8_LEVEL_UP, &pushed);
+            if (pushed) return r;
+            break;  /* unresolvable: fall through to LU_STAT inline */
         }
+        case LU_STAT: {
+            if (st->stage == 0) {
+                /* The tail after the "reached level" text (line 58). */
+                dt.blinking_triangle_flag = 2;
+                if (!ensure_stats_growth()) {
+                    /* The assembly returns from LEVEL_UP_CHAR here, skipping
+                     * the growths, the PSI scan AND the flag clear; gain_exp
+                     * still re-checks the threshold. */
+                    st->phase = LU_NEXT;
+                    break;
+                }
+            }
+            while (st->stage < LU_STAGE_COUNT) {
+                uint8_t stage = st->stage++;
+                int16_t gain = level_up_apply_stage(st->char_id, st->old_level, stage);
+                if (gain > 0) {
+                    set_cnum((uint32_t)gain);
+                    StepResult r = lu_push_text(lu_stage_text[stage], &pushed);
+                    if (pushed) return r;
+                }
+            }
+            st->phase = LU_PSI;
+            st->psi_index = 1;
+            break;
+        }
+        case LU_PSI: {
+            /* PSI learning check (assembly lines 627-757): only Ness (0),
+             * Paula (1), and Poo (3) can learn PSI. */
+            uint16_t char_index = st->char_id - 1;
+            bool can_learn_psi = (char_index == 0 || char_index == 1 || char_index == 3);
+            if (can_learn_psi && ensure_psi_table_inv()) {
+                uint8_t new_level = ch->level;
+                while (st->psi_index < PSI_MAX_ENTRIES) {
+                    uint16_t psi_id = st->psi_index++;
+                    if ((size_t)psi_id * sizeof(PsiAbility) + sizeof(PsiAbility) > psi_table_size_inv) break;
+                    const PsiAbility *psi = &psi_table_data_inv[psi_id];
+                    /* Assembly: if name byte == 0, end of entries */
+                    if (psi->name == 0) break;
+                    uint8_t learn_level = 0;
+                    if (char_index == 0) learn_level = psi->ness_level;
+                    else if (char_index == 1) learn_level = psi->paula_level;
+                    else if (char_index == 3) learn_level = psi->poo_level;
+                    if (learn_level == new_level) {
+                        set_current_item((uint8_t)psi_id);
+                        StepResult r = lu_push_text(MSG_BTL8_LEARNED_PSI, &pushed);
+                        if (pushed) return r;
+                    }
+                }
+            }
+            /* level_up_char lines 759-761: clear the blinking prompt. */
+            dt.blinking_triangle_flag = 0;
+            st->phase = LU_NEXT;
+            break;
+        }
+        case LU_NEXT:
+        default:
+            /* gain_exp lines 78-118: another threshold met -> next level. */
+            if (level_up_pending(st->char_id)) {
+                st->phase = LU_LEVEL;
+                break;
+            }
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
 
-        /* Assembly lines 72-77: call LEVEL_UP_CHAR */
-        level_up_char(char_id, play_sound);
+/* GAIN_EXP: Port of asm/misc/gain_exp.asm.
+ * A=play_sound, X=char_id, PARAM_INT32=exp_amount.
+ * Adds EXP, then loops level-ups while the next threshold is met. The
+ * play_sound path displays text, so it runs as GAME_MODE_LEVEL_UP — a pump
+ * bridge for the still-blocking battle end-of-round callers (CC_1E_09 pushes
+ * the mode directly instead); the silent path never yields and loops inline. */
+void gain_exp(uint16_t play_sound, uint16_t char_id, uint32_t exp_amount) {
+    if (!gain_exp_prepare(char_id, exp_amount)) return;
 
-        /* Assembly lines 78-90: re-check level */
-        level = ch->level;
-        if (level >= MAX_LEVEL) break;
+    if (play_sound == 0) {
+        do {
+            level_up_char_silent(char_id);
+        } while (level_up_pending(char_id));
+        return;
+    }
 
-        /* Assembly lines 91-118: compute new threshold and compare */
-        offset = ((size_t)char_index * EXP_LEVELS_PER_CHAR + (size_t)level) * EXP_ENTRY_SIZE;
-        offset += EXP_ENTRY_SIZE;
-        if (offset + EXP_ENTRY_SIZE > exp_table_size) break;
-
-        threshold = read_exp_at(offset);
-    } while (ch->exp >= threshold);
+    ModeState init;
+    level_up_make_init(&init, char_id);
+    pump_mode(GAME_MODE_LEVEL_UP, &init);
 }
 
 /* --- Financial functions --- */

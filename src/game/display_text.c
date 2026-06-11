@@ -1881,7 +1881,19 @@ StepResult mode_step_display_text(ModeState *ms) {
         case 0x1B: cc_1b_dispatch(r); break;
         case 0x1C: cc_1c_dispatch(r); break;
         case 0x1D: cc_1d_dispatch(r); break;
-        case 0x1E: cc_1e_dispatch(r); break;
+        case 0x1E: {
+            /* Most CC_1E sub-ops run inline; GIVE_EXPERIENCE (sub 0x09) with a
+             * level-up pending requests a GAME_MODE_LEVEL_UP child push. */
+            static ModeState cc1e_init;  /* outlives this dispatch (pump copies it) */
+            memset(&cc1e_init, 0, sizeof(cc1e_init));
+            GameMode child_mode = GAME_MODE_NONE;
+            uint8_t  child_resume = DT_RESUME_NONE;
+            if (cc_1e_dispatch(r, &cc1e_init, &child_mode, &child_resume)) {
+                st->resume = child_resume;
+                return STEP_RESULT_PUSH_INIT(child_mode, &cc1e_init);
+            }
+            break;
+        }
         case 0x1F: {
             /* Most CC_1F sub-ops run inline; the three yielding ones request a
              * child push (the entered value / delay / actionscript wait). */

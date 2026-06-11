@@ -69,6 +69,7 @@ typedef enum {
     GAME_MODE_USE_ITEM,            /* pause-menu Goods→Use driver (overworld_use_item) */
     GAME_MODE_TELEPORT_MENU,       /* PSI Teleport destination menu (open_teleport_destination_menu) */
     GAME_MODE_DETERMINE_TARGETING, /* battle-action targeting dispatch (determine_targetting) */
+    GAME_MODE_LEVEL_UP,            /* inventory level-up sequence (gain_exp / level_up_char) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -436,6 +437,36 @@ typedef struct {
     uint16_t ally_window_id; /* mode-1 char-select window to close on pop */
     uint32_t saved_argument_memory; /* restored in TGT_ALLY_RESULT */
 } TargetingState;
+
+/* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
+ * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
+ * level_up_char.asm, 763 lines) for the text-displaying play_sound != 0 path:
+ * per gained level — the level-up music, the "reached level X" text, the seven
+ * stat growths, the max HP/PP increases (each gain pushing its DISPLAY_TEXT
+ * message), the PSI-learn scan — then the next-threshold re-check, looping
+ * while more levels are pending. Everything between two texts runs inside the
+ * step's internal for(;;) with no extra yield. The silent play_sound == 0 path
+ * (reset_char_level_one, silent gain_exp) never yields and stays the
+ * synchronous level_up_char_silent() loop in inventory.c.
+ *
+ * Pushed by CC_1E_09 GIVE_EXPERIENCE (cc_1e_dispatch push-signal); the
+ * still-blocking battle end-of-round drivers (battle.c) reach it via the
+ * gain_exp() pump bridge — they convert with the battle system. Always
+ * pops 0. */
+typedef enum {
+    LU_LEVEL = 0,   /* loop head: music, level++, push the "reached level" text */
+    LU_STAT,        /* apply growth stage `stage`; push the gain text if any */
+    LU_PSI,         /* PSI-learn scan from `psi_index`; push the learned text */
+    LU_NEXT,        /* threshold re-check: another level or POP */
+} LevelUpPhase;
+
+typedef struct {
+    uint8_t  phase;     /* LevelUpPhase */
+    uint8_t  stage;     /* next LU_STAT growth stage (LU_STAGE_*, inventory.c) */
+    uint8_t  psi_index; /* next PSI id for the LU_PSI scan */
+    uint16_t char_id;   /* 1-based character (input) */
+    uint16_t old_level; /* level before this iteration's increment */
+} LevelUpState;
 
 /* GAME_MODE_NUMBER_SELECT phases. The blocking original (CC 0x52 / NUM_SELECT_
  * PROMPT) was a two-level loop where each rendered frame was followed by two
@@ -1365,6 +1396,7 @@ union ModeState {
     UseItemState          use_item;
     TeleportMenuState     teleport_menu;
     TargetingState        targeting;
+    LevelUpState          level_up;
     uint8_t               _raw[160];
 };
 
@@ -1579,6 +1611,11 @@ StepResult mode_step_teleport_menu(ModeState *st);
  * via STEP_PUSH from the PSI/use-item steps or the determine_targetting()
  * pump bridge. Pops (targeting_mode << 8) | target_index, or 0 on cancel. */
 StepResult mode_step_determine_targeting(ModeState *st);
+
+/* GAME_MODE_LEVEL_UP step (defined in inventory.c, where the stat-growth and
+ * EXP tables live). Init via level_up_make_init() (inventory.h); entered via
+ * STEP_PUSH from CC_1E_09 or the gain_exp() pump bridge. Always pops 0. */
+StepResult mode_step_level_up(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

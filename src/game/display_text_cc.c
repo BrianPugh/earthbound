@@ -3155,7 +3155,8 @@ void cc_1d_dispatch(ScriptReader *r) {
  *   Byte 1 = char_id (1-indexed).
  *   Word = boost amount (only low byte used, 8-bit addition).
  *   Adds to party_characters[char_id-1].boosted_*, then recalculates stat. */
-void cc_1e_dispatch(ScriptReader *r) {
+bool cc_1e_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -3206,7 +3207,11 @@ void cc_1e_dispatch(ScriptReader *r) {
          * Port of CC_1E_09 (asm/text/ccs/increase_character_experience.asm).
          * Byte 1 = char_id. Bytes 2-5 = 32-bit experience amount
          * (only low 24 bits matter for exp storage).
-         * Calls GAIN_EXP(A=char_id, X=1). play_sound=1 → plays level-up music. */
+         * Calls GAIN_EXP(A=char_id, X=1). play_sound=1 → level-up music + the
+         * level/stat texts. The EXP add + threshold check run inline; when a
+         * level-up is pending, request a GAME_MODE_LEVEL_UP child push
+         * (no result to store -> DT_RESUME_NONE) instead of blocking in the
+         * gain_exp() pump bridge. */
         uint8_t char_id = script_read_byte(r);
         uint8_t exp_b0 = script_read_byte(r);
         uint8_t exp_b1 = script_read_byte(r);
@@ -3214,7 +3219,12 @@ void cc_1e_dispatch(ScriptReader *r) {
         uint8_t exp_b3 = script_read_byte(r);
         uint32_t exp = (uint32_t)exp_b0 | ((uint32_t)exp_b1 << 8) |
                        ((uint32_t)exp_b2 << 16) | ((uint32_t)exp_b3 << 24);
-        gain_exp(1, (uint16_t)char_id, exp);
+        if (gain_exp_prepare((uint16_t)char_id, exp)) {
+            level_up_make_init(out_init, (uint16_t)char_id);
+            *out_mode = GAME_MODE_LEVEL_UP;
+            *out_resume = DT_RESUME_NONE;
+            return true;
+        }
         break;
     }
     /* --- Stat boosts: 1 byte char_id + 1 byte amount --- */
@@ -3246,5 +3256,6 @@ void cc_1e_dispatch(ScriptReader *r) {
         FATAL("display_text: unknown CC 1E %02X\n", sub);
         break;
     }
+    return false;
 }
 
