@@ -181,26 +181,10 @@ void save_photo_state(uint16_t photo_id) {
     }
 }
 
-/* ---- ENCOUNTER_TRAVELLING_PHOTOGRAPHER (port of C466C1) ----
- *
- * Port of asm/misc/encounter_travelling_photographer.asm.
- * Called from CC_1F_D2 to trigger a photographer encounter. */
-void encounter_travelling_photographer(uint16_t photo_id) {
-    /* Assembly line 10: JSL CLEAR_PARTY_SPRITE_HIDE_FLAGS */
-    clear_party_sprite_hide_flags();
-
-    /* Assembly line 11: STZ PLAYER_INTANGIBILITY_FRAMES */
-    ow.player_intangibility_frames = 0;
-
-    /* Assembly lines 13-14: DEC, STA SPAWNING_TRAVELLING_PHOTOGRAPHER_ID */
-    ow.spawning_travelling_photographer_id = photo_id - 1;
-
-    /* Assembly line 15: DISPLAY_TEXT_PTR MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES */
-    display_text_from_addr(MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES);
-
-    /* Assembly lines 16-17: LDA @LOCAL01; JSL SAVE_PHOTO_STATE */
-    save_photo_state(photo_id);
-}
+/* ENCOUNTER_TRAVELLING_PHOTOGRAPHER (C466C1) lives in its only caller,
+ * the CC_1F_D2 dispatcher (display_text_cc.c): prework inline, the
+ * camera-guy text as a DISPLAY_TEXT child push, save_photo_state() in
+ * DT_RESUME_CC1F_PHOTO after it pops. */
 
 /* ---- Enemy Spawn System ----
  * Ported from:

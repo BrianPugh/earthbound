@@ -684,7 +684,7 @@ StepResult mode_step_text_prompt(ModeState *ms) {
 #undef TRIANGLE_TILE_CLEAR
 
 bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
-                    uint8_t *out_resume) {
+                    uint8_t *out_resume, uint16_t *out_aux) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -1386,11 +1386,27 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0xD2: {
         /* TRIGGER_PHOTOGRAPHER_EVENT: 1 arg (photo_id).
          * Port of CC_1F_D2 (asm/text/ccs/trigger_photographer_event.asm).
-         * If arg == 0, uses argument_memory. Calls ENCOUNTER_TRAVELLING_PHOTOGRAPHER. */
+         * If arg == 0, uses argument_memory. ENCOUNTER_TRAVELLING_PHOTOGRAPHER:
+         * the prework (hide-flag clear, intangibility, spawning id) runs
+         * inline, the camera-guy text is a DISPLAY_TEXT child push, and
+         * save_photo_state(photo_id) runs in DT_RESUME_CC1F_PHOTO after it
+         * pops — the blocking order. Unresolvable address: warn + run the
+         * whole blocking form inline (display_text_from_addr idiom). */
         uint8_t arg = script_read_byte(r);
         uint16_t photo_id = arg;
         if (photo_id == 0) photo_id = (uint16_t)get_argument_memory();
-        encounter_travelling_photographer(photo_id);
+        clear_party_sprite_hide_flags();
+        ow.player_intangibility_frames = 0;
+        ow.spawning_travelling_photographer_id = photo_id - 1;
+        if (dt_make_child_init(out_init, MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES)) {
+            *out_mode   = GAME_MODE_DISPLAY_TEXT;
+            *out_resume = DT_RESUME_CC1F_PHOTO;
+            *out_aux    = photo_id;
+            return true;
+        }
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                 (uint32_t)MSG_EVT4_CAMERA_GUY_FUZZY_PICKLES);
+        save_photo_state(photo_id);
         break;
     }
     case 0xD3: {

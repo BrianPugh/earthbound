@@ -104,12 +104,13 @@ bool cc_1e_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume);
 /* cc_1f_dispatch: most sub-ops run inline and return false. The yielding
  * sub-ops (0x23 trigger-battle, 0x52 number-select, 0x60 text-speed delay,
- * 0x61 wait-for-actionscript) instead fill out_init/out_mode (the child to
- * STEP_PUSH) and out_resume (the DisplayTextResume post-work the parent owes
- * on POP) and return true. The caller (mode_step_display_text) zeroes
- * *out_init before the call. */
+ * 0x61 wait-for-actionscript, 0xD2 photographer) instead fill
+ * out_init/out_mode (the child to STEP_PUSH), out_resume (the
+ * DisplayTextResume post-work the parent owes on POP) and out_aux (a small
+ * per-resume carry: 0xD2's photo_id) and return true. The caller
+ * (mode_step_display_text) zeroes *out_init before the call. */
 bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
-                    uint8_t *out_resume);
+                    uint8_t *out_resume, uint16_t *out_aux);
 
 /* ---- Menu functions (display_text_menus.c) ---- */
 uint16_t enter_your_name_please(uint16_t param);

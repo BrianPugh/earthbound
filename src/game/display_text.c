@@ -1586,6 +1586,11 @@ StepResult mode_step_display_text(ModeState *ms) {
          * init_battle_scripted() return value (sign-extended, as before). */
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(int32_t)(int16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1F_PHOTO) {
+        /* CC_1F_D2 photographer: save the photo state after the camera-guy
+         * text — the tail of the former encounter_travelling_photographer(). */
+        st->resume = DT_RESUME_NONE;
+        save_photo_state(st->cc1f_aux);
     }
 
     ScriptReader *r = &st->reader;
@@ -1907,8 +1912,11 @@ StepResult mode_step_display_text(ModeState *ms) {
             memset(&cc1f_init, 0, sizeof(cc1f_init));
             GameMode child_mode = GAME_MODE_NONE;
             uint8_t  child_resume = DT_RESUME_NONE;
-            if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume)) {
+            uint16_t child_aux = 0;
+            if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume,
+                               &child_aux)) {
                 st->resume = child_resume;
+                st->cc1f_aux = child_aux;
                 return STEP_RESULT_PUSH_INIT(child_mode, &cc1f_init);
             }
             break;

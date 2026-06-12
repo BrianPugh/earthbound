@@ -560,11 +560,6 @@ void get_delivery_sprite_and_placeholder(uint16_t delivery_id);
  * game_state.saved_photo_states[photo_id-1]. */
 void save_photo_state(uint16_t photo_id);
 
-/* ENCOUNTER_TRAVELLING_PHOTOGRAPHER: Port of asm/misc/encounter_travelling_photographer.asm.
- * Clears party hide flags, clears intangibility, sets photographer ID,
- * displays the photographer text, and saves photo state. */
-void encounter_travelling_photographer(uint16_t photo_id);
-
 /* Initialize the overworld after file select.
  * Port of INITIALIZE_OVERWORLD_STATE (asm/overworld/initialize_overworld_state.asm).
  * Creates the init entity (slot 23) with EVENT_001 (main overworld tick), sets up party,

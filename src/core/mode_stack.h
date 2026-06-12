@@ -1714,6 +1714,7 @@ typedef enum {
     DT_RESUME_CC1A_BATTLE_SEL,  /* CC_1A_00/01 battle party select: store CHAR_SELECT result */
     DT_RESUME_CC1A_TELEPORT,    /* CC_1A_0B teleport menu: store TELEPORT_MENU result */
     DT_RESUME_CC1F_BATTLE,      /* CC_1F_23 trigger battle: store BATTLE_SCRIPTED result */
+    DT_RESUME_CC1F_PHOTO,       /* CC_1F_D2 photographer: save_photo_state(cc1f_aux) */
 } DisplayTextResume;
 
 typedef struct {
@@ -1721,6 +1722,7 @@ typedef struct {
     uint8_t      saved_cc18_attrs; /* this call level's saved g_cc18_attrs_saved */
     uint8_t      resume;           /* DisplayTextResume: post-child work pending on POP */
     uint16_t     delay_remaining;  /* DT_DELAY: window_tick_work frames left */
+    uint16_t     cc1f_aux;         /* small per-resume carry (DT_RESUME_CC1F_PHOTO: photo_id) */
     uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
     uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
