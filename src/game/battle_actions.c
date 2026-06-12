@@ -50,6 +50,28 @@ static void btlact_pump_addr(uint32_t rom_addr);
  * dispatch prefers the stepper (see jump_temp_function_pointer).
  * ====================================================================== */
 
+/* The level-N physical damage formula shared by the attack steppers:
+ * offense*mult - defense with 25% variance, floored to 1. The variance
+ * gate differs by level: raw > 1 for levels 1/2, raw > 0 for levels 3/4
+ * (see the battle_level_N_attack blocking forms in battle_calc.c). */
+static uint16_t phys_attack_damage(uint16_t mult, bool variance_when_gt1) {
+    Battler *atk = battler_from_offset(bt.current_attacker);
+    Battler *tgt = battler_from_offset(bt.current_target);
+
+    int16_t raw_damage = (int16_t)(atk->offense * mult) - (int16_t)tgt->defense;
+
+    uint16_t damage;
+    if (variance_when_gt1 ? raw_damage > 1 : raw_damage > 0) {
+        damage = battle_25pct_variance((uint16_t)raw_damage);
+    } else {
+        damage = (uint16_t)raw_damage;
+    }
+
+    if ((int16_t)damage <= 0)
+        damage = 1;
+    return damage;
+}
+
 /* ----------------------------------------------------------------------
  * Shared stepper for the standard physical-attack shape:
  *   miss check → [SMAAAASH check] → dodge check → offense*mult - defense
@@ -96,26 +118,9 @@ static StepResult btlact_phys_attack_step(BattleActionState *st,
                 break;
             }
 
-            Battler *atk = battler_from_offset(bt.current_attacker);
-            Battler *tgt = battler_from_offset(bt.current_target);
-
-            int16_t raw_damage =
-                (int16_t)(atk->offense * mult) - (int16_t)tgt->defense;
-
-            /* Variance gate: levels 1/2 skip it when raw <= 1, levels 3/4
-             * when raw <= 0 (see the battle_level_N_attack blocking forms). */
-            uint16_t damage;
-            if (variance_when_gt1 ? raw_damage > 1 : raw_damage > 0) {
-                damage = battle_25pct_variance((uint16_t)raw_damage);
-            } else {
-                damage = (uint16_t)raw_damage;
-            }
-
-            if ((int16_t)damage <= 0)
-                damage = 1;
-
             st->pc = 4;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                  phys_attack_damage(mult, variance_when_gt1), 0xFF);
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         }
         case 4:
@@ -726,73 +731,107 @@ void btlact_null12(void) {}
 
 /*
  * BTLACT_LEVEL_2_ATK_POISON (asm/battle/actions/level_2_attack_poison.asm)
- *
- * Level 2 attack + poison infliction. Fails on NPCs.
- */
-void btlact_level_2_attack_poison(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
-        return;
-    }
-    battle_level_2_attack();
-    battle_heal_strangeness();
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
-    }
-}
-
-/*
  * BTLACT_LVL_2_ATK_DIAMONDIZE (asm/battle/actions/level_2_attack_diamondize.asm)
  *
- * Level 2 attack + diamondize infliction. Fails on NPCs.
- * On diamondize success: clears all other status groups, accumulates exp/money.
+ * Level 2 attack + status infliction, NPC-check prefix. Poison inflicts
+ * unconditionally (vs the status group's keep-worse rule); diamondize rolls
+ * luck80 first and on success clears all other status groups and accumulates
+ * the exp/money reward. The shared stepper runs the phys-attack prologue as
+ * BC_* pushes, then branches at pc 5 on `diamondize`.
  */
-void btlact_level_2_attack_diamondize(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
-        return;
-    }
-    battle_level_2_attack();
-    battle_heal_strangeness();
-    if (!battle_success_luck80()) {
-        return;
-    }
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_DIAMONDIZED);
-    if (result == 0) {
-        return;
-    }
+static StepResult btlact_l2_status_attack_step(BattleActionState *st,
+                                               bool diamondize) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Clear all other status groups */
-    target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
-    target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
-    target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-    target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-    target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            st->pc = 2;
+            battle_calc_make_init(&child, BC_MISS_CALC, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 2:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            st->pc = 3;
+            battle_calc_make_init(&child, BC_SMAAAASH, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 3:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            if (battle_determine_dodge()) {
+                st->pc = 6;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DODGE_ATTACK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 4;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                  phys_attack_damage(2, true), 0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 4:
+            st->pc = 5;
+            battle_calc_make_init(&child, BC_HEAL_STRANGENESS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 5: {
+            Battler *target = battler_from_offset(bt.current_target);
+            uint32_t msg;
+            if (diamondize) {
+                if (!battle_success_luck80())
+                    return STEP_RESULT_POP(0);
+                if (battle_inflict_status(target,
+                        STATUS_GROUP_PERSISTENT_EASYHEAL,
+                        STATUS_0_DIAMONDIZED) == 0)
+                    return STEP_RESULT_POP(0);
 
-    /* Accumulate exp and money reward */
-    bt.battle_exp_scratch += target->exp;
-    bt.battle_money_scratch += target->money;
+                /* Clear all other status groups */
+                target->afflictions[STATUS_GROUP_SHIELD] = 0;
+                target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
+                target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
+                target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
+                target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+                target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
 
-    display_in_battle_text_addr(MSG_BTL5_STATUS_DIAMONDIZED);
+                /* Accumulate exp and money reward */
+                bt.battle_exp_scratch += target->exp;
+                bt.battle_money_scratch += target->money;
+
+                msg = MSG_BTL5_STATUS_DIAMONDIZED;
+            } else {
+                if (battle_inflict_status(target,
+                        STATUS_GROUP_PERSISTENT_EASYHEAL,
+                        STATUS_0_POISONED) == 0)
+                    return STEP_RESULT_POP(0);
+                msg = MSG_BTL5_STATUS_POISONED;
+            }
+            st->pc = 6;
+            if (battle_push_text(&child, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 6:  /* dodge / status text epilogue */
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        }
+    }
 }
+
+static StepResult btlact_level_2_attack_poison_step(BattleActionState *st) {
+    return btlact_l2_status_attack_step(st, false);
+}
+
+static StepResult btlact_level_2_attack_diamondize_step(BattleActionState *st) {
+    return btlact_l2_status_attack_step(st, true);
+}
+
+void btlact_level_2_attack_poison(void)     { btlact_pump_addr(0xC28F97); }
+void btlact_level_2_attack_diamondize(void) { btlact_pump_addr(0xC2916E); }
 
 /* ======================================================================
  * PSI common functions
@@ -800,17 +839,40 @@ void btlact_level_2_attack_diamondize(void) {
 
 /*
  * PSI_FIRE_COMMON (asm/battle/actions/psi_fire_common.asm)
+ * PSI_STARSTORM_COMMON (asm/battle/actions/psi_starstorm_common.asm)
  *
  * Common PSI Fire logic: shield check → 25% variance → fire resist → damage.
+ * Starstorm is the same shape with no resistance check (0xFF = full damage).
  */
-void btlact_psi_fire_common(uint16_t base_damage) {
-    if (battle_psi_shield_nullify())
-        return;
-    uint16_t damage = battle_25pct_variance(base_damage);
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t resist = target->fire_resist;
-    battle_calc_resist_damage(damage, resist);
-    battle_weaken_shield();
+static StepResult btlact_psi_fire_step_common(BattleActionState *st,
+                                              uint16_t base_damage,
+                                              bool use_fire_resist) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0:
+        st->pc = 1;
+        battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    case 1: {
+        if (mode_child_result() != 0)
+            return STEP_RESULT_POP(0);
+        uint16_t damage = battle_25pct_variance(base_damage);
+        uint16_t resist = 0xFF;
+        if (use_fire_resist)
+            resist = battler_from_offset(bt.current_target)->fire_resist;
+        st->pc = 2;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, resist);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    }
+    case 2:
+        st->pc = 3;
+        battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    case 3:
+    default:
+        return STEP_RESULT_POP(0);
+    }
 }
 
 /*
@@ -818,35 +880,72 @@ void btlact_psi_fire_common(uint16_t base_damage) {
  *
  * Common PSI Freeze logic: NPC check → shield check → 25% variance →
  * freeze resist → damage. If damage dealt and target alive, 25% chance
- * to inflict solidified status.
+ * to inflict solidified status. The solidify roll runs at pc 3, after the
+ * resist-damage child pops — the same sequence point as the blocking form.
  */
-void btlact_psi_freeze_common(uint16_t base_damage) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (battle_psi_shield_nullify())
-        return;
-    uint16_t damage = battle_25pct_variance(base_damage);
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t resist = target->freeze_resist;
-    uint16_t dealt = battle_calc_resist_damage(damage, resist);
+static StepResult btlact_psi_freeze_step_common(BattleActionState *st,
+                                                uint16_t base_damage) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* If target is unconscious or no damage dealt, skip solidify */
-    if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS)
-        goto weaken;
-    if (dealt == 0)
-        goto weaken;
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            st->pc = 2;
+            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 2: {
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            uint16_t damage = battle_25pct_variance(base_damage);
+            Battler *target = battler_from_offset(bt.current_target);
+            st->pc = 3;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+                                  target->freeze_resist);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        }
+        case 3: {
+            uint16_t dealt = (uint16_t)mode_child_result();
+            Battler *target = battler_from_offset(bt.current_target);
 
-    /* 25% chance to inflict solidified */
-    if (rand_limit(100) < 25) {
-        uint16_t result = battle_inflict_status(target,
-            STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
-        if (result != 0) {
-            display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
+            /* If target is unconscious or no damage dealt, skip solidify */
+            st->pc = 5;
+            if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
+                    STATUS_0_UNCONSCIOUS)
+                break;
+            if (dealt == 0)
+                break;
+
+            /* 25% chance to inflict solidified */
+            if (rand_limit(100) < 25) {
+                if (battle_inflict_status(target, STATUS_GROUP_TEMPORARY,
+                                          STATUS_2_SOLIDIFIED) != 0) {
+                    st->pc = 4;
+                    if (battle_push_text(&child, MSG_BTL5_STATUS_SOLIDIFIED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
+                                                     &child);
+                }
+            }
+            break;
+        }
+        case 4:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 5;
+            break;
+        case 5:
+            st->pc = 6;
+            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 6:
+        default:
+            return STEP_RESULT_POP(0);
         }
     }
-
-weaken:
-    battle_weaken_shield();
 }
 
 /*
@@ -854,32 +953,48 @@ weaken:
  *
  * Common PSI Rockin' logic: shield check → 50% variance → dodge check →
  * damage with full resistance. Uses 50% variance (wider than fire/freeze).
+ * The variance rolls BEFORE the dodge roll, as in the blocking form.
  */
-void btlact_psi_rockin_common(uint16_t base_damage) {
-    if (battle_psi_shield_nullify())
-        return;
-    uint16_t damage = battle_50pct_variance(base_damage);
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        goto weaken;
-    }
-    battle_calc_resist_damage(damage, 0xFF);
-weaken:
-    battle_weaken_shield();
-}
+static StepResult btlact_psi_rockin_step_common(BattleActionState *st,
+                                                uint16_t base_damage) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-/*
- * PSI_STARSTORM_COMMON (asm/battle/actions/psi_starstorm_common.asm)
- *
- * Common PSI Starstorm logic: shield check → 25% variance → damage.
- * No resistance check (0xFF = full damage).
- */
-void btlact_psi_starstorm_common(uint16_t base_damage) {
-    if (battle_psi_shield_nullify())
-        return;
-    uint16_t damage = battle_25pct_variance(base_damage);
-    battle_calc_resist_damage(damage, 0xFF);
-    battle_weaken_shield();
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1: {
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            uint16_t damage = battle_50pct_variance(base_damage);
+            if (battle_determine_dodge()) {
+                st->pc = 2;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 3;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        }
+        case 2:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 4;
+            break;
+        case 3:
+            st->pc = 4;
+            break;
+        case 4:
+            st->pc = 5;
+            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 5:
+        default:
+            return STEP_RESULT_POP(0);
+        }
+    }
 }
 
 /* PSI Thunder common — multi-hit logic (188 lines in assembly) */
@@ -992,23 +1107,69 @@ void psi_thunder_common(uint16_t base_damage, uint16_t hits) {
  * PSI wrappers
  * ====================================================================== */
 
-void btlact_psi_fire_alpha(void) { btlact_psi_fire_common(FIRE_ALPHA_DAMAGE); }
-void btlact_psi_fire_beta(void)  { btlact_psi_fire_common(FIRE_BETA_DAMAGE); }
-void btlact_psi_fire_gamma(void) { btlact_psi_fire_common(FIRE_GAMMA_DAMAGE); }
-void btlact_psi_fire_omega(void) { btlact_psi_fire_common(FIRE_OMEGA_DAMAGE); }
+static StepResult btlact_psi_fire_alpha_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, FIRE_ALPHA_DAMAGE, true);
+}
+static StepResult btlact_psi_fire_beta_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, FIRE_BETA_DAMAGE, true);
+}
+static StepResult btlact_psi_fire_gamma_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, FIRE_GAMMA_DAMAGE, true);
+}
+static StepResult btlact_psi_fire_omega_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, FIRE_OMEGA_DAMAGE, true);
+}
 
-void btlact_psi_freeze_alpha(void) { btlact_psi_freeze_common(FREEZE_ALPHA_DAMAGE); }
-void btlact_psi_freeze_beta(void)  { btlact_psi_freeze_common(FREEZE_BETA_DAMAGE); }
-void btlact_psi_freeze_gamma(void) { btlact_psi_freeze_common(FREEZE_GAMMA_DAMAGE); }
-void btlact_psi_freeze_omega(void) { btlact_psi_freeze_common(FREEZE_OMEGA_DAMAGE); }
+void btlact_psi_fire_alpha(void) { btlact_pump_addr(0xC295AB); }
+void btlact_psi_fire_beta(void)  { btlact_pump_addr(0xC295B4); }
+void btlact_psi_fire_gamma(void) { btlact_pump_addr(0xC295BD); }
+void btlact_psi_fire_omega(void) { btlact_pump_addr(0xC295C6); }
 
-void btlact_psi_rockin_alpha(void) { btlact_psi_rockin_common(ROCKIN_ALPHA_DAMAGE); }
-void btlact_psi_rockin_beta(void)  { btlact_psi_rockin_common(ROCKIN_BETA_DAMAGE); }
-void btlact_psi_rockin_gamma(void) { btlact_psi_rockin_common(ROCKIN_GAMMA_DAMAGE); }
-void btlact_psi_rockin_omega(void) { btlact_psi_rockin_common(ROCKIN_OMEGA_DAMAGE); }
+static StepResult btlact_psi_freeze_alpha_step(BattleActionState *st) {
+    return btlact_psi_freeze_step_common(st, FREEZE_ALPHA_DAMAGE);
+}
+static StepResult btlact_psi_freeze_beta_step(BattleActionState *st) {
+    return btlact_psi_freeze_step_common(st, FREEZE_BETA_DAMAGE);
+}
+static StepResult btlact_psi_freeze_gamma_step(BattleActionState *st) {
+    return btlact_psi_freeze_step_common(st, FREEZE_GAMMA_DAMAGE);
+}
+static StepResult btlact_psi_freeze_omega_step(BattleActionState *st) {
+    return btlact_psi_freeze_step_common(st, FREEZE_OMEGA_DAMAGE);
+}
 
-void btlact_psi_starstorm_alpha(void) { btlact_psi_starstorm_common(STARSTORM_ALPHA_DAMAGE); }
-void btlact_psi_starstorm_omega(void) { btlact_psi_starstorm_common(STARSTORM_OMEGA_DAMAGE); }
+void btlact_psi_freeze_alpha(void) { btlact_pump_addr(0xC29647); }
+void btlact_psi_freeze_beta(void)  { btlact_pump_addr(0xC29650); }
+void btlact_psi_freeze_gamma(void) { btlact_pump_addr(0xC29659); }
+void btlact_psi_freeze_omega(void) { btlact_pump_addr(0xC29662); }
+
+static StepResult btlact_psi_rockin_alpha_step(BattleActionState *st) {
+    return btlact_psi_rockin_step_common(st, ROCKIN_ALPHA_DAMAGE);
+}
+static StepResult btlact_psi_rockin_beta_step(BattleActionState *st) {
+    return btlact_psi_rockin_step_common(st, ROCKIN_BETA_DAMAGE);
+}
+static StepResult btlact_psi_rockin_gamma_step(BattleActionState *st) {
+    return btlact_psi_rockin_step_common(st, ROCKIN_GAMMA_DAMAGE);
+}
+static StepResult btlact_psi_rockin_omega_step(BattleActionState *st) {
+    return btlact_psi_rockin_step_common(st, ROCKIN_OMEGA_DAMAGE);
+}
+
+void btlact_psi_rockin_alpha(void) { btlact_pump_addr(0xC29556); }
+void btlact_psi_rockin_beta(void)  { btlact_pump_addr(0xC2955F); }
+void btlact_psi_rockin_gamma(void) { btlact_pump_addr(0xC29568); }
+void btlact_psi_rockin_omega(void) { btlact_pump_addr(0xC29571); }
+
+static StepResult btlact_psi_starstorm_alpha_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, STARSTORM_ALPHA_DAMAGE, false);
+}
+static StepResult btlact_psi_starstorm_omega_step(BattleActionState *st) {
+    return btlact_psi_fire_step_common(st, STARSTORM_OMEGA_DAMAGE, false);
+}
+
+void btlact_psi_starstorm_alpha(void) { btlact_pump_addr(0xC29AA6); }
+void btlact_psi_starstorm_omega(void) { btlact_pump_addr(0xC29AAF); }
 
 void btlact_psi_thunder_alpha(void) { psi_thunder_common(THUNDER_ALPHA_DAMAGE, THUNDER_ALPHA_HITS); }
 void btlact_psi_thunder_beta(void)  { psi_thunder_common(THUNDER_BETA_DAMAGE, THUNDER_BETA_HITS); }
@@ -1022,17 +1183,37 @@ void btlact_psi_thunder_omega(void) { psi_thunder_common(THUNDER_OMEGA_DAMAGE, T
 /*
  * LIFEUP_COMMON (asm/battle/actions/lifeup_common.asm)
  *
- * Apply 25% variance to base healing, then recover HP.
+ * Apply 25% variance to base healing, then recover HP (whose tail text is
+ * the push — the btlact_recover_step idiom: decide + mutate at pc 0 only).
  */
-void lifeup_common(uint16_t base_healing) {
-    uint16_t healing = battle_25pct_variance(base_healing);
-    battle_recover_hp(battler_from_offset(bt.current_target), healing);
+static StepResult btlact_lifeup_step_common(BattleActionState *st,
+                                            uint16_t base_healing) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        uint16_t healing = battle_25pct_variance(base_healing);
+        battle_recover_hp_prepare(battler_from_offset(bt.current_target),
+                                  healing, &tail);
+    }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_lifeup_alpha(void) { lifeup_common(LIFEUP_ALPHA_HEALING); }
-void btlact_lifeup_beta(void)  { lifeup_common(LIFEUP_BETA_HEALING); }
-void btlact_lifeup_gamma(void) { lifeup_common(LIFEUP_GAMMA_HEALING); }
-void btlact_lifeup_omega(void) { lifeup_common(LIFEUP_OMEGA_HEALING); }
+static StepResult btlact_lifeup_alpha_step(BattleActionState *st) {
+    return btlact_lifeup_step_common(st, LIFEUP_ALPHA_HEALING);
+}
+static StepResult btlact_lifeup_beta_step(BattleActionState *st) {
+    return btlact_lifeup_step_common(st, LIFEUP_BETA_HEALING);
+}
+static StepResult btlact_lifeup_gamma_step(BattleActionState *st) {
+    return btlact_lifeup_step_common(st, LIFEUP_GAMMA_HEALING);
+}
+static StepResult btlact_lifeup_omega_step(BattleActionState *st) {
+    return btlact_lifeup_step_common(st, LIFEUP_OMEGA_HEALING);
+}
+
+void btlact_lifeup_alpha(void) { btlact_pump_addr(0xC29AC6); }
+void btlact_lifeup_beta(void)  { btlact_pump_addr(0xC29ACF); }
+void btlact_lifeup_gamma(void) { btlact_pump_addr(0xC29AD8); }
+void btlact_lifeup_omega(void) { btlact_pump_addr(0xC29AE1); }
 
 /* ======================================================================
  * Bottle rockets
@@ -1044,23 +1225,52 @@ void btlact_lifeup_omega(void) { lifeup_common(LIFEUP_OMEGA_HEALING); }
  * Fire 'count' rockets. Each has a speed-based hit chance (SUCCESS_SPEED 100).
  * Total damage = hits * 120, with 25% variance, full resistance.
  */
-void bottle_rocket_common(uint16_t count) {
-    uint16_t hits = 0;
-    for (uint16_t i = 0; i < count; i++) {
-        if (battle_success_speed(100))
-            hits++;
+static StepResult btlact_bottle_rocket_step_common(BattleActionState *st,
+                                                   uint16_t count) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        uint16_t hits = 0;
+        for (uint16_t i = 0; i < count; i++) {
+            if (battle_success_speed(100))
+                hits++;
+        }
+        if (hits == 0) {
+            st->pc = 1;
+            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            /* FALLTHROUGH — unresolvable text: epilogue inline */
+            goto epilogue;
+        }
+        uint16_t damage = battle_25pct_variance(hits * 120);
+        st->pc = 2;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
     }
-    if (hits == 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+    case 1:
+    epilogue:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
+    case 2:
+    default:
+        return STEP_RESULT_POP(0);
     }
-    uint16_t damage = battle_25pct_variance(hits * 120);
-    battle_calc_resist_damage(damage, 0xFF);
 }
 
-void btlact_bottle_rocket(void)       { bottle_rocket_common(BOTTLE_ROCKET_COUNT); }
-void btlact_big_bottle_rocket(void)   { bottle_rocket_common(BIG_BOTTLE_ROCKET_COUNT); }
-void btlact_multi_bottle_rocket(void) { bottle_rocket_common(MULTI_BOTTLE_ROCKET_COUNT); }
+static StepResult btlact_bottle_rocket_step(BattleActionState *st) {
+    return btlact_bottle_rocket_step_common(st, BOTTLE_ROCKET_COUNT);
+}
+static StepResult btlact_big_bottle_rocket_step(BattleActionState *st) {
+    return btlact_bottle_rocket_step_common(st, BIG_BOTTLE_ROCKET_COUNT);
+}
+static StepResult btlact_multi_bottle_rocket_step(BattleActionState *st) {
+    return btlact_bottle_rocket_step_common(st, MULTI_BOTTLE_ROCKET_COUNT);
+}
+
+void btlact_bottle_rocket(void)       { btlact_pump_addr(0xC2A5D1); }
+void btlact_big_bottle_rocket(void)   { btlact_pump_addr(0xC2A5DA); }
+void btlact_multi_bottle_rocket(void) { btlact_pump_addr(0xC2A5E3); }
 
 /* ======================================================================
  * Item spray/bomb common functions
@@ -1068,55 +1278,66 @@ void btlact_multi_bottle_rocket(void) { bottle_rocket_common(MULTI_BOTTLE_ROCKET
 
 /*
  * INSECT_SPRAY_COMMON (asm/battle/actions/insect_spray_common.asm)
- *
- * Luck80 check, target must be enemy, enemy type must be 1 (insect).
- * 50% variance on base damage.
- */
-void insect_spray_common(uint16_t base_damage) {
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    Battler *target = battler_from_offset(bt.current_target);
-    if (target->ally_or_enemy != 1) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    if (battle_get_enemy_type(target->id) != 1) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t damage = battle_50pct_variance(base_damage);
-    battle_calc_resist_damage(damage, 0xFF);
-}
-
-/*
  * RUST_SPRAY_COMMON (asm/battle/actions/rust_promoter_common.asm)
  *
- * Same as insect spray but checks enemy type 2 (metallic).
+ * Luck80 check, target must be an enemy of the given type (1 = insect,
+ * 2 = metallic). 50% variance on base damage. The luck roll short-circuits
+ * before the type checks, exactly like the blocking form.
  */
-void rust_spray_common(uint16_t base_damage) {
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+static StepResult btlact_spray_step_common(BattleActionState *st,
+                                           uint16_t enemy_type,
+                                           uint16_t base_damage) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        bool failed;
+        if (!battle_success_luck80()) {
+            failed = true;
+        } else {
+            Battler *target = battler_from_offset(bt.current_target);
+            failed = (target->ally_or_enemy != 1 ||
+                      battle_get_enemy_type(target->id) != enemy_type);
+        }
+        if (failed) {
+            st->pc = 1;
+            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            /* FALLTHROUGH — unresolvable text: epilogue inline */
+            goto epilogue;
+        }
+        uint16_t damage = battle_50pct_variance(base_damage);
+        st->pc = 2;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
     }
-    Battler *target = battler_from_offset(bt.current_target);
-    if (target->ally_or_enemy != 1) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+    case 1:
+    epilogue:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
+    case 2:
+    default:
+        return STEP_RESULT_POP(0);
     }
-    if (battle_get_enemy_type(target->id) != 2) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t damage = battle_50pct_variance(base_damage);
-    battle_calc_resist_damage(damage, 0xFF);
 }
 
-void btlact_insecticide_spray(void) { insect_spray_common(100); }
-void btlact_xterminator_spray(void) { insect_spray_common(200); }
-void btlact_rust_promoter(void)     { rust_spray_common(200); }
-void btlact_rust_promoter_dx(void)  { rust_spray_common(400); }
+static StepResult btlact_insecticide_spray_step(BattleActionState *st) {
+    return btlact_spray_step_common(st, 1, 100);
+}
+static StepResult btlact_xterminator_spray_step(BattleActionState *st) {
+    return btlact_spray_step_common(st, 1, 200);
+}
+static StepResult btlact_rust_promoter_step(BattleActionState *st) {
+    return btlact_spray_step_common(st, 2, 200);
+}
+static StepResult btlact_rust_promoter_dx_step(BattleActionState *st) {
+    return btlact_spray_step_common(st, 2, 400);
+}
+
+void btlact_insecticide_spray(void) { btlact_pump_addr(0xC2AA0C); }
+void btlact_xterminator_spray(void) { btlact_pump_addr(0xC2AA15); }
+void btlact_rust_promoter(void)     { btlact_pump_addr(0xC2AA6D); }
+void btlact_rust_promoter_dx(void)  { btlact_pump_addr(0xC2AA76); }
 
 /*
  * BOMB_COMMON (asm/battle/actions/bomb_common.asm)
@@ -1918,11 +2139,25 @@ check_special:
  *
  * Fixed 350 fire damage with 25% variance, modified by fire resistance.
  */
-void btlact_350_fire_damage(void) {
-    uint16_t damage = battle_25pct_variance(350);
-    Battler *target = battler_from_offset(bt.current_target);
-    battle_calc_resist_damage(damage, target->fire_resist);
+static StepResult btlact_350_fire_damage_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        uint16_t damage = battle_25pct_variance(350);
+        Battler *target = battler_from_offset(bt.current_target);
+        st->pc = 1;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+                              target->fire_resist);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    }
+    case 1:
+    default:
+        return STEP_RESULT_POP(0);
+    }
 }
+
+void btlact_350_fire_damage(void) { btlact_pump_addr(0xC2900B); }
 
 /*
  * BTLACT_BAG_OF_DRAGONITE (asm/battle/actions/bag_of_dragonite.asm)
@@ -3904,9 +4139,9 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC28E42, btlact_reduce_pp, NULL },
     { 0xC28EAE, btlact_cut_guts, NULL },
     { 0xC28F21, btlact_reduce_offense_defense, NULL },
-    { 0xC28F97, btlact_level_2_attack_poison, NULL },
+    { 0xC28F97, btlact_level_2_attack_poison, btlact_level_2_attack_poison_step },
     { 0xC28FF9, btlact_double_bash, NULL },
-    { 0xC2900B, btlact_350_fire_damage, NULL },
+    { 0xC2900B, btlact_350_fire_damage, btlact_350_fire_damage_step },
     { 0xC2902C, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
     { 0xC29033, btlact_null2, NULL },
     { 0xC29036, btlact_null3, NULL },
@@ -3920,23 +4155,23 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2904E, btlact_null11, NULL },
     { 0xC29051, btlact_neutralize, NULL },
     { 0xC290C6, apply_neutralize_to_all, NULL },
-    { 0xC2916E, btlact_level_2_attack_diamondize, NULL },
+    { 0xC2916E, btlact_level_2_attack_diamondize, btlact_level_2_attack_diamondize_step },
     { 0xC29254, btlact_reduce_offense, NULL },
     { 0xC29298, btlact_clumsydeath, NULL },
     { 0xC292EB, btlact_enemy_extend, NULL },
     { 0xC292EE, btlact_masterbarfdeath, NULL },
-    { 0xC29556, btlact_psi_rockin_alpha, NULL },
-    { 0xC2955F, btlact_psi_rockin_beta, NULL },
-    { 0xC29568, btlact_psi_rockin_gamma, NULL },
-    { 0xC29571, btlact_psi_rockin_omega, NULL },
-    { 0xC295AB, btlact_psi_fire_alpha, NULL },
-    { 0xC295B4, btlact_psi_fire_beta, NULL },
-    { 0xC295BD, btlact_psi_fire_gamma, NULL },
-    { 0xC295C6, btlact_psi_fire_omega, NULL },
-    { 0xC29647, btlact_psi_freeze_alpha, NULL },
-    { 0xC29650, btlact_psi_freeze_beta, NULL },
-    { 0xC29659, btlact_psi_freeze_gamma, NULL },
-    { 0xC29662, btlact_psi_freeze_omega, NULL },
+    { 0xC29556, btlact_psi_rockin_alpha, btlact_psi_rockin_alpha_step },
+    { 0xC2955F, btlact_psi_rockin_beta, btlact_psi_rockin_beta_step },
+    { 0xC29568, btlact_psi_rockin_gamma, btlact_psi_rockin_gamma_step },
+    { 0xC29571, btlact_psi_rockin_omega, btlact_psi_rockin_omega_step },
+    { 0xC295AB, btlact_psi_fire_alpha, btlact_psi_fire_alpha_step },
+    { 0xC295B4, btlact_psi_fire_beta, btlact_psi_fire_beta_step },
+    { 0xC295BD, btlact_psi_fire_gamma, btlact_psi_fire_gamma_step },
+    { 0xC295C6, btlact_psi_fire_omega, btlact_psi_fire_omega_step },
+    { 0xC29647, btlact_psi_freeze_alpha, btlact_psi_freeze_alpha_step },
+    { 0xC29650, btlact_psi_freeze_beta, btlact_psi_freeze_beta_step },
+    { 0xC29659, btlact_psi_freeze_gamma, btlact_psi_freeze_gamma_step },
+    { 0xC29662, btlact_psi_freeze_omega, btlact_psi_freeze_omega_step },
     { 0xC29871, btlact_psi_thunder_alpha, NULL },
     { 0xC2987D, btlact_psi_thunder_beta, NULL },
     { 0xC29889, btlact_psi_thunder_gamma, NULL },
@@ -3945,12 +4180,12 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC299AE, btlact_psi_flash_beta, NULL },
     { 0xC299EF, btlact_psi_flash_gamma, NULL },
     { 0xC29A35, btlact_psi_flash_omega, NULL },
-    { 0xC29AA6, btlact_psi_starstorm_alpha, NULL },
-    { 0xC29AAF, btlact_psi_starstorm_omega, NULL },
-    { 0xC29AC6, btlact_lifeup_alpha, NULL },
-    { 0xC29ACF, btlact_lifeup_beta, NULL },
-    { 0xC29AD8, btlact_lifeup_gamma, NULL },
-    { 0xC29AE1, btlact_lifeup_omega, NULL },
+    { 0xC29AA6, btlact_psi_starstorm_alpha, btlact_psi_starstorm_alpha_step },
+    { 0xC29AAF, btlact_psi_starstorm_omega, btlact_psi_starstorm_omega_step },
+    { 0xC29AC6, btlact_lifeup_alpha, btlact_lifeup_alpha_step },
+    { 0xC29ACF, btlact_lifeup_beta, btlact_lifeup_beta_step },
+    { 0xC29AD8, btlact_lifeup_gamma, btlact_lifeup_gamma_step },
+    { 0xC29AE1, btlact_lifeup_omega, btlact_lifeup_omega_step },
     { 0xC29AEA, btlact_healing_alpha, btlact_healing_alpha_step },
     { 0xC29B7A, btlact_healing_beta, btlact_healing_beta_step },
     { 0xC29C2C, btlact_healing_gamma, btlact_healing_gamma_step },
@@ -3996,9 +4231,9 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2A46B, (void(*)(void))btlact_hp_sucker, NULL },
     { 0xC2A507, btlact_hungry_hp_sucker, NULL },
     { 0xC2A50E, btlact_mummy_wrap, NULL },
-    { 0xC2A5D1, btlact_bottle_rocket, NULL },
-    { 0xC2A5DA, btlact_big_bottle_rocket, NULL },
-    { 0xC2A5E3, btlact_multi_bottle_rocket, NULL },
+    { 0xC2A5D1, btlact_bottle_rocket, btlact_bottle_rocket_step },
+    { 0xC2A5DA, btlact_big_bottle_rocket, btlact_big_bottle_rocket_step },
+    { 0xC2A5E3, btlact_multi_bottle_rocket, btlact_multi_bottle_rocket_step },
     { 0xC2A5EC, btlact_handbag_strap, NULL },
     { 0xC2A818, btlact_bomb, NULL },
     { 0xC2A821, btlact_super_bomb, NULL },
@@ -4008,10 +4243,10 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2A902, btlact_inflict_solidification, NULL },
     { 0xC2A953, btlact_inflict_poison, NULL },
     { 0xC2A99C, btlact_bag_of_dragonite, NULL },
-    { 0xC2AA0C, btlact_insecticide_spray, NULL },
-    { 0xC2AA15, btlact_xterminator_spray, NULL },
-    { 0xC2AA6D, btlact_rust_promoter, NULL },
-    { 0xC2AA76, btlact_rust_promoter_dx, NULL },
+    { 0xC2AA0C, btlact_insecticide_spray, btlact_insecticide_spray_step },
+    { 0xC2AA15, btlact_xterminator_spray, btlact_xterminator_spray_step },
+    { 0xC2AA6D, btlact_rust_promoter, btlact_rust_promoter_step },
+    { 0xC2AA76, btlact_rust_promoter_dx, btlact_rust_promoter_dx_step },
     { 0xC2AA7F, btlact_sudden_guts_pill, NULL },
     { 0xC2AAC6, btlact_defense_spray, NULL },
     { 0xC2AB0D, btlact_defense_shower, NULL },

@@ -862,9 +862,6 @@ void btlact_shield_alpha(void);
 void btlact_shield_beta(void);
 void btlact_psi_shield_alpha(void);
 void btlact_psi_shield_beta(void);
-void btlact_psi_fire_common(uint16_t base_damage);
-void btlact_psi_rockin_common(uint16_t base_damage);
-void btlact_psi_starstorm_common(uint16_t base_damage);
 
 /* HP/PP recovery actions (from asm/battle/actions/) */
 void btlact_hp_recovery_10(void);
@@ -936,9 +933,6 @@ void battle_level_4_attack(void);
 void btlact_level_2_attack_poison(void);
 void btlact_level_2_attack_diamondize(void);
 
-/* PSI common functions */
-void btlact_psi_freeze_common(uint16_t base_damage);
-
 /* PSI wrappers */
 void btlact_psi_fire_alpha(void);
 void btlact_psi_fire_beta(void);
@@ -960,21 +954,17 @@ void btlact_psi_thunder_gamma(void);
 void btlact_psi_thunder_omega(void);
 
 /* Lifeup */
-void lifeup_common(uint16_t base_healing);
 void btlact_lifeup_alpha(void);
 void btlact_lifeup_beta(void);
 void btlact_lifeup_gamma(void);
 void btlact_lifeup_omega(void);
 
 /* Bottle rockets */
-void bottle_rocket_common(uint16_t count);
 void btlact_bottle_rocket(void);
 void btlact_big_bottle_rocket(void);
 void btlact_multi_bottle_rocket(void);
 
 /* Item damage (spray/bomb) */
-void insect_spray_common(uint16_t base_damage);
-void rust_spray_common(uint16_t base_damage);
 void btlact_insecticide_spray(void);
 void btlact_xterminator_spray(void);
 void btlact_rust_promoter(void);
