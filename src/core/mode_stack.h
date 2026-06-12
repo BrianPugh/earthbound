@@ -175,7 +175,8 @@ typedef enum {
     DTR_TRANS_OUT_FIN,   /* screen_transition_finalize() after exit pop */
     DTR_AFTER_OUT,       /* load map, place party, enter-transition in */
     DTR_TRANS_IN_FIN,    /* screen_transition_finalize() after enter pop */
-    DTR_FINALIZE,        /* spawn_buzz_buzz, clear using_door, pop */
+    DTR_FINALIZE,        /* finalize; push the buzz-buzz check text */
+    DTR_BUZZ_DONE,       /* spawn delivery entities, clear using_door, pop */
 } DoorTransitionPhase;
 
 typedef struct {

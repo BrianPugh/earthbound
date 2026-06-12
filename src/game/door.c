@@ -28,7 +28,10 @@
 #include "game/audio.h"
 #include "game/battle.h"
 #include "core/mode_stack.h"
+#include "core/log.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"
+#include "data/text_refs.h"
 #include "game/fade.h"
 #include "game/game_state.h"
 #include "game/map_loader.h"
@@ -1202,12 +1205,27 @@ StepResult mode_step_door_transition(ModeState *ms) {
             st->phase = DTR_FINALIZE;
             continue;
 
-        case DTR_FINALIZE:
-        default:
-            /* Assembly lines 194-198: finalize */
+        case DTR_FINALIZE: {
+            /* Assembly lines 194-198: finalize. spawn_buzz_buzz() = the
+             * buzz-buzz check text (entity-spawn CC codes gated by event
+             * flags) then spawn_delivery_entities(); the text is a
+             * DISPLAY_TEXT push, the spawns run at DTR_BUZZ_DONE. An
+             * unresolvable address warns + falls through, matching
+             * display_text_from_addr(). */
             ow.stairs_direction = 0xFFFF;
             ow.player_has_done_something_this_frame = 0;
-            spawn_buzz_buzz();
+            static ModeState bb_init;  /* outlives this dispatch (pump copies it) */
+            st->phase = DTR_BUZZ_DONE;
+            if (dt_make_child_init(&bb_init, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &bb_init);
+            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                     (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
+            continue;
+        }
+
+        case DTR_BUZZ_DONE:
+        default:
+            spawn_delivery_entities();
             dr.using_door = 0;
             return STEP_RESULT_POP(0);
         }
