@@ -120,6 +120,14 @@ void battle_recover_pp_prepare(Battler *target, uint16_t amount,
 
 /* ---- Functions defined in battle_calc.c ---- */
 
+/* Build a GAME_MODE_BATTLE_CALC child init (see BattleCalcKind in
+ * core/mode_stack.h for each kind's arg0/arg1 and pop value). Converted
+ * action steppers STEP_PUSH the mode and read the result back with
+ * mode_child_result(); the blocking battle_*() forms below are pump
+ * bridges over the same steppers. */
+void battle_calc_make_init(ModeState *init, uint8_t kind,
+                           uint16_t arg0, uint16_t arg1);
+
 /* Success/probability checks */
 uint16_t battle_success_255(uint16_t threshold);
 uint16_t battle_success_500(uint16_t threshold);

@@ -77,6 +77,7 @@ typedef enum {
     GAME_MODE_BATTLE_ENTRY,        /* overworld encounter entry/exit (init_battle_overworld) */
     GAME_MODE_BATTLE_SCRIPTED,     /* scripted/event battle entry/exit (init_battle_scripted) */
     GAME_MODE_BATTLE_ACTION,       /* one battle-action function (btlact_* long tail) */
+    GAME_MODE_BATTLE_CALC,         /* battle_calc.c text pipeline (miss/smaaaash/damage/shields) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -718,6 +719,43 @@ typedef struct {
     uint16_t scratch16[2];  /* per-action hoisted locals */
     uint32_t scratch32;     /* per-action hoisted 32-bit local */
 } BattleActionState;
+
+/* GAME_MODE_BATTLE_CALC — the battle_calc.c text-displaying calculation
+ * pipeline (miss/SMAAAASH/damage/shield/sleep-wake texts), run-to-completion
+ * as a VALUE-RETURNING child mode: the pop result is the blocking function's
+ * return value, read back via mode_child_result(). One mode, one kind per
+ * former blocking function; the kinds nest by pushing each other
+ * (BC_SMAAAASH → BC_RESIST_DAMAGE → BC_CALC_DAMAGE → DISPLAY_TEXT), exactly
+ * mirroring the blocking call tree. All RNG/mutation runs at its original
+ * sequence point (decide at the pushing pc, never at a resume pc); every
+ * resume pc starts with the dt.blinking_triangle_flag clear (the blocking
+ * display_in_battle_text epilogue). battle_ko_target() stays inline-blocking
+ * from BC_RESIST_DAMAGE (its own driver — death text, palette flashes, the
+ * final-attack path; converts with the check_dead_players sub-front).
+ *
+ * Pushed by the converted btlact_* action steppers (battle_actions.c) and by
+ * its own nesting; the blocking battle_*() forms in battle_calc.c are
+ * pump_mode bridges, so the ~100 unconverted blocking callers keep working
+ * unchanged. Init via battle_calc_make_init() (battle_internal.h). */
+typedef enum {
+    BC_MISS_CALC = 0,       /* arg0 = miss_message_type; pops 1 = missed */
+    BC_SMAAAASH,            /* pops 1 = critical hit happened */
+    BC_CALC_DAMAGE,         /* arg0 = target offset, arg1 = damage; pops 1 (0 = "didn't work") */
+    BC_RESIST_DAMAGE,       /* arg0 = damage, arg1 = resist modifier; pops final damage */
+    BC_PSI_SHIELD_NULLIFY,  /* pops 1 = attack nullified (absorbed) */
+    BC_WEAKEN_SHIELD,       /* pops 0 */
+    BC_HEAL_STRANGENESS,    /* pops 0 */
+    BC_FAIL_ON_NPCS,        /* pops 1 = target is an NPC (attack fails) */
+} BattleCalcKind;
+
+typedef struct {
+    uint8_t  kind;          /* BattleCalcKind */
+    uint8_t  pc;            /* per-kind resume point (0 = entry) */
+    uint16_t arg0, arg1;    /* inputs (see BattleCalcKind); arg0 doubles as the
+                             * mutable working value (damage / target offset) */
+    uint16_t local[2];      /* per-kind hoisted locals (flags / saved target /
+                             * reflected damage) */
+} BattleCalcState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1685,6 +1723,7 @@ union ModeState {
     BattleEntryState      battle_entry;
     BattleScriptedState   battle_scripted;
     BattleActionState     battle_action;
+    BattleCalcState       battle_calc;
     uint8_t               _raw[160];
 };
 
@@ -1693,9 +1732,10 @@ union ModeState {
  * BATTLE → BATTLE_MENU → BATTLE_PSI_MENU → DETERMINE_TARGETING →
  * BATTLE_ENEMY_SELECT is 9 levels, plus CC_08 CALL_TEXT can nest extra
  * DISPLAY_TEXT levels and the Phase-D flip adds the BOOT/OVERWORLD root.
- * The turn-execution branch (BATTLE → BATTLE_ACTION → DISPLAY_TEXT →
- * TEXT_PROMPT) is 8 from the same entry; converting the battle_calc.c
- * pipeline to child modes will deepen it — re-check this bound then.
+ * The turn-execution branch is now the deepest from the same entry:
+ * BATTLE → BATTLE_ACTION → BC_SMAAAASH → BC_RESIST_DAMAGE →
+ * BC_CALC_DAMAGE → DISPLAY_TEXT → TEXT_PROMPT is 12, plus the
+ * inline-blocking battle_ko_target() pumping a BATTLE_WAIT on top is 13.
  * 16 leaves headroom (mode_push logs + drops on overflow rather than
  * corrupting the stack). Raising this changes the on-disk
  * SECTION_MODE_STACK size — harmless pre-cutover (savestates are not
@@ -1959,6 +1999,12 @@ StepResult mode_step_battle_scripted(ModeState *st);
  * resumable stepper named by BattleActionState.table_index. Init via
  * battle_action_dispatch() (battle.h). Always pops 0. */
 StepResult mode_step_battle_action(ModeState *st);
+
+/* GAME_MODE_BATTLE_CALC step (defined in battle_calc.c, where the pipeline
+ * lives). Dispatches by BattleCalcState.kind. Init via battle_calc_make_init()
+ * (battle_internal.h). Pops the blocking function's return value (see
+ * BattleCalcKind). */
+StepResult mode_step_battle_calc(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

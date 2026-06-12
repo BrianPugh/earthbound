@@ -16,6 +16,45 @@
 
 #include "data/text_refs.h"
 
+#include <string.h>
+
+/* ======================================================================
+ * GAME_MODE_BATTLE_CALC plumbing
+ *
+ * The text-displaying calculation pipeline below (miss calc, SMAAAASH,
+ * CALC_DAMAGE, CALC_RESIST_DAMAGE, PSI shield nullify, weaken shield, heal
+ * strangeness, fail-on-NPCs) is run-to-completion: each former blocking
+ * function is a bc_*_step() pc-machine whose texts are DISPLAY_TEXT pushes
+ * (battle_push_text / battle_push_text_ex, battle.c) and whose nested calls
+ * into each other are BATTLE_CALC pushes, mirroring the blocking call tree
+ * (BC_SMAAAASH → BC_RESIST_DAMAGE → BC_CALC_DAMAGE). The pop result is the
+ * blocking function's return value. Every resume pc starts with the
+ * dt.blinking_triangle_flag clear (the blocking display_in_battle_text
+ * epilogue); all RNG and state mutation stays at its original sequence
+ * point (at the pushing pc, never re-run at a resume pc).
+ *
+ * battle_ko_target() is called inline-blocking from BC_RESIST_DAMAGE — it
+ * is its own large driver (death text, palette flashes + battle_waits, the
+ * final-attack path) and converts with the check_dead_players sub-front.
+ *
+ * The blocking battle_*() forms are pump_mode bridges over the same
+ * steppers, so the unconverted battle_actions.c callers work unchanged.
+ * ====================================================================== */
+
+void battle_calc_make_init(ModeState *init, uint8_t kind,
+                           uint16_t arg0, uint16_t arg1) {
+    memset(init, 0, sizeof(*init));
+    init->battle_calc.kind = kind;
+    init->battle_calc.arg0 = arg0;
+    init->battle_calc.arg1 = arg1;
+}
+
+/* Blocking bridge: run one calc kind to completion, return its pop value. */
+static uint16_t battle_calc_pump(uint8_t kind, uint16_t arg0, uint16_t arg1) {
+    ModeState init;
+    battle_calc_make_init(&init, kind, arg0, arg1);
+    return (uint16_t)pump_mode(GAME_MODE_BATTLE_CALC, &init);
+}
 
 /* ======================================================================
  * Combat calculations
@@ -334,48 +373,85 @@ void battle_decrease_defense(Battler *target) {
  * Returns 1 if attack was nullified (absorbed), 0 if it should proceed.
  * Note: reflection sets DAMAGE_IS_REFLECTED but returns 0 (attack proceeds
  * with swapped targets).
+ *
+ * Resumable (BC_PSI_SHIELD_NULLIFY): pc 0 = decide + push the deflect/
+ * nullify text; pc 1 = reflect epilogue (the reflect flag + swap run after
+ * the text, as in the blocking form); pc 2 = absorb epilogue (the shield
+ * decrement runs after the text) + push the disappeared text; pc 3 = final
+ * epilogue.
  */
-uint16_t battle_psi_shield_nullify(void) {
-    bt.shield_has_nullified_damage = 1;
+static StepResult bc_psi_shield_nullify_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+    Battler *tgt;
 
-    Battler *atk = battler_from_offset(bt.current_attacker);
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            bt.shield_has_nullified_damage = 1;
 
-    /* Set current item from action argument */
-    set_current_item(atk->current_action_argument);
+            Battler *atk = battler_from_offset(bt.current_attacker);
 
-    /* Check if the current action is PSI type */
-    /* Action type is at offset 2 in the 12-byte action entry */
-    if (battle_action_table == NULL)
-        return 0;
-    uint16_t action_id = atk->current_action;
-    uint8_t action_type = battle_action_table[action_id].type;
+            /* Set current item from action argument */
+            set_current_item(atk->current_action_argument);
 
-    if (action_type != ACTION_TYPE_PSI)
-        return 0;
+            /* Check if the current action is PSI type */
+            /* Action type is at offset 2 in the 12-byte action entry */
+            if (battle_action_table == NULL)
+                return STEP_RESULT_POP(0);
+            uint16_t action_id = atk->current_action;
+            uint8_t action_type = battle_action_table[action_id].type;
 
-    /* Check target's shield status */
-    Battler *tgt = battler_from_offset(bt.current_target);
-    uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
+            if (action_type != ACTION_TYPE_PSI)
+                return STEP_RESULT_POP(0);
 
-    if (shield == STATUS_6_PSI_SHIELD_POWER) {
-        /* PSI Shield Power — reflect attack */
-        display_in_battle_text_addr(MSG_BTL5_PSI_POWER_SHIELD_DEFLECTED);
-        bt.damage_is_reflected = 1;
-        swap_attacker_with_target();
-        return 0;  /* Attack proceeds with swapped targets */
-    } else if (shield == STATUS_6_PSI_SHIELD) {
-        /* PSI Shield — absorb attack */
-        display_in_battle_text_addr(MSG_BTL5_PSYCHIC_SHIELD_NULLIFIED);
-        tgt->shield_hp--;
-        if (tgt->shield_hp == 0) {
-            tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-            display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
+            /* Check target's shield status */
+            tgt = battler_from_offset(bt.current_target);
+            uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
+
+            if (shield == STATUS_6_PSI_SHIELD_POWER) {
+                /* PSI Shield Power — reflect attack */
+                st->pc = 1;
+                if (battle_push_text(&child, MSG_BTL5_PSI_POWER_SHIELD_DEFLECTED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            } else if (shield == STATUS_6_PSI_SHIELD) {
+                /* PSI Shield — absorb attack */
+                st->pc = 2;
+                if (battle_push_text(&child, MSG_BTL5_PSYCHIC_SHIELD_NULLIFIED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            /* No PSI shield active */
+            return STEP_RESULT_POP(0);
         }
-        return 1;  /* Attack nullified */
+        case 1:
+            dt.blinking_triangle_flag = 0;
+            bt.damage_is_reflected = 1;
+            swap_attacker_with_target();
+            return STEP_RESULT_POP(0);  /* Attack proceeds with swapped targets */
+        case 2:
+            dt.blinking_triangle_flag = 0;
+            tgt = battler_from_offset(bt.current_target);
+            tgt->shield_hp--;
+            if (tgt->shield_hp == 0) {
+                tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
+                st->pc = 3;
+                if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            return STEP_RESULT_POP(1);  /* Attack nullified */
+        case 3:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(1);  /* Attack nullified */
+        }
     }
+}
 
-    /* No PSI shield active */
-    return 0;
+uint16_t battle_psi_shield_nullify(void) {
+    return battle_calc_pump(BC_PSI_SHIELD_NULLIFY, 0, 0);
 }
 
 
@@ -411,146 +487,209 @@ uint16_t battle_get_action_type(uint16_t action_id) {
  *   target_offset: byte offset into bt.battlers_table
  *   damage: amount of damage to deal
  *
- * Returns: 1 always
+ * Returns: 1 always (0 for the damage == 0 "didn't work" path)
+ *
+ * Resumable (BC_CALC_DAMAGE): arg0 = target_offset (rewritten by the Giygas
+ * redirect, exactly like the blocking local), arg1 = damage. local[0] =
+ * flags (bit0 giygas redirect, bit1 enemy target, bit2 smash text, bit3
+ * mortal text), local[1] = saved target offset. pc 0 = entry ("didn't work"
+ * text / the Giygas redirect's RNG pick + flash + BATTLE_WAIT push); pc 1 =
+ * apply damage + guts save + push the damage text; pc 2 = post-text effects
+ * (smash-flag clear / shake-hold / Giygas flash, all of which the blocking
+ * form runs AFTER the text) + the redirect restore; pc 3 = "didn't work"
+ * epilogue.
  */
-uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
-    Battler *tgt = battler_from_offset(target_offset);
-    uint16_t saved_giygas_redirect = 0;
-    uint16_t saved_target = 0;
+static StepResult bc_calc_damage_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+    Battler *tgt;
 
-    if (damage == 0) {
-        /* "It didn't work" text */
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return 0;
-    }
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            tgt = battler_from_offset(st->arg0);
 
-    /* Giygas phase 2 redirect: redirect damage to random conscious party member */
-    if (tgt->ally_or_enemy != 0 && tgt->id == ENEMY_GIYGAS_2) {
-        saved_giygas_redirect = 1;
-        saved_target = bt.current_target;
+            if (st->arg1 == 0) {
+                /* "It didn't work" text */
+                st->pc = 3;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
 
-        /* Pick random conscious non-NPC non-unconscious non-diamondized party member */
-        for (;;) {
-            uint16_t r = rng_next_byte() & 0x03;
-            uint16_t candidate_offset = (uint16_t)(r * sizeof(Battler));
-            Battler *cand = battler_from_offset(candidate_offset);
-            if (cand->consciousness == 0) continue;
-            if (cand->npc_id != 0) continue;
-            uint8_t aff = cand->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-            if (aff == STATUS_0_UNCONSCIOUS || aff == STATUS_0_DIAMONDIZED) continue;
-            bt.current_target = candidate_offset;
-            target_offset = candidate_offset;
-            tgt = cand;
+            /* Giygas phase 2 redirect: redirect damage to random conscious party member */
+            if (tgt->ally_or_enemy != 0 && tgt->id == ENEMY_GIYGAS_2) {
+                st->local[0] |= 0x01;
+                st->local[1] = bt.current_target;
+
+                /* Pick random conscious non-NPC non-unconscious non-diamondized party member */
+                for (;;) {
+                    uint16_t r = rng_next_byte() & 0x03;
+                    uint16_t candidate_offset = (uint16_t)(r * sizeof(Battler));
+                    Battler *cand = battler_from_offset(candidate_offset);
+                    if (cand->consciousness == 0) continue;
+                    if (cand->npc_id != 0) continue;
+                    uint8_t aff = cand->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+                    if (aff == STATUS_0_UNCONSCIOUS || aff == STATUS_0_DIAMONDIZED) continue;
+                    bt.current_target = candidate_offset;
+                    st->arg0 = candidate_offset;
+                    break;
+                }
+                fix_target_name();
+                bt.reflect_flash_duration = 0x10;
+                play_sfx(73);  /* SFX::REFLECT_DAMAGE (assembly: calc_damage.asm line 66) */
+                st->pc = 1;
+                {
+                    ModeState *w = &child;
+                    memset(w, 0, sizeof(*w));
+                    w->battle_wait.kind = BW_FRAMES;
+                    w->battle_wait.remaining = HALF_OF_A_SECOND;
+                }
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            }
+            st->pc = 1;
             break;
-        }
-        fix_target_name();
-        bt.reflect_flash_duration = 0x10;
-        play_sfx(73);  /* SFX::REFLECT_DAMAGE (assembly: calc_damage.asm line 66) */
-        battle_wait(HALF_OF_A_SECOND);
-    }
 
-    /* Apply damage via REDUCE_HP (unless target is a special boss that takes no HP damage) */
-    bool skip_hp_reduction = false;
-    if (tgt->ally_or_enemy != 0) {
-        uint16_t eid = tgt->id;
-        if (eid == ENEMY_MASTER_BELCH_1 || eid == ENEMY_MASTER_BELCH_3 ||
-            eid == ENEMY_GIYGAS_2 || eid == ENEMY_GIYGAS_3 ||
-            eid == ENEMY_GIYGAS_5 || eid == ENEMY_GIYGAS_6) {
-            skip_hp_reduction = true;
-        }
-    }
-    /* Assembly (calc_damage.asm:70-103): save hp_target BEFORE reduce_hp for guts check */
-    uint16_t saved_hp = tgt->hp_target;
-    if (!skip_hp_reduction) {
-        battle_reduce_hp(tgt, damage);
-    }
+        case 1: {
+            tgt = battler_from_offset(st->arg0);
+            uint16_t damage = st->arg1;
 
-    /* Guts save: if player character's hp_target hit 0 and had >1 HP before,
-     * guts stat gives a chance to survive with 1 HP.
-     * Assembly (calc_damage.asm:70-103): saves hp_target BEFORE reduce_hp. */
-    if (tgt->ally_or_enemy == 0) {
-        if (tgt->hp_target == 0) {
-            if (saved_hp > 1) {
-                Battler *atk = battler_from_offset(bt.current_attacker);
-                uint16_t guts = atk->guts;
-                if (guts < GUTS_FLOOR_FOR_SMAAAASH_CHANCE)
-                    guts = GUTS_FLOOR_FOR_SMAAAASH_CHANCE;
-                if (battle_success_500(guts)) {
-                    battle_set_hp(tgt, 1);
+            /* Apply damage via REDUCE_HP (unless target is a special boss that takes no HP damage) */
+            bool skip_hp_reduction = false;
+            if (tgt->ally_or_enemy != 0) {
+                uint16_t eid = tgt->id;
+                if (eid == ENEMY_MASTER_BELCH_1 || eid == ENEMY_MASTER_BELCH_3 ||
+                    eid == ENEMY_GIYGAS_2 || eid == ENEMY_GIYGAS_3 ||
+                    eid == ENEMY_GIYGAS_5 || eid == ENEMY_GIYGAS_6) {
+                    skip_hp_reduction = true;
                 }
             }
-        }
-
-        /* During enemy final attacks: if only 1 enemy and 1 party member left,
-         * ensure party member survives with 1 HP */
-        if (bt.enemy_performing_final_attack) {
-            if (battle_count_chars(1) == 1 && battle_count_chars(0) == 1) {
-                battle_set_hp(tgt, 1);
+            /* Assembly (calc_damage.asm:70-103): save hp_target BEFORE reduce_hp for guts check */
+            uint16_t saved_hp = tgt->hp_target;
+            if (!skip_hp_reduction) {
+                battle_reduce_hp(tgt, damage);
             }
-        }
-    }
 
-    /* Display damage text and screen effects */
-    if (tgt->ally_or_enemy != 0) {
-        /* Enemy target: set hit animation frame, display damage text */
-        tgt->blink_timer = 0x15;
+            /* Guts save: if player character's hp_target hit 0 and had >1 HP before,
+             * guts stat gives a chance to survive with 1 HP.
+             * Assembly (calc_damage.asm:70-103): saves hp_target BEFORE reduce_hp. */
+            if (tgt->ally_or_enemy == 0) {
+                if (tgt->hp_target == 0) {
+                    if (saved_hp > 1) {
+                        Battler *atk = battler_from_offset(bt.current_attacker);
+                        uint16_t guts = atk->guts;
+                        if (guts < GUTS_FLOOR_FOR_SMAAAASH_CHANCE)
+                            guts = GUTS_FLOOR_FOR_SMAAAASH_CHANCE;
+                        if (battle_success_500(guts)) {
+                            battle_set_hp(tgt, 1);
+                        }
+                    }
+                }
 
-        if (bt.is_smaaaash_attack) {
-            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_SMASH_M, damage);
-            bt.is_smaaaash_attack = 0;
-        } else {
-            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_MEDIUM, damage);
-        }
-
-        /* Giygas 3/4/5/6: green background flash on damage */
-        uint16_t eid = tgt->id;
-        if (eid == ENEMY_GIYGAS_3 || eid == ENEMY_GIYGAS_4 ||
-            eid == ENEMY_GIYGAS_5 || eid == ENEMY_GIYGAS_6) {
-            bt.green_background_flash_duration = 0x10;
-        }
-    } else {
-        /* Party member target */
-        if (tgt->npc_id == 0) {
-            /* Player character: set HP/PP box blink */
-            if (bt.hp_pp_box_blink_duration == 0) {
-                bt.hp_pp_box_blink_duration = 0x15;
-
-                /* Find which party slot this character occupies */
-                for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                    if ((game_state.party_members[i] & 0xFF) == (tgt->id & 0xFF)) {
-                        bt.hp_pp_box_blink_target = i;
-                        break;
+                /* During enemy final attacks: if only 1 enemy and 1 party member left,
+                 * ensure party member survives with 1 HP */
+                if (bt.enemy_performing_final_attack) {
+                    if (battle_count_chars(1) == 1 && battle_count_chars(0) == 1) {
+                        battle_set_hp(tgt, 1);
                     }
                 }
             }
+
+            /* Display damage text and screen effects */
+            uint32_t msg;
+            if (tgt->ally_or_enemy != 0) {
+                /* Enemy target: set hit animation frame, display damage text */
+                st->local[0] |= 0x02;
+                tgt->blink_timer = 0x15;
+
+                if (bt.is_smaaaash_attack) {
+                    st->local[0] |= 0x04;
+                    msg = MSG_BTL4_RESULT_HP_DAMAGE_SMASH_M;
+                } else {
+                    msg = MSG_BTL4_RESULT_HP_DAMAGE_MEDIUM;
+                }
+            } else {
+                /* Party member target */
+                if (tgt->npc_id == 0) {
+                    /* Player character: set HP/PP box blink */
+                    if (bt.hp_pp_box_blink_duration == 0) {
+                        bt.hp_pp_box_blink_duration = 0x15;
+
+                        /* Find which party slot this character occupies */
+                        for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                            if ((game_state.party_members[i] & 0xFF) == (tgt->id & 0xFF)) {
+                                bt.hp_pp_box_blink_target = i;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (tgt->hp_target == 0) {
+                    /* Mortal blow: stronger screen shake */
+                    st->local[0] |= 0x08;
+                    bt.vertical_shake_duration = 8; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL */
+                    bt.vertical_shake_hold_duration = 16; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD */
+                    msg = MSG_BTL4_RESULT_MORTAL_DAMAGE;
+                } else if (bt.is_smaaaash_attack) {
+                    st->local[0] |= 0x04;
+                    bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR */
+                    msg = MSG_BTL4_RESULT_HP_DAMAGE_SMASH;
+                } else {
+                    bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL */
+                    msg = MSG_BTL4_RESULT_HP_DAMAGE;
+                }
+            }
+
+            st->pc = 2;
+            if (battle_push_text_ex(&child, msg, false, true, damage))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
         }
 
-        if (tgt->hp_target == 0) {
-            /* Mortal blow: stronger screen shake */
-            bt.vertical_shake_duration = 8; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL */
-            bt.vertical_shake_hold_duration = 16; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD */
-            display_text_wait_addr(MSG_BTL4_RESULT_MORTAL_DAMAGE, damage);
-        } else if (bt.is_smaaaash_attack) {
-            bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR */
-            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE_SMASH, damage);
-            bt.vertical_shake_hold_duration = 0;
-            bt.is_smaaaash_attack = 0;
-        } else {
-            bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL */
-            display_text_wait_addr(MSG_BTL4_RESULT_HP_DAMAGE, damage);
-            bt.vertical_shake_hold_duration = 0;
+        case 2:
+            /* Post-text effects — everything the blocking form runs AFTER
+             * display_text_wait_addr returns. */
+            dt.blinking_triangle_flag = 0;
+            tgt = battler_from_offset(st->arg0);
+
+            if (st->local[0] & 0x02) {
+                /* Enemy target */
+                if (st->local[0] & 0x04)
+                    bt.is_smaaaash_attack = 0;
+
+                /* Giygas 3/4/5/6: green background flash on damage */
+                uint16_t eid = tgt->id;
+                if (eid == ENEMY_GIYGAS_3 || eid == ENEMY_GIYGAS_4 ||
+                    eid == ENEMY_GIYGAS_5 || eid == ENEMY_GIYGAS_6) {
+                    bt.green_background_flash_duration = 0x10;
+                }
+            } else {
+                /* Party member target */
+                if (!(st->local[0] & 0x08)) {
+                    bt.vertical_shake_hold_duration = 0;
+                    if (st->local[0] & 0x04)
+                        bt.is_smaaaash_attack = 0;
+                }
+                bt.screen_effect_minimum_wait_frames = 0x28;
+            }
+
+            /* Restore Giygas redirect state */
+            if (st->local[0] & 0x01) {
+                bt.current_target = st->local[1];
+                fix_target_name();
+            }
+            return STEP_RESULT_POP(1);
+
+        case 3:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
         }
-
-        bt.screen_effect_minimum_wait_frames = 0x28;
     }
+}
 
-    /* Restore Giygas redirect state */
-    if (saved_giygas_redirect) {
-        bt.current_target = saved_target;
-        fix_target_name();
-    }
-
-    return 1;
+uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
+    return battle_calc_pump(BC_CALC_DAMAGE, target_offset, damage);
 }
 
 
@@ -578,120 +717,191 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
  *   resist_modifier: 0-255 resistance factor (255 = full damage)
  *
  * Returns: final damage dealt (after all modifiers)
+ *
+ * Resumable (BC_RESIST_DAMAGE): arg0 = the mutable damage (the blocking
+ * local), arg1 = resist_modifier, local[0] = reflected damage. The target
+ * is re-derived from bt.current_target at each pc — BC_CALC_DAMAGE's Giygas
+ * redirect restores it before popping, and the reflection swap/swap-back
+ * brackets pcs 2-3 exactly as in the blocking form. battle_ko_target() runs
+ * inline-blocking (see the header comment). pc map: 0 = modifiers + push
+ * BC_CALC_DAMAGE; 1 = KO check + shield branch (may push the deflected
+ * text); 2 = swap + push the reflected BC_CALC_DAMAGE; 3 = reflected KO +
+ * swap back; 4 = weaken shield (may push the disappeared text); 5 = its
+ * epilogue; 6 = sleep wake check (may push the cured text); 7 = its
+ * epilogue.
  */
-uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier) {
-    /* Floor negative values to 0 (assembly uses signed check) */
-    if ((int16_t)damage < 0)
-        damage = 0;
+static StepResult bc_resist_damage_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+    Battler *tgt;
 
-    /* Apply resistance modifier if not 0xFF (full damage) */
-    if (resist_modifier < 0xFF) {
-        damage = (uint16_t)(((uint32_t)damage * resist_modifier) >> 8);
-    }
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            uint16_t damage = st->arg0;
 
-    /* Check target is conscious and alive */
-    Battler *tgt = battler_from_offset(bt.current_target);
-    if (tgt->consciousness != 1)
-        goto done;
-    if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS)
-        goto done;
+            /* Floor negative values to 0 (assembly uses signed check) */
+            if ((int16_t)damage < 0)
+                damage = 0;
 
-    /* Halve damage if guarding (physical attacks only) */
-    if (tgt->guarding == 1) {
-        Battler *atk = battler_from_offset(bt.current_attacker);
-        uint16_t action_type = battle_get_action_type(atk->current_action);
-        if (action_type == ACTION_TYPE_PHYSICAL) {
-            damage >>= 1;  /* ASR16 with Y=1 */
-        }
-    }
-
-    /* Halve damage if target has physical shield (physical attacks only) */
-    {
-        Battler *atk = battler_from_offset(bt.current_attacker);
-        uint16_t action_type = battle_get_action_type(atk->current_action);
-        if (action_type == ACTION_TYPE_PHYSICAL) {
-            uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
-            if (shield == STATUS_6_SHIELD_POWER || shield == STATUS_6_SHIELD) {
-                damage >>= 1;  /* ASR16 with Y=1 */
+            /* Apply resistance modifier if not 0xFF (full damage) */
+            if (st->arg1 < 0xFF) {
+                damage = (uint16_t)(((uint32_t)damage * st->arg1) >> 8);
             }
-        }
-    }
+            st->arg0 = damage;
 
-    /* Floor damage to minimum 1 */
-    if (damage == 0)
-        damage = 1;
+            /* Check target is conscious and alive */
+            tgt = battler_from_offset(bt.current_target);
+            if (tgt->consciousness != 1)
+                return STEP_RESULT_POP(st->arg0);
+            if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS)
+                return STEP_RESULT_POP(st->arg0);
 
-    /* Apply damage */
-    battle_calc_damage(bt.current_target, damage);
-
-    /* Check for KO */
-    if (damage != 0 && tgt->hp == 0) {
-        battle_ko_target(tgt);
-    }
-
-    /* Floor damage again after KO processing */
-    if (damage == 0)
-        damage = 1;
-
-    /* Shield handling */
-    if (bt.shield_has_nullified_damage)
-        goto shields_done;
-
-    {
-        uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
-
-        if (shield == STATUS_6_SHIELD_POWER) {
-            /* SHIELD_POWER: reflect half damage back to attacker */
-            if (!bt.enemy_performing_final_attack) {
-                uint16_t reflected = damage >> 1;
-                if (reflected == 0) reflected = 1;
-
-                display_in_battle_text_addr(MSG_BTL5_POWER_SHIELD_DEFLECTED);
-                swap_attacker_with_target();
-                battle_calc_damage(bt.current_target, reflected);
-
-                /* Check if reflected damage KO'd the original attacker */
-                Battler *reflected_tgt = battler_from_offset(bt.current_target);
-                if (reflected_tgt->hp == 0) {
-                    battle_ko_target(reflected_tgt);
+            /* Halve damage if guarding (physical attacks only) */
+            if (tgt->guarding == 1) {
+                Battler *atk = battler_from_offset(bt.current_attacker);
+                uint16_t action_type = battle_get_action_type(atk->current_action);
+                if (action_type == ACTION_TYPE_PHYSICAL) {
+                    damage >>= 1;  /* ASR16 with Y=1 */
                 }
-                swap_attacker_with_target();
             }
-            /* Fall through to weaken shield */
-        } else if (shield == STATUS_6_SHIELD) {
-            /* Fall through to weaken shield */
-        } else {
-            goto shields_done;
+
+            /* Halve damage if target has physical shield (physical attacks only) */
+            {
+                Battler *atk = battler_from_offset(bt.current_attacker);
+                uint16_t action_type = battle_get_action_type(atk->current_action);
+                if (action_type == ACTION_TYPE_PHYSICAL) {
+                    uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
+                    if (shield == STATUS_6_SHIELD_POWER || shield == STATUS_6_SHIELD) {
+                        damage >>= 1;  /* ASR16 with Y=1 */
+                    }
+                }
+            }
+
+            /* Floor damage to minimum 1 */
+            if (damage == 0)
+                damage = 1;
+            st->arg0 = damage;
+
+            /* Apply damage */
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_CALC_DAMAGE, bt.current_target, damage);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         }
 
-        /* Weaken shield: decrement shield_hp, remove if depleted */
-        tgt->shield_hp--;
-        if (tgt->shield_hp == 0) {
-            tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-            display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
+        case 1: {
+            tgt = battler_from_offset(bt.current_target);
+
+            /* Check for KO (battle_ko_target stays inline-blocking — its own
+             * driver; converts with the check_dead_players sub-front) */
+            if (st->arg0 != 0 && tgt->hp == 0) {
+                battle_ko_target(tgt);
+            }
+
+            /* Floor damage again after KO processing */
+            if (st->arg0 == 0)
+                st->arg0 = 1;
+
+            /* Shield handling */
+            if (bt.shield_has_nullified_damage) {
+                st->pc = 6;
+                break;
+            }
+
+            uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
+
+            if (shield == STATUS_6_SHIELD_POWER) {
+                /* SHIELD_POWER: reflect half damage back to attacker */
+                if (!bt.enemy_performing_final_attack) {
+                    uint16_t reflected = st->arg0 >> 1;
+                    if (reflected == 0) reflected = 1;
+                    st->local[0] = reflected;
+
+                    st->pc = 2;
+                    if (battle_push_text(&child, MSG_BTL5_POWER_SHIELD_DEFLECTED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    break;
+                }
+                st->pc = 4;  /* Fall through to weaken shield */
+                break;
+            } else if (shield == STATUS_6_SHIELD) {
+                st->pc = 4;  /* Fall through to weaken shield */
+                break;
+            }
+            st->pc = 6;
+            break;
+        }
+
+        case 2:
+            dt.blinking_triangle_flag = 0;
+            swap_attacker_with_target();
+            st->pc = 3;
+            battle_calc_make_init(&child, BC_CALC_DAMAGE, bt.current_target,
+                                  st->local[0]);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+
+        case 3: {
+            /* Check if reflected damage KO'd the original attacker */
+            Battler *reflected_tgt = battler_from_offset(bt.current_target);
+            if (reflected_tgt->hp == 0) {
+                battle_ko_target(reflected_tgt);
+            }
+            swap_attacker_with_target();
+            st->pc = 4;
+            break;
+        }
+
+        case 4:
+            /* Weaken shield: decrement shield_hp, remove if depleted */
+            tgt = battler_from_offset(bt.current_target);
+            tgt->shield_hp--;
+            if (tgt->shield_hp == 0) {
+                tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
+                st->pc = 5;
+                if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 6;
+            break;
+
+        case 5:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 6;
+            break;
+
+        case 6:
+            /* Sleep wake check: if target is a non-NPC party member who is
+             * still alive, check if being attacked wakes them from sleep */
+            tgt = battler_from_offset(bt.current_target);
+            if (tgt->ally_or_enemy == 0 && tgt->npc_id == 0) {
+                /* Check if player character's rolling HP reached 0 (they're dying) */
+                uint8_t char_row = tgt->row;
+                if (party_characters[char_row].current_hp == 0)
+                    return STEP_RESULT_POP(st->arg0);
+            }
+
+            if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
+                if (battle_success_255(CHANCE_OF_WAKING_UP_WHEN_ATTACKED)) {
+                    tgt->current_action = 0;
+                    tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+                    st->pc = 7;
+                    if (battle_push_text(&child, MSG_BTL5_CURED_ASLEEP))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    break;
+                }
+            }
+            return STEP_RESULT_POP(st->arg0);
+
+        case 7:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(st->arg0);
         }
     }
+}
 
-shields_done:
-    /* Sleep wake check: if target is a non-NPC party member who is still alive,
-     * check if being attacked wakes them from sleep */
-    if (tgt->ally_or_enemy == 0 && tgt->npc_id == 0) {
-        /* Check if player character's rolling HP reached 0 (they're dying) */
-        uint8_t char_row = tgt->row;
-        if (party_characters[char_row].current_hp == 0)
-            goto done;
-    }
-
-    if (tgt->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP) {
-        if (battle_success_255(CHANCE_OF_WAKING_UP_WHEN_ATTACKED)) {
-            tgt->current_action = 0;
-            tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            display_in_battle_text_addr(MSG_BTL5_CURED_ASLEEP);
-        }
-    }
-
-done:
-    return damage;
+uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier) {
+    return battle_calc_pump(BC_RESIST_DAMAGE, damage, resist_modifier);
 }
 
 
@@ -719,66 +929,85 @@ done:
  *   miss_message_type: 0 = physical miss text, 1 = gun/shoot miss text
  *
  * Returns: 1 if attack missed, 0 if hit
+ *
+ * Resumable (BC_MISS_CALC, arg0 = miss_message_type): the whole decision
+ * (miss-chance lookup + the one RNG roll) runs at pc 0; pc 1 is the miss
+ * text's epilogue.
  */
-uint16_t battle_miss_calc(uint16_t miss_message_type) {
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    uint16_t miss_chance;
+static StepResult bc_miss_calc_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    if (atk->ally_or_enemy == 0 && atk->npc_id == 0) {
-        /* Player character — look up weapon miss rate */
-        uint8_t char_row = atk->row;
-        uint8_t weapon_slot = party_characters[char_row].equipment[EQUIP_WEAPON];
+    switch (st->pc) {
+    case 0: {
+        Battler *atk = battler_from_offset(bt.current_attacker);
+        uint16_t miss_chance;
 
-        if (weapon_slot != 0) {
-            /* Get the actual item ID from inventory */
-            uint8_t item_id = party_characters[char_row].items[weapon_slot - 1];
+        if (atk->ally_or_enemy == 0 && atk->npc_id == 0) {
+            /* Player character — look up weapon miss rate */
+            uint8_t char_row = atk->row;
+            uint8_t weapon_slot = party_characters[char_row].equipment[EQUIP_WEAPON];
 
-            /* Look up item's special parameter (miss rate) */
-            const ItemConfig *entry = get_item_entry(item_id);
-            if (entry != NULL) {
-                uint8_t special = entry->params[ITEM_PARAM_SPECIAL];
-                /* Assembly: SEC; AND #$00FF; SBC #$0080; EOR #$FF80 */
-                /* This converts the 0-255 special byte to a signed miss rate */
-                int16_t signed_val = (int16_t)(uint16_t)special - 0x80;
-                miss_chance = (uint16_t)(signed_val ^ (int16_t)0xFF80);
+            if (weapon_slot != 0) {
+                /* Get the actual item ID from inventory */
+                uint8_t item_id = party_characters[char_row].items[weapon_slot - 1];
+
+                /* Look up item's special parameter (miss rate) */
+                const ItemConfig *entry = get_item_entry(item_id);
+                if (entry != NULL) {
+                    uint8_t special = entry->params[ITEM_PARAM_SPECIAL];
+                    /* Assembly: SEC; AND #$00FF; SBC #$0080; EOR #$FF80 */
+                    /* This converts the 0-255 special byte to a signed miss rate */
+                    int16_t signed_val = (int16_t)(uint16_t)special - 0x80;
+                    miss_chance = (uint16_t)(signed_val ^ (int16_t)0xFF80);
+                } else {
+                    miss_chance = 1;
+                }
             } else {
+                /* No weapon — default miss chance of 1/16 */
                 miss_chance = 1;
             }
+
+            /* Crying or nauseous: +8 miss chance (50% extra on 16 scale) */
+            if (atk->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_CRYING ||
+                atk->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_NAUSEOUS) {
+                miss_chance += 8;
+            }
         } else {
-            /* No weapon — default miss chance of 1/16 */
-            miss_chance = 1;
+            /* Enemy or NPC — read miss_rate from enemy config table */
+            if (enemy_config_table != NULL) {
+                miss_chance = enemy_config_table[atk->id].miss_rate;
+            } else {
+                miss_chance = 0;
+            }
         }
 
-        /* Crying or nauseous: +8 miss chance (50% extra on 16 scale) */
-        if (atk->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_CRYING ||
-            atk->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_NAUSEOUS) {
-            miss_chance += 8;
-        }
-    } else {
-        /* Enemy or NPC — read miss_rate from enemy config table */
-        if (enemy_config_table != NULL) {
-            miss_chance = enemy_config_table[atk->id].miss_rate;
+        /* Roll for miss */
+        if (miss_chance == 0)
+            return STEP_RESULT_POP(0);
+
+        uint16_t roll = rand_limit(16);
+        if ((miss_chance - 1) >= roll) {
+            /* Miss! Display appropriate text */
+            st->pc = 1;
+            if (battle_push_text(&child, st->arg0 != 0
+                                             ? MSG_BTL4_RESULT_NARROWLY_MISSED  /* gun miss */
+                                             : MSG_BTL4_RESULT_JUST_MISSED))    /* physical miss */
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            /* FALLTHROUGH — unresolvable text: epilogue inline */
         } else {
-            miss_chance = 0;
+            return STEP_RESULT_POP(0);
         }
     }
-
-    /* Roll for miss */
-    if (miss_chance == 0)
-        return 0;
-
-    uint16_t roll = rand_limit(16);
-    if ((miss_chance - 1) >= roll) {
-        /* Miss! Display appropriate text */
-        if (miss_message_type != 0) {
-            display_in_battle_text_addr(MSG_BTL4_RESULT_NARROWLY_MISSED); /* gun miss */
-        } else {
-            display_in_battle_text_addr(MSG_BTL4_RESULT_JUST_MISSED); /* physical miss */
-        }
-        return 1;
+    /* FALLTHROUGH */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(1);
     }
+}
 
-    return 0;
+uint16_t battle_miss_calc(uint16_t miss_message_type) {
+    return battle_calc_pump(BC_MISS_CALC, miss_message_type, 0);
 }
 
 
@@ -800,45 +1029,73 @@ uint16_t battle_miss_calc(uint16_t miss_message_type) {
  *   - Deals offense*4 - defense damage via CALC_RESIST_DAMAGE
  *
  * Returns: 1 if SMAAAASH, 0 if not
+ *
+ * Resumable (BC_SMAAAASH): pc 0 = the one RNG roll + flash + push the
+ * SMAAAASH text; pc 1 = post-text work (shield weaken / flag / damage —
+ * all of which the blocking form runs AFTER the text) + push
+ * BC_RESIST_DAMAGE; pc 2 = pop 1.
  */
+static StepResult bc_smaaaash_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        bt.is_smaaaash_attack = 0;
+
+        Battler *atk = battler_from_offset(bt.current_attacker);
+        uint16_t guts = atk->guts;
+
+        /* Player characters get minimum guts floor */
+        if (atk->ally_or_enemy == 0) {
+            if (guts < GUTS_FLOOR_FOR_SMAAAASH_CHANCE)
+                guts = GUTS_FLOOR_FOR_SMAAAASH_CHANCE;
+        }
+
+        if (!battle_success_500(guts))
+            return STEP_RESULT_POP(0);
+
+        /* SMAAAASH! */
+        uint32_t msg;
+        if (atk->ally_or_enemy == 0) {
+            bt.green_flash_duration = SMAAAASH_FLASH_DURATION;
+            msg = MSG_BTL4_RESULT_SMAASH_PLAYER;
+        } else {
+            bt.red_flash_duration = SMAAAASH_FLASH_DURATION;
+            msg = MSG_BTL4_RESULT_SMAASH_MONSTER;
+        }
+        st->pc = 1;
+        if (battle_push_text(&child, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+    }
+    /* FALLTHROUGH */
+    case 1: {
+        dt.blinking_triangle_flag = 0;
+
+        Battler *atk = battler_from_offset(bt.current_attacker);
+
+        /* Weaken target's shield to 1 HP if they have one */
+        Battler *tgt = battler_from_offset(bt.current_target);
+        uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
+        if (shield == STATUS_6_SHIELD_POWER || shield == STATUS_6_SHIELD) {
+            tgt->shield_hp = 1;
+        }
+
+        bt.is_smaaaash_attack = 1;
+
+        /* Calculate SMAAAASH damage: offense * 4 - defense */
+        uint16_t smash_damage = (atk->offense * 4) - tgt->defense;
+        st->pc = 2;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, smash_damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    }
+    case 2:
+    default:
+        return STEP_RESULT_POP(1);
+    }
+}
+
 uint16_t battle_smaaaash(void) {
-    bt.is_smaaaash_attack = 0;
-
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    uint16_t guts = atk->guts;
-
-    /* Player characters get minimum guts floor */
-    if (atk->ally_or_enemy == 0) {
-        if (guts < GUTS_FLOOR_FOR_SMAAAASH_CHANCE)
-            guts = GUTS_FLOOR_FOR_SMAAAASH_CHANCE;
-    }
-
-    if (!battle_success_500(guts))
-        return 0;
-
-    /* SMAAAASH! */
-    if (atk->ally_or_enemy == 0) {
-        bt.green_flash_duration = SMAAAASH_FLASH_DURATION;
-        display_in_battle_text_addr(MSG_BTL4_RESULT_SMAASH_PLAYER);
-    } else {
-        bt.red_flash_duration = SMAAAASH_FLASH_DURATION;
-        display_in_battle_text_addr(MSG_BTL4_RESULT_SMAASH_MONSTER);
-    }
-
-    /* Weaken target's shield to 1 HP if they have one */
-    Battler *tgt = battler_from_offset(bt.current_target);
-    uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
-    if (shield == STATUS_6_SHIELD_POWER || shield == STATUS_6_SHIELD) {
-        tgt->shield_hp = 1;
-    }
-
-    bt.is_smaaaash_attack = 1;
-
-    /* Calculate SMAAAASH damage: offense * 4 - defense */
-    uint16_t smash_damage = (atk->offense * 4) - tgt->defense;
-    battle_calc_resist_damage(smash_damage, 0xFF);
-
-    return 1;
+    return battle_calc_pump(BC_SMAAAASH, 0, 0);
 }
 
 
@@ -850,14 +1107,34 @@ uint16_t battle_smaaaash(void) {
  * HEAL_STRANGENESS (asm/battle/heal_strangeness.asm)
  *
  * If the current target has STATUS_3_STRANGE, clear it and display message.
+ *
+ * Resumable (BC_HEAL_STRANGENESS): single tail text.
  */
-void battle_heal_strangeness(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
+static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    if (tgt->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE) {
+    switch (st->pc) {
+    case 0: {
+        Battler *tgt = battler_from_offset(bt.current_target);
+
+        if (tgt->afflictions[STATUS_GROUP_STRANGENESS] != STATUS_3_STRANGE)
+            return STEP_RESULT_POP(0);
+
         tgt->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_STRANGE);
+        st->pc = 1;
+        if (battle_push_text(&child, MSG_BTL5_CURED_STRANGE))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
+    /* FALLTHROUGH */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
+    }
+}
+
+void battle_heal_strangeness(void) {
+    battle_calc_pump(BC_HEAL_STRANGENESS, 0, 0);
 }
 
 
@@ -871,24 +1148,47 @@ void battle_heal_strangeness(void) {
  * Called after PSI damage with potential reflection.
  * If damage was reflected (DAMAGE_IS_REFLECTED set), swaps targets and
  * decrements the reflector's shield_hp. If shield_hp reaches 0, removes shield.
+ *
+ * Resumable (BC_WEAKEN_SHIELD): single tail text; the damage_is_reflected
+ * clear runs after the text, as in the blocking form.
  */
-void battle_weaken_shield(void) {
-    bt.shield_has_nullified_damage = 0;
+static StepResult bc_weaken_shield_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    if (!bt.damage_is_reflected)
-        return;
+    switch (st->pc) {
+    case 0: {
+        bt.shield_has_nullified_damage = 0;
 
-    /* Swap so we're operating on the reflector's shield */
-    swap_attacker_with_target();
+        if (!bt.damage_is_reflected)
+            return STEP_RESULT_POP(0);
 
-    Battler *tgt = battler_from_offset(bt.current_target);
-    tgt->shield_hp--;
-    if (tgt->shield_hp == 0) {
-        tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
-        display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
+        /* Swap so we're operating on the reflector's shield */
+        swap_attacker_with_target();
+
+        Battler *tgt = battler_from_offset(bt.current_target);
+        tgt->shield_hp--;
+        if (tgt->shield_hp == 0) {
+            tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
+            st->pc = 1;
+            if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            /* FALLTHROUGH — unresolvable text: epilogue inline */
+        } else {
+            bt.damage_is_reflected = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
+    /* FALLTHROUGH */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        bt.damage_is_reflected = 0;
+        return STEP_RESULT_POP(0);
+    }
+}
 
-    bt.damage_is_reflected = 0;
+void battle_weaken_shield(void) {
+    battle_calc_pump(BC_WEAKEN_SHIELD, 0, 0);
 }
 
 
@@ -1025,14 +1325,32 @@ uint16_t battle_success_luck80(void) {
  *
  * If current target is an NPC (npc_id != 0), displays "no effect" message
  * and returns 1. Otherwise returns 0.
+ *
+ * Resumable (BC_FAIL_ON_NPCS): single tail text, pops the NPC test.
  */
-uint16_t battle_fail_attack_on_npcs(void) {
-    Battler *tgt = battler_from_offset(bt.current_target);
-    if (tgt->npc_id != 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return 1;
+static StepResult bc_fail_on_npcs_step(BattleCalcState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        Battler *tgt = battler_from_offset(bt.current_target);
+        if (tgt->npc_id == 0)
+            return STEP_RESULT_POP(0);
+
+        st->pc = 1;
+        if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    return 0;
+    /* FALLTHROUGH */
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(1);
+    }
+}
+
+uint16_t battle_fail_attack_on_npcs(void) {
+    return battle_calc_pump(BC_FAIL_ON_NPCS, 0, 0);
 }
 
 
@@ -1142,6 +1460,27 @@ void battle_level_4_attack(void) {
 
     battle_calc_resist_damage(damage, 0xFF);
     battle_heal_strangeness();
+}
+
+
+/* ======================================================================
+ * GAME_MODE_BATTLE_CALC dispatch
+ * ====================================================================== */
+
+StepResult mode_step_battle_calc(ModeState *ms) {
+    BattleCalcState *st = &ms->battle_calc;
+
+    switch ((BattleCalcKind)st->kind) {
+    case BC_MISS_CALC:          return bc_miss_calc_step(st);
+    case BC_SMAAAASH:           return bc_smaaaash_step(st);
+    case BC_CALC_DAMAGE:        return bc_calc_damage_step(st);
+    case BC_RESIST_DAMAGE:      return bc_resist_damage_step(st);
+    case BC_PSI_SHIELD_NULLIFY: return bc_psi_shield_nullify_step(st);
+    case BC_WEAKEN_SHIELD:      return bc_weaken_shield_step(st);
+    case BC_HEAL_STRANGENESS:   return bc_heal_strangeness_step(st);
+    case BC_FAIL_ON_NPCS:       return bc_fail_on_npcs_step(st);
+    }
+    return STEP_RESULT_POP(0);
 }
 
 
