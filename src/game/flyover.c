@@ -767,36 +767,27 @@ StepResult mode_step_flyover(ModeState *st) {
  * After parsing, fades in (mosaic), displays for 180 frames, fades out.
  * Then restores normal display.
  * ====================================================================== */
-void play_flyover_script(uint16_t id) {
-    if (id >= 8) return;
+bool play_flyover_script_prepare(uint16_t id, uint16_t *saved_ent23_tick_hi,
+                                 uint32_t *script_size) {
+    if (id >= 8) return false;
 
     /* Assembly lines 11-15: save entity 23 tick_callback_hi then disable.
      * Prevents UPDATE_OVERWORLD_FRAME from running during the flyover.
      * The saved value is restored at the end so entity 23 returns to its
      * pre-flyover state (enabled or disabled). */
-    uint16_t saved_ent23_tick_hi = entities.tick_callback_hi[ENT(23)];
-    entities.tick_callback_hi[ENT(23)] = saved_ent23_tick_hi |
+    *saved_ent23_tick_hi = entities.tick_callback_hi[ENT(23)];
+    entities.tick_callback_hi[ENT(23)] = *saved_ent23_tick_hi |
         (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED);
 
     flyover_init_screen();
 
     /* Load script data */
-    size_t script_size = ASSET_SIZE(flyover_script_ids[id]);
+    *script_size = (uint32_t)ASSET_SIZE(flyover_script_ids[id]);
     const uint8_t *script = ASSET_DATA(flyover_script_ids[id]);
-    if (!script) return;   /* (matches blocking: leaves entity 23 disabled) */
+    if (!script) return false;  /* (matches blocking: leaves entity 23 disabled) */
 
     dt.enable_word_wrap = 0;
-
-    /* Parse + fade-in/display/fade-out/cleanup run to completion as
-     * GAME_MODE_FLYOVER (FO_SCRIPT). */
-    ModeState init = {0};
-    init.flyover.kind                = FO_SCRIPT;
-    init.flyover.phase               = FOP_S_PARSE;
-    init.flyover.id                  = id;
-    init.flyover.pos                 = 0;
-    init.flyover.script_size         = (uint32_t)script_size;
-    init.flyover.saved_ent23_tick_hi = saved_ent23_tick_hi;
-    pump_mode(GAME_MODE_FLYOVER, &init);
+    return true;
 }
 
 /* ======================================================================

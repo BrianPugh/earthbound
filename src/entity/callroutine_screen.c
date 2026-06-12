@@ -4,6 +4,7 @@
  */
 #include "entity/callroutine_internal.h"
 #include "entity/entity.h"
+#include "entity/script.h"
 #include "entity/sprite.h"
 #include "data/event_script_data.h"
 #include "game/game_state.h"
@@ -727,9 +728,15 @@ int16_t cr_decomp_nintendo_presentation(int16_t entity_offset, int16_t script_of
 int16_t cr_play_flyover_script(int16_t entity_offset, int16_t script_offset,
                                uint16_t pc, uint16_t *out_pc) {
     /* PLAY_FLYOVER_SCRIPT (C49EC4) — flyover text sequence.
-     * Script ID comes from A register / tempvar. */
-    play_flyover_script(scripts.tempvar[script_offset]);
+     * Script ID comes from A register / tempvar. The synchronous prologue
+     * runs here; the interpreter/fade/display sequence runs as a
+     * GAME_MODE_FLYOVER child pushed by GAME_MODE_ACTIONSCRIPT_FRAME. */
+    uint16_t id = (uint16_t)scripts.tempvar[script_offset];
+    uint16_t saved_tick_hi;
+    uint32_t script_size;
     *out_pc = pc;
+    if (play_flyover_script_prepare(id, &saved_tick_hi, &script_size))
+        actionscript_request_flyover(id, saved_tick_hi, script_size);
     return 0;
 }
 

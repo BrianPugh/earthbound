@@ -16,6 +16,7 @@
  */
 #include "entity/callroutine_internal.h"
 #include "entity/entity.h"
+#include "entity/script.h"
 #include "entity/buffer_layout.h"
 #include "game/text.h"
 #include "entity/sprite.h"
@@ -773,14 +774,11 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         *out_pc = pc + 6;
 
         /* The brightness-ramp loop + the trailing force-blank/HDMA-disable frame
-         * run to completion as GAME_MODE_MOSAIC_FADE (MF_OUT, final_hdma). */
-        ModeState init = {0};
-        init.mosaic_fade.kind       = MF_OUT;
-        init.mosaic_fade.step       = (uint8_t)decrease;
-        init.mosaic_fade.delay      = delay;
-        init.mosaic_fade.mosaic_bgs = (uint8_t)(mosaic_bgs & 0x0F);
-        init.mosaic_fade.final_hdma = 1;
-        pump_mode(GAME_MODE_MOSAIC_FADE, &init);
+         * run to completion as GAME_MODE_MOSAIC_FADE (MF_OUT, final_hdma),
+         * pushed as a child of GAME_MODE_ACTIONSCRIPT_FRAME (the interpreter
+         * parks the frame and resumes this script after the fade). */
+        actionscript_request_mosaic_fade((uint8_t)decrease, delay,
+                                         (uint8_t)(mosaic_bgs & 0x0F));
         return 0;
     }
     case ROM_ADDR_SPAWN_ENTITY_RELATIVE: {

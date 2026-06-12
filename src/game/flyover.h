@@ -11,9 +11,16 @@
  *
  * The system uses its own VWF buffer separate from the window system. */
 
-/* PLAY_FLYOVER_SCRIPT (C49EC4) — bytecode interpreter for flyover text scripts.
- * id: 0-7 index into FLYOVER_TEXT_POINTERS table. */
-void play_flyover_script(uint16_t id);
+/* PLAY_FLYOVER_SCRIPT (C49EC4) prologue — bytecode interpreter for flyover
+ * text scripts; id: 0-7 index into FLYOVER_TEXT_POINTERS table. Runs the
+ * synchronous front half (entity-23 tick disable, screen init, asset lookup,
+ * word-wrap off) and returns the GAME_MODE_FLYOVER (FO_SCRIPT) init scalars;
+ * false = bad id / missing asset (no flyover; a missing asset leaves entity
+ * 23 disabled, matching the original early-return). The interpreter itself
+ * runs as GAME_MODE_FLYOVER — pushed by GAME_MODE_ACTIONSCRIPT_FRAME for its
+ * one caller, the PLAY_FLYOVER_SCRIPT callroutine. */
+bool play_flyover_script_prepare(uint16_t id, uint16_t *saved_ent23_tick_hi,
+                                 uint32_t *script_size);
 
 /* COFFEETEA_SCENE (coffee_tea_scene.asm) — coffee/tea break special event.
  * type: 0 = coffee, 1 = tea. */

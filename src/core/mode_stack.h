@@ -81,6 +81,7 @@ typedef enum {
     GAME_MODE_BATTLE_REVIVE,       /* revive a KO'd battler (battle_revive_target) */
     GAME_MODE_BATTLE_APPLY,        /* per-target action apply loop (apply_action_to_targets) */
     GAME_MODE_BATTLE_KO,           /* battler death driver (battle_ko_target) */
+    GAME_MODE_ACTIONSCRIPT_FRAME,  /* finish an interrupted run_actionscript_frame() */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1724,6 +1725,63 @@ typedef struct {
     ScriptReader reader;           /* offset-based script cursor (serializable) */
 } DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */
 
+/* GAME_MODE_ACTIONSCRIPT_FRAME — finish an interrupted run_actionscript_frame()
+ * (script.c). The entity-script interpreter is already run-to-completion per
+ * frame; its only yields were callroutines that ran a child modal context
+ * inline-blocking: MOVEMENT_DISPLAY_TEXT (DISPLAY_TEXT), the two
+ * FADE_OUT_WITH_MOSAIC wrappers (MOSAIC_FADE) and PLAY_FLYOVER_SCRIPT (FLYOVER).
+ * Those callroutines now record a yield REQUEST (transient — set and consumed
+ * within one frame's work, never crossing a yield) and abort the interpreter
+ * loops; run_actionscript_frame() parks the frame position here and the step
+ * pushes the requested child, then on POP runs the callroutine's post-child
+ * epilogue at its original sequence point and finishes the interrupted frame:
+ * the suspended script (from `pc`), the rest of that entity's script chain +
+ * tick callback, the remaining phase-1 entities, then the movement/draw phases.
+ * A resumed script can immediately request another child (two texts back to
+ * back) — the step refills from the new request and pushes it in the same step.
+ *
+ * The iteration cursors live in the already-serialized globals exactly as the
+ * blocking loops used them (ert.next_active_entity / ert.actionscript_current_
+ * script are deliberately re-read after each script so child-side entity/script
+ * frees retarget the iteration). Only the former C locals are hoisted here; in
+ * particular `pc` mirrors the blocking form's local pc — scripts.pc[] is NOT
+ * written at the interrupt point, and the loop-exit writeback overwrites any
+ * child-side rewrite, exactly like the blocking original.
+ * ert.disable_actionscript stays 1 across the child (the blocking pump ran
+ * under the same guard); the frame tail clears it. Always pops 0. */
+typedef enum {
+    ASF_PUSH = 0,   /* push the pending child mode (child_kind) */
+    ASF_RESUME,     /* epilogue + finish the interrupted frame */
+} ActionscriptFramePhase;
+
+typedef enum {
+    AS_CHILD_NONE = 0,
+    AS_CHILD_TEXT,     /* GAME_MODE_DISPLAY_TEXT  (cr_movement_display_text) */
+    AS_CHILD_MOSAIC,   /* GAME_MODE_MOSAIC_FADE   (FADE_OUT_WITH_MOSAIC, MF_OUT+final_hdma) */
+    AS_CHILD_FLYOVER,  /* GAME_MODE_FLYOVER       (cr_play_flyover_script, FO_SCRIPT) */
+} AsChildKind;
+
+typedef enum {
+    AS_EPI_NONE = 0,
+    AS_EPI_TEXT_FLAG,  /* event_flag_set(2) — text-done flag, after the text pops */
+} AsEpilogue;
+
+typedef struct {
+    uint8_t  phase;            /* ActionscriptFramePhase */
+    uint8_t  child_kind;       /* AsChildKind: pending child to push at ASF_PUSH */
+    uint8_t  epilogue;         /* AsEpilogue: post-child work before resuming */
+    int16_t  script_offset;    /* interrupted script slot */
+    int16_t  entity_offset;    /* interrupted entity (chain/tick continuation) */
+    uint16_t pc;               /* the interrupted script's continuation pc */
+    uint32_t text_addr;        /* AS_CHILD_TEXT: text address */
+    uint8_t  mf_step;          /* AS_CHILD_MOSAIC: brightness step */
+    uint8_t  mf_mosaic_bgs;    /* AS_CHILD_MOSAIC: mosaic BG mask (low nibble) */
+    uint16_t mf_delay;         /* AS_CHILD_MOSAIC: yields between steps */
+    uint16_t fo_id;            /* AS_CHILD_FLYOVER: flyover id 0-7 */
+    uint16_t fo_saved_tick_hi; /* AS_CHILD_FLYOVER: entity 23 tick_callback_hi to restore */
+    uint32_t fo_script_size;   /* AS_CHILD_FLYOVER: script byte length */
+} ActionscriptFrameState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -1783,6 +1841,7 @@ union ModeState {
     BattleReviveState     battle_revive;
     BattleApplyState      battle_apply;
     BattleKoState         battle_ko;
+    ActionscriptFrameState actionscript_frame;
     uint8_t               _raw[160];
 };
 
@@ -1792,8 +1851,10 @@ union ModeState {
  * deepest: BATTLE_ACTION → BC_SMAAAASH → BC_RESIST_DAMAGE → BATTLE_KO →
  * BATTLE_APPLY (final attack) → BATTLE_ACTION (the final action) →
  * BC_RESIST_DAMAGE → BC_CALC_DAMAGE → DISPLAY_TEXT → TEXT_PROMPT reaches
- * 15, plus CC_08 CALL_TEXT can nest extra DISPLAY_TEXT levels and the
- * Phase-D flip adds the BOOT/OVERWORLD root. 24 leaves headroom
+ * 15 (an entity-script text via ACTIONSCRIPT_FRAME → DISPLAY_TEXT roots a
+ * similar chain two levels shallower), plus CC_08 CALL_TEXT can nest extra
+ * DISPLAY_TEXT levels and the Phase-D flip adds the BOOT/OVERWORLD root.
+ * 24 leaves headroom
  * (mode_push logs + drops on overflow rather than corrupting the stack).
  * Raising this changes the on-disk SECTION_MODE_STACK size — harmless
  * pre-cutover (savestates are not cross-build compatible). */
@@ -2075,6 +2136,11 @@ StepResult mode_step_battle_apply(ModeState *st);
 /* GAME_MODE_BATTLE_KO step (defined in battle.c). Init via
  * battle_ko_make_init() (battle_internal.h). Always pops 0. */
 StepResult mode_step_battle_ko(ModeState *st);
+
+/* GAME_MODE_ACTIONSCRIPT_FRAME step (defined in entity/script.c). Init is built
+ * by run_actionscript_frame() from a callroutine's yield request; never pushed
+ * directly by other code. Always pops 0. */
+StepResult mode_step_actionscript_frame(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

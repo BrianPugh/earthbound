@@ -4,6 +4,7 @@
  */
 #include "entity/callroutine_internal.h"
 #include "entity/entity.h"
+#include "entity/script.h"
 #include "entity/sprite.h"
 #include "data/event_script_data.h"
 #include "game/game_state.h"
@@ -122,13 +123,17 @@ int16_t cr_actionscript_fade_out_with_mosaic(int16_t entity_offset, int16_t scri
     /* Port of C0AA07 ACTIONSCRIPT_FADE_OUT_WITH_MOSAIC.
      * Reads 6 bytes: three 16-bit params (step, delay, mosaic_enable).
      * Assembly: MOVEMENT_DATA_READ16 x3, then JSL FADE_OUT_WITH_MOSAIC.
-     * Identical behavior to ROM_ADDR_FADE_OUT_WITH_MOSAIC but at a
-     * different ROM address (actionscript wrapper). */
+     * Identical behavior to ROM_ADDR_FADE_OUT_WITH_MOSAIC (same C08814
+     * target, different wrapper address) — so it takes the same
+     * GAME_MODE_MOSAIC_FADE child (MF_OUT + final_hdma, which also disables
+     * the HDMA window like the assembly's tail; the previously-called raw
+     * fade_out_with_mosaic() loop did not). */
     uint16_t step = sw(pc);
     uint16_t delay = sw(pc + 2);
     uint16_t mosaic_bgs = sw(pc + 4);
     *out_pc = pc + 6;
-    fade_out_with_mosaic(step, delay, mosaic_bgs);
+    actionscript_request_mosaic_fade((uint8_t)step, delay,
+                                     (uint8_t)(mosaic_bgs & 0x0F));
     return 0;
 }
 
