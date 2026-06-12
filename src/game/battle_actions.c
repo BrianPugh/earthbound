@@ -28,6 +28,7 @@
 #include "core/decomp.h"
 #include "platform/platform.h"
 #include "data/text_refs.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init (plain text pushes) */
 #include <stdio.h>
 #include <string.h>
 
@@ -42,6 +43,18 @@ static void btlact_pump_addr(uint32_t rom_addr);
  * used by steppers that push another action as a BATTLE_ACTION child
  * (e.g. double_bash → bash). */
 static int btlact_find(uint32_t rom_addr);
+
+/* display_text_from_addr as a DISPLAY_TEXT push: no battle prologue/epilogue
+ * (used by steppers whose blocking form manages dt.blinking_triangle_flag
+ * itself, e.g. switch_weapons/armor). Returns false (warn, like
+ * display_text_from_addr) on an unresolvable address — the caller falls
+ * through to its resume pc inline. */
+static bool push_plain_text(ModeState *child, uint32_t addr) {
+    if (dt_make_child_init(child, addr))
+        return true;
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    return false;
+}
 
 /* ======================================================================
  * Battle action handlers
@@ -1717,51 +1730,82 @@ void btlact_super_bomb(void) { btlact_pump_addr(0xC2A821); }
  * (bit 7 = cannot teleport). Outside battle, always succeeds. In battle,
  * success is probability-based using item strength, and fails in boss battles.
  * On success: removes item from inventory, sets instant teleport, bt.special_defeat=1.
+ *
+ * Resumable: all checks + the success roll + the item removal happen at
+ * pc 0 (the original sequence points — everything precedes the text in the
+ * blocking form); the teleport-state writes follow the success text in the
+ * blocking form, so they run at its resume pc.
  */
-void btlact_teleport_box(void) {
-    /* Check sector attributes — bit 7 means teleport unusable in this area */
-    uint16_t attrs = load_sector_attrs(
-        game_state.leader_x_coord, game_state.leader_y_coord);
-    if (attrs & 0x0080) {
-        display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_CANT_USE_HERE);
-        return;
-    }
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    /* Outside battle, always succeeds */
-    if (ow.battle_mode == 0)
-        goto teleport_success;
-    /* Probability check using item strength */
-    uint16_t roll = rand_limit(100);
-    uint8_t item_id = attacker->current_action_argument & 0xFF;
-    const ItemConfig *item_entry = get_item_entry(item_id);
-    if (item_entry != NULL) {
-        /* Assembly: strength - 0x80, then EOR #$FF80 to negate upper bits.
-         * Effectively: success_threshold = 128 - strength (for strength < 128)
-         * or success_threshold = strength - 128 (when strength >= 128).
-         * The formula maps 0x80→0, 0xFF→127, i.e. higher strength = easier. */
-        uint8_t strength = item_entry->params[ITEM_PARAM_STRENGTH];
-        int16_t threshold = ((int16_t)(strength & 0xFF) - 0x80) ^ (int16_t)0xFF80;
-        if (roll >= (uint16_t)threshold) {
-            display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_MALFUNCTION);
-            return;
+static StepResult btlact_teleport_box_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            /* Check sector attributes — bit 7 means teleport unusable here */
+            uint16_t attrs = load_sector_attrs(
+                game_state.leader_x_coord, game_state.leader_y_coord);
+            if (attrs & 0x0080) {
+                st->pc = 1;
+                if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_CANT_USE_HERE))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            Battler *attacker = battler_from_offset(bt.current_attacker);
+            bool failed = false;
+            /* Outside battle, always succeeds */
+            if (ow.battle_mode != 0) {
+                /* Probability check using item strength */
+                uint16_t roll = rand_limit(100);
+                uint8_t item_id = attacker->current_action_argument & 0xFF;
+                const ItemConfig *item_entry = get_item_entry(item_id);
+                if (item_entry != NULL) {
+                    /* Assembly: strength - 0x80, then EOR #$FF80 to negate upper bits.
+                     * Effectively: success_threshold = 128 - strength (for strength < 128)
+                     * or success_threshold = strength - 128 (when strength >= 128).
+                     * The formula maps 0x80→0, 0xFF→127, i.e. higher strength = easier. */
+                    uint8_t strength = item_entry->params[ITEM_PARAM_STRENGTH];
+                    int16_t threshold = ((int16_t)(strength & 0xFF) - 0x80) ^ (int16_t)0xFF80;
+                    if (roll >= (uint16_t)threshold)
+                        failed = true;
+                }
+                /* Fail in boss battles */
+                if (!failed && battle_boss_battle_check() == 0)
+                    failed = true;
+            }
+
+            if (failed) {
+                st->pc = 1;
+                if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_MALFUNCTION))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            /* Remove item from inventory (before the text, as in blocking) */
+            uint8_t slot = attacker->action_item_slot & 0xFF;
+            remove_item_from_inventory(attacker->id, slot);
+            st->pc = 2;
+            if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_SUCCESS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 2:
+            dt.blinking_triangle_flag = 0;
+            /* Set teleport state: instant teleport to current destination */
+            ow.psi_teleport_destination = game_state.unknownC3;
+            ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
+            bt.special_defeat = 1;
+            return STEP_RESULT_POP(0);
+        case 1:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
         }
     }
-    /* Fail in boss battles */
-    if (battle_boss_battle_check() == 0) {
-        display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_MALFUNCTION);
-        return;
-    }
-
-teleport_success:;
-    /* Remove item from inventory */
-    uint8_t slot = attacker->action_item_slot & 0xFF;
-    remove_item_from_inventory(attacker->id, slot);
-    display_in_battle_text_addr(MSG_GOODS1_TELEPORT_BOX_SUCCESS);
-    /* Set teleport state: instant teleport to current destination */
-    ow.psi_teleport_destination = game_state.unknownC3;
-    ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
-    bt.special_defeat = 1;
 }
+
+void btlact_teleport_box(void) { btlact_pump_addr(0xC2AB71); }
 
 /*
  * CALL_FOR_HELP_COMMON (asm/battle/call_for_help_common.asm)
@@ -4143,69 +4187,98 @@ void btlact_pray(void) {
  * on top of the new base stats from char_struct.  If the new weapon has
  * ammunition of type 1 (projectile), dispatches to the shoot action (5);
  * otherwise dispatches to the normal attack action (4).
+ *
+ * Resumable: the blocking form holds dt.blinking_triangle_flag = 1 across
+ * ALL its texts (raw display_text_from_addr, no battle epilogue) and clears
+ * it once at the end, so the resume pcs do NOT clear it — only the final pc
+ * does. The equip mutations precede the success text (pc 0); the attack
+ * dispatch is a BATTLE_ACTION child push (scratch16[0] = char_id,
+ * scratch16[1] = the dispatched action 4/5).
  */
-void btlact_switch_weapons(void) {
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    uint16_t char_id = attacker->id;
+static StepResult btlact_switch_weapons_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    dt.blinking_triangle_flag = 1;
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            Battler *attacker = battler_from_offset(bt.current_attacker);
+            uint16_t char_id = attacker->id;
+            st->scratch16[0] = char_id;
 
-    /* Check if the character can use this item */
-    uint16_t item_slot_arg = attacker->current_action_argument;
-    if (!check_item_usable_by(char_id, item_slot_arg)) {
-        display_text_from_addr(MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON);
-        goto dispatch;
-    }
+            dt.blinking_triangle_flag = 1;
 
-    /* Get pointer to character struct */
-    CharStruct *ch = &party_characters[char_id - 1];
+            uint32_t msg;
+            /* Check if the character can use this item */
+            if (!check_item_usable_by(char_id, attacker->current_action_argument)) {
+                msg = MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON;
+            } else {
+                CharStruct *ch = &party_characters[char_id - 1];
 
-    /* Save the offense bonus: current offense minus base offense from equipment */
-    int16_t offense_bonus = attacker->offense - (uint16_t)attacker->base_offense;
-    /* Save the guts bonus */
-    int16_t guts_bonus = attacker->guts - (uint16_t)attacker->base_guts;
+                /* Save the offense/guts bonuses (current minus base from equipment) */
+                int16_t offense_bonus = attacker->offense - (uint16_t)attacker->base_offense;
+                int16_t guts_bonus = attacker->guts - (uint16_t)attacker->base_guts;
 
-    /* Equip the new weapon (action_item_slot is the inventory slot) */
-    equip_item(char_id, (uint16_t)attacker->action_item_slot);
+                /* Equip the new weapon (action_item_slot is the inventory slot) */
+                equip_item(char_id, (uint16_t)attacker->action_item_slot);
 
-    /* Update battler base stats from char_struct and reapply bonuses */
-    attacker->base_offense = ch->offense;
-    attacker->offense = (uint16_t)attacker->base_offense + offense_bonus;
+                /* Update battler base stats from char_struct and reapply bonuses */
+                attacker->base_offense = ch->offense;
+                attacker->offense = (uint16_t)attacker->base_offense + offense_bonus;
 
-    attacker->base_guts = ch->guts;
-    attacker->guts = (uint16_t)attacker->base_guts + guts_bonus;
+                attacker->base_guts = ch->guts;
+                attacker->guts = (uint16_t)attacker->base_guts + guts_bonus;
 
-    display_text_from_addr(MSG_GOODS4_EQUIP_ITEM_SUCCESS);
-
-dispatch:;
-    /* Check if the (now-equipped) weapon is a projectile type */
-    CharStruct *ch2 = &party_characters[char_id - 1];
-    uint8_t weapon_slot = ch2->equipment[EQUIP_WEAPON];
-    if (weapon_slot != 0) {
-        uint8_t weapon_item_id = ch2->items[weapon_slot - 1];
-        if (weapon_item_id != 0) {
-            const ItemConfig *entry = get_item_entry(weapon_item_id);
-            if (entry && (entry->type & 0x03) == 1) {
-                /* Projectile weapon — dispatch to action 5 (shoot) */
-                if (battle_action_table) {
-                    display_text_from_addr(battle_action_table[5].description_text_pointer);
-                    bt.temp_function_pointer = battle_action_table[5].battle_function_pointer;
-                    jump_temp_function_pointer();
-                }
-                dt.blinking_triangle_flag = 0;
-                return;
+                msg = MSG_GOODS4_EQUIP_ITEM_SUCCESS;
             }
+
+            st->pc = 1;
+            if (push_plain_text(&child, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 1: {
+            /* Dispatch: check if the (now-equipped) weapon is a projectile type */
+            CharStruct *ch2 = &party_characters[st->scratch16[0] - 1];
+            uint16_t action = 4;  /* normal weapon — bash */
+            uint8_t weapon_slot = ch2->equipment[EQUIP_WEAPON];
+            if (weapon_slot != 0) {
+                uint8_t weapon_item_id = ch2->items[weapon_slot - 1];
+                if (weapon_item_id != 0) {
+                    const ItemConfig *entry = get_item_entry(weapon_item_id);
+                    if (entry && (entry->type & 0x03) == 1)
+                        action = 5;  /* projectile weapon — shoot */
+                }
+            }
+            st->scratch16[1] = action;
+
+            if (battle_action_table == NULL) {
+                st->pc = 3;
+                break;
+            }
+            st->pc = 2;
+            if (push_plain_text(&child,
+                                battle_action_table[action].description_text_pointer))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 2:
+            /* Run the attack (writes bt.temp_function_pointer like the
+             * blocking form; bash/shoot are converted steppers → child push) */
+            st->pc = 3;
+            if (battle_action_dispatch(
+                    battle_action_table[st->scratch16[1]].battle_function_pointer,
+                    &child))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+            break;
+        case 3:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
         }
     }
-
-    /* Normal weapon — dispatch to action 4 (bash) */
-    if (battle_action_table) {
-        display_text_from_addr(battle_action_table[4].description_text_pointer);
-        bt.temp_function_pointer = battle_action_table[4].battle_function_pointer;
-        jump_temp_function_pointer();
-    }
-    dt.blinking_triangle_flag = 0;
 }
+
+void btlact_switch_weapons(void) { btlact_pump_addr(0xC1DE43); }
 
 /*
  * BTLACT_SWITCH_ARMOR (asm/battle/actions/switch_armor.asm)
@@ -4213,56 +4286,82 @@ dispatch:;
  * Equips new armor during battle.  Saves defense/speed/luck bonuses,
  * equips the item, reapplies bonuses with new base stats, then
  * recalculates all elemental and status resistances from char_struct.
+ *
+ * Resumable: like switch_weapons, the blinking flag is held across the raw
+ * texts and cleared only at the end. The blocking form equips BEFORE the
+ * success text but reapplies stats/resistances AFTER it, so the stat
+ * writeback runs at the resume pc; the saved bonuses cross the push in
+ * scratch16[0]/[1]/scratch32 (defense/speed/luck).
  */
-void btlact_switch_armor(void) {
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    uint16_t char_id = attacker->id;
+static StepResult btlact_switch_armor_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    dt.blinking_triangle_flag = 1;
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            Battler *attacker = battler_from_offset(bt.current_attacker);
+            uint16_t char_id = attacker->id;
 
-    /* Check if the character can use this item */
-    uint16_t item_slot_arg = attacker->current_action_argument;
-    if (!check_item_usable_by(char_id, item_slot_arg)) {
-        display_text_from_addr(MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON);
-        dt.blinking_triangle_flag = 0;
-        return;
+            dt.blinking_triangle_flag = 1;
+
+            /* Check if the character can use this item */
+            if (!check_item_usable_by(char_id, attacker->current_action_argument)) {
+                st->pc = 1;
+                if (push_plain_text(&child, MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            /* Save bonuses: current stat minus base (from equipment) */
+            st->scratch16[0] = (uint16_t)(attacker->defense - (uint16_t)attacker->base_defense);
+            st->scratch16[1] = (uint16_t)(attacker->speed - (uint16_t)attacker->base_speed);
+            st->scratch32 = (uint16_t)(attacker->luck - (uint16_t)attacker->base_luck);
+
+            /* Equip the new armor */
+            equip_item(char_id, (uint16_t)attacker->action_item_slot);
+
+            st->pc = 2;
+            if (push_plain_text(&child, MSG_GOODS4_EQUIP_ITEM_SUCCESS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 2: {
+            /* Update battler base stats from char_struct and reapply bonuses
+             * (after the text, as in the blocking form) */
+            Battler *attacker = battler_from_offset(bt.current_attacker);
+            CharStruct *ch = &party_characters[attacker->row];
+
+            attacker->base_defense = ch->defense;
+            attacker->defense = (uint16_t)attacker->base_defense + (int16_t)st->scratch16[0];
+
+            attacker->base_speed = ch->speed;
+            attacker->speed = (uint16_t)attacker->base_speed + (int16_t)st->scratch16[1];
+
+            attacker->base_luck = ch->luck;
+            attacker->luck = (uint16_t)attacker->base_luck + (int16_t)(uint16_t)st->scratch32;
+
+            /* Recalculate all elemental/status resistances from char_struct */
+            attacker->fire_resist = battle_calc_psi_dmg_modifier(ch->fire_resist);
+            attacker->freeze_resist = battle_calc_psi_dmg_modifier(ch->freeze_resist);
+            attacker->flash_resist = battle_calc_psi_res_modifier(ch->flash_resist);
+            attacker->paralysis_resist = battle_calc_psi_res_modifier(ch->paralysis_resist);
+            attacker->hypnosis_resist = battle_calc_psi_res_modifier(ch->hypnosis_brainshock_resist);
+            /* brainshock = 3 - hypnosis_brainshock_resist (inverted) */
+            uint8_t brainshock_base = 3 - ch->hypnosis_brainshock_resist;
+            attacker->brainshock_resist = battle_calc_psi_res_modifier(brainshock_base);
+
+            st->pc = 1;
+            break;
+        }
+        case 1:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
-
-    /* Get pointer to character struct (use row for 0-indexed lookup) */
-    CharStruct *ch = &party_characters[attacker->row];
-
-    /* Save bonuses: current stat minus base (from equipment) */
-    int16_t defense_bonus = attacker->defense - (uint16_t)attacker->base_defense;
-    int16_t speed_bonus = attacker->speed - (uint16_t)attacker->base_speed;
-    int16_t luck_bonus = attacker->luck - (uint16_t)attacker->base_luck;
-
-    /* Equip the new armor */
-    equip_item(char_id, (uint16_t)attacker->action_item_slot);
-
-    display_text_from_addr(MSG_GOODS4_EQUIP_ITEM_SUCCESS);
-
-    /* Update battler base stats from char_struct and reapply bonuses */
-    attacker->base_defense = ch->defense;
-    attacker->defense = (uint16_t)attacker->base_defense + defense_bonus;
-
-    attacker->base_speed = ch->speed;
-    attacker->speed = (uint16_t)attacker->base_speed + speed_bonus;
-
-    attacker->base_luck = ch->luck;
-    attacker->luck = (uint16_t)attacker->base_luck + luck_bonus;
-
-    /* Recalculate all elemental/status resistances from char_struct */
-    attacker->fire_resist = battle_calc_psi_dmg_modifier(ch->fire_resist);
-    attacker->freeze_resist = battle_calc_psi_dmg_modifier(ch->freeze_resist);
-    attacker->flash_resist = battle_calc_psi_res_modifier(ch->flash_resist);
-    attacker->paralysis_resist = battle_calc_psi_res_modifier(ch->paralysis_resist);
-    attacker->hypnosis_resist = battle_calc_psi_res_modifier(ch->hypnosis_brainshock_resist);
-    /* brainshock = 3 - hypnosis_brainshock_resist (inverted) */
-    uint8_t brainshock_base = 3 - ch->hypnosis_brainshock_resist;
-    attacker->brainshock_resist = battle_calc_psi_res_modifier(brainshock_base);
-
-    dt.blinking_triangle_flag = 0;
 }
+
+void btlact_switch_armor(void) { btlact_pump_addr(0xC1E00F); }
 
 /* ======================================================================
  * Clumsy Robot death
@@ -5017,8 +5116,8 @@ void btlact_giygas_prayer_9(void) { btlact_pump_addr(0xC2C6F0); }
 
 static const BattleActionEntry btlact_dispatch_table[] = {
     /* Sorted by ROM address for binary search */
-    { 0xC1DE43, btlact_switch_weapons, NULL },
-    { 0xC1E00F, btlact_switch_armor, NULL },
+    { 0xC1DE43, btlact_switch_weapons, btlact_switch_weapons_step },
+    { 0xC1E00F, btlact_switch_armor, btlact_switch_armor_step },
     { 0xC28523, (void(*)(void))battle_level_2_attack, btlact_level_2_attack_step },
     { 0xC2859F, btlact_bash, btlact_bash_step },
     { 0xC285DA, (void(*)(void))battle_level_4_attack, btlact_level_4_attack_step },
@@ -5158,7 +5257,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2AA7F, btlact_sudden_guts_pill, btlact_sudden_guts_pill_step },
     { 0xC2AAC6, btlact_defense_spray, btlact_defense_spray_step },
     { 0xC2AB0D, btlact_defense_shower, btlact_defense_spray_step },
-    { 0xC2AB71, (void(*)(void))btlact_teleport_box, NULL },
+    { 0xC2AB71, btlact_teleport_box, btlact_teleport_box_step },
     { 0xC2AC2A, btlact_pray_subtle, btlact_pray_subtle_step },
     { 0xC2AC3E, btlact_pray_warm, btlact_pray_warm_step },
     { 0xC2AC51, btlact_pray_golden, btlact_pray_golden_step },
