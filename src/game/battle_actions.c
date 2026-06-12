@@ -38,6 +38,11 @@
  * ROM address and pumps it to completion. */
 static void btlact_pump_addr(uint32_t rom_addr);
 
+/* Dispatch-table binary search (defined with the table at the bottom);
+ * used by steppers that push another action as a BATTLE_ACTION child
+ * (e.g. double_bash → bash). */
+static int btlact_find(uint32_t rom_addr);
+
 /* ======================================================================
  * Battle action handlers
  *
@@ -291,6 +296,23 @@ static StepResult btlact_level_4_attack_step(BattleActionState *st) {
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
+/*
+ * BTLACT_LEVEL_2_ATK tail (the bare battle_level_2_attack table row,
+ * 0xC28523 — no miss/smaaaash/dodge prologue): offense*2 - defense with
+ * the raw > 1 variance gate, straight into CALC_RESIST_DAMAGE.
+ */
+static StepResult btlact_level_2_attack_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    if (st->pc == 0) {
+        st->pc = 1;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                              phys_attack_damage(2, true), 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    }
+    return STEP_RESULT_POP(0);
+}
+
 /* ----------------------------------------------------------------------
  * Shared stepper tail for the most common converted-action shape:
  * "decide + mutate, then one tail text". pc 0 pushes `msg` (0 = no text:
@@ -320,6 +342,36 @@ static StepResult btlact_single_text_step_ex(BattleActionState *st, uint32_t msg
 
 static StepResult btlact_single_text_step(BattleActionState *st, uint32_t msg) {
     return btlact_single_text_step_ex(st, msg, false, 0);
+}
+
+/* "decide + mutate, then one tail text" with a BattleTailText (the
+ * with-cnum display_text_wait_addr variant): the per-action decide runs at
+ * pc 0 only and fills the tail (msg 0 = no text). Shared by the stat-mod,
+ * recover-tail, and PP-drain actions. */
+typedef void (*StatModDecideFn)(BattleTailText *out);
+
+static StepResult btlact_statmod_step(BattleActionState *st,
+                                      StatModDecideFn decide) {
+    BattleTailText tail = {0};
+    if (st->pc == 0)
+        decide(&tail);
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
+}
+
+static void statmod_tail(BattleTailText *out, uint32_t msg, uint32_t cnum) {
+    out->msg = msg;
+    out->cnum = cnum;
+    out->has_cnum = true;
+}
+
+/* The NPC test shared by most stat mods (battle_fail_attack_on_npcs'
+ * "did not work" + abort, inlined into the decide). */
+static bool statmod_npc_fail(BattleTailText *out, Battler *target) {
+    if (target->npc_id != 0) {
+        out->msg = MSG_BTL4_RESULT_DID_NOT_WORK;
+        return true;
+    }
+    return false;
 }
 
 /* ----------------------------------------------------------------------
@@ -588,12 +640,21 @@ void btlact_pp_recovery_80(void)    { btlact_pump_addr(0xC2A0EF); }
 /*
  * BTLACT_DOUBLE_BASH (asm/battle/actions/bash_twice.asm)
  *
- * Execute bash attack twice.
+ * Execute bash attack twice. Each bash runs as a pushed BATTLE_ACTION
+ * child (exec_i counts the iterations).
  */
-void btlact_double_bash(void) {
-    btlact_bash();
-    btlact_bash();
+static StepResult btlact_double_bash_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    if (st->exec_i >= 2)
+        return STEP_RESULT_POP(0);
+    st->exec_i++;
+    memset(&child, 0, sizeof(child));
+    child.battle_action.table_index = (uint16_t)btlact_find(0xC2859F); /* bash */
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
 }
+
+void btlact_double_bash(void) { btlact_pump_addr(0xC28FF9); }
 
 /*
  * BTLACT_FREEZETIME (asm/battle/actions/freeze_time.asm)
@@ -669,6 +730,7 @@ typedef enum {
     INFLICT_ROLL_NONE = 0,
     INFLICT_ROLL_LUCK80,            /* battle_success_luck80() */
     INFLICT_ROLL_RESIST_FLASH,      /* battle_success_255(flash_resist) */
+    INFLICT_ROLL_RESIST_FREEZE,     /* battle_success_255(freeze_resist) */
     INFLICT_ROLL_RESIST_PARALYSIS,  /* battle_success_255(paralysis_resist) */
     INFLICT_ROLL_RESIST_HYPNOSIS,   /* battle_success_255(hypnosis_resist) */
     INFLICT_ROLL_RESIST_BRAINSHOCK, /* battle_success_255(brainshock_resist) */
@@ -680,6 +742,8 @@ static bool inflict_roll(InflictRoll roll, Battler *tgt) {
         return battle_success_luck80() != 0;
     case INFLICT_ROLL_RESIST_FLASH:
         return battle_success_255(tgt->flash_resist) != 0;
+    case INFLICT_ROLL_RESIST_FREEZE:
+        return battle_success_255(tgt->freeze_resist) != 0;
     case INFLICT_ROLL_RESIST_PARALYSIS:
         return battle_success_255(tgt->paralysis_resist) != 0;
     case INFLICT_ROLL_RESIST_HYPNOSIS:
@@ -1390,95 +1454,132 @@ void btlact_rust_promoter_dx(void)  { btlact_pump_addr(0xC2AA76); }
  * For party targets: adjacent = party members in neighboring slots.
  * For enemy targets: adjacent = enemies in same row within sprite blast range.
  */
-void bomb_common(uint16_t base_damage) {
-    /* 0xFFFF = no adjacent found (can't use 0 since byte offset 0 is valid) */
-    uint16_t adjacent_left = 0xFFFF;
-    uint16_t adjacent_right = 0xFFFF;
+static StepResult btlact_bomb_step_common(BattleActionState *st,
+                                          uint16_t base_damage) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Phase 1: Primary damage with 50% variance, full resist (0xFF) */
-    uint16_t damage = battle_50pct_variance(base_damage);
-    battle_calc_resist_damage(damage, 0xFF);
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            /* Phase 1: Primary damage with 50% variance, full resist (0xFF) */
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                  battle_50pct_variance(base_damage), 0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
 
-    Battler *target = battler_from_offset(bt.current_target);
+        case 1: {
+            /* Phase 2: find adjacent battlers. 0xFFFF = no adjacent found
+             * (can't use 0 since byte offset 0 is valid). Hoisted into
+             * scratch16[0]/[1]; the original target into scratch32. */
+            uint16_t adjacent_left = 0xFFFF;
+            uint16_t adjacent_right = 0xFFFF;
+            Battler *target = battler_from_offset(bt.current_target);
 
-    if ((target->ally_or_enemy & 0xFF) == 0) {
-        /* Party member target: find adjacent by party slot order */
-        uint16_t slot;
-        for (slot = 0; slot < 6; slot++) {
-            if ((game_state.party_members[slot] & 0xFF) == target->id)
-                break;
-        }
+            if ((target->ally_or_enemy & 0xFF) == 0) {
+                /* Party member target: find adjacent by party slot order */
+                uint16_t slot;
+                for (slot = 0; slot < 6; slot++) {
+                    if ((game_state.party_members[slot] & 0xFF) == target->id)
+                        break;
+                }
 
-        /* Left neighbor: party member at slot - 1 */
-        if (slot != 0) {
-            adjacent_left = (uint16_t)((slot - 1) * sizeof(Battler));
-        }
+                /* Left neighbor: party member at slot - 1 */
+                if (slot != 0) {
+                    adjacent_left = (uint16_t)((slot - 1) * sizeof(Battler));
+                }
 
-        /* Right neighbor: party member at slot + 1.
-         * Assembly reads the byte after the last party_members entry (which
-         * is leader_x_frac in WRAM, always >= 6) and skips if >= 6. We
-         * guard with a bounds check instead to avoid OOB access. */
-        if (slot + 1 < 6) {
-            uint8_t next_member = game_state.party_members[slot + 1];
-            if (next_member <= 5) {
-                adjacent_right = (uint16_t)((slot + 1) * sizeof(Battler));
-            }
-        }
-    } else {
-        /* Enemy target: scan for enemies in same row within blast range */
-        for (uint16_t i = 8; i < BATTLER_COUNT; i++) {
-            uint16_t b_offset = (uint16_t)(i * sizeof(Battler));
-            if (b_offset == bt.current_target)
-                continue;
-            Battler *b = &bt.battlers_table[i];
-            if ((b->ally_or_enemy & 0xFF) != 1)
-                continue;
-            if (b->row != target->row)
-                continue;
-
-            uint8_t b_x = b->sprite_x;
-            uint8_t t_x = target->sprite_x;
-            uint16_t range = (get_battle_sprite_width(target->sprite) +
-                              get_battle_sprite_width(b->sprite)) * 4 + 8;
-
-            if (b_x < t_x) {
-                /* Neighbor to the left */
-                uint16_t dist = (uint16_t)(t_x - b_x);
-                if (dist <= range)
-                    adjacent_left = b_offset;
+                /* Right neighbor: party member at slot + 1.
+                 * Assembly reads the byte after the last party_members entry
+                 * (which is leader_x_frac in WRAM, always >= 6) and skips if
+                 * >= 6. We guard with a bounds check instead to avoid OOB
+                 * access. */
+                if (slot + 1 < 6) {
+                    uint8_t next_member = game_state.party_members[slot + 1];
+                    if (next_member <= 5) {
+                        adjacent_right = (uint16_t)((slot + 1) * sizeof(Battler));
+                    }
+                }
             } else {
-                /* Neighbor to the right (or same position) */
-                uint16_t dist = (uint16_t)(b_x - t_x);
-                if (dist <= range)
-                    adjacent_right = b_offset;
+                /* Enemy target: scan for enemies in same row within blast range */
+                for (uint16_t i = 8; i < BATTLER_COUNT; i++) {
+                    uint16_t b_offset = (uint16_t)(i * sizeof(Battler));
+                    if (b_offset == bt.current_target)
+                        continue;
+                    Battler *b = &bt.battlers_table[i];
+                    if ((b->ally_or_enemy & 0xFF) != 1)
+                        continue;
+                    if (b->row != target->row)
+                        continue;
+
+                    uint8_t b_x = b->sprite_x;
+                    uint8_t t_x = target->sprite_x;
+                    uint16_t range = (get_battle_sprite_width(target->sprite) +
+                                      get_battle_sprite_width(b->sprite)) * 4 + 8;
+
+                    if (b_x < t_x) {
+                        /* Neighbor to the left */
+                        uint16_t dist = (uint16_t)(t_x - b_x);
+                        if (dist <= range)
+                            adjacent_left = b_offset;
+                    } else {
+                        /* Neighbor to the right (or same position) */
+                        uint16_t dist = (uint16_t)(b_x - t_x);
+                        if (dist <= range)
+                            adjacent_right = b_offset;
+                    }
+                }
             }
+
+            st->scratch16[0] = adjacent_left;
+            st->scratch16[1] = adjacent_right;
+            st->scratch32 = bt.current_target;  /* saved_target */
+
+            /* Phase 3: Apply half base_damage to adjacent targets */
+            if (adjacent_left != 0xFFFF) {
+                bt.current_target = adjacent_left;
+                fix_target_name();
+                st->pc = 2;
+                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                      battle_50pct_variance(base_damage >> 1),
+                                      0xFF);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
+            st->pc = 2;
+            break;
+        }
+
+        case 2:
+            if (st->scratch16[1] != 0xFFFF) {
+                bt.current_target = st->scratch16[1];
+                fix_target_name();
+                st->pc = 3;
+                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                      battle_50pct_variance(base_damage >> 1),
+                                      0xFF);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
+            st->pc = 3;
+            break;
+
+        case 3:
+        default:
+            /* Restore original target */
+            bt.current_target = (uint16_t)st->scratch32;
+            fix_target_name();
+            return STEP_RESULT_POP(0);
         }
     }
-
-    /* Phase 3: Apply half base_damage to adjacent targets */
-    uint16_t saved_target = bt.current_target;
-
-    if (adjacent_left != 0xFFFF) {
-        bt.current_target = adjacent_left;
-        fix_target_name();
-        uint16_t splash = battle_50pct_variance(base_damage >> 1);
-        battle_calc_resist_damage(splash, 0xFF);
-    }
-
-    if (adjacent_right != 0xFFFF) {
-        bt.current_target = adjacent_right;
-        fix_target_name();
-        uint16_t splash = battle_50pct_variance(base_damage >> 1);
-        battle_calc_resist_damage(splash, 0xFF);
-    }
-
-    /* Restore original target */
-    bt.current_target = saved_target;
-    fix_target_name();
 }
 
-void btlact_bomb(void)       { bomb_common(90); }
-void btlact_super_bomb(void) { bomb_common(270); }
+static StepResult btlact_bomb_step(BattleActionState *st) {
+    return btlact_bomb_step_common(st, 90);
+}
+static StepResult btlact_super_bomb_step(BattleActionState *st) {
+    return btlact_bomb_step_common(st, 270);
+}
+
+void btlact_bomb(void)       { btlact_pump_addr(0xC2A818); }
+void btlact_super_bomb(void) { btlact_pump_addr(0xC2A821); }
 
 /*
  * BTLACT_TELEPORT_BOX (asm/battle/actions/teleport_box.asm)
@@ -1543,7 +1644,7 @@ teleport_success:;
  * enemy. Tries same row first (left or right of existing sprites), then swaps
  * to the other row, then tries replacing a dead battler of equal sprite size.
  */
-void call_for_help_common(uint16_t param) {
+static uint32_t call_for_help_decide(uint16_t param) {
     Battler *attacker = battler_from_offset(bt.current_attacker);
 
     /* Must be an enemy */
@@ -1733,23 +1834,23 @@ place_new_enemy:
         fix_target_name();
     }
 
-    if (param) {
-        display_in_battle_text_addr(MSG_BTL8_SEED_STARTED_GROWING); /* seeds sprouted */
-    } else {
-        display_in_battle_text_addr(MSG_BTL8_ALLY_JOINED_BATTLE); /* called for help */
-    }
-    return;
+    return param ? MSG_BTL8_SEED_STARTED_GROWING   /* seeds sprouted */
+                 : MSG_BTL8_ALLY_JOINED_BATTLE;    /* called for help */
 
 help_failed:
-    if (param) {
-        display_in_battle_text_addr(MSG_BTL8_SEED_DIDNT_SPROUT); /* seeds didn't sprout */
-    } else {
-        display_in_battle_text_addr(MSG_BTL8_NO_ALLY_CAME); /* nobody came */
-    }
+    return param ? MSG_BTL8_SEED_DIDNT_SPROUT      /* seeds didn't sprout */
+                 : MSG_BTL8_NO_ALLY_CAME;          /* nobody came */
 }
 
-void btlact_call_for_help(void) { call_for_help_common(0); }
-void btlact_sow_seeds(void)    { call_for_help_common(1); }
+static StepResult btlact_call_for_help_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? call_for_help_decide(0) : 0);
+}
+static StepResult btlact_sow_seeds_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? call_for_help_decide(1) : 0);
+}
+
+void btlact_call_for_help(void) { btlact_pump_addr(0xC2C145); }
+void btlact_sow_seeds(void)    { btlact_pump_addr(0xC2C13C); }
 
 /*
  * BTLACT_HP_SUCKER (asm/battle/actions/hp_sucker.asm)
@@ -1760,44 +1861,70 @@ void btlact_sow_seeds(void)    { call_for_help_common(1); }
  * If target == attacker (self-targeting via strangeness), displays special text.
  * KOs target if HP reaches 0.
  */
-void btlact_hp_sucker(void) {
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+static StepResult btlact_hp_sucker_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            uint32_t fail_msg = 0;
+            if (!battle_success_luck80()) {
+                fail_msg = MSG_BTL4_RESULT_DID_NOT_WORK;
+            } else {
+                /* Attacker must be alive (hp_target > 0) */
+                Battler *attacker = battler_from_offset(bt.current_attacker);
+                if (attacker->hp_target == 0) {
+                    fail_msg = MSG_BTL4_RESULT_DID_NOT_WORK;
+                } else if (bt.current_target == bt.current_attacker) {
+                    /* Self-targeting check (e.g., feeling strange) */
+                    fail_msg = MSG_BTL4_RESULT_DRAINED_OWN_HP;
+                }
+            }
+            if (fail_msg != 0) {
+                st->pc = 1;
+                if (battle_push_text(&child, fail_msg))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            /* Calculate drain amount: 50% variance on target's max HP, then /8 */
+            Battler *target = battler_from_offset(bt.current_target);
+            uint16_t drain_amount = battle_50pct_variance(target->hp_max) >> 3;
+            st->scratch16[0] = drain_amount;
+
+            /* Reduce target's HP (before the text, as in the blocking form) */
+            battle_reduce_hp(target, drain_amount);
+
+            st->pc = 2;
+            if (battle_push_text_ex(&child, MSG_BTL4_RESULT_HP_DRAINED_FROM,
+                                    false, true, drain_amount))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 2: {
+            dt.blinking_triangle_flag = 0;
+            uint16_t drain_amount = st->scratch16[0];
+
+            /* Heal attacker by the drain amount */
+            Battler *attacker = battler_from_offset(bt.current_attacker);
+            battle_set_hp(attacker, attacker->hp + drain_amount);
+
+            /* KO target if dead (battle_ko_target stays inline-blocking) */
+            Battler *target = battler_from_offset(bt.current_target);
+            if (target->hp == 0)
+                battle_ko_target(target);
+            return STEP_RESULT_POP(0);
+        }
+        case 1:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
-
-    /* Attacker must be alive (hp_target > 0) */
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    if (attacker->hp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-
-    /* Self-targeting check (e.g., feeling strange) */
-    if (bt.current_target == bt.current_attacker) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DRAINED_OWN_HP);
-        return;
-    }
-
-    /* Calculate drain amount: 50% variance on target's max HP, then /8 */
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t drain_amount = battle_50pct_variance(target->hp_max) >> 3;
-
-    /* Reduce target's HP */
-    battle_reduce_hp(target, drain_amount);
-
-    display_text_wait_addr(MSG_BTL4_RESULT_HP_DRAINED_FROM, drain_amount);
-
-    /* Heal attacker by the drain amount */
-    uint16_t new_attacker_hp = attacker->hp + drain_amount;
-    battle_set_hp(attacker, new_attacker_hp);
-
-    /* KO target if dead */
-    if (target->hp == 0)
-        battle_ko_target(target);
 }
 
-void btlact_hungry_hp_sucker(void) { btlact_hp_sucker(); }
+void btlact_hp_sucker(void)        { btlact_pump_addr(0xC2A46B); }
+void btlact_hungry_hp_sucker(void) { btlact_pump_addr(0xC2A507); }
 
 
 /*
@@ -1809,28 +1936,22 @@ void btlact_hungry_hp_sucker(void) { btlact_hp_sucker(); }
  * below the enemy's mirror_success rate from enemy_config_table.
  * On success, backs up attacker to bt.mirror_battler_backup and copies target data.
  */
-void btlact_mirror(void) {
+static uint32_t mirror_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
     uint16_t target_id = target->id;
 
     /* Must target an enemy (not ally) */
-    if ((target->ally_or_enemy & 0xFF) == 0) {
-        display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
-        return;
-    }
+    if ((target->ally_or_enemy & 0xFF) == 0)
+        return MSG_BTL5_MORPH_FAILED;
     /* Must not be an NPC ally */
-    if ((target->npc_id & 0xFF) != 0) {
-        display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
-        return;
-    }
+    if ((target->npc_id & 0xFF) != 0)
+        return MSG_BTL5_MORPH_FAILED;
     /* Check mirror success rate from enemy config table */
     uint16_t roll = rand_limit(100);
     if (enemy_config_table != NULL) {
         uint8_t success_rate = enemy_config_table[target_id].mirror_success;
-        if (roll >= success_rate) {
-            display_in_battle_text_addr(MSG_BTL5_MORPH_FAILED);
-            return;
-        }
+        if (roll >= success_rate)
+            return MSG_BTL5_MORPH_FAILED;
     }
 
     /* Success: set up mirror state */
@@ -1844,8 +1965,14 @@ void btlact_mirror(void) {
     /* Copy target's data to attacker (preserving attacker's HP/PP/identity) */
     battle_copy_mirror_data(attacker, target);
 
-    display_in_battle_text_addr(MSG_BTL5_MORPH_SUCCESS);
+    return MSG_BTL5_MORPH_SUCCESS;
 }
+
+static StepResult btlact_mirror_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? mirror_decide() : 0);
+}
+
+void btlact_mirror(void) { btlact_pump_addr(0xC2B0A1); }
 
 /*
  * BTLACT_RAINBOW_OF_COLOURS (asm/battle/actions/rainbow_of_colours.asm)
@@ -2207,51 +2334,105 @@ void btlact_350_fire_damage(void) { btlact_pump_addr(0xC2900B); }
  *
  * Fixed 800 fire damage with 25% variance, modified by fire resistance.
  */
-void btlact_bag_of_dragonite(void) {
-    uint16_t damage = battle_25pct_variance(800);
-    Battler *target = battler_from_offset(bt.current_target);
-    battle_calc_resist_damage(damage, target->fire_resist);
+static StepResult btlact_bag_of_dragonite_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    if (st->pc == 0) {
+        uint16_t damage = battle_25pct_variance(800);
+        Battler *target = battler_from_offset(bt.current_target);
+        st->pc = 1;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+                              target->fire_resist);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    }
+    return STEP_RESULT_POP(0);
 }
+
+void btlact_bag_of_dragonite(void) { btlact_pump_addr(0xC2A99C); }
 
 /*
  * BTLACT_YOGURT_DISPENSER (asm/battle/actions/yogurt_dispenser.asm)
  *
  * Speed-based check, then 1-4 damage.
  */
-void btlact_yogurt_dispenser(void) {
-    if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+static StepResult btlact_yogurt_dispenser_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0:
+        if (!battle_success_speed(250)) {
+            st->pc = 2;
+            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            goto epilogue;
+        }
+        st->pc = 1;
+        battle_calc_make_init(&child, BC_RESIST_DAMAGE, rand_limit(4) + 1, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+    case 2:
+    epilogue:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
+    case 1:
+    default:
+        return STEP_RESULT_POP(0);
     }
-    uint16_t damage = rand_limit(4) + 1;
-    battle_calc_resist_damage(damage, 0xFF);
 }
+
+void btlact_yogurt_dispenser(void) { btlact_pump_addr(0xC2A86B); }
 
 /*
  * BTLACT_SNAKE (asm/battle/actions/snake.asm)
  *
  * 1-4 damage, 50% chance to poison. Fails on NPCs.
  */
-void btlact_snake(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t damage = rand_limit(4) + 1;
-    battle_calc_resist_damage(damage, 0xFF);
+static StepResult btlact_snake_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* 50% chance to poison */
-    if (battle_success_255(128)) {
-        uint16_t result = battle_inflict_status(
-            battler_from_offset(bt.current_target),
-            STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
-        if (result != 0) {
-            display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            if (!battle_success_speed(250)) {
+                st->pc = 4;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 2;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE, rand_limit(4) + 1,
+                                  0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 2:
+            /* 50% chance to poison */
+            if (battle_success_255(128)) {
+                if (battle_inflict_status(
+                        battler_from_offset(bt.current_target),
+                        STATUS_GROUP_PERSISTENT_EASYHEAL,
+                        STATUS_0_POISONED) != 0) {
+                    st->pc = 3;
+                    if (battle_push_text(&child, MSG_BTL5_STATUS_POISONED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
+                                                     &child);
+                    break;
+                }
+            }
+            return STEP_RESULT_POP(0);
+        case 3:
+        case 4:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
         }
     }
 }
+
+void btlact_snake(void) { btlact_pump_addr(0xC2A89D); }
 
 /* ======================================================================
  * Additional status effect actions
@@ -2263,92 +2444,77 @@ void btlact_snake(void) {
  * Inflict cold on target. Checks freeze_resist for success.
  * Fails on NPCs.
  */
-void btlact_cold(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->freeze_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_COLD);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_COLD);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+static StepResult btlact_cold_step(BattleActionState *st) {
+    uint32_t msg = st->pc == 0
+        ? inflict_roll_decide(true, INFLICT_ROLL_RESIST_FREEZE,
+                              STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_COLD,
+                              MSG_BTL5_STATUS_COLD) : 0;
+    return btlact_single_text_step(st, msg);
 }
+
+void btlact_cold(void) { btlact_pump_addr(0xC28B6D); }
 
 /*
  * BTLACT_INFLICT_POISON (asm/battle/actions/inflict_poison.asm)
  *
  * Inflict poison with paralysis_resist check. No NPC check.
  */
-void btlact_inflict_poison(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_POISONED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_POISONED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+static StepResult btlact_inflict_poison_step(BattleActionState *st) {
+    uint32_t msg = st->pc == 0
+        ? inflict_roll_decide(false, INFLICT_ROLL_RESIST_PARALYSIS,
+                              STATUS_GROUP_PERSISTENT_EASYHEAL,
+                              STATUS_0_POISONED, MSG_BTL5_STATUS_POISONED) : 0;
+    return btlact_single_text_step(st, msg);
 }
+
+void btlact_inflict_poison(void) { btlact_pump_addr(0xC2A953); }
 
 /*
  * BTLACT_PARALYZE (asm/battle/actions/paralyze.asm)
  *
  * Inflict paralysis. Luck80 check + paralysis_resist check. Fails on NPCs.
  */
-void btlact_paralyze(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+static uint32_t paralyze_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_PARALYZED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_NUMB);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+    if (target->npc_id != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;  /* battle_fail_attack_on_npcs */
+    if (!battle_success_luck80())
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    if (!battle_success_255(target->paralysis_resist))
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    return battle_inflict_status(target, STATUS_GROUP_PERSISTENT_EASYHEAL,
+                                 STATUS_0_PARALYZED) != 0
+               ? MSG_BTL5_STATUS_NUMB : MSG_BTL4_RESULT_DID_NOT_WORK;
 }
+
+static StepResult btlact_paralyze_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? paralyze_decide() : 0);
+}
+
+void btlact_paralyze(void) { btlact_pump_addr(0xC28A92); }
 
 /*
  * BTLACT_INFLICT_SOLIDIFICATION (asm/battle/actions/inflict_solidification.asm)
  *
  * Inflict solidified. Luck80 check + paralysis_resist check. No NPC check.
  */
-void btlact_inflict_solidification(void) {
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+static uint32_t inflict_solidification_decide(void) {
+    if (!battle_success_luck80())
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
     Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+    if (!battle_success_255(target->paralysis_resist))
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    return battle_inflict_status(target, STATUS_GROUP_TEMPORARY,
+                                 STATUS_2_SOLIDIFIED) != 0
+               ? MSG_BTL5_STATUS_SOLIDIFIED : MSG_BTL4_RESULT_DID_NOT_WORK;
 }
+
+static StepResult btlact_inflict_solidification_step(BattleActionState *st) {
+    return btlact_single_text_step(
+        st, st->pc == 0 ? inflict_solidification_decide() : 0);
+}
+
+void btlact_inflict_solidification(void) { btlact_pump_addr(0xC2A902); }
 
 /*
  * BTLACT_COUNTER_PSI (asm/battle/actions/counter_psi.asm)
@@ -2356,21 +2522,23 @@ void btlact_inflict_solidification(void) {
  * Seal target's PSI for 4 turns. Luck40 check. Fails on NPCs.
  * Won't stack if already can't concentrate.
  */
-void btlact_counter_psi(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_luck40()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+static uint32_t counter_psi_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
-    if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+    if (target->npc_id != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;  /* battle_fail_attack_on_npcs */
+    if (!battle_success_luck40())
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
     target->afflictions[STATUS_GROUP_CONCENTRATION] = 4;
-    display_in_battle_text_addr(MSG_BTL5_STATUS_PSI_BLOCKED);
+    return MSG_BTL5_STATUS_PSI_BLOCKED;
 }
+
+static StepResult btlact_counter_psi_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? counter_psi_decide() : 0);
+}
+
+void btlact_counter_psi(void) { btlact_pump_addr(0xC2A3D1); }
 
 /*
  * BTLACT_DISTRACT (asm/battle/actions/distract.asm)
@@ -2379,32 +2547,32 @@ void btlact_counter_psi(void) {
  * Luck40 + paralysis_resist check. Fails on NPCs.
  * Sets CANT_CONCENTRATE4 (value 4) if concentration slot is empty.
  */
-void btlact_distract(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_luck40()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+static uint32_t distract_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->paralysis_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+    if (target->npc_id != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;  /* battle_fail_attack_on_npcs */
+    if (!battle_success_luck40())
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    if (!battle_success_255(target->paralysis_resist))
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
+    if (target->afflictions[STATUS_GROUP_CONCENTRATION] != 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
     target->afflictions[STATUS_GROUP_CONCENTRATION] = STATUS_4_CANT_CONCENTRATE4;
-    display_in_battle_text_addr(MSG_BTL5_STATUS_PSI_BLOCKED);
+    return MSG_BTL5_STATUS_PSI_BLOCKED;
 }
+
+static StepResult btlact_distract_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? distract_decide() : 0);
+}
+
+void btlact_distract(void) { btlact_pump_addr(0xC28D5A); }
 
 /*
  * BTLACT_NEUTRALIZE (asm/battle/actions/neutralize.asm)
  *
  * Reset all combat stats to base values, remove shields.
  */
-void btlact_neutralize(void) {
+static uint32_t neutralize_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
     target->offense = target->base_offense;
     target->defense = target->base_defense;
@@ -2413,8 +2581,14 @@ void btlact_neutralize(void) {
     target->luck    = target->base_luck;
     target->shield_hp = 0;
     target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    display_in_battle_text_addr(MSG_BTL5_PSI_EFFECTS_NEUTRALIZED);
+    return MSG_BTL5_PSI_EFFECTS_NEUTRALIZED;
 }
+
+static StepResult btlact_neutralize_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? neutralize_decide() : 0);
+}
+
+void btlact_neutralize(void) { btlact_pump_addr(0xC29051); }
 
 
 /*
@@ -2422,32 +2596,40 @@ void btlact_neutralize(void) {
  *
  * Cure poison status (group 0 value 5) from current target.
  */
-void btlact_heal_poison(void) {
+static uint32_t heal_poison_decide(void) {
     Battler *target = battler_from_offset(bt.current_target);
-    if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_POISONED) {
-        target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-        display_in_battle_text_addr(MSG_BTL5_CURED_POISONED);
-    }
+    if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] != STATUS_0_POISONED)
+        return 0;  /* no text */
+    target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+    return MSG_BTL5_CURED_POISONED;
 }
+
+static StepResult btlact_heal_poison_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? heal_poison_decide() : 0);
+}
+
+void btlact_heal_poison(void) { btlact_pump_addr(0xC2A39D); }
 
 /*
  * BTLACT_SHIELD_KILLER (asm/battle/actions/shield_killer.asm)
  *
  * Remove shield from target. Luck80 check.
  */
-void btlact_shield_killer(void) {
-    if (!battle_success_luck80()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+static uint32_t shield_killer_decide(void) {
+    if (!battle_success_luck80())
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
     Battler *target = battler_from_offset(bt.current_target);
-    if (target->afflictions[STATUS_GROUP_SHIELD] == 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
+    if (target->afflictions[STATUS_GROUP_SHIELD] == 0)
+        return MSG_BTL4_RESULT_DID_NOT_WORK;
     target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    display_in_battle_text_addr(MSG_BTL5_SHIELD_DISAPPEARED);
+    return MSG_BTL5_SHIELD_DISAPPEARED;
 }
+
+static StepResult btlact_shield_killer_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? shield_killer_decide() : 0);
+}
+
+void btlact_shield_killer(void) { btlact_pump_addr(0xC2A422); }
 
 /* ======================================================================
  * Redirect wrappers (enemy reuse of player PSI)
@@ -2515,30 +2697,53 @@ void btlact_diamondize(void) { btlact_pump_addr(0xC289CE); }
  * If the first enemy slot (index TOTAL_PARTY_COUNT) is empty (unconscious),
  * spawns a Tiny Lil' Ghost there as an NPC ally for the possessor.
  */
-void btlact_possess(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    Battler *target = battler_from_offset(bt.current_target);
-    /* Only works on allies (party members) */
-    if ((target->ally_or_enemy & 0xFF) != 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
+static StepResult btlact_possess_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        Battler *target = battler_from_offset(bt.current_target);
+        uint32_t msg = MSG_BTL4_RESULT_DID_NOT_WORK;
+        bool possessed = false;
+        if (target->npc_id != 0) {
+            /* battle_fail_attack_on_npcs */
+        } else if ((target->ally_or_enemy & 0xFF) != 0) {
+            /* Only works on allies (party members) */
+        } else if (battle_inflict_status(target,
+                       STATUS_GROUP_PERSISTENT_HARDHEAL,
+                       STATUS_1_POSSESSED) != 0) {
+            msg = MSG_BTL5_STATUS_POSSESSED_GHOST;
+            possessed = true;
+        }
+        st->pc = possessed ? 2 : 1;
+        if (battle_push_text(&child, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        /* FALLTHROUGH — unresolvable text: resume inline */
+        if (!possessed) {
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_PERSISTENT_HARDHEAL, STATUS_1_POSSESSED);
-    if (result == 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    display_in_battle_text_addr(MSG_BTL5_STATUS_POSSESSED_GHOST);
-    /* If first enemy slot is empty, spawn Tiny Lil' Ghost as NPC ally */
-    if ((bt.battlers_table[TOTAL_PARTY_COUNT].consciousness & 0xFF) == 0) {
-        battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
-                                ENEMY_TINY_LIL_GHOST);
-        bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
-        bt.battlers_table[TOTAL_PARTY_COUNT].has_taken_turn = 1;
+    /* FALLTHROUGH */
+    case 2:
+        dt.blinking_triangle_flag = 0;
+        /* If first enemy slot is empty, spawn Tiny Lil' Ghost as NPC ally
+         * (after the text, as in the blocking form) */
+        if ((bt.battlers_table[TOTAL_PARTY_COUNT].consciousness & 0xFF) == 0) {
+            battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
+                                    ENEMY_TINY_LIL_GHOST);
+            bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
+            bt.battlers_table[TOTAL_PARTY_COUNT].has_taken_turn = 1;
+        }
+        return STEP_RESULT_POP(0);
+    case 1:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
     }
 }
+
+void btlact_possess(void) { btlact_pump_addr(0xC28BFD); }
 
 
 uint16_t find_stealable_items(void) {
@@ -2668,21 +2873,27 @@ void btlact_steal(void) {
  * Drain target's PP by pp_max/16 with 50% variance.
  * If target has 0 PP, display "no PP" message.
  */
-void btlact_reduce_pp(void) {
+static void reduce_pp_decide(BattleTailText *out) {
     Battler *target = battler_from_offset(bt.current_target);
     if (target->pp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL6_TARGET_HAS_NO_PP);
+        out->msg = MSG_BTL6_TARGET_HAS_NO_PP;
         return;
     }
     uint16_t drain = target->pp_max / 16;
     if (drain == 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
+        out->msg = MSG_BTL4_RESULT_DID_NOT_WORK;
         return;
     }
     drain = battle_50pct_variance(drain);
     battle_reduce_pp(target, drain);
-    display_text_wait_addr(MSG_BTL4_RESULT_PP_LOST, drain);
+    statmod_tail(out, MSG_BTL4_RESULT_PP_LOST, drain);
 }
+
+static StepResult btlact_reduce_pp_step(BattleActionState *st) {
+    return btlact_statmod_step(st, reduce_pp_decide);
+}
+
+void btlact_reduce_pp(void) { btlact_pump_addr(0xC28E42); }
 
 /*
  * BTLACT_MAGNET_A (asm/battle/actions/magnet_alpha.asm)
@@ -2691,24 +2902,49 @@ void btlact_reduce_pp(void) {
  * If target has 0 PP, shows "no PP" message. Drain amount is
  * rand_limit(4) + rand_limit(4) + 2, clamped to target's current PP.
  */
-void btlact_magnet_a(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    if (target->pp_target == 0) {
-        display_in_battle_text_addr(MSG_BTL6_TARGET_HAS_NO_PP);
-        return;
+static StepResult btlact_magnet_a_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    switch (st->pc) {
+    case 0: {
+        Battler *target = battler_from_offset(bt.current_target);
+        if (target->pp_target == 0) {
+            st->pc = 1;
+            if (battle_push_text(&child, MSG_BTL6_TARGET_HAS_NO_PP))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            goto epilogue;
+        }
+        /* Assembly lines 15-28: drain = rand(4) + rand(4) + 2 → range [2..9] */
+        uint16_t drain = rand_limit(4) + rand_limit(4) + 2;
+        /* Clamp to target's actual PP */
+        if (target->pp_target < drain)
+            drain = target->pp_target;
+        st->scratch16[0] = drain;
+        st->pc = 2;
+        if (battle_push_text_ex(&child, MSG_BTL4_RESULT_PP_DRAINED_FROM,
+                                false, true, drain))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* Assembly lines 15-28: drain = rand(4) + rand(4) + 2 → range [2..9] */
-    uint16_t drain = rand_limit(4) + rand_limit(4) + 2;
-    /* Clamp to target's actual PP */
-    if (target->pp_target < drain)
-        drain = target->pp_target;
-    display_text_wait_addr(MSG_BTL4_RESULT_PP_DRAINED_FROM, drain);
-    battle_reduce_pp(target, drain);
-    /* Add drained PP to attacker */
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    uint16_t new_pp = attacker->pp_target + drain;
-    battle_set_pp(attacker, new_pp);
+    /* FALLTHROUGH */
+    case 2: {
+        /* The drain itself runs after the text, as in the blocking form */
+        dt.blinking_triangle_flag = 0;
+        uint16_t drain = st->scratch16[0];
+        battle_reduce_pp(battler_from_offset(bt.current_target), drain);
+        /* Add drained PP to attacker */
+        Battler *attacker = battler_from_offset(bt.current_attacker);
+        battle_set_pp(attacker, attacker->pp_target + drain);
+        return STEP_RESULT_POP(0);
+    }
+    case 1:
+    epilogue:
+    default:
+        dt.blinking_triangle_flag = 0;
+        return STEP_RESULT_POP(0);
+    }
 }
+
+void btlact_magnet_a(void) { btlact_pump_addr(0xC29F5E); }
 
 /*
  * BTLACT_MAGNET_O (asm/battle/actions/magnet_omega.asm)
@@ -2716,12 +2952,17 @@ void btlact_magnet_a(void) {
  * Same as Magnet Alpha, but skips if target is an ally and is Jeff
  * (Jeff has no PP to drain).
  */
-void btlact_magnet_o(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    if ((target->ally_or_enemy & 0xFF) == 0 && target->id == PARTY_MEMBER_JEFF)
-        return;
-    btlact_magnet_a();
+static StepResult btlact_magnet_o_step(BattleActionState *st) {
+    if (st->pc == 0) {
+        Battler *target = battler_from_offset(bt.current_target);
+        if ((target->ally_or_enemy & 0xFF) == 0 &&
+            target->id == PARTY_MEMBER_JEFF)
+            return STEP_RESULT_POP(0);
+    }
+    return btlact_magnet_a_step(st);
 }
+
+void btlact_magnet_o(void) { btlact_pump_addr(0xC29FE1); }
 
 /* ======================================================================
  * Physical + status combo attacks
@@ -2733,52 +2974,73 @@ void btlact_magnet_o(void) {
  * Fixed damage (100 - defense), then inflict solidified.
  * Speed check. Fails on NPCs. If damage <= 0, "no effect".
  */
-void btlact_handbag_strap(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    Battler *target = battler_from_offset(bt.current_target);
-    int16_t damage = HANDBAG_STRAP_BASE_DAMAGE - (int16_t)target->defense;
-    if (damage <= 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    battle_calc_resist_damage((uint16_t)damage, 0xFF);
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
+static StepResult btlact_strap_step_common(BattleActionState *st,
+                                           int16_t base_damage) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1: {
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            if (!battle_success_speed(250)) {
+                st->pc = 4;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            Battler *target = battler_from_offset(bt.current_target);
+            int16_t damage = base_damage - (int16_t)target->defense;
+            if (damage <= 0) {
+                st->pc = 4;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 2;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE, (uint16_t)damage,
+                                  0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        }
+        case 2:
+            if (battle_inflict_status(battler_from_offset(bt.current_target),
+                                      STATUS_GROUP_TEMPORARY,
+                                      STATUS_2_SOLIDIFIED) != 0) {
+                st->pc = 3;
+                if (battle_push_text(&child, MSG_BTL5_STATUS_SOLIDIFIED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            return STEP_RESULT_POP(0);
+        case 3:
+        case 4:
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
 }
+
+static StepResult btlact_handbag_strap_step(BattleActionState *st) {
+    return btlact_strap_step_common(st, HANDBAG_STRAP_BASE_DAMAGE);
+}
+
+void btlact_handbag_strap(void) { btlact_pump_addr(0xC2A5EC); }
 
 /*
  * BTLACT_MUMMY_WRAP (asm/battle/actions/mummy_wrap.asm)
  *
  * Same as handbag_strap but with 400 base damage.
  */
-void btlact_mummy_wrap(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!battle_success_speed(250)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    Battler *target = battler_from_offset(bt.current_target);
-    int16_t damage = MUMMY_WRAP_BASE_DAMAGE - (int16_t)target->defense;
-    if (damage <= 0) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
-    battle_calc_resist_damage((uint16_t)damage, 0xFF);
-    uint16_t result = battle_inflict_status(target,
-        STATUS_GROUP_TEMPORARY, STATUS_2_SOLIDIFIED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_SOLIDIFIED);
-    }
+static StepResult btlact_mummy_wrap_step(BattleActionState *st) {
+    return btlact_strap_step_common(st, MUMMY_WRAP_BASE_DAMAGE);
 }
+
+void btlact_mummy_wrap(void) { btlact_pump_addr(0xC2A50E); }
 
 /* ======================================================================
  * Fly Honey (Master Belch weakener)
@@ -2790,7 +3052,7 @@ void btlact_mummy_wrap(void) {
  * Searches all enemy battlers for Master Belch (IDs 93 or 192).
  * If found, transforms them to the weakened variant (ID 169).
  */
-void btlact_fly_honey(void) {
+static uint32_t fly_honey_decide(void) {
     for (uint16_t i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
         Battler *b = &bt.battlers_table[i];
         if (b->consciousness == 0)
@@ -2799,12 +3061,17 @@ void btlact_fly_honey(void) {
             continue;
         if (b->id == ENEMY_MASTER_BELCH_1 || b->id == ENEMY_MASTER_BELCH_3) {
             b->id = ENEMY_MASTER_BELCH_2;
-            display_in_battle_text_addr(MSG_BTL6_FLY_HONEY_BELCH_GRABS); /* fly honey worked! */
-            return;
+            return MSG_BTL6_FLY_HONEY_BELCH_GRABS; /* fly honey worked! */
         }
     }
-    display_in_battle_text_addr(MSG_BTL6_FLY_HONEY_BELCH_IGNORED); /* no Master Belch found */
+    return MSG_BTL6_FLY_HONEY_BELCH_IGNORED; /* no Master Belch found */
 }
+
+static StepResult btlact_fly_honey_step(BattleActionState *st) {
+    return btlact_single_text_step(st, st->pc == 0 ? fly_honey_decide() : 0);
+}
+
+void btlact_fly_honey(void) { btlact_pump_addr(0xC2C1BD); }
 
 /* ======================================================================
  * PSI Flash
@@ -3137,35 +3404,10 @@ void btlact_brainshock_alpha(void) { btlact_pump_addr(0xC2A056); }
  * decide fills a BattleTailText at pc 0 (the NPC-fail and luck-fail paths
  * return the plain "did not work" text, has_cnum = false; the success
  * paths return the stat message with the change amount as cnum, matching
- * display_text_wait_addr), then the shared single-text stepper runs it.
+ * display_text_wait_addr), then the shared single-text stepper runs it
+ * (btlact_statmod_step, defined with the single-text helpers above).
  * reduce_offense_defense is the one two-text exception (own pc machine).
  * ====================================================================== */
-
-typedef void (*StatModDecideFn)(BattleTailText *out);
-
-static StepResult btlact_statmod_step(BattleActionState *st,
-                                      StatModDecideFn decide) {
-    BattleTailText tail = {0};
-    if (st->pc == 0)
-        decide(&tail);
-    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
-}
-
-static void statmod_tail(BattleTailText *out, uint32_t msg, uint32_t cnum) {
-    out->msg = msg;
-    out->cnum = cnum;
-    out->has_cnum = true;
-}
-
-/* The NPC test shared by most stat mods (battle_fail_attack_on_npcs'
- * "did not work" + abort, inlined into the decide). */
-static bool statmod_npc_fail(BattleTailText *out, Battler *target) {
-    if (target->npc_id != 0) {
-        out->msg = MSG_BTL4_RESULT_DID_NOT_WORK;
-        return true;
-    }
-    return false;
-}
 
 /*
  * BTLACT_OFFENSE_UP_A (asm/battle/actions/offense_up_alpha.asm)
@@ -3479,34 +3721,51 @@ void btlact_cut_guts(void) { btlact_pump_addr(0xC28EAE); }
  *
  * Recover HP = max_hp / 16 for target.
  */
-void btlact_pray_subtle(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t heal = target->hp_max >> 4;
-    battle_recover_hp(target, heal);
+static StepResult btlact_pray_subtle_step(BattleActionState *st) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        Battler *target = battler_from_offset(bt.current_target);
+        battle_recover_hp_prepare(target, target->hp_max >> 4, &tail);
+    }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
+
+void btlact_pray_subtle(void) { btlact_pump_addr(0xC2AC2A); }
 
 /*
  * BTLACT_PRAY_WARM (asm/battle/actions/pray_warm.asm)
  *
  * Recover HP = max_hp / 8 for target.
  */
-void btlact_pray_warm(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    uint16_t heal = target->hp_max >> 3;
-    battle_recover_hp(target, heal);
+static StepResult btlact_pray_warm_step(BattleActionState *st) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        Battler *target = battler_from_offset(bt.current_target);
+        battle_recover_hp_prepare(target, target->hp_max >> 3, &tail);
+    }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
+
+void btlact_pray_warm(void) { btlact_pump_addr(0xC2AC3E); }
 
 /*
  * BTLACT_PRAY_MYSTERIOUS (asm/battle/actions/pray_mysterious.asm)
  *
  * Recover PP = 50% variance of 5 (at least 1) for target.
  */
-void btlact_pray_mysterious(void) {
-    uint16_t amount = battle_50pct_variance(5);
-    if (amount == 0)
-        amount = 1;
-    battle_recover_pp(battler_from_offset(bt.current_target), amount);
+static StepResult btlact_pray_mysterious_step(BattleActionState *st) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        uint16_t amount = battle_50pct_variance(5);
+        if (amount == 0)
+            amount = 1;
+        battle_recover_pp_prepare(battler_from_offset(bt.current_target),
+                                  amount, &tail);
+    }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
+
+void btlact_pray_mysterious(void) { btlact_pump_addr(0xC2AC68); }
 
 /*
  * BTLACT_PRAY_GOLDEN (asm/battle/actions/pray_golden.asm)
@@ -3514,30 +3773,32 @@ void btlact_pray_mysterious(void) {
  * Recover HP = target's max_hp - attacker's hp_target for target.
  * The attacker sacrifices their remaining HP as healing.
  */
-void btlact_pray_golden(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    Battler *attacker = battler_from_offset(bt.current_attacker);
-    uint16_t heal = target->hp_max - attacker->hp_target;
-    battle_recover_hp(target, heal);
+static StepResult btlact_pray_golden_step(BattleActionState *st) {
+    BattleTailText tail = {0};
+    if (st->pc == 0) {
+        Battler *target = battler_from_offset(bt.current_target);
+        Battler *attacker = battler_from_offset(bt.current_attacker);
+        battle_recover_hp_prepare(target,
+                                  target->hp_max - attacker->hp_target, &tail);
+    }
+    return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
+
+void btlact_pray_golden(void) { btlact_pump_addr(0xC2AC51); }
 
 /*
  * BTLACT_PRAY_AROMA (asm/battle/actions/pray_aroma.asm)
  *
  * Inflict sleep on target. Fails on NPCs.
  */
-void btlact_pray_aroma(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_TEMPORARY, STATUS_2_ASLEEP);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_ASLEEP);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+static StepResult btlact_pray_aroma_step(BattleActionState *st) {
+    uint32_t msg = st->pc == 0
+        ? inflict_decide(true, STATUS_GROUP_TEMPORARY, STATUS_2_ASLEEP,
+                         MSG_BTL5_STATUS_ASLEEP) : 0;
+    return btlact_single_text_step(st, msg);
 }
+
+void btlact_pray_aroma(void) { btlact_pump_addr(0xC2AC99); }
 
 /*
  * BTLACT_PRAY_RAINBOW (asm/battle/actions/pray_rainbow.asm)
@@ -3556,18 +3817,14 @@ void btlact_pray_rainbow(void) {
  *
  * Inflict strangeness on target. Fails on NPCs.
  */
-void btlact_pray_rending_sound(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
+static StepResult btlact_pray_rending_sound_step(BattleActionState *st) {
+    uint32_t msg = st->pc == 0
+        ? inflict_decide(true, STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE,
+                         MSG_BTL5_STATUS_STRANGE) : 0;
+    return btlact_single_text_step(st, msg);
 }
+
+void btlact_pray_rending_sound(void) { btlact_pump_addr(0xC2ACDA); }
 
 /*
  * BTLACT_PRAY (asm/battle/actions/pray.asm)
@@ -3823,29 +4080,47 @@ void btlact_switch_armor(void) {
  *   - Flag set: teleport to destination 15 (normal end)
  *   - Flag not set: teleport to destination 13, bt.special_defeat=1
  */
-void btlact_clumsydeath(void) {
-    /* Load the PSI teleport destination table to read entry 13's event flag */
-    const uint8_t *table = ASSET_DATA(ASSET_DATA_PSI_TELEPORT_DEST_TABLE_BIN);
+static StepResult btlact_clumsydeath_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Entry 13: each entry is 31 bytes, event_flag at byte offset 25
-     * (struct ow.psi_teleport_destination: name[25] + event_flag[2] + x[2] + y[2]) */
-    uint16_t event_flag = 0;
-    if (table) {
-        const uint8_t *entry = table + 13 * 31;
-        event_flag = read_u16_le(entry + 25);
+    switch (st->pc) {
+    case 0: {
+        /* Load the PSI teleport destination table to read entry 13's event flag */
+        const uint8_t *table = ASSET_DATA(ASSET_DATA_PSI_TELEPORT_DEST_TABLE_BIN);
+
+        /* Entry 13: each entry is 31 bytes, event_flag at byte offset 25
+         * (struct ow.psi_teleport_destination: name[25] + event_flag[2] + x[2] + y[2]) */
+        uint16_t event_flag = 0;
+        if (table) {
+            const uint8_t *entry = table + 13 * 31;
+            event_flag = read_u16_le(entry + 25);
+        }
+
+        st->scratch16[0] = event_flag_get(event_flag) ? 1 : 0;
+        st->pc = 1;
+        if (battle_push_text(&child, st->scratch16[0]
+                                         ? MSG_BTL4_RUNAWAY5_RESCUE
+                                         : MSG_BTL4_ENEMY_ESCAPE_SMOKE_FAIL))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-
-    if (event_flag_get(event_flag)) {
-        display_in_battle_text_addr(MSG_BTL4_RUNAWAY5_RESCUE);
-        ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
-        ow.psi_teleport_destination = 15;
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_ENEMY_ESCAPE_SMOKE_FAIL);
-        ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
-        ow.psi_teleport_destination = 13;
-        bt.special_defeat = 1;
+    /* FALLTHROUGH */
+    case 1:
+    default:
+        /* The teleport setup runs after the text, as in the blocking form */
+        dt.blinking_triangle_flag = 0;
+        if (st->scratch16[0]) {
+            ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
+            ow.psi_teleport_destination = 15;
+        } else {
+            ow.psi_teleport_style = 3;  /* TELEPORT_STYLE::INSTANT */
+            ow.psi_teleport_destination = 13;
+            bt.special_defeat = 1;
+        }
+        return STEP_RESULT_POP(0);
     }
 }
+
+void btlact_clumsydeath(void) { btlact_pump_addr(0xC29298); }
 
 
 /* ======================================================================
@@ -4213,7 +4488,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     /* Sorted by ROM address for binary search */
     { 0xC1DE43, btlact_switch_weapons, NULL },
     { 0xC1E00F, btlact_switch_armor, NULL },
-    { 0xC28523, (void(*)(void))battle_level_2_attack, NULL },
+    { 0xC28523, (void(*)(void))battle_level_2_attack, btlact_level_2_attack_step },
     { 0xC2859F, btlact_bash, btlact_bash_step },
     { 0xC285DA, (void(*)(void))battle_level_4_attack, btlact_level_4_attack_step },
     { 0xC28651, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },
@@ -4224,25 +4499,25 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2889E, btlact_steal, NULL },
     { 0xC288EB, btlact_freezetime, NULL },
     { 0xC289CE, btlact_diamondize, btlact_diamondize_step },
-    { 0xC28A92, btlact_paralyze, NULL },
+    { 0xC28A92, btlact_paralyze, btlact_paralyze_step },
     { 0xC28AEB, btlact_nauseate, btlact_nauseate_step },
     { 0xC28B2C, btlact_poison, btlact_poison_step },
-    { 0xC28B6D, btlact_cold, NULL },
+    { 0xC28B6D, btlact_cold, btlact_cold_step },
     { 0xC28BBE, btlact_mushroomize, btlact_mushroomize_step },
-    { 0xC28BFD, btlact_possess, NULL },
+    { 0xC28BFD, btlact_possess, btlact_possess_step },
     { 0xC28C69, btlact_crying, btlact_crying_step },
     { 0xC28CB8, btlact_immobilize, btlact_immobilize_step },
     { 0xC28CF1, btlact_solidify, btlact_solidify_step },
     { 0xC28D3A, redirect_btlact_brainshock_alpha, btlact_brainshock_alpha_step },
-    { 0xC28D5A, btlact_distract, NULL },
+    { 0xC28D5A, btlact_distract, btlact_distract_step },
     { 0xC28DBB, btlact_feel_strange, btlact_feel_strange_step },
     { 0xC28DFC, btlact_crying2, btlact_crying2_step },
     { 0xC28E3B, redirect_btlact_hypnosis_alpha, btlact_hypnosis_alpha_step },
-    { 0xC28E42, btlact_reduce_pp, NULL },
+    { 0xC28E42, btlact_reduce_pp, btlact_reduce_pp_step },
     { 0xC28EAE, btlact_cut_guts, btlact_cut_guts_step },
     { 0xC28F21, btlact_reduce_offense_defense, btlact_reduce_offense_defense_step },
     { 0xC28F97, btlact_level_2_attack_poison, btlact_level_2_attack_poison_step },
-    { 0xC28FF9, btlact_double_bash, NULL },
+    { 0xC28FF9, btlact_double_bash, btlact_double_bash_step },
     { 0xC2900B, btlact_350_fire_damage, btlact_350_fire_damage_step },
     { 0xC2902C, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
     { 0xC29033, btlact_null2, NULL },
@@ -4255,11 +4530,11 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC29048, btlact_null9, NULL },
     { 0xC2904B, btlact_null10, NULL },
     { 0xC2904E, btlact_null11, NULL },
-    { 0xC29051, btlact_neutralize, NULL },
+    { 0xC29051, btlact_neutralize, btlact_neutralize_step },
     { 0xC290C6, apply_neutralize_to_all, NULL },
     { 0xC2916E, btlact_level_2_attack_diamondize, btlact_level_2_attack_diamondize_step },
     { 0xC29254, btlact_reduce_offense, btlact_reduce_offense_step },
-    { 0xC29298, btlact_clumsydeath, NULL },
+    { 0xC29298, btlact_clumsydeath, btlact_clumsydeath_step },
     { 0xC292EB, btlact_enemy_extend, NULL },
     { 0xC292EE, btlact_masterbarfdeath, NULL },
     { 0xC29556, btlact_psi_rockin_alpha, btlact_psi_rockin_alpha_step },
@@ -4306,8 +4581,8 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC29EFF, redirect_btlact_defense_down_alpha, btlact_defense_down_alpha_step },
     { 0xC29F06, btlact_hypnosis_alpha, btlact_hypnosis_alpha_step },
     { 0xC29F57, redirect_btlact_hypnosis_a_copy, btlact_hypnosis_alpha_step },
-    { 0xC29F5E, btlact_magnet_a, NULL },
-    { 0xC29FE1, btlact_magnet_o, NULL },
+    { 0xC29F5E, btlact_magnet_a, btlact_magnet_a_step },
+    { 0xC29FE1, btlact_magnet_o, btlact_magnet_o_step },
     { 0xC29FFE, btlact_paralysis_alpha, btlact_paralysis_alpha_step },
     { 0xC2A04F, redirect_btlact_paralysis_alpha, btlact_paralysis_alpha_step },
     { 0xC2A056, btlact_brainshock_alpha, btlact_brainshock_alpha_step },
@@ -4327,24 +4602,24 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2A360, btlact_hp_recovery_10, btlact_hp_recovery_10_step },
     { 0xC2A370, btlact_hp_recovery_100, btlact_hp_recovery_100_step },
     { 0xC2A380, btlact_hp_recovery_10000, btlact_hp_recovery_10000_step },
-    { 0xC2A39D, btlact_heal_poison, NULL },
-    { 0xC2A3D1, btlact_counter_psi, NULL },
-    { 0xC2A422, btlact_shield_killer, NULL },
-    { 0xC2A46B, (void(*)(void))btlact_hp_sucker, NULL },
-    { 0xC2A507, btlact_hungry_hp_sucker, NULL },
-    { 0xC2A50E, btlact_mummy_wrap, NULL },
+    { 0xC2A39D, btlact_heal_poison, btlact_heal_poison_step },
+    { 0xC2A3D1, btlact_counter_psi, btlact_counter_psi_step },
+    { 0xC2A422, btlact_shield_killer, btlact_shield_killer_step },
+    { 0xC2A46B, (void(*)(void))btlact_hp_sucker, btlact_hp_sucker_step },
+    { 0xC2A507, btlact_hungry_hp_sucker, btlact_hp_sucker_step },
+    { 0xC2A50E, btlact_mummy_wrap, btlact_mummy_wrap_step },
     { 0xC2A5D1, btlact_bottle_rocket, btlact_bottle_rocket_step },
     { 0xC2A5DA, btlact_big_bottle_rocket, btlact_big_bottle_rocket_step },
     { 0xC2A5E3, btlact_multi_bottle_rocket, btlact_multi_bottle_rocket_step },
-    { 0xC2A5EC, btlact_handbag_strap, NULL },
-    { 0xC2A818, btlact_bomb, NULL },
-    { 0xC2A821, btlact_super_bomb, NULL },
+    { 0xC2A5EC, btlact_handbag_strap, btlact_handbag_strap_step },
+    { 0xC2A818, btlact_bomb, btlact_bomb_step },
+    { 0xC2A821, btlact_super_bomb, btlact_super_bomb_step },
     { 0xC2A82A, btlact_solidify_2, btlact_solidify_2_step },
-    { 0xC2A86B, btlact_yogurt_dispenser, NULL },
-    { 0xC2A89D, btlact_snake, NULL },
-    { 0xC2A902, btlact_inflict_solidification, NULL },
-    { 0xC2A953, btlact_inflict_poison, NULL },
-    { 0xC2A99C, btlact_bag_of_dragonite, NULL },
+    { 0xC2A86B, btlact_yogurt_dispenser, btlact_yogurt_dispenser_step },
+    { 0xC2A89D, btlact_snake, btlact_snake_step },
+    { 0xC2A902, btlact_inflict_solidification, btlact_inflict_solidification_step },
+    { 0xC2A953, btlact_inflict_poison, btlact_inflict_poison_step },
+    { 0xC2A99C, btlact_bag_of_dragonite, btlact_bag_of_dragonite_step },
     { 0xC2AA0C, btlact_insecticide_spray, btlact_insecticide_spray_step },
     { 0xC2AA15, btlact_xterminator_spray, btlact_xterminator_spray_step },
     { 0xC2AA6D, btlact_rust_promoter, btlact_rust_promoter_step },
@@ -4353,20 +4628,20 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2AAC6, btlact_defense_spray, btlact_defense_spray_step },
     { 0xC2AB0D, btlact_defense_shower, btlact_defense_spray_step },
     { 0xC2AB71, (void(*)(void))btlact_teleport_box, NULL },
-    { 0xC2AC2A, btlact_pray_subtle, NULL },
-    { 0xC2AC3E, btlact_pray_warm, NULL },
-    { 0xC2AC51, btlact_pray_golden, NULL },
-    { 0xC2AC68, btlact_pray_mysterious, NULL },
+    { 0xC2AC2A, btlact_pray_subtle, btlact_pray_subtle_step },
+    { 0xC2AC3E, btlact_pray_warm, btlact_pray_warm_step },
+    { 0xC2AC51, btlact_pray_golden, btlact_pray_golden_step },
+    { 0xC2AC68, btlact_pray_mysterious, btlact_pray_mysterious_step },
     { 0xC2AC7B, btlact_pray_rainbow, NULL },
-    { 0xC2AC99, btlact_pray_aroma, NULL },
-    { 0xC2ACDA, btlact_pray_rending_sound, NULL },
+    { 0xC2AC99, btlact_pray_aroma, btlact_pray_aroma_step },
+    { 0xC2ACDA, btlact_pray_rending_sound, btlact_pray_rending_sound_step },
     { 0xC2AD1B, btlact_pray, NULL },
-    { 0xC2B0A1, (void(*)(void))btlact_mirror, NULL },
+    { 0xC2B0A1, (void(*)(void))btlact_mirror, btlact_mirror_step },
     { 0xC2B27D, btlact_eat_food, NULL },
-    { 0xC2C13C, btlact_sow_seeds, NULL },
-    { 0xC2C145, btlact_call_for_help, NULL },
+    { 0xC2C13C, btlact_sow_seeds, btlact_sow_seeds_step },
+    { 0xC2C145, btlact_call_for_help, btlact_call_for_help_step },
     { 0xC2C14E, (void(*)(void))btlact_rainbow_of_colours, NULL },
-    { 0xC2C1BD, btlact_fly_honey, NULL },
+    { 0xC2C1BD, btlact_fly_honey, btlact_fly_honey_step },
     { 0xC2C4C0, btlact_pokey_speech, NULL },
     { 0xC2C513, btlact_null12, NULL },
     { 0xC2C516, btlact_pokey_speech_2, NULL },
