@@ -646,11 +646,8 @@ uint16_t battle_psi_shield_nullify(void);
 
 /* ---- KO / Revive ---- */
 
-/* KO_TARGET: Kill a battler. Handles:
- *   - Player chars: set affliction to UNCONSCIOUS, zero hp_target, display text
- *   - Enemies: death animation, final attack, reward accumulation, death_type processing
- *   - Possession/ghost mechanics for Tiny Lil Ghost */
-void battle_ko_target(Battler *target);
+/* KO_TARGET is GAME_MODE_BATTLE_KO (mode_step_battle_ko, battle.c) — pushed
+ * via battle_ko_make_init (battle_internal.h). */
 
 /* REVIVE_TARGET is GAME_MODE_BATTLE_REVIVE (mode_step_battle_revive,
  * battle.c) — pushed via battle_revive_make_init (battle_internal.h). */

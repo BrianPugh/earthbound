@@ -391,10 +391,9 @@ static bool statmod_npc_fail(BattleTailText *out, Battler *target) {
  * The Healing PSI cascade (alpha ⊂ beta ⊂ gamma ⊂ omega).
  *
  * Each decide helper applies its cures and returns the tail text; the
- * fallback chain mirrors the blocking originals' tail calls. Returns 0
- * when the revive path handled everything itself — battle_revive_target()
- * displays its own text and runs the enemy palette flash inline-blocking
- * (it converts with the shared battle.c helper pipeline).
+ * fallback chain mirrors the blocking originals' tail calls. The γ/Ω
+ * revive paths are GAME_MODE_BATTLE_REVIVE child pushes (the revive has
+ * its own text + enemy palette flash).
  * ---------------------------------------------------------------------- */
 
 /* BTLACT_HEALING_A (asm/battle/actions/healing_alpha.asm):
@@ -2125,12 +2124,17 @@ static StepResult btlact_hp_sucker_step(BattleActionState *st) {
             Battler *attacker = battler_from_offset(bt.current_attacker);
             battle_set_hp(attacker, attacker->hp + drain_amount);
 
-            /* KO target if dead (battle_ko_target stays inline-blocking) */
+            /* KO target if dead (a BATTLE_KO child push) */
             Battler *target = battler_from_offset(bt.current_target);
-            if (target->hp == 0)
-                battle_ko_target(target);
+            if (target->hp == 0) {
+                st->pc = 3;
+                battle_ko_make_init(&child, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
+            }
             return STEP_RESULT_POP(0);
         }
+        case 3:
+            return STEP_RESULT_POP(0);
         case 1:
         default:
             dt.blinking_triangle_flag = 0;
@@ -3358,8 +3362,8 @@ uint16_t flash_immunity_test(void) {
  * branch (alpha has no KO/paralysis). flash_immunity_test()'s halves are
  * inlined: the BC_PSI_SHIELD_NULLIFY push, then the flash_resist roll with
  * its "didn't work" text. The crying infliction uses the group-equals-ID
- * idiom (see flash_inflict_crying / psi_flash_crying.asm).
- * battle_ko_target() stays inline-blocking (its sub-front).
+ * idiom (see flash_inflict_crying / psi_flash_crying.asm). The KO outcome
+ * is a BATTLE_KO child push.
  */
 static StepResult btlact_psi_flash_step_common(BattleActionState *st,
                                                int16_t ko_max,
@@ -3397,9 +3401,11 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
             /* Effect roll */
             int16_t roll = (int16_t)(rand_byte() & 0x07);
             if (roll <= ko_max) {
-                battle_ko_target(target);  /* inline-blocking */
+                /* KO outcome: a BATTLE_KO child push, resuming at the
+                 * shield-weaken pc */
                 st->pc = 5;
-                break;
+                battle_ko_make_init(&child, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
             }
             uint32_t msg;
             if (roll == para_idx) {

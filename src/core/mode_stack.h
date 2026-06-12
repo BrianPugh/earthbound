@@ -80,6 +80,7 @@ typedef enum {
     GAME_MODE_BATTLE_CALC,         /* battle_calc.c text pipeline (miss/smaaaash/damage/shields) */
     GAME_MODE_BATTLE_REVIVE,       /* revive a KO'd battler (battle_revive_target) */
     GAME_MODE_BATTLE_APPLY,        /* per-target action apply loop (apply_action_to_targets) */
+    GAME_MODE_BATTLE_KO,           /* battler death driver (battle_ko_target) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -566,6 +567,7 @@ typedef enum {
     BTL_RUN_FAIL,         /* after the failure text: clear initiative, execute turns */
     BTL_EXEC,             /* execute_turns: pick attacker, overrides, status-damage text */
     BTL_EXEC_DMG,         /* apply status damage after its text */
+    BTL_EXEC_DMG_KO,      /* after a status-damage BATTLE_KO pops: end checks */
     BTL_EXEC_SETUP,       /* targeting, PP check (fail text), attack palette, bob wait */
     BTL_EXEC_RETARGET1,   /* after the bob: "acting unusual" text */
     BTL_EXEC_RETARGET2,   /* "acting funky" text */
@@ -731,9 +733,8 @@ typedef struct {
  * mirroring the blocking call tree. All RNG/mutation runs at its original
  * sequence point (decide at the pushing pc, never at a resume pc); every
  * resume pc starts with the dt.blinking_triangle_flag clear (the blocking
- * display_in_battle_text epilogue). battle_ko_target() stays inline-blocking
- * from BC_RESIST_DAMAGE (its own driver — death text, palette flashes, the
- * final-attack path; converts with the check_dead_players sub-front).
+ * display_in_battle_text epilogue). The KO checks in BC_RESIST_DAMAGE are
+ * GAME_MODE_BATTLE_KO child pushes (pcs 8/9 are their resume points).
  *
  * Pushed by the converted btlact_* action steppers (battle_actions.c) and by
  * its own nesting; the blocking battle_*() forms in battle_calc.c are
@@ -792,6 +793,25 @@ typedef struct {
     uint16_t index;       /* current battler index */
     uint32_t action_addr; /* per-target action's ROM address (0 = none) */
 } BattleApplyState;
+
+/* GAME_MODE_BATTLE_KO — run-to-completion port of battle_ko_target()
+ * (battle.c, asm/battle/ko_target.asm): the battler death driver. Enemy
+ * deaths run the final-attack bracket (description text push + a
+ * BATTLE_APPLY child carrying the final action's ROM address; the saved
+ * attacker/target/target-flags live in this state), the death text push,
+ * the white-flash/black-fade palette animation (BW_FRAMES pushes), the
+ * death_type group-death sequence, and the ghost-respawn logic; player/NPC
+ * deaths run the possession handling and their own death/collapse texts.
+ * Pushed by BC_RESIST_DAMAGE (battle_calc.c), the hp_sucker / PSI-flash
+ * action steppers (battle_actions.c) and GAME_MODE_BATTLE's status-damage
+ * phase, via battle_ko_make_init() (battle_internal.h). Always pops 0. */
+typedef struct {
+    uint8_t  pc;              /* resume point (0 = entry) */
+    uint16_t target;          /* battler offset of the dying battler */
+    uint16_t saved_attacker;  /* final-attack bracket: saved bt.current_attacker */
+    uint16_t saved_target;    /* final-attack bracket: saved bt.current_target */
+    uint32_t saved_flags;     /* final-attack bracket: saved bt.battler_target_flags */
+} BattleKoState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1762,23 +1782,22 @@ union ModeState {
     BattleCalcState       battle_calc;
     BattleReviveState     battle_revive;
     BattleApplyState      battle_apply;
+    BattleKoState         battle_ko;
     uint8_t               _raw[160];
 };
 
 /* Deepest realistic chain (a scripted battle triggered from NPC dialogue):
  * PROCESS_INTERACTION → TEXT_WAIT_FADE → DISPLAY_TEXT → BATTLE_SCRIPTED →
- * BATTLE → BATTLE_MENU → BATTLE_PSI_MENU → DETERMINE_TARGETING →
- * BATTLE_ENEMY_SELECT is 9 levels, plus CC_08 CALL_TEXT can nest extra
- * DISPLAY_TEXT levels and the Phase-D flip adds the BOOT/OVERWORLD root.
- * The turn-execution branch is now the deepest from the same entry:
- * BATTLE → BATTLE_ACTION → BC_SMAAAASH → BC_RESIST_DAMAGE →
- * BC_CALC_DAMAGE → DISPLAY_TEXT → TEXT_PROMPT is 12, plus the
- * inline-blocking battle_ko_target() pumping a BATTLE_WAIT on top is 13.
- * 16 leaves headroom (mode_push logs + drops on overflow rather than
- * corrupting the stack). Raising this changes the on-disk
- * SECTION_MODE_STACK size — harmless pre-cutover (savestates are not
- * cross-build compatible). */
-#define MODE_STACK_MAX 16
+ * BATTLE is 5 levels in, and the turn-execution branch below it is the
+ * deepest: BATTLE_ACTION → BC_SMAAAASH → BC_RESIST_DAMAGE → BATTLE_KO →
+ * BATTLE_APPLY (final attack) → BATTLE_ACTION (the final action) →
+ * BC_RESIST_DAMAGE → BC_CALC_DAMAGE → DISPLAY_TEXT → TEXT_PROMPT reaches
+ * 15, plus CC_08 CALL_TEXT can nest extra DISPLAY_TEXT levels and the
+ * Phase-D flip adds the BOOT/OVERWORLD root. 24 leaves headroom
+ * (mode_push logs + drops on overflow rather than corrupting the stack).
+ * Raising this changes the on-disk SECTION_MODE_STACK size — harmless
+ * pre-cutover (savestates are not cross-build compatible). */
+#define MODE_STACK_MAX 24
 
 typedef struct {
     uint8_t   depth;                          /* number of active modes */
@@ -2052,6 +2071,10 @@ StepResult mode_step_battle_revive(ModeState *st);
 /* GAME_MODE_BATTLE_APPLY step (defined in battle.c). Init via
  * battle_apply_make_init() (battle_internal.h). Always pops 0. */
 StepResult mode_step_battle_apply(ModeState *st);
+
+/* GAME_MODE_BATTLE_KO step (defined in battle.c). Init via
+ * battle_ko_make_init() (battle_internal.h). Always pops 0. */
+StepResult mode_step_battle_ko(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

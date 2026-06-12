@@ -117,9 +117,15 @@ void battle_revive_make_init(ModeState *init, uint16_t target_offset, uint16_t h
 
 /* Build a GAME_MODE_BATTLE_APPLY child init (battle.c). action_addr is the
  * per-target action's 24-bit ROM address (0 = iterate without calling).
- * Pushed by the pray / apply_neutralize_to_all steppers; pumped by the
- * battle_ko_target final-attack path. Always pops 0. */
+ * Pushed by the pray / apply_neutralize_to_all steppers and the BATTLE_KO
+ * final-attack pc. Always pops 0. */
 void battle_apply_make_init(ModeState *init, uint32_t action_addr);
+
+/* Build a GAME_MODE_BATTLE_KO child init (battle.c). target_offset is the
+ * dying battler's byte offset. Pushed by BC_RESIST_DAMAGE, the hp_sucker /
+ * PSI-flash steppers and the battle routine's status-damage phase. Always
+ * pops 0. */
+void battle_ko_make_init(ModeState *init, uint16_t target_offset);
 
 /* The mutation halves of RECOVER_HP / RECOVER_PP (battle.c): everything the
  * blocking battle_recover_hp/pp() does up to the tail text, which is

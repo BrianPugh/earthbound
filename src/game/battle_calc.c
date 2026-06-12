@@ -33,9 +33,9 @@
  * epilogue); all RNG and state mutation stays at its original sequence
  * point (at the pushing pc, never re-run at a resume pc).
  *
- * battle_ko_target() is called inline-blocking from BC_RESIST_DAMAGE — it
- * is its own large driver (death text, palette flashes + battle_waits, the
- * final-attack path) and converts with the check_dead_players sub-front.
+ * The KO checks in BC_RESIST_DAMAGE are GAME_MODE_BATTLE_KO child pushes
+ * (the death driver — death text, palette flashes, the final-attack path —
+ * is its own mode; see mode_step_battle_ko, battle.c).
  *
  * The blocking battle_*() forms are pump_mode bridges over the same
  * steppers, so the unconverted battle_actions.c callers work unchanged.
@@ -722,11 +722,12 @@ uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
  * local), arg1 = resist_modifier, local[0] = reflected damage. The target
  * is re-derived from bt.current_target at each pc — BC_CALC_DAMAGE's Giygas
  * redirect restores it before popping, and the reflection swap/swap-back
- * brackets pcs 2-3 exactly as in the blocking form. battle_ko_target() runs
- * inline-blocking (see the header comment). pc map: 0 = modifiers + push
- * BC_CALC_DAMAGE; 1 = KO check + shield branch (may push the deflected
- * text); 2 = swap + push the reflected BC_CALC_DAMAGE; 3 = reflected KO +
- * swap back; 4 = weaken shield (may push the disappeared text); 5 = its
+ * brackets pcs 2-3/9 exactly as in the blocking form. Both KO checks are
+ * GAME_MODE_BATTLE_KO child pushes. pc map: 0 = modifiers + push
+ * BC_CALC_DAMAGE; 1 = KO check (may push BATTLE_KO); 8 = floor + shield
+ * branch (may push the deflected text); 2 = swap + push the reflected
+ * BC_CALC_DAMAGE; 3 = reflected KO check (may push BATTLE_KO); 9 = swap
+ * back; 4 = weaken shield (may push the disappeared text); 5 = its
  * epilogue; 6 = sleep wake check (may push the cured text); 7 = its
  * epilogue.
  */
@@ -788,14 +789,19 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         }
 
-        case 1: {
+        case 1:
             tgt = battler_from_offset(bt.current_target);
 
-            /* Check for KO (battle_ko_target stays inline-blocking — its own
-             * driver; converts with the check_dead_players sub-front) */
+            /* Check for KO (a GAME_MODE_BATTLE_KO child push) */
+            st->pc = 8;
             if (st->arg0 != 0 && tgt->hp == 0) {
-                battle_ko_target(tgt);
+                battle_ko_make_init(&child, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
             }
+            break;
+
+        case 8: {
+            tgt = battler_from_offset(bt.current_target);
 
             /* Floor damage again after KO processing */
             if (st->arg0 == 0)
@@ -840,15 +846,21 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
 
         case 3: {
-            /* Check if reflected damage KO'd the original attacker */
+            /* Check if reflected damage KO'd the original attacker
+             * (a GAME_MODE_BATTLE_KO child push) */
             Battler *reflected_tgt = battler_from_offset(bt.current_target);
+            st->pc = 9;
             if (reflected_tgt->hp == 0) {
-                battle_ko_target(reflected_tgt);
+                battle_ko_make_init(&child, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
             }
+            break;
+        }
+
+        case 9:
             swap_attacker_with_target();
             st->pc = 4;
             break;
-        }
 
         case 4:
             /* Weaken shield: decrement shield_hp, remove if depleted */
