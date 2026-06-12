@@ -50,24 +50,103 @@ static void btlact_pump_addr(uint32_t rom_addr);
  * dispatch prefers the stepper (see jump_temp_function_pointer).
  * ====================================================================== */
 
+/* ----------------------------------------------------------------------
+ * Shared stepper for the standard physical-attack shape:
+ *   miss check → [SMAAAASH check] → dodge check → offense*mult - defense
+ *   (25% variance, floor 1) → CALC_RESIST_DAMAGE → [heal strangeness].
+ * The calc pipeline stages are GAME_MODE_BATTLE_CALC pushes (value-returning
+ * — see BattleCalcKind); the dodge check is pure (no text) and runs inline,
+ * with the dodge text as a DISPLAY_TEXT push. `variance_when_gt1` selects
+ * the level-1/2 variance gate (raw > 1) vs the level-3/4 gate (raw > 0).
+ * RNG order matches the blocking composition exactly: miss roll → smaaaash
+ * roll → dodge roll → variance rolls → resist-pipeline rolls.
+ * ---------------------------------------------------------------------- */
+static StepResult btlact_phys_attack_step(BattleActionState *st,
+                                          uint16_t miss_type, bool do_smaaaash,
+                                          uint16_t mult, bool variance_when_gt1,
+                                          uint32_t dodge_msg, bool heal_strange) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_MISS_CALC, miss_type, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);  /* missed */
+            if (do_smaaaash) {
+                st->pc = 2;
+                battle_calc_make_init(&child, BC_SMAAAASH, 0, 0);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
+            st->pc = 3;
+            break;
+        case 2:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);  /* SMAAAASH dealt the damage */
+            st->pc = 3;
+            break;
+        case 3: {
+            if (battle_determine_dodge()) {
+                st->pc = 5;
+                if (battle_push_text(&child, dodge_msg))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            Battler *atk = battler_from_offset(bt.current_attacker);
+            Battler *tgt = battler_from_offset(bt.current_target);
+
+            int16_t raw_damage =
+                (int16_t)(atk->offense * mult) - (int16_t)tgt->defense;
+
+            /* Variance gate: levels 1/2 skip it when raw <= 1, levels 3/4
+             * when raw <= 0 (see the battle_level_N_attack blocking forms). */
+            uint16_t damage;
+            if (variance_when_gt1 ? raw_damage > 1 : raw_damage > 0) {
+                damage = battle_25pct_variance((uint16_t)raw_damage);
+            } else {
+                damage = (uint16_t)raw_damage;
+            }
+
+            if ((int16_t)damage <= 0)
+                damage = 1;
+
+            st->pc = 4;
+            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        }
+        case 4:
+            if (heal_strange) {
+                st->pc = 6;
+                battle_calc_make_init(&child, BC_HEAL_STRANGENESS, 0, 0);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
+            return STEP_RESULT_POP(0);
+        case 5:  /* dodge text epilogue */
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        case 6:
+        default:
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
 /*
  * BTLACT_BASH (asm/battle/actions/bash.asm)
  *
  * Standard melee attack: miss check → SMAAAASH check → dodge check →
  * level 2 attack → heal strangeness.
  */
-void btlact_bash(void) {
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK); /* dodged */
-        return;
-    }
-    battle_level_2_attack();
-    battle_heal_strangeness();
+static StepResult btlact_bash_step(BattleActionState *st) {
+    return btlact_phys_attack_step(st, 0, true, 2, true,
+                                   MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
+
+void btlact_bash(void) { btlact_pump_addr(0xC2859F); }
 
 /*
  * BTLACT_SHOOT (asm/battle/actions/shoot.asm)
@@ -75,15 +154,12 @@ void btlact_bash(void) {
  * Ranged attack: miss check (gun miss text) → dodge check → level 2 attack.
  * No SMAAAASH check and no strangeness healing.
  */
-void btlact_shoot(void) {
-    if (battle_miss_calc(1))
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_QUICK); /* dodged shot */
-        return;
-    }
-    battle_level_2_attack();
+static StepResult btlact_shoot_step(BattleActionState *st) {
+    return btlact_phys_attack_step(st, 1, false, 2, true,
+                                   MSG_BTL4_RESULT_DODGE_QUICK, false);
 }
+
+void btlact_shoot(void) { btlact_pump_addr(0xC28740); }
 
 /*
  * BTLACT_SPY (asm/battle/actions/spy.asm)
@@ -187,17 +263,27 @@ void btlact_spy(void) { btlact_pump_addr(0xC28770); }
  * Standard physical attack with miss/smaaaash/dodge checks.
  * Uses level 1 damage formula (offense - defense).
  */
-void btlact_level_1_attack(void) {
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK); /* dodged */
-        return;
-    }
-    battle_level_1_attack();
-    battle_heal_strangeness();
+static StepResult btlact_level_1_attack_step(BattleActionState *st) {
+    return btlact_phys_attack_step(st, 0, true, 1, true,
+                                   MSG_BTL4_RESULT_DODGE_ATTACK, true);
+}
+
+void btlact_level_1_attack(void) { btlact_pump_addr(0xC286CB); }
+
+/*
+ * BTLACT_LEVEL_3_ATK / BTLACT_LEVEL_4_ATK steppers (the blocking forms are
+ * battle_level_3/4_attack in battle_calc.c — full attacks with the
+ * miss/smaaaash/dodge prologue, the raw > 0 variance gate, and the
+ * strangeness heal).
+ */
+static StepResult btlact_level_3_attack_step(BattleActionState *st) {
+    return btlact_phys_attack_step(st, 0, true, 3, false,
+                                   MSG_BTL4_RESULT_DODGE_ATTACK, true);
+}
+
+static StepResult btlact_level_4_attack_step(BattleActionState *st) {
+    return btlact_phys_attack_step(st, 0, true, 4, false,
+                                   MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
 /* ----------------------------------------------------------------------
@@ -3791,11 +3877,11 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC1DE43, btlact_switch_weapons, NULL },
     { 0xC1E00F, btlact_switch_armor, NULL },
     { 0xC28523, (void(*)(void))battle_level_2_attack, NULL },
-    { 0xC2859F, btlact_bash, NULL },
-    { 0xC285DA, (void(*)(void))battle_level_4_attack, NULL },
-    { 0xC28651, (void(*)(void))battle_level_3_attack, NULL },
-    { 0xC286CB, btlact_level_1_attack, NULL },
-    { 0xC28740, btlact_shoot, NULL },
+    { 0xC2859F, btlact_bash, btlact_bash_step },
+    { 0xC285DA, (void(*)(void))battle_level_4_attack, btlact_level_4_attack_step },
+    { 0xC28651, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },
+    { 0xC286CB, btlact_level_1_attack, btlact_level_1_attack_step },
+    { 0xC28740, btlact_shoot, btlact_shoot_step },
     { 0xC28770, btlact_spy, btlact_spy_step },
     { 0xC2889B, btlact_null, NULL },
     { 0xC2889E, btlact_steal, NULL },
@@ -3821,7 +3907,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC28F97, btlact_level_2_attack_poison, NULL },
     { 0xC28FF9, btlact_double_bash, NULL },
     { 0xC2900B, btlact_350_fire_damage, NULL },
-    { 0xC2902C, (void(*)(void))battle_level_3_attack, NULL },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
+    { 0xC2902C, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
     { 0xC29033, btlact_null2, NULL },
     { 0xC29036, btlact_null3, NULL },
     { 0xC29039, btlact_null4, NULL },
