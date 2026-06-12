@@ -136,6 +136,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_BATTLE_APPLY]        = mode_step_battle_apply,        /* battle.c */
     [GAME_MODE_BATTLE_KO]           = mode_step_battle_ko,           /* battle.c */
     [GAME_MODE_ACTIONSCRIPT_FRAME]  = mode_step_actionscript_frame,  /* entity/script.c */
+    [GAME_MODE_PP_RECOVERY_FLASH]   = mode_step_pp_recovery_flash,   /* battle.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

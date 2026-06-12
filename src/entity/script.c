@@ -114,6 +114,11 @@ void actionscript_request_flyover(uint16_t id, uint16_t saved_ent23_tick_hi,
     as_req.fo_script_size = script_size;
 }
 
+void actionscript_request_pp_recovery(void) {
+    as_req.child_kind = AS_CHILD_PP_RECOVERY;
+    as_req.epilogue = AS_EPI_NONE;
+}
+
 /* Move a completed request into the mode state and clear the channel. */
 static void as_state_from_request(ActionscriptFrameState *st) {
     st->phase            = ASF_PUSH;
@@ -390,6 +395,8 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
                 init.flyover.script_size         = st->fo_script_size;
                 init.flyover.saved_ent23_tick_hi = st->fo_saved_tick_hi;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &init);
+            case AS_CHILD_PP_RECOVERY:
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PP_RECOVERY_FLASH, &init);
             default:
                 break;
             }

@@ -43,4 +43,8 @@ void actionscript_request_mosaic_fade(uint8_t step, uint16_t delay,
 void actionscript_request_flyover(uint16_t id, uint16_t saved_ent23_tick_hi,
                                   uint32_t script_size);
 
+/* INSTANT_WIN_PP_RECOVERY (GAME_MODE_PP_RECOVERY_FLASH child). The recovery
+ * SFX must already have been played at the request point. */
+void actionscript_request_pp_recovery(void);
+
 #endif /* ENTITY_SCRIPT_H */

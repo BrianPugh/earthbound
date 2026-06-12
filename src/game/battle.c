@@ -5994,47 +5994,60 @@ StepResult mode_step_instant_win(ModeState *state) {
 /*
  * INSTANT_WIN_PP_RECOVERY — Port of asm/battle/instant_win_pp_recovery.asm (114 lines).
  *
- * Called from event scripts after an instant-win battle.
+ * Called from event scripts after an instant-win battle (the
+ * INSTANT_WIN_PP_RECOVERY callroutine — its only caller — plays the recovery
+ * SFX at the request point and GAME_MODE_ACTIONSCRIPT_FRAME pushes this mode).
  * Flashes the screen purple twice (palette fade effect), then recovers
  * 20 PP for each party member that is NESS (1), PAULA (2), or POO (4).
+ *
+ * Each step runs one update_map_palette_animation() frame, matching the
+ * blocking loop's work-then-yield. The finalize after a flash's 12th frame
+ * ran bundled with the NEXT frame's work in the blocking form (after that
+ * frame's yield), so it runs at the top of the following step here.
  */
-void instant_win_pp_recovery(void) {
-    play_sfx(SFX_RECOVER_HP);
+StepResult mode_step_pp_recovery_flash(ModeState *ms) {
+    PpRecoveryFlashState *st = &ms->pp_recovery_flash;
 
-    /* Flash screen purple twice */
-    for (int flash = 0; flash < 2; flash++) {
-        /* Save current ert.palettes to ert.buffer */
+    if (st->frame_i >= 12) {
+        finalize_palette_fade();
+        st->frame_i = 0;
+        st->flash_i++;
+        if (st->flash_i >= 2) {
+            /* Recover 20 PP for NESS, PAULA, and POO */
+            for (int slot = 0; slot < 6; slot++) {
+                uint8_t member = game_state.party_members[slot];
+                if (member != 1 && member != 2 && member != 4)
+                    continue;
+
+                int char_idx = member - 1;  /* 0-based character index */
+                CharStruct *ch = &party_characters[char_idx];
+                uint16_t new_pp = ch->current_pp_target + 20;
+                if (new_pp > ch->max_pp) {
+                    new_pp = ch->max_pp;
+                }
+                ch->current_pp_target = new_pp;
+            }
+            return STEP_RESULT_POP(0);
+        }
+    }
+
+    if (st->frame_i == 0) {
+        if (st->flash_i == 0)
+            play_sfx(SFX_RECOVER_HP);
+
+        /* Flash setup: save current ert.palettes to ert.buffer, fill all 256
+         * palette entries with purple (SNES RGB $5D70), prep the 12-frame
+         * fade from purple back to the saved colors. */
         memcpy(ert.buffer, ert.palettes, 512);
-
-        /* Fill all 256 palette entries with purple (SNES RGB $5D70) */
         for (int i = 0; i < 256; i++) {
             ert.palettes[i] = 0x5D70;
         }
-
-        /* Fade from purple back to saved colors over 12 frames */
         prepare_palette_fade_slopes(12, 0xFFFF);
-        for (int f = 0; f < 12; f++) {
-            update_map_palette_animation();
-            wait_for_vblank();
-        }
-        finalize_palette_fade();
     }
 
-    /* Recover 20 PP for NESS, PAULA, and POO */
-    for (int slot = 0; slot < 6; slot++) {
-        uint8_t member = game_state.party_members[slot];
-        /* Only recover for NESS (1), PAULA (2), or POO (4) */
-        if (member != 1 && member != 2 && member != 4)
-            continue;
-
-        int char_idx = member - 1;  /* 0-based character index */
-        CharStruct *ch = &party_characters[char_idx];
-        uint16_t new_pp = ch->current_pp_target + 20;
-        if (new_pp > ch->max_pp) {
-            new_pp = ch->max_pp;
-        }
-        ch->current_pp_target = new_pp;
-    }
+    update_map_palette_animation();
+    st->frame_i++;
+    return STEP_RESULT_CONTINUE();
 }
 
 /*

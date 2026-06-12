@@ -1387,9 +1387,12 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
     case ROM_ADDR_INSTANT_WIN_PP_RECOVERY:
         /* Port of C2654C INSTANT_WIN_PP_RECOVERY.
-         * Flashes screen purple twice, recovers 20 PP for NESS/PAULA/POO. */
+         * Flashes screen purple twice, recovers 20 PP for NESS/PAULA/POO.
+         * Runs as a GAME_MODE_PP_RECOVERY_FLASH child pushed by
+         * GAME_MODE_ACTIONSCRIPT_FRAME (the SFX plays on its first step —
+         * the accepted <=1-frame push boundary). */
         *out_pc = pc;
-        instant_win_pp_recovery();
+        actionscript_request_pp_recovery();
         return 0;
 
     case ROM_ADDR_SCALE_DIRECTION_DISTANCE:

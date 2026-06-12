@@ -82,6 +82,7 @@ typedef enum {
     GAME_MODE_BATTLE_APPLY,        /* per-target action apply loop (apply_action_to_targets) */
     GAME_MODE_BATTLE_KO,           /* battler death driver (battle_ko_target) */
     GAME_MODE_ACTIONSCRIPT_FRAME,  /* finish an interrupted run_actionscript_frame() */
+    GAME_MODE_PP_RECOVERY_FLASH,   /* instant-win PP recovery purple flashes (event script) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1759,15 +1760,33 @@ typedef enum {
 
 typedef enum {
     AS_CHILD_NONE = 0,
-    AS_CHILD_TEXT,     /* GAME_MODE_DISPLAY_TEXT  (cr_movement_display_text) */
-    AS_CHILD_MOSAIC,   /* GAME_MODE_MOSAIC_FADE   (FADE_OUT_WITH_MOSAIC, MF_OUT+final_hdma) */
-    AS_CHILD_FLYOVER,  /* GAME_MODE_FLYOVER       (cr_play_flyover_script, FO_SCRIPT) */
+    AS_CHILD_TEXT,        /* GAME_MODE_DISPLAY_TEXT  (cr_movement_display_text) */
+    AS_CHILD_MOSAIC,      /* GAME_MODE_MOSAIC_FADE   (FADE_OUT_WITH_MOSAIC, MF_OUT+final_hdma) */
+    AS_CHILD_FLYOVER,     /* GAME_MODE_FLYOVER       (cr_play_flyover_script, FO_SCRIPT) */
+    AS_CHILD_PP_RECOVERY, /* GAME_MODE_PP_RECOVERY_FLASH (INSTANT_WIN_PP_RECOVERY) */
 } AsChildKind;
 
 typedef enum {
     AS_EPI_NONE = 0,
     AS_EPI_TEXT_FLAG,  /* event_flag_set(2) — text-done flag, after the text pops */
 } AsEpilogue;
+
+/* GAME_MODE_PP_RECOVERY_FLASH — run-to-completion port of
+ * INSTANT_WIN_PP_RECOVERY (battle.c, asm/battle/instant_win_pp_recovery.asm),
+ * the event-script callroutine run after an instant-win battle: two purple
+ * screen flashes (fill palettes purple, 12-frame fade back to the saved
+ * colors), then +20 PP for Ness/Paula/Poo. Pushed by
+ * GAME_MODE_ACTIONSCRIPT_FRAME (AS_CHILD_PP_RECOVERY); the recovery SFX plays
+ * at the callroutine's request point. Each step: when a 12-frame fade has
+ * completed, finalize it (and on the second flash, apply the PP recovery and
+ * POP — blocking bundled the finalize with the NEXT frame's work, so the
+ * finalize runs at the top of the following step, not with the 12th update);
+ * a fresh flash saves the palettes / fills purple / preps the slopes, then
+ * every step runs one update_map_palette_animation(). Always pops 0. */
+typedef struct {
+    uint8_t flash_i;  /* completed flashes (0-1) */
+    uint8_t frame_i;  /* fade frames run for the current flash (0-12) */
+} PpRecoveryFlashState;
 
 typedef struct {
     uint8_t  phase;            /* ActionscriptFramePhase */
@@ -1845,6 +1864,7 @@ union ModeState {
     BattleApplyState      battle_apply;
     BattleKoState         battle_ko;
     ActionscriptFrameState actionscript_frame;
+    PpRecoveryFlashState  pp_recovery_flash;
     uint8_t               _raw[160];
 };
 
@@ -2144,6 +2164,10 @@ StepResult mode_step_battle_ko(ModeState *st);
  * by run_actionscript_frame() from a callroutine's yield request; never pushed
  * directly by other code. Always pops 0. */
 StepResult mode_step_actionscript_frame(ModeState *st);
+
+/* GAME_MODE_PP_RECOVERY_FLASH step (defined in battle.c). Zero-init; pushed by
+ * GAME_MODE_ACTIONSCRIPT_FRAME (AS_CHILD_PP_RECOVERY). Always pops 0. */
+StepResult mode_step_pp_recovery_flash(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
