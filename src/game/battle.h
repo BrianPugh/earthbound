@@ -652,9 +652,8 @@ uint16_t battle_psi_shield_nullify(void);
  *   - Possession/ghost mechanics for Tiny Lil Ghost */
 void battle_ko_target(Battler *target);
 
-/* REVIVE_TARGET: Revive a KO'd battler with specified HP.
- * Clears all afflictions, displays revive message, handles palette animation. */
-void battle_revive_target(Battler *target, uint16_t hp);
+/* REVIVE_TARGET is GAME_MODE_BATTLE_REVIVE (mode_step_battle_revive,
+ * battle.c) — pushed via battle_revive_make_init (battle_internal.h). */
 
 /* ---- Damage application ---- */
 

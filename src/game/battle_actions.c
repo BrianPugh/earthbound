@@ -447,10 +447,11 @@ static uint32_t healing_beta_decide(Battler *tgt) {
     return healing_alpha_decide(tgt);
 }
 
-/* BTLACT_HEALING_G (asm/battle/actions/healing_gamma.asm):
- * cures paralysis, diamondize; revives (75%, hp_max/4) — revive failure has
- * its own text; falls back to Healing Beta. */
-static uint32_t healing_gamma_decide(Battler *tgt) {
+/* The non-revive Healing-γ cures (paralysis, diamondize) + the Healing-β
+ * fallback — the γ/Ω steppers' non-unconscious path. (The easyheal statuses
+ * are one byte, so the unconscious case being checked separately first does
+ * not change which cure can match.) */
+static uint32_t healing_gamma_cures(Battler *tgt) {
     uint8_t easyheal = tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
 
     if (easyheal == STATUS_0_PARALYZED) {
@@ -461,27 +462,8 @@ static uint32_t healing_gamma_decide(Battler *tgt) {
         tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
         return MSG_BTL5_CURED_DIAMONDIZED;
     }
-    if (easyheal == STATUS_0_UNCONSCIOUS) {
-        /* 75% chance to revive */
-        if (battle_success_255(192)) {
-            /* Revive with hp_max / 4 (inline-blocking, own text) */
-            battle_revive_target(tgt, tgt->hp_max >> 2);
-            return 0;
-        }
-        return MSG_BTL5_REVIVE_FAILED;
-    }
 
     return healing_beta_decide(tgt);
-}
-
-/* BTLACT_HEALING_O (asm/battle/actions/healing_omega.asm):
- * revives with full HP; falls back to Healing Gamma. */
-static uint32_t healing_omega_decide(Battler *tgt) {
-    if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-        battle_revive_target(tgt, tgt->hp_max);  /* inline-blocking, own text */
-        return 0;
-    }
-    return healing_gamma_decide(tgt);
 }
 
 static StepResult btlact_healing_alpha_step(BattleActionState *st) {
@@ -496,16 +478,77 @@ static StepResult btlact_healing_beta_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
+/* BTLACT_HEALING_G (asm/battle/actions/healing_gamma.asm):
+ * cures paralysis, diamondize; revives (75%, hp_max/4) — the revive is a
+ * BATTLE_REVIVE child push (it has its own text + enemy palette flash),
+ * revive failure has its own text; falls back to Healing Beta. The 75% roll
+ * happens at pc 0 only (the original sequence point). */
 static StepResult btlact_healing_gamma_step(BattleActionState *st) {
-    uint32_t msg = (st->pc == 0)
-        ? healing_gamma_decide(battler_from_offset(bt.current_target)) : 0;
-    return btlact_single_text_step(st, msg);
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            Battler *tgt = battler_from_offset(bt.current_target);
+            if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
+                STATUS_0_UNCONSCIOUS) {
+                /* 75% chance to revive */
+                if (battle_success_255(192)) {
+                    /* Revive with hp_max / 4 */
+                    st->pc = 2;
+                    battle_revive_make_init(&child, bt.current_target,
+                                            tgt->hp_max >> 2);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+                }
+                st->pc = 1;
+                if (battle_push_text(&child, MSG_BTL5_REVIVE_FAILED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            st->pc = 1;
+            if (battle_push_text(&child, healing_gamma_cures(tgt)))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 1:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        case 2:
+        default:
+            return STEP_RESULT_POP(0);
+        }
+    }
 }
 
+/* BTLACT_HEALING_O (asm/battle/actions/healing_omega.asm):
+ * revives with full HP (a BATTLE_REVIVE child push); falls back to Healing
+ * Gamma's cures (γ's own unconscious branch is unreachable from here). */
 static StepResult btlact_healing_omega_step(BattleActionState *st) {
-    uint32_t msg = (st->pc == 0)
-        ? healing_omega_decide(battler_from_offset(bt.current_target)) : 0;
-    return btlact_single_text_step(st, msg);
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            Battler *tgt = battler_from_offset(bt.current_target);
+            if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
+                STATUS_0_UNCONSCIOUS) {
+                st->pc = 2;
+                battle_revive_make_init(&child, bt.current_target, tgt->hp_max);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+            }
+            st->pc = 1;
+            if (battle_push_text(&child, healing_gamma_cures(tgt)))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 1:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
+        case 2:
+        default:
+            return STEP_RESULT_POP(0);
+        }
+    }
 }
 
 void btlact_healing_alpha(void) { btlact_pump_addr(0xC29AEA); }
@@ -4044,14 +4087,25 @@ void btlact_pray_aroma(void) { btlact_pump_addr(0xC2AC99); }
 /*
  * BTLACT_PRAY_RAINBOW (asm/battle/actions/pray_rainbow.asm)
  *
- * If target is unconscious, revive with full HP.
+ * If target is unconscious, revive with full HP (a BATTLE_REVIVE child
+ * push); otherwise a no-op (no text, no yield).
  */
-void btlact_pray_rainbow(void) {
-    Battler *target = battler_from_offset(bt.current_target);
-    if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-        battle_revive_target(target, target->hp_max);
+static StepResult btlact_pray_rainbow_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    if (st->pc == 0) {
+        Battler *target = battler_from_offset(bt.current_target);
+        if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
+            STATUS_0_UNCONSCIOUS) {
+            st->pc = 1;
+            battle_revive_make_init(&child, bt.current_target, target->hp_max);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+        }
     }
+    return STEP_RESULT_POP(0);
 }
+
+void btlact_pray_rainbow(void) { btlact_pump_addr(0xC2AC7B); }
 
 /*
  * BTLACT_PRAY_RENDING_SOUND (asm/battle/actions/pray_rending_sound.asm)
@@ -5262,7 +5316,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2AC3E, btlact_pray_warm, btlact_pray_warm_step },
     { 0xC2AC51, btlact_pray_golden, btlact_pray_golden_step },
     { 0xC2AC68, btlact_pray_mysterious, btlact_pray_mysterious_step },
-    { 0xC2AC7B, btlact_pray_rainbow, NULL },
+    { 0xC2AC7B, btlact_pray_rainbow, btlact_pray_rainbow_step },
     { 0xC2AC99, btlact_pray_aroma, btlact_pray_aroma_step },
     { 0xC2ACDA, btlact_pray_rending_sound, btlact_pray_rending_sound_step },
     { 0xC2AD1B, btlact_pray, NULL },

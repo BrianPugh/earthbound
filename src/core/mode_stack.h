@@ -78,6 +78,7 @@ typedef enum {
     GAME_MODE_BATTLE_SCRIPTED,     /* scripted/event battle entry/exit (init_battle_scripted) */
     GAME_MODE_BATTLE_ACTION,       /* one battle-action function (btlact_* long tail) */
     GAME_MODE_BATTLE_CALC,         /* battle_calc.c text pipeline (miss/smaaaash/damage/shields) */
+    GAME_MODE_BATTLE_REVIVE,       /* revive a KO'd battler (battle_revive_target) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -756,6 +757,19 @@ typedef struct {
     uint16_t local[2];      /* per-kind hoisted locals (flags / saved target /
                              * reflected damage) */
 } BattleCalcState;
+
+/* GAME_MODE_BATTLE_REVIVE — run-to-completion port of battle_revive_target()
+ * (battle.c, asm/battle/revive_target.asm): the revive text (DISPLAY_TEXT
+ * push), the affliction/HP writeback at its resume pc, and — for enemy
+ * revives only — the palette flash (zero bank 12, fade to white, restore
+ * from bank 8) whose two waits are BW_FRAMES pushes. Pushed by the
+ * healing-γ/Ω and pray_rainbow action steppers (battle_actions.c) via
+ * battle_revive_make_init() (battle_internal.h). Always pops 0. */
+typedef struct {
+    uint8_t  pc;      /* resume point (0 = entry) */
+    uint16_t target;  /* battler offset (byte offset into bt.battlers_table) */
+    uint16_t hp;      /* HP to revive with */
+} BattleReviveState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1724,6 +1738,7 @@ union ModeState {
     BattleScriptedState   battle_scripted;
     BattleActionState     battle_action;
     BattleCalcState       battle_calc;
+    BattleReviveState     battle_revive;
     uint8_t               _raw[160];
 };
 
@@ -2005,6 +2020,11 @@ StepResult mode_step_battle_action(ModeState *st);
  * (battle_internal.h). Pops the blocking function's return value (see
  * BattleCalcKind). */
 StepResult mode_step_battle_calc(ModeState *st);
+
+/* GAME_MODE_BATTLE_REVIVE step (defined in battle.c, with the palette-effect
+ * helpers it uses). Init via battle_revive_make_init() (battle_internal.h).
+ * Always pops 0. */
+StepResult mode_step_battle_revive(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

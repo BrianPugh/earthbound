@@ -1795,66 +1795,108 @@ void battle_ko_target(Battler *target) {
  * Revives a KO'd battler with specified HP amount.
  * Clears all afflictions, resets action, displays revive message.
  * For enemies: palette fade animation (zero → white → restore).
+ *
+ * Run-to-completion: GAME_MODE_BATTLE_REVIVE. The revive text is a
+ * DISPLAY_TEXT push (it leads in the blocking form, so all mutation runs at
+ * its resume pc); the enemy palette flash's two battle_waits are BW_FRAMES
+ * pushes. Pushed by the healing-γ/Ω and pray_rainbow action steppers
+ * (battle_actions.c). Always pops 0.
  */
-void battle_revive_target(Battler *target, uint16_t hp) {
-    /* Display revive text */
-    display_in_battle_text_addr(MSG_BTL5_REVIVED);
+void battle_revive_make_init(ModeState *init, uint16_t target_offset, uint16_t hp) {
+    memset(init, 0, sizeof(*init));
+    init->battle_revive.target = target_offset;
+    init->battle_revive.hp = hp;
+}
 
-    /* Clear all afflictions */
-    target->afflictions[STATUS_GROUP_SHIELD] = 0;
-    target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
-    target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
-    target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-    target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-    target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
-    target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+StepResult mode_step_battle_revive(ModeState *ms) {
+    BattleReviveState *s = &ms->battle_revive;
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+    Battler *target = battler_from_offset(s->target);
 
-    /* Reset action and mark as having taken turn */
-    target->current_action = 0;
-    target->has_taken_turn = 1;
+    for (;;) {
+        switch (s->pc) {
+        case 0:
+            /* Display revive text */
+            s->pc = 1;
+            if (battle_push_text(&child, MSG_BTL5_REVIVED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
 
-    /* Set HP */
-    battle_set_hp(target, hp);
+        case 1: {
+            dt.blinking_triangle_flag = 0;  /* the battle-text epilogue */
 
-    /* For player characters: sync HP to char_struct */
-    if (target->ally_or_enemy == 0 && target->npc_id == 0) {
-        uint8_t char_row = target->row;
-        party_characters[char_row].current_hp_target = hp;
-        party_characters[char_row].current_hp = 1;
-    }
+            /* Clear all afflictions */
+            target->afflictions[STATUS_GROUP_SHIELD] = 0;
+            target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
+            target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
+            target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
+            target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+            target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
+            target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
 
-    /* For enemies: palette animation (appears only for enemy revives) */
-    if (target->ally_or_enemy != 0 && target->npc_id == 0) {
-        /* Clear all battler alt spritemaps, set it for this one */
-        for (int i = 0; i < BATTLER_COUNT; i++)
-            bt.battlers_table[i].use_alt_spritemap = 0;
-        target->use_alt_spritemap = 1;
+            /* Reset action and mark as having taken turn */
+            target->current_action = 0;
+            target->has_taken_turn = 1;
 
-        /* Zero palette bank 12 entries 1-15 for this sprite (assembly lines 119-140) */
-        for (int pal = 1; pal < 16; pal++) {
-            uint16_t pal_word_index = (uint16_t)target->vram_sprite_index * 16 + pal;
-            ert.palettes[12 * 16 + pal_word_index] = 0;
+            /* Set HP */
+            battle_set_hp(target, s->hp);
+
+            /* For player characters: sync HP to char_struct */
+            if (target->ally_or_enemy == 0 && target->npc_id == 0) {
+                uint8_t char_row = target->row;
+                party_characters[char_row].current_hp_target = s->hp;
+                party_characters[char_row].current_hp = 1;
+            }
+
+            /* Palette animation appears only for enemy revives */
+            if (!(target->ally_or_enemy != 0 && target->npc_id == 0))
+                return STEP_RESULT_POP(0);
+
+            /* Clear all battler alt spritemaps, set it for this one */
+            for (int i = 0; i < BATTLER_COUNT; i++)
+                bt.battlers_table[i].use_alt_spritemap = 0;
+            target->use_alt_spritemap = 1;
+
+            /* Zero palette bank 12 entries 1-15 for this sprite (assembly lines 119-140) */
+            for (int pal = 1; pal < 16; pal++) {
+                uint16_t pal_word_index = (uint16_t)target->vram_sprite_index * 16 + pal;
+                ert.palettes[12 * 16 + pal_word_index] = 0;
+            }
+
+            /* Fade to white (assembly lines 142-170) */
+            set_battle_sprite_palette_effect_speed(10);
+            for (int pal = 1; pal < 16; pal++) {
+                uint16_t pal_offset = (uint16_t)target->vram_sprite_index * 16 + pal;
+                setup_battle_sprite_palette_effect(pal_offset, 31, 31, 31);
+            }
+            s->pc = 2;
+            memset(&child, 0, sizeof(child));
+            child.battle_wait.kind = BW_FRAMES;
+            child.battle_wait.remaining = SIXTH_OF_A_SECOND;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
         }
 
-        /* Fade to white (assembly lines 142-170) */
-        set_battle_sprite_palette_effect_speed(10);
-        for (int pal = 1; pal < 16; pal++) {
-            uint16_t pal_offset = (uint16_t)target->vram_sprite_index * 16 + pal;
-            setup_battle_sprite_palette_effect(pal_offset, 31, 31, 31);
-        }
-        battle_wait(SIXTH_OF_A_SECOND);
+        case 2:
+            /* Restore original palette from palette bank 8 (assembly lines 171-223) */
+            set_battle_sprite_palette_effect_speed(20);
+            for (int pal = 1; pal < 16; pal++) {
+                uint16_t pal_word_index = (uint16_t)target->vram_sprite_index * 16 + pal;
+                uint16_t color = ert.palettes[8 * 16 + pal_word_index];
+                uint16_t red = color & 0x1F;
+                uint16_t green = (color >> 5) & 0x1F;
+                uint16_t blue = (color >> 10) & 0x1F;
+                setup_battle_sprite_palette_effect(pal_word_index, red, green, blue);
+            }
+            s->pc = 3;
+            memset(&child, 0, sizeof(child));
+            child.battle_wait.kind = BW_FRAMES;
+            child.battle_wait.remaining = THIRD_OF_A_SECOND * 2;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
 
-        /* Restore original palette from palette bank 8 (assembly lines 171-223) */
-        set_battle_sprite_palette_effect_speed(20);
-        for (int pal = 1; pal < 16; pal++) {
-            uint16_t pal_word_index = (uint16_t)target->vram_sprite_index * 16 + pal;
-            uint16_t color = ert.palettes[8 * 16 + pal_word_index];
-            uint16_t red = color & 0x1F;
-            uint16_t green = (color >> 5) & 0x1F;
-            uint16_t blue = (color >> 10) & 0x1F;
-            setup_battle_sprite_palette_effect(pal_word_index, red, green, blue);
+        case 3:
+        default:
+            return STEP_RESULT_POP(0);
         }
-        battle_wait(THIRD_OF_A_SECOND * 2);
     }
 }
 

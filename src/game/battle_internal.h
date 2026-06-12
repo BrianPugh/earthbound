@@ -110,6 +110,11 @@ typedef struct {
     bool     has_cnum;
 } BattleTailText;
 
+/* Build a GAME_MODE_BATTLE_REVIVE child init (battle.c). target_offset is
+ * the battler byte offset (battler_to_offset). Converted action steppers
+ * (healing-γ/Ω, pray_rainbow) STEP_PUSH the mode; it always pops 0. */
+void battle_revive_make_init(ModeState *init, uint16_t target_offset, uint16_t hp);
+
 /* The mutation halves of RECOVER_HP / RECOVER_PP (battle.c): everything the
  * blocking battle_recover_hp/pp() does up to the tail text, which is
  * returned in *out instead of displayed. */
