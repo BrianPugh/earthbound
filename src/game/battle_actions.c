@@ -4140,8 +4140,17 @@ void btlact_pray_rending_sound(void) { btlact_pump_addr(0xC2ACDA); }
  *   7 = Aroma (all, inflict sleep)
  *   8 = Rending Sound (all, inflict strangeness)
  *   9 = Defense Down (all, Defense Down α)
+ *
+ * Resumable: the prayer roll happens at pc 0 (then the text push); the
+ * targeting setup — including golden/rockin's random-targeting rolls —
+ * runs at the text's resume pc, exactly the blocking sequence points. The
+ * per-target dispatch is a BATTLE_APPLY child push carrying the
+ * sub-action's ROM address (the dispatch-table rows of the same functions
+ * the blocking form passed by pointer).
  */
-void btlact_pray(void) {
+static StepResult btlact_pray_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
     /* PRAYER_LIST: 16-entry weighted probability table (asm/data/battle/prayer_list.asm) */
     static const uint8_t prayer_list[16] = {
         0, 0, 0, 0, 0, 1, 1, 2, 3, 4, 5, 5, 6, 7, 8, 9
@@ -4161,71 +4170,143 @@ void btlact_pray(void) {
         MSG_BTL6_PRAY_HEAVY_AIR,   /* 9: defense down */
     };
 
-    /* Sub-action function for each prayer type */
-    static const battle_action_fn prayer_actions[10] = {
-        btlact_pray_subtle,         /* 0 */
-        btlact_pray_warm,           /* 1 */
-        btlact_pray_mysterious,     /* 2 */
-        btlact_pray_golden,         /* 3 */
-        btlact_psi_rockin_beta,     /* 4: reuses PSI Rockin β */
-        btlact_psi_flash_alpha,     /* 5: reuses PSI Flash α */
-        btlact_pray_rainbow,        /* 6 */
-        btlact_pray_aroma,          /* 7 */
-        btlact_pray_rending_sound,  /* 8 */
-        btlact_defense_down_alpha,  /* 9: reuses Defense Down α */
+    /* Sub-action ROM address for each prayer type (the btlact_dispatch_table
+     * rows of the functions the blocking form passed by pointer) */
+    static const uint32_t prayer_action_addrs[10] = {
+        0xC2AC2A,  /* 0: btlact_pray_subtle */
+        0xC2AC3E,  /* 1: btlact_pray_warm */
+        0xC2AC68,  /* 2: btlact_pray_mysterious */
+        0xC2AC51,  /* 3: btlact_pray_golden */
+        0xC2955F,  /* 4: btlact_psi_rockin_beta (reused) */
+        0xC29987,  /* 5: btlact_psi_flash_alpha (reused) */
+        0xC2AC7B,  /* 6: btlact_pray_rainbow */
+        0xC2AC99,  /* 7: btlact_pray_aroma */
+        0xC2ACDA,  /* 8: btlact_pray_rending_sound */
+        0xC29E86,  /* 9: btlact_defense_down_alpha (reused) */
     };
 
-    /* Pick random prayer type */
-    uint16_t index = rand_limit(16);
-    uint16_t prayer_type = prayer_list[index];
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            /* Pick random prayer type */
+            uint16_t index = rand_limit(16);
+            st->scratch16[0] = prayer_list[index];
 
-    /* Display prayer text */
-    display_in_battle_text_addr(prayer_text_addrs[prayer_type]);
+            /* Display prayer text */
+            st->pc = 1;
+            if (battle_push_text(&child, prayer_text_addrs[st->scratch16[0]]))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 1: {
+            dt.blinking_triangle_flag = 0;
+            uint16_t prayer_type = st->scratch16[0];
 
-    /* Set up targeting based on prayer type */
-    battle_action_fn action = NULL;
-    if (prayer_type <= 9)
-        action = prayer_actions[prayer_type];
+            /* Set up targeting based on prayer type */
+            switch (prayer_type) {
+            case 0: /* subtle */
+            case 1: /* warm */
+            case 2: /* mysterious */
+                battle_target_allies();
+                battle_remove_npc_targeting();
+                break;
+            case 3: /* golden — random single ally */
+                battle_target_allies();
+                battle_remove_npc_targeting();
+                battle_remove_dead_targeting();
+                bt.battler_target_flags = battle_random_targeting(bt.battler_target_flags);
+                break;
+            case 4: /* rockin — random single enemy */
+                battle_target_all_enemies();
+                battle_remove_npc_targeting();
+                battle_remove_dead_targeting();
+                bt.battler_target_flags = battle_random_targeting(bt.battler_target_flags);
+                break;
+            case 5: /* flash */
+            case 6: /* rainbow */
+            case 7: /* aroma */
+            case 8: /* rending sound */
+            case 9: /* defense down */
+                battle_target_all();
+                break;
+            default:
+                break;
+            }
 
-    switch (prayer_type) {
-    case 0: /* subtle */
-    case 1: /* warm */
-    case 2: /* mysterious */
-        battle_target_allies();
-        battle_remove_npc_targeting();
-        break;
-    case 3: /* golden — random single ally */
-        battle_target_allies();
-        battle_remove_npc_targeting();
-        battle_remove_dead_targeting();
-        bt.battler_target_flags = battle_random_targeting(bt.battler_target_flags);
-        break;
-    case 4: /* rockin — random single enemy */
-        battle_target_all_enemies();
-        battle_remove_npc_targeting();
-        battle_remove_dead_targeting();
-        bt.battler_target_flags = battle_random_targeting(bt.battler_target_flags);
-        break;
-    case 5: /* flash */
-    case 6: /* rainbow */
-    case 7: /* aroma */
-    case 8: /* rending sound */
-    case 9: /* defense down */
-        battle_target_all();
-        break;
-    default:
-        break;
+            /* Remove dead targets (except rainbow which can revive) */
+            if (prayer_type != 6) {
+                battle_remove_dead_targeting();
+            }
+
+            /* Apply the prayer action to all targets */
+            st->pc = 2;
+            battle_apply_make_init(&child, prayer_type <= 9
+                                               ? prayer_action_addrs[prayer_type]
+                                               : 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &child);
+        }
+        case 2:
+        default:
+            bt.battler_target_flags = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
-
-    /* Remove dead targets (except rainbow which can revive) */
-    if (prayer_type != 6) {
-        battle_remove_dead_targeting();
-    }
-
-    /* Apply the prayer action to all targets */
-    apply_action_to_targets(action);
-    bt.battler_target_flags = 0;
 }
+
+void btlact_pray(void) { btlact_pump_addr(0xC2AD1B); }
+
+/*
+ * APPLY_NEUTRALIZE_TO_ALL (asm/battle/apply_neutralize_to_all.asm)
+ *
+ * If mirror (metamorphose) is active, finds the mirrored Poo battler,
+ * restores original stats from bt.mirror_battler_backup, clears mirror state
+ * (with the morph-neutralized text). Then targets all conscious battlers and
+ * applies btlact_neutralize to each (a BATTLE_APPLY child push).
+ */
+static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            /* If mirror is active, reverse metamorphosis first */
+            if (bt.mirror_enemy != 0) {
+                for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+                    Battler *b = &bt.battlers_table[i];
+                    if (b->consciousness == 0) continue;
+                    if (b->ally_or_enemy != 0) continue;
+                    if (b->id != PARTY_MEMBER_POO) continue;
+
+                    bt.mirror_enemy = 0;
+                    battle_copy_mirror_data(b, &bt.mirror_battler_backup);
+                    b->current_action = 0;
+                    st->pc = 3;
+                    if (battle_push_text(&child, MSG_BTL5_MORPH_NEUTRALIZED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    break;  /* only cure one */
+                }
+            }
+            break;
+        case 3:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 1;
+            break;
+        case 1:
+            battle_target_all();
+            battle_remove_dead_targeting();
+            st->pc = 2;
+            battle_apply_make_init(&child, 0xC29051 /* btlact_neutralize */);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &child);
+        case 2:
+        default:
+            bt.battler_target_flags = 0;
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
+void apply_neutralize_to_all(void) { btlact_pump_addr(0xC290C6); }
 
 /* ======================================================================
  * Equipment switching in battle
@@ -4478,70 +4559,100 @@ void btlact_clumsydeath(void) { btlact_pump_addr(0xC29298); }
  *
  * Special boss action: when Master Barf is defeated, Poo joins the party
  * mid-battle and performs a Starstorm Alpha attack on all enemies.
+ *
+ * Resumable: the Poo setup runs at pc 0 (entrance text = a with-prompt
+ * push), the Starstorm desc text at pc 1, and the per-enemy damage loop is
+ * one BC_CALC_DAMAGE push per conscious enemy (exec_i resumes the scan;
+ * each variance roll happens at its push, the original per-target order).
+ * The saved attacker/target cross the pushes in scratch16[0]/[1].
  * ====================================================================== */
-void btlact_masterbarfdeath(void) {
-    uint16_t saved_attacker = bt.current_attacker;
-    uint16_t saved_target = bt.current_target;
+static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Hide HP/PP windows, add Poo to party */
-    hide_hppp_windows();
-    add_char_to_party(PARTY_MEMBER_POO);
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            st->scratch16[0] = bt.current_attacker;
+            st->scratch16[1] = bt.current_target;
 
-    /* Find first empty battler slot for Poo */
-    uint16_t poo_offset = 0;
-    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-        if (bt.battlers_table[i].consciousness == 0) {
-            poo_offset = i * sizeof(Battler);
-            battle_init_player_stats(PARTY_MEMBER_POO, &bt.battlers_table[i]);
-            bt.current_attacker = poo_offset;
+            /* Hide HP/PP windows, add Poo to party */
+            hide_hppp_windows();
+            add_char_to_party(PARTY_MEMBER_POO);
+
+            /* Find first empty battler slot for Poo */
+            for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+                if (bt.battlers_table[i].consciousness == 0) {
+                    battle_init_player_stats(PARTY_MEMBER_POO, &bt.battlers_table[i]);
+                    bt.current_attacker = (uint16_t)(i * sizeof(Battler));
+                    break;
+                }
+            }
+
+            /* Show HP/PP windows with Poo */
+            redirect_show_hppp_windows();
+
+            /* Find Poo's position in party_members and select menu character */
+            for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                if (game_state.party_members[i] == PARTY_MEMBER_POO) {
+                    select_battle_menu_character_far(i);
+                    break;
+                }
+            }
+
+            /* Display Poo's entrance text (the with-prompt variant) */
+            st->pc = 1;
+            if (battle_push_text_ex(&child, MSG_BTL4_POO_USES_STARSTORM,
+                                    true, false, 0))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
             break;
         }
-    }
+        case 1: {
+            dt.blinking_triangle_flag = 0;
 
-    /* Show HP/PP windows with Poo */
-    redirect_show_hppp_windows();
+            /* Set up Starstorm Alpha attack */
+            fix_attacker_name(0);
+            set_current_item(21);  /* PSI::STARSTORM_ALPHA */
 
-    /* Find Poo's position in party_members and select menu character */
-    for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
-        if (game_state.party_members[i] == PARTY_MEMBER_POO) {
-            select_battle_menu_character_far(i);
+            /* Display Starstorm Alpha description text (action 30 in battle_action_table) */
+            st->pc = 2;
+            st->exec_i = 0;
+            if (battle_action_table != NULL) {
+                uint32_t desc_addr = battle_action_table[30].description_text_pointer;
+                if (desc_addr != 0 && battle_push_text(&child, desc_addr))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            }
             break;
         }
-    }
+        case 2:
+        default:
+            dt.blinking_triangle_flag = 0;
 
-    /* Display Poo's entrance text */
-    display_text_with_prompt_addr(MSG_BTL4_POO_USES_STARSTORM);
+            /* Deal Starstorm Alpha damage to all conscious enemies */
+            for (uint16_t i = st->exec_i; i < BATTLER_COUNT; i++) {
+                if (bt.battlers_table[i].consciousness == 0)
+                    continue;
+                if ((bt.battlers_table[i].ally_or_enemy & 0xFF) != 1)
+                    continue;
+                bt.current_target = (uint16_t)(i * sizeof(Battler));
+                fix_target_name();
+                uint16_t damage = battle_25pct_variance(STARSTORM_ALPHA_DAMAGE);
+                st->exec_i = (uint8_t)(i + 1);
+                battle_calc_make_init(&child, BC_CALC_DAMAGE,
+                                      bt.current_target, damage);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
 
-    /* Set up Starstorm Alpha attack */
-    fix_attacker_name(0);
-    set_current_item(21);  /* PSI::STARSTORM_ALPHA */
-
-    /* Display Starstorm Alpha description text (action 30 in battle_action_table) */
-    if (battle_action_table != NULL) {
-        uint32_t desc_addr = battle_action_table[30].description_text_pointer;
-        if (desc_addr != 0) {
-            display_in_battle_text_addr(desc_addr);
+            /* Restore original attacker and target */
+            bt.current_attacker = st->scratch16[0];
+            bt.current_target = st->scratch16[1];
+            fix_attacker_name(0);
+            fix_target_name();
+            return STEP_RESULT_POP(0);
         }
     }
-
-    /* Deal Starstorm Alpha damage to all conscious enemies */
-    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-        if (bt.battlers_table[i].consciousness == 0)
-            continue;
-        if ((bt.battlers_table[i].ally_or_enemy & 0xFF) != 1)
-            continue;
-        bt.current_target = i * sizeof(Battler);
-        fix_target_name();
-        uint16_t damage = battle_25pct_variance(STARSTORM_ALPHA_DAMAGE);
-        battle_calc_damage(bt.current_target, damage);
-    }
-
-    /* Restore original attacker and target */
-    bt.current_attacker = saved_attacker;
-    bt.current_target = saved_target;
-    fix_attacker_name(0);
-    fix_target_name();
 }
+
+void btlact_masterbarfdeath(void) { btlact_pump_addr(0xC292EE); }
 
 
 /* ======================================================================
@@ -5215,12 +5326,12 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2904B, btlact_null10, NULL },
     { 0xC2904E, btlact_null11, NULL },
     { 0xC29051, btlact_neutralize, btlact_neutralize_step },
-    { 0xC290C6, apply_neutralize_to_all, NULL },
+    { 0xC290C6, apply_neutralize_to_all, apply_neutralize_to_all_step },
     { 0xC2916E, btlact_level_2_attack_diamondize, btlact_level_2_attack_diamondize_step },
     { 0xC29254, btlact_reduce_offense, btlact_reduce_offense_step },
     { 0xC29298, btlact_clumsydeath, btlact_clumsydeath_step },
     { 0xC292EB, btlact_enemy_extend, NULL },
-    { 0xC292EE, btlact_masterbarfdeath, NULL },
+    { 0xC292EE, btlact_masterbarfdeath, btlact_masterbarfdeath_step },
     { 0xC29556, btlact_psi_rockin_alpha, btlact_psi_rockin_alpha_step },
     { 0xC2955F, btlact_psi_rockin_beta, btlact_psi_rockin_beta_step },
     { 0xC29568, btlact_psi_rockin_gamma, btlact_psi_rockin_gamma_step },
@@ -5319,7 +5430,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2AC7B, btlact_pray_rainbow, btlact_pray_rainbow_step },
     { 0xC2AC99, btlact_pray_aroma, btlact_pray_aroma_step },
     { 0xC2ACDA, btlact_pray_rending_sound, btlact_pray_rending_sound_step },
-    { 0xC2AD1B, btlact_pray, NULL },
+    { 0xC2AD1B, btlact_pray, btlact_pray_step },
     { 0xC2B0A1, (void(*)(void))btlact_mirror, btlact_mirror_step },
     { 0xC2B27D, btlact_eat_food, btlact_eat_food_step },
     { 0xC2C13C, btlact_sow_seeds, btlact_sow_seeds_step },

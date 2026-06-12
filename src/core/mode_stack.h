@@ -79,6 +79,7 @@ typedef enum {
     GAME_MODE_BATTLE_ACTION,       /* one battle-action function (btlact_* long tail) */
     GAME_MODE_BATTLE_CALC,         /* battle_calc.c text pipeline (miss/smaaaash/damage/shields) */
     GAME_MODE_BATTLE_REVIVE,       /* revive a KO'd battler (battle_revive_target) */
+    GAME_MODE_BATTLE_APPLY,        /* per-target action apply loop (apply_action_to_targets) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -770,6 +771,27 @@ typedef struct {
     uint16_t target;  /* battler offset (byte offset into bt.battlers_table) */
     uint16_t hp;      /* HP to revive with */
 } BattleReviveState;
+
+/* GAME_MODE_BATTLE_APPLY — run-to-completion port of apply_action_to_targets()
+ * (battle.c, asm/battle/apply_action_to_targets.asm): wait for the PSI
+ * animation (a BW_PSI_ANIM push), then iterate the targeted battlers —
+ * enemies (8..31) first, then party (0..7) — running the action once per
+ * target. Like the assembly, the action is a 24-bit ROM address written to
+ * bt.temp_function_pointer per call (battle_action_dispatch): converted
+ * actions run as BATTLE_ACTION child pushes, pure/unconverted ones inline.
+ * action_addr 0 = iterate without calling (the assembly's NULL check).
+ * bt.current_target walks the battler table exactly as in the blocking form
+ * (set at each pass start, += sizeof(Battler) per advance — it is global
+ * serialized state, so it survives the per-target yields). Pushed by the
+ * pray / apply_neutralize_to_all action steppers and pumped by the
+ * battle_ko_target final-attack path, via battle_apply_make_init()
+ * (battle_internal.h). Always pops 0. */
+typedef struct {
+    uint8_t  pc;          /* 0 = PSI wait; 1 = pass start; 2 = loop head; 3 = post-action advance */
+    uint8_t  party_pass;  /* 0 = enemy pass (8..31), 1 = party pass (0..7) */
+    uint16_t index;       /* current battler index */
+    uint32_t action_addr; /* per-target action's ROM address (0 = none) */
+} BattleApplyState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -1739,6 +1761,7 @@ union ModeState {
     BattleActionState     battle_action;
     BattleCalcState       battle_calc;
     BattleReviveState     battle_revive;
+    BattleApplyState      battle_apply;
     uint8_t               _raw[160];
 };
 
@@ -2025,6 +2048,10 @@ StepResult mode_step_battle_calc(ModeState *st);
  * helpers it uses). Init via battle_revive_make_init() (battle_internal.h).
  * Always pops 0. */
 StepResult mode_step_battle_revive(ModeState *st);
+
+/* GAME_MODE_BATTLE_APPLY step (defined in battle.c). Init via
+ * battle_apply_make_init() (battle_internal.h). Always pops 0. */
+StepResult mode_step_battle_apply(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

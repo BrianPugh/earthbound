@@ -1079,35 +1079,75 @@ void fix_target_name(void) {
  *
  * Waits for PSI animation to finish, then iterates all targeted battlers
  * (enemies first indices 8+, then party 0-7), calling the action function
- * on each. If action is NULL, just iterates without calling.
+ * on each. If the action address is 0, just iterates without calling.
+ *
+ * Run-to-completion: GAME_MODE_BATTLE_APPLY (see BattleApplyState in
+ * mode_stack.h). Like the assembly, the action is a 24-bit ROM address
+ * written to bt.temp_function_pointer per call; converted actions run as
+ * BATTLE_ACTION child pushes via battle_action_dispatch(), pure ones
+ * inline. Pushed by the pray / apply_neutralize_to_all steppers and pumped
+ * by the battle_ko_target final-attack path. Always pops 0.
  */
-void apply_action_to_targets(battle_action_fn action) {
-    /* Wait for PSI animation to finish */
-    {
-        ModeState init = { .battle_wait = { .kind = BW_PSI_ANIM } };
-        pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-    }
+void battle_apply_make_init(ModeState *init, uint32_t action_addr) {
+    memset(init, 0, sizeof(*init));
+    init->battle_apply.action_addr = action_addr;
+}
 
-    /* Process enemies first (indices 8 to BATTLER_COUNT-1) */
-    bt.current_target = 8 * sizeof(Battler);
-    for (uint16_t i = 8; i < BATTLER_COUNT; i++) {
-        if (battle_is_char_targeted(i)) {
-            fix_target_name();
-            if (action != NULL)
-                action();
-        }
-        bt.current_target += sizeof(Battler);
-    }
+StepResult mode_step_battle_apply(ModeState *ms) {
+    BattleApplyState *s = &ms->battle_apply;
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Then process party members (indices 0 to 7) */
-    bt.current_target = 0;
-    for (uint16_t i = 0; i < 8; i++) {
-        if (battle_is_char_targeted(i)) {
-            fix_target_name();
-            if (action != NULL)
-                action();
+    for (;;) {
+        switch (s->pc) {
+        case 0:
+            /* Wait for PSI animation to finish */
+            s->pc = 1;
+            memset(&child, 0, sizeof(child));
+            child.battle_wait.kind = BW_PSI_ANIM;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+
+        case 1:
+            /* Pass start: enemies (8..BATTLER_COUNT-1) first, then party (0..7) */
+            bt.current_target = s->party_pass ? 0 : 8 * sizeof(Battler);
+            s->index = s->party_pass ? 0 : 8;
+            s->pc = 2;
+            break;
+
+        case 2: {
+            uint16_t limit = s->party_pass ? 8 : BATTLER_COUNT;
+            if (s->index >= limit) {
+                if (s->party_pass)
+                    return STEP_RESULT_POP(0);
+                s->party_pass = 1;
+                s->pc = 1;
+                break;
+            }
+            if (battle_is_char_targeted(s->index)) {
+                fix_target_name();
+                if (s->action_addr != 0) {
+                    /* The assembly writes TEMP_FUNCTION_POINTER before each
+                     * call; battle_action_dispatch does the same, pushing
+                     * converted actions and running pure ones inline. */
+                    s->pc = 3;
+                    if (battle_action_dispatch(s->action_addr, &child))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION,
+                                                     &child);
+                    break;  /* ran inline — advance in pc 3 */
+                }
+            }
+            bt.current_target += sizeof(Battler);
+            s->index++;
+            break;
         }
-        bt.current_target += sizeof(Battler);
+
+        case 3:
+        default:
+            /* After the per-target action: advance to the next battler */
+            bt.current_target += sizeof(Battler);
+            s->index++;
+            s->pc = 2;
+            break;
+        }
     }
 }
 
@@ -1543,19 +1583,16 @@ void battle_ko_target(Battler *target) {
                     }
                 }
 
-                /* Execute final attack function via dispatch table.
-                 * Assembly: passes function pointer to APPLY_ACTION_TO_TARGETS,
-                 * which calls it once per targeted battler. */
+                /* Execute final attack function via APPLY_ACTION_TO_TARGETS.
+                 * Assembly: passes the function pointer, which the apply loop
+                 * writes to TEMP_FUNCTION_POINTER once per targeted battler. */
                 {
-                    battle_action_fn final_fn = NULL;
-                    if (battle_action_table && edata->final_action != 0) {
-                        uint32_t func_ptr = battle_action_table[edata->final_action].battle_function_pointer;
-                        if (func_ptr != 0) {
-                            bt.temp_function_pointer = func_ptr;
-                            final_fn = jump_temp_function_pointer;
-                        }
-                    }
-                    apply_action_to_targets(final_fn);
+                    uint32_t func_ptr = 0;
+                    if (battle_action_table)
+                        func_ptr = battle_action_table[edata->final_action].battle_function_pointer;
+                    ModeState init;
+                    battle_apply_make_init(&init, func_ptr);
+                    pump_mode(GAME_MODE_BATTLE_APPLY, &init);
                 }
                 bt.enemy_performing_final_attack = 0;
 
@@ -2106,35 +2143,8 @@ void battle_copy_mirror_data(Battler *dest, const Battler *source) {
     dest->has_taken_turn = saved_has_taken_turn;
 }
 
-/*
- * APPLY_NEUTRALIZE_TO_ALL (asm/battle/apply_neutralize_to_all.asm)
- *
- * If mirror (metamorphose) is active, finds the mirrored Poo battler,
- * restores original stats from bt.mirror_battler_backup, clears mirror state.
- * Then targets all conscious battlers and applies btlact_neutralize to each.
- */
-void apply_neutralize_to_all(void) {
-    /* If mirror is active, reverse metamorphosis first */
-    if (bt.mirror_enemy != 0) {
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            Battler *b = &bt.battlers_table[i];
-            if (b->consciousness == 0) continue;
-            if (b->ally_or_enemy != 0) continue;
-            if (b->id != PARTY_MEMBER_POO) continue;
-
-            bt.mirror_enemy = 0;
-            battle_copy_mirror_data(b, &bt.mirror_battler_backup);
-            b->current_action = 0;
-            display_in_battle_text_addr(MSG_BTL5_MORPH_NEUTRALIZED);
-            break;
-        }
-    }
-
-    battle_target_all();
-    battle_remove_dead_targeting();
-    apply_action_to_targets(btlact_neutralize);
-    bt.battler_target_flags = 0;
-}
+/* APPLY_NEUTRALIZE_TO_ALL: now a resumable stepper in battle_actions.c
+ * (apply_neutralize_to_all_step, with the rest of the action table). */
 
 /*
  * FIND_STEALABLE_ITEMS (asm/battle/find_stealable_items.asm)

@@ -1106,8 +1106,8 @@ extern void set_battler_targets_by_action(uint16_t attacker_offset);
 extern void fix_attacker_name(uint16_t param);
 extern void fix_target_name(void);
 extern void set_target_if_targeted(void);
-typedef void (*battle_action_fn)(void);
-extern void apply_action_to_targets(battle_action_fn action);
+/* APPLY_ACTION_TO_TARGETS is GAME_MODE_BATTLE_APPLY (mode_step_battle_apply,
+ * battle.c) — pushed/pumped via battle_apply_make_init (battle_internal.h). */
 
 /* Battle utility functions */
 extern uint16_t is_row_valid(void);

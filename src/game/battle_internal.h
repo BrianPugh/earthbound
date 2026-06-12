@@ -115,6 +115,12 @@ typedef struct {
  * (healing-γ/Ω, pray_rainbow) STEP_PUSH the mode; it always pops 0. */
 void battle_revive_make_init(ModeState *init, uint16_t target_offset, uint16_t hp);
 
+/* Build a GAME_MODE_BATTLE_APPLY child init (battle.c). action_addr is the
+ * per-target action's 24-bit ROM address (0 = iterate without calling).
+ * Pushed by the pray / apply_neutralize_to_all steppers; pumped by the
+ * battle_ko_target final-attack path. Always pops 0. */
+void battle_apply_make_init(ModeState *init, uint32_t action_addr);
+
 /* The mutation halves of RECOVER_HP / RECOVER_PP (battle.c): everything the
  * blocking battle_recover_hp/pp() does up to the tail text, which is
  * returned in *out instead of displayed. */
