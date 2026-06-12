@@ -663,47 +663,82 @@ void btlact_double_bash(void) { btlact_pump_addr(0xC28FF9); }
  * attacks on randomly selected living targets, then resumes rolling.
  * Each hit picks a random target from the current target set.
  */
-void btlact_freezetime(void) {
-    /* PAUSE_MUSIC: disable HPPP rolling */
-    bt.disable_hppp_rolling = 1;
+static StepResult btlact_freezetime_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* 1-5 hits */
-    uint16_t hits = rand_limit(4) + 1;
+    /* exec_i = hit counter; scratch16[0] = hits; scratch32 = saved flags. */
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            /* PAUSE_MUSIC: disable HPPP rolling */
+            bt.disable_hppp_rolling = 1;
 
-    /* Save and work with target flags */
-    uint32_t saved_flags = bt.battler_target_flags;
+            /* 1-5 hits */
+            st->scratch16[0] = rand_limit(4) + 1;
 
-    for (uint16_t i = 0; i < hits; i++) {
-        /* Assembly filters whatever is currently in battler_target_flags
-         * (the single target from the previous hit, or original on first pass).
-         * If that single target is now untargetable, flags go to 0 → exit. */
-        battle_remove_status_untargettable_targets();
-        if (bt.battler_target_flags == 0)
+            /* Save and work with target flags */
+            st->scratch32 = bt.battler_target_flags;
+            st->pc = 1;
             break;
 
-        /* Assembly passes the original UNFILTERED saved flags to RANDOM_TARGETTING,
-         * not the filtered set. This means it can "waste" hits on untargetable targets. */
-        uint32_t single_target = battle_random_targeting(saved_flags);
-        bt.battler_target_flags = single_target;
-
-        /* Find the targeted battler */
-        for (uint16_t j = 0; j < BATTLER_COUNT; j++) {
-            if (battle_is_char_targeted(j)) {
-                bt.current_target = j * sizeof(Battler);
+        case 1: {  /* loop head — one pushed bash per hit */
+            if (st->exec_i >= st->scratch16[0]) {
+                st->pc = 2;
                 break;
             }
+            st->exec_i++;
+
+            /* Assembly filters whatever is currently in battler_target_flags
+             * (the single target from the previous hit, or original on first
+             * pass). If that single target is now untargetable, flags go to
+             * 0 → exit. */
+            battle_remove_status_untargettable_targets();
+            if (bt.battler_target_flags == 0) {
+                st->pc = 2;
+                break;
+            }
+
+            /* Assembly passes the original UNFILTERED saved flags to
+             * RANDOM_TARGETTING, not the filtered set. This means it can
+             * "waste" hits on untargetable targets. */
+            uint32_t single_target = battle_random_targeting(st->scratch32);
+            bt.battler_target_flags = single_target;
+
+            /* Find the targeted battler */
+            for (uint16_t j = 0; j < BATTLER_COUNT; j++) {
+                if (battle_is_char_targeted(j)) {
+                    bt.current_target = j * sizeof(Battler);
+                    break;
+                }
+            }
+            fix_target_name();
+
+            memset(&child, 0, sizeof(child));
+            child.battle_action.table_index =
+                (uint16_t)btlact_find(0xC2859F); /* bash */
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
         }
-        fix_target_name();
-        btlact_bash();
+
+        case 2:
+            /* RESUME_MUSIC: clear rolling flags */
+            bt.half_hppp_meter_speed = 0;
+            bt.disable_hppp_rolling = 0;
+
+            st->pc = 3;
+            if (battle_push_text(&child, MSG_BTL8_TIME_STARTED_AGAIN))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+
+        case 3:
+        default:
+            dt.blinking_triangle_flag = 0;
+            bt.battler_target_flags = 0;
+            return STEP_RESULT_POP(0);
+        }
     }
-
-    /* RESUME_MUSIC: clear rolling flags */
-    bt.half_hppp_meter_speed = 0;
-    bt.disable_hppp_rolling = 0;
-
-    display_in_battle_text_addr(MSG_BTL8_TIME_STARTED_AGAIN);
-    bt.battler_target_flags = 0;
 }
+
+void btlact_freezetime(void) { btlact_pump_addr(0xC288EB); }
 
 /* ======================================================================
  * Status effect actions
@@ -1113,101 +1148,195 @@ static StepResult btlact_psi_rockin_step_common(BattleActionState *st,
  * Each hit picks a random living target. Each hit can miss (SUCCESS_255).
  * Reflects off Franklin Badge. Shield interactions apply.
  */
-void psi_thunder_common(uint16_t base_damage, uint16_t hits) {
-    /* Count targeted battlers */
-    uint16_t target_count = 0;
-    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-        if (battle_is_char_targeted(i))
-            target_count++;
-    }
+static StepResult btlact_psi_thunder_step_common(BattleActionState *st,
+                                                 uint16_t base_damage,
+                                                 uint16_t hits) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-    /* Effective damage = count * base, capped at 255 */
-    uint16_t effective_damage = target_count * 64;
-    if (effective_damage > 255)
-        effective_damage = 255;
-
-    /* Save original target flags */
-    uint32_t saved_flags = bt.battler_target_flags;
-
-    for (uint16_t hit = 0; hit < hits; hit++) {
-        /* Restore original targets, then remove dead/diamondized */
-        bt.battler_target_flags = saved_flags;
-        battle_remove_status_untargettable_targets();
-
-        /* If no valid targets remain, stop */
-        if (bt.battler_target_flags == 0)
-            break;
-
-        /* Pick one random target */
-        uint32_t single = battle_random_targeting(bt.battler_target_flags);
-        bt.battler_target_flags = single;
-
-        /* Find which battler it is */
-        uint16_t target_idx = 0;
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            if (battle_is_char_targeted(i)) {
-                target_idx = i;
-                break;
+    /* exec_i = hit counter; scratch16[0] = effective hit chance;
+     * scratch16[1] = Franklin-badge flag for the current hit;
+     * scratch32 = saved target flags. */
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            /* Count targeted battlers */
+            uint16_t target_count = 0;
+            for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+                if (battle_is_char_targeted(i))
+                    target_count++;
             }
+
+            /* Effective hit chance = count * 64, capped at 255 */
+            uint16_t effective_damage = target_count * 64;
+            if (effective_damage > 255)
+                effective_damage = 255;
+            st->scratch16[0] = effective_damage;
+
+            /* Save original target flags */
+            st->scratch32 = bt.battler_target_flags;
+            st->pc = 1;
+            break;
         }
 
-        bt.current_target = target_idx * sizeof(Battler);
-        fix_target_name();
+        case 1: {  /* loop head — one iteration per hit */
+            if (st->exec_i >= hits) {
+                st->pc = 9;
+                break;
+            }
+            st->exec_i++;
 
-        /* Hit/miss check */
-        if (battle_success_255(effective_damage)) {
-            /* Hit — display text based on damage tier */
-            if (base_damage == 120) {
-                display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_HIT_SMALL);
-            } else {
-                display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_HIT_LARGE);
+            /* Restore original targets, then remove dead/diamondized */
+            bt.battler_target_flags = st->scratch32;
+            battle_remove_status_untargettable_targets();
+
+            /* If no valid targets remain, stop */
+            if (bt.battler_target_flags == 0) {
+                st->pc = 9;
+                break;
             }
 
-            /* Wait for PSI animation to finish */
-            while (is_psi_animation_active()) {
-                window_tick();
+            /* Pick one random target */
+            uint32_t single = battle_random_targeting(bt.battler_target_flags);
+            bt.battler_target_flags = single;
+
+            /* Find which battler it is */
+            uint16_t target_idx = 0;
+            for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+                if (battle_is_char_targeted(i)) {
+                    target_idx = i;
+                    break;
+                }
             }
 
+            bt.current_target = target_idx * sizeof(Battler);
+            fix_target_name();
+
+            /* Hit/miss check */
+            if (battle_success_255(st->scratch16[0])) {
+                /* Hit — display text based on damage tier */
+                st->pc = 2;
+                if (battle_push_text(&child, base_damage == 120
+                                                 ? MSG_BTL0_PSI_THUNDER_HIT_SMALL
+                                                 : MSG_BTL0_PSI_THUNDER_HIT_LARGE))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+            /* Miss */
+            st->pc = 7;
+            if (battle_push_text(&child, MSG_BTL0_PSI_THUNDER_MISS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+
+        case 2: {
+            /* Wait for the PSI animation to finish */
+            dt.blinking_triangle_flag = 0;
+            ModeState *w = &child;
+            memset(w, 0, sizeof(*w));
+            w->battle_wait.kind = BW_PSI_ANIM;
+            st->pc = 3;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+        }
+
+        case 3: {
             Battler *target = battler_from_offset(bt.current_target);
             target->use_alt_spritemap = 0;
 
             /* Franklin Badge check — allies only */
+            st->scratch16[1] = 0;
             if (target->ally_or_enemy == 0) {
                 uint16_t char_id = (target->row & 0xFF) + 1;
                 if (find_item_in_inventory2(char_id, 1)) { /* 1 = FRANKLIN_BADGE */
-                    display_in_battle_text_addr(MSG_BTL5_FRANKLIN_BADGE_DEFLECTED);
-                    bt.damage_is_reflected = 1;
-                    swap_attacker_with_target();
+                    st->scratch16[1] = 1;
+                    st->pc = 4;
+                    if (battle_push_text(&child, MSG_BTL5_FRANKLIN_BADGE_DEFLECTED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
+                                                     &child);
+                    break;
                 }
+            }
+            st->pc = 4;
+            break;
+        }
+
+        case 4: {
+            /* Badge reflect (after its text, as in blocking), then the
+             * shield interactions on the (possibly swapped) target */
+            dt.blinking_triangle_flag = 0;
+            if (st->scratch16[1]) {
+                bt.damage_is_reflected = 1;
+                swap_attacker_with_target();
             }
 
             /* Shield alpha/beta: set shield_hp to 1 (absorbs one hit) */
-            target = battler_from_offset(bt.current_target);
+            Battler *target = battler_from_offset(bt.current_target);
             uint8_t shield = target->afflictions[STATUS_GROUP_SHIELD];
             if (shield == 1 || shield == 2) {
                 target->shield_hp = 1;
             }
 
             /* PSI shield nullify check */
-            if (!battle_psi_shield_nullify()) {
-                uint16_t damage = battle_50pct_variance(base_damage);
-                battle_calc_resist_damage(damage, 0xFF);
-            }
-
-            battle_weaken_shield();
-        } else {
-            /* Miss */
-            display_in_battle_text_addr(MSG_BTL0_PSI_THUNDER_MISS);
-            display_in_battle_text_addr(MSG_BTL6_THUNDER_MISSED);
+            st->pc = 5;
+            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         }
 
-        /* Check if either side is wiped out */
-        if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0)
+        case 5:
+            if (mode_child_result() == 0) {
+                st->pc = 6;
+                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                                      battle_50pct_variance(base_damage), 0xFF);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            }
+            st->pc = 6;
             break;
-    }
 
-    /* Clear targeting */
-    bt.battler_target_flags = 0;
+        case 6:
+            st->pc = 8;
+            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+
+        case 7:  /* miss text 1 → miss text 2 */
+            dt.blinking_triangle_flag = 0;
+            st->pc = 8;
+            if (battle_push_text(&child, MSG_BTL6_THUNDER_MISSED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+
+        case 8:
+            /* loop end — check if either side is wiped out */
+            dt.blinking_triangle_flag = 0;
+            if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
+                st->pc = 9;
+                break;
+            }
+            st->pc = 1;
+            break;
+
+        case 9:
+        default:
+            /* Clear targeting */
+            bt.battler_target_flags = 0;
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
+static StepResult btlact_psi_thunder_alpha_step(BattleActionState *st) {
+    return btlact_psi_thunder_step_common(st, THUNDER_ALPHA_DAMAGE,
+                                          THUNDER_ALPHA_HITS);
+}
+static StepResult btlact_psi_thunder_beta_step(BattleActionState *st) {
+    return btlact_psi_thunder_step_common(st, THUNDER_BETA_DAMAGE,
+                                          THUNDER_BETA_HITS);
+}
+static StepResult btlact_psi_thunder_gamma_step(BattleActionState *st) {
+    return btlact_psi_thunder_step_common(st, THUNDER_GAMMA_DAMAGE,
+                                          THUNDER_GAMMA_HITS);
+}
+static StepResult btlact_psi_thunder_omega_step(BattleActionState *st) {
+    return btlact_psi_thunder_step_common(st, THUNDER_OMEGA_DAMAGE,
+                                          THUNDER_OMEGA_HITS);
 }
 
 /* ======================================================================
@@ -1278,10 +1407,10 @@ static StepResult btlact_psi_starstorm_omega_step(BattleActionState *st) {
 void btlact_psi_starstorm_alpha(void) { btlact_pump_addr(0xC29AA6); }
 void btlact_psi_starstorm_omega(void) { btlact_pump_addr(0xC29AAF); }
 
-void btlact_psi_thunder_alpha(void) { psi_thunder_common(THUNDER_ALPHA_DAMAGE, THUNDER_ALPHA_HITS); }
-void btlact_psi_thunder_beta(void)  { psi_thunder_common(THUNDER_BETA_DAMAGE, THUNDER_BETA_HITS); }
-void btlact_psi_thunder_gamma(void) { psi_thunder_common(THUNDER_GAMMA_DAMAGE, THUNDER_GAMMA_HITS); }
-void btlact_psi_thunder_omega(void) { psi_thunder_common(THUNDER_OMEGA_DAMAGE, THUNDER_OMEGA_HITS); }
+void btlact_psi_thunder_alpha(void) { btlact_pump_addr(0xC29871); }
+void btlact_psi_thunder_beta(void)  { btlact_pump_addr(0xC2987D); }
+void btlact_psi_thunder_gamma(void) { btlact_pump_addr(0xC29889); }
+void btlact_psi_thunder_omega(void) { btlact_pump_addr(0xC29895); }
 
 /* ======================================================================
  * Lifeup
@@ -2065,9 +2194,10 @@ static void battle_schedule_party_animation_reset(uint16_t frames) {
  *
  * Returns: pointer to 4-byte item_parameters [str, epi, ep, special].
  */
-static const uint8_t *battle_apply_condiment(void) {
+static const uint8_t *battle_apply_condiment_prepare(uint32_t *out_msg) {
     Battler *atk = battler_from_offset(bt.current_attacker);
     uint8_t food_id = atk->current_action_argument & 0xFF;
+    *out_msg = 0;
 
     /* Load CONDIMENT_TABLE from ROM asset (asm/data/condiment_table.asm).
      * 43 data entries + 1 zero terminator, 7 bytes each = 308 bytes total. */
@@ -2098,17 +2228,17 @@ static const uint8_t *battle_apply_condiment(void) {
         /* Check if condiment_id matches condiment1 or condiment2 */
         if (entry->condiment1_id == (uint8_t)condiment_id ||
             entry->condiment2_id == (uint8_t)condiment_id) {
-            /* Condiment match — display "great flavor!" text and return condiment params */
-            display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_TASTED_GOOD);
+            /* Condiment match — "great flavor!" text + condiment params */
+            *out_msg = MSG_GOODS0_CONDIMENT_TASTED_GOOD;
             return &entry->strength;  /* points to [strength, epi, ep, special] */
         }
         /* Wrong condiment for this food */
-        display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_BAD_TASTE);
+        *out_msg = MSG_GOODS0_CONDIMENT_BAD_TASTE;
         return default_params;
     }
 
     /* Food not in condiment table — wrong condiment */
-    display_in_battle_text_addr(MSG_GOODS0_CONDIMENT_BAD_TASTE);
+    *out_msg = MSG_GOODS0_CONDIMENT_BAD_TASTE;
     return default_params;
 }
 
@@ -2137,167 +2267,200 @@ static const uint8_t *battle_apply_condiment(void) {
  * and call recalc_character_postmath_*() to update the composite stat.
  * If target is unconscious, displays "no effect" and returns immediately.
  */
-void btlact_eat_food(void) {
+/* The @BOOST_* tails of eat_food.asm: bump the battler stat AND the
+ * char_struct boosted_* field, recalc the composite stat, and hand back the
+ * stat text. which: 0=IQ 1=Guts 2=Speed 3=Vitality 4=Luck (the random
+ * effect rolls rand_limit(4), so it never picks Luck — matching the
+ * assembly's jump table). */
+static void eat_food_boost(uint16_t which, uint8_t amount,
+                           BattleTailText *out) {
     Battler *tgt = battler_from_offset(bt.current_target);
-    uint16_t char_id = tgt->id;  /* @LOCAL03: 1-indexed character ID */
-
-    /* Assembly lines 20-30: if target is unconscious, show no-effect text */
+    uint16_t char_id = tgt->id;
     uint16_t idx = char_id - 1;
-    if (party_characters[idx].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL]
-            == STATUS_0_UNCONSCIOUS) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return;
-    }
 
-    /* Assembly lines 31-35: apply condiment, get params pointer */
-    const uint8_t *params = battle_apply_condiment();
-    if (!params)
-        return;
-
-    /*
-     * Assembly lines 36-51: select amount field.
-     * Poo (char_id == 4) uses params[2] (ep); others use params[1] (epi).
-     * @LOCAL02 = amount, effect_type = params[0].
-     */
-    uint8_t amount     = (char_id == PARTY_MEMBER_POO) ? params[2] : params[1];
-    uint8_t effect_type = params[0];
-
-    /* Assembly lines 55-76: dispatch on effect type */
-    switch (effect_type) {
-
-    case 0: /* HP recovery */
-        if (amount == 0) {
-            battle_recover_hp(tgt, 30000);
-        } else {
-            uint16_t heal = battle_25pct_variance((uint16_t)amount * 6);
-            battle_recover_hp(tgt, heal);
-        }
+    switch (which) {
+    case 0: /* @BOOST_IQ: battler.iq (8-bit) + boosted_iq (8-bit) */
+        tgt->iq += amount;
+        party_characters[idx].boosted_iq += amount;
+        recalc_character_postmath_iq(char_id);
+        statmod_tail(out, MSG_BTL6_IQ_WENT_UP, amount);
         break;
-
-    case 1: /* PP recovery */
-        if (amount == 0) {
-            battle_recover_pp(tgt, 30000);
-        } else {
-            uint16_t pp = battle_25pct_variance(amount);
-            battle_recover_pp(tgt, pp);
-        }
+    case 1: /* @BOOST_GUTS: battler.guts (16-bit) + boosted_guts (8-bit) */
+        tgt->guts += (uint16_t)amount;
+        party_characters[idx].boosted_guts += amount;
+        recalc_character_postmath_guts(char_id);
+        statmod_tail(out, MSG_BTL6_GUTS_WENT_UP, amount);
         break;
-
-    case 2: /* HP + PP recovery */
-        /* HP portion */
-        if (amount == 0) {
-            battle_recover_hp(tgt, 30000);
-        } else {
-            uint16_t heal = battle_25pct_variance((uint16_t)amount * 6);
-            battle_recover_hp(tgt, heal);
-        }
-        /* PP portion — re-read amount (@LOCAL02 reload in assembly) */
-        if (amount == 0) {
-            battle_recover_pp(tgt, 30000);
-        } else {
-            uint16_t pp = battle_25pct_variance(amount);
-            battle_recover_pp(tgt, pp);
-        }
+    case 2: /* @BOOST_SPEED: battler.speed (16-bit) + boosted_speed (8-bit) */
+        tgt->speed += (uint16_t)amount;
+        party_characters[idx].boosted_speed += amount;
+        recalc_character_postmath_speed(char_id);
+        statmod_tail(out, MSG_BTL6_SPEED_WENT_UP, amount);
         break;
-
-    case 3: /* Random stat boost (one of IQ/Guts/Speed/Vitality/Luck) */
-        switch (rand_limit(4)) {
-        case 0: goto do_boost_iq;
-        case 1: goto do_boost_guts;
-        case 2: goto do_boost_speed;
-        case 3: goto do_boost_vitality;
-        default: goto check_special;  /* rand_limit(4) can return 0-3 only */
-        }
+    case 3: /* @BOOST_VITALITY: battler.vitality (8-bit) + boosted_vitality */
+        tgt->vitality += amount;
+        party_characters[idx].boosted_vitality += amount;
+        recalc_character_postmath_vitality(char_id);
+        statmod_tail(out, MSG_BTL6_VITALITY_WENT_UP, amount);
         break;
-
-    case 4: goto do_boost_iq;
-    case 5: goto do_boost_guts;
-    case 6: goto do_boost_speed;
-    case 7: goto do_boost_vitality;
-    case 8: goto do_boost_luck;
-
-    case 9: /* Heal status (BTLACT_HEALING_A: cures cold/sunstroke/sleep) */
-        btlact_healing_alpha();
-        break;
-
-    case 10: /* Cure poison */
-        btlact_heal_poison();
-        break;
-
+    case 4: /* @BOOST_LUCK: battler.luck (16-bit) + boosted_luck (8-bit) */
     default:
+        tgt->luck += (uint16_t)amount;
+        party_characters[idx].boosted_luck += amount;
+        recalc_character_postmath_luck(char_id);
+        statmod_tail(out, MSG_BTL6_LUCK_WENT_UP, amount);
         break;
     }
-    goto check_special;
+}
 
-do_boost_iq:
-    /*
-     * Assembly @BOOST_IQ: increment battler.iq (8-bit), then increment
-     * party_characters[idx].boosted_iq (8-bit), then recalculate IQ.
-     */
-    tgt->iq += (uint8_t)amount;
-    party_characters[idx].boosted_iq += (uint8_t)amount;
-    recalc_character_postmath_iq(char_id);
-    display_text_wait_addr(MSG_BTL6_IQ_WENT_UP, amount);
-    goto check_special;
+static StepResult btlact_eat_food_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
-do_boost_guts:
-    /*
-     * Assembly @BOOST_GUTS: increment battler.guts (16-bit), then increment
-     * party_characters[idx].boosted_guts (8-bit), then recalculate guts.
-     */
-    tgt->guts += (uint16_t)amount;
-    party_characters[idx].boosted_guts += (uint8_t)amount;
-    recalc_character_postmath_guts(char_id);
-    display_text_wait_addr(MSG_BTL6_GUTS_WENT_UP, amount);
-    goto check_special;
+    /* scratch16[0] = amount; scratch16[1] = effect_type | (special << 8).
+     * The condiment params pointer is consumed entirely at pc 0 — no ROM
+     * pointer crosses a yield. */
+    for (;;) {
+        switch (st->pc) {
+        case 0: {
+            Battler *tgt = battler_from_offset(bt.current_target);
+            uint16_t char_id = tgt->id;  /* @LOCAL03: 1-indexed character ID */
 
-do_boost_speed:
-    /*
-     * Assembly @BOOST_SPEED: increment battler.speed (16-bit), then increment
-     * party_characters[idx].boosted_speed (8-bit), then recalculate speed.
-     */
-    tgt->speed += (uint16_t)amount;
-    party_characters[idx].boosted_speed += (uint8_t)amount;
-    recalc_character_postmath_speed(char_id);
-    display_text_wait_addr(MSG_BTL6_SPEED_WENT_UP, amount);
-    goto check_special;
+            /* Assembly lines 20-30: if target is unconscious, show no-effect text */
+            uint16_t idx = char_id - 1;
+            if (party_characters[idx].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL]
+                    == STATUS_0_UNCONSCIOUS) {
+                st->pc = 6;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
 
-do_boost_vitality:
-    /*
-     * Assembly @BOOST_VITALITY: increment battler.vitality (8-bit), then
-     * increment party_characters[idx].boosted_vitality (8-bit), then
-     * recalculate vitality.
-     */
-    tgt->vitality += (uint8_t)amount;
-    party_characters[idx].boosted_vitality += (uint8_t)amount;
-    recalc_character_postmath_vitality(char_id);
-    display_text_wait_addr(MSG_BTL6_VITALITY_WENT_UP, amount);
-    goto check_special;
+            /* Assembly lines 31-35: apply condiment, get params pointer.
+             * The condiment text (tasted good / bad taste) is returned by the
+             * prepare split and pushed below. */
+            uint32_t condiment_msg;
+            const uint8_t *params = battle_apply_condiment_prepare(&condiment_msg);
+            if (!params)
+                return STEP_RESULT_POP(0);
 
-do_boost_luck:
-    /*
-     * Assembly @BOOST_LUCK: increment battler.luck (16-bit), then increment
-     * party_characters[idx].boosted_luck (8-bit), then recalculate luck.
-     */
-    tgt->luck += (uint16_t)amount;
-    party_characters[idx].boosted_luck += (uint8_t)amount;
-    recalc_character_postmath_luck(char_id);
-    display_text_wait_addr(MSG_BTL6_LUCK_WENT_UP, amount);
-    /* fall through to check_special */
+            /* Assembly lines 36-51: select amount field.
+             * Poo (char_id == 4) uses params[2] (ep); others use params[1] (epi). */
+            st->scratch16[0] = (char_id == PARTY_MEMBER_POO) ? params[2] : params[1];
+            st->scratch16[1] = (uint16_t)(params[0] | ((uint16_t)params[3] << 8));
 
-check_special:
-    /*
-     * Assembly @CHECK_CONDIMENT_SPECIAL (lines 368-380):
-     * If params[3] (special) != 0: schedule party animation reset
-     * with (special * 6) frames of delay.
-     */
-    {
-        uint8_t special = params[3];
-        if (special != 0) {
-            battle_schedule_party_animation_reset((uint16_t)special * 6);
+            st->pc = 1;
+            if (condiment_msg != 0 && battle_push_text(&child, condiment_msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+
+        case 1: {
+            dt.blinking_triangle_flag = 0;
+            Battler *tgt = battler_from_offset(bt.current_target);
+            uint8_t amount = (uint8_t)st->scratch16[0];
+            uint8_t effect_type = (uint8_t)st->scratch16[1];
+            BattleTailText tail = {0};
+
+            /* Assembly lines 55-76: dispatch on effect type */
+            switch (effect_type) {
+            case 0: /* HP recovery */
+                battle_recover_hp_prepare(tgt, amount == 0
+                        ? 30000
+                        : battle_25pct_variance((uint16_t)amount * 6), &tail);
+                break;
+
+            case 1: /* PP recovery */
+                battle_recover_pp_prepare(tgt, amount == 0
+                        ? 30000
+                        : battle_25pct_variance(amount), &tail);
+                break;
+
+            case 2: /* HP + PP recovery — HP portion; PP portion at pc 2 */
+                battle_recover_hp_prepare(tgt, amount == 0
+                        ? 30000
+                        : battle_25pct_variance((uint16_t)amount * 6), &tail);
+                st->pc = 2;
+                if (tail.msg != 0 &&
+                    battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                                        tail.cnum))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                continue;  /* re-dispatch at pc 2 inline */
+
+            case 3: /* Random stat boost (one of IQ/Guts/Speed/Vitality) */
+                eat_food_boost(rand_limit(4), amount, &tail);
+                break;
+
+            case 4: eat_food_boost(0, amount, &tail); break;  /* IQ */
+            case 5: eat_food_boost(1, amount, &tail); break;  /* Guts */
+            case 6: eat_food_boost(2, amount, &tail); break;  /* Speed */
+            case 7: eat_food_boost(3, amount, &tail); break;  /* Vitality */
+            case 8: eat_food_boost(4, amount, &tail); break;  /* Luck */
+
+            case 9: /* Heal status (BTLACT_HEALING_A: cures cold/sunstroke/sleep) */
+                st->pc = 5;
+                memset(&child, 0, sizeof(child));
+                child.battle_action.table_index =
+                    (uint16_t)btlact_find(0xC29AEA); /* healing_alpha */
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+
+            case 10: /* Cure poison */
+                st->pc = 5;
+                memset(&child, 0, sizeof(child));
+                child.battle_action.table_index =
+                    (uint16_t)btlact_find(0xC2A39D); /* heal_poison */
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+
+            default:
+                break;
+            }
+
+            st->pc = 5;
+            if (tail.msg != 0 &&
+                battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                                    tail.cnum))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+
+        case 2: {
+            /* HP+PP recovery, PP portion (re-reads amount, @LOCAL02 reload) */
+            dt.blinking_triangle_flag = 0;
+            Battler *tgt = battler_from_offset(bt.current_target);
+            uint8_t amount = (uint8_t)st->scratch16[0];
+            BattleTailText tail = {0};
+            battle_recover_pp_prepare(tgt, amount == 0
+                    ? 30000
+                    : battle_25pct_variance(amount), &tail);
+            st->pc = 5;
+            if (tail.msg != 0 &&
+                battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                                    tail.cnum))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+
+        case 5: {
+            /* Assembly @CHECK_CONDIMENT_SPECIAL (lines 368-380):
+             * If params[3] (special) != 0: schedule party animation reset
+             * with (special * 6) frames of delay. */
+            dt.blinking_triangle_flag = 0;
+            uint8_t special = (uint8_t)(st->scratch16[1] >> 8);
+            if (special != 0) {
+                battle_schedule_party_animation_reset((uint16_t)special * 6);
+            }
+            return STEP_RESULT_POP(0);
+        }
+
+        case 6:  /* unconscious target — no check_special, like the blocking
+                  * form's early return */
+        default:
+            dt.blinking_triangle_flag = 0;
+            return STEP_RESULT_POP(0);
         }
     }
 }
+
+void btlact_eat_food(void) { btlact_pump_addr(0xC2B27D); }
 
 
 /* ======================================================================
@@ -3101,92 +3264,126 @@ uint16_t flash_immunity_test(void) {
  * PSI Flash α: 1/8 chance of "feeling strange", 7/8 chance of crying.
  * Fails on NPCs.
  */
-void btlact_psi_flash_alpha(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!flash_immunity_test())
-        goto weaken;
-    uint16_t roll = rand_byte() & 0x07;
-    if (roll == 0) {
-        flash_inflict_feeling_strange();
-    } else {
-        flash_inflict_crying();
+/*
+ * Shared resumable form. Effect mapping by the 0-7 roll (the per-tier
+ * thresholds): roll <= ko_max — KO; roll == para_idx — paralysis;
+ * roll == strange_idx — feeling strange; otherwise crying. -1 disables a
+ * branch (alpha has no KO/paralysis). flash_immunity_test()'s halves are
+ * inlined: the BC_PSI_SHIELD_NULLIFY push, then the flash_resist roll with
+ * its "didn't work" text. The crying infliction uses the group-equals-ID
+ * idiom (see flash_inflict_crying / psi_flash_crying.asm).
+ * battle_ko_target() stays inline-blocking (its sub-front).
+ */
+static StepResult btlact_psi_flash_step_common(BattleActionState *st,
+                                               int16_t ko_max,
+                                               int16_t para_idx,
+                                               int16_t strange_idx) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    for (;;) {
+        switch (st->pc) {
+        case 0:
+            st->pc = 1;
+            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 1:
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            /* flash_immunity_test: shield nullify first... */
+            st->pc = 2;
+            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 2: {
+            if (mode_child_result() != 0) {
+                st->pc = 5;  /* nullified: straight to weaken */
+                break;
+            }
+            /* ...then the flash resist roll */
+            Battler *target = battler_from_offset(bt.current_target);
+            if (!battle_success_255(target->flash_resist)) {
+                st->pc = 3;
+                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                break;
+            }
+
+            /* Effect roll */
+            int16_t roll = (int16_t)(rand_byte() & 0x07);
+            if (roll <= ko_max) {
+                battle_ko_target(target);  /* inline-blocking */
+                st->pc = 5;
+                break;
+            }
+            uint32_t msg;
+            if (roll == para_idx) {
+                msg = inflict_decide(false, STATUS_GROUP_PERSISTENT_EASYHEAL,
+                                     STATUS_0_PARALYZED, MSG_BTL5_STATUS_NUMB);
+            } else if (roll == strange_idx) {
+                msg = inflict_decide(false, STATUS_GROUP_STRANGENESS,
+                                     STATUS_3_STRANGE, MSG_BTL5_STATUS_STRANGE);
+            } else {
+                msg = inflict_decide(false, STATUS_2_CRYING, STATUS_2_CRYING,
+                                     MSG_BTL5_STATUS_CRYING);
+            }
+            st->pc = 4;
+            if (battle_push_text(&child, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            break;
+        }
+        case 3:
+        case 4:
+            dt.blinking_triangle_flag = 0;
+            st->pc = 5;
+            break;
+        case 5:
+            st->pc = 6;
+            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        case 6:
+        default:
+            return STEP_RESULT_POP(0);
+        }
     }
-weaken:
-    battle_weaken_shield();
 }
+
+static StepResult btlact_psi_flash_alpha_step(BattleActionState *st) {
+    return btlact_psi_flash_step_common(st, -1, -1, 0);
+}
+
+void btlact_psi_flash_alpha(void) { btlact_pump_addr(0xC29987); }
 
 /*
  * BTLACT_PSI_FLASH_B (asm/battle/actions/psi_flash_beta.asm)
  *
  * PSI Flash β: 1/8 KO, 1/8 paralysis, 1/8 strange, 5/8 crying.
  */
-void btlact_psi_flash_beta(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!flash_immunity_test())
-        goto weaken;
-    uint16_t roll = rand_byte() & 0x07;
-    if (roll == 0) {
-        battle_ko_target(battler_from_offset(bt.current_target));
-    } else if (roll == 1) {
-        flash_inflict_paralysis();
-    } else if (roll == 2) {
-        flash_inflict_feeling_strange();
-    } else {
-        flash_inflict_crying();
-    }
-weaken:
-    battle_weaken_shield();
+static StepResult btlact_psi_flash_beta_step(BattleActionState *st) {
+    return btlact_psi_flash_step_common(st, 0, 1, 2);
 }
+
+void btlact_psi_flash_beta(void) { btlact_pump_addr(0xC299AE); }
 
 /*
  * BTLACT_PSI_FLASH_G (asm/battle/actions/psi_flash_gamma.asm)
  *
  * PSI Flash γ: 2/8 KO, 1/8 paralysis, 1/8 strange, 4/8 crying.
  */
-void btlact_psi_flash_gamma(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!flash_immunity_test())
-        goto weaken;
-    uint16_t roll = rand_byte() & 0x07;
-    if (roll <= 1) {
-        battle_ko_target(battler_from_offset(bt.current_target));
-    } else if (roll == 2) {
-        flash_inflict_paralysis();
-    } else if (roll == 3) {
-        flash_inflict_feeling_strange();
-    } else {
-        flash_inflict_crying();
-    }
-weaken:
-    battle_weaken_shield();
+static StepResult btlact_psi_flash_gamma_step(BattleActionState *st) {
+    return btlact_psi_flash_step_common(st, 1, 2, 3);
 }
+
+void btlact_psi_flash_gamma(void) { btlact_pump_addr(0xC299EF); }
 
 /*
  * BTLACT_PSI_FLASH_O (asm/battle/actions/psi_flash_omega.asm)
  *
  * PSI Flash Ω: 3/8 KO, 1/8 paralysis, 1/8 strange, 3/8 crying.
  */
-void btlact_psi_flash_omega(void) {
-    if (battle_fail_attack_on_npcs())
-        return;
-    if (!flash_immunity_test())
-        goto weaken;
-    uint16_t roll = rand_byte() & 0x07;
-    if (roll <= 2) {
-        battle_ko_target(battler_from_offset(bt.current_target));
-    } else if (roll == 3) {
-        flash_inflict_paralysis();
-    } else if (roll == 4) {
-        flash_inflict_feeling_strange();
-    } else {
-        flash_inflict_crying();
-    }
-weaken:
-    battle_weaken_shield();
+static StepResult btlact_psi_flash_omega_step(BattleActionState *st) {
+    return btlact_psi_flash_step_common(st, 2, 3, 4);
 }
+
+void btlact_psi_flash_omega(void) { btlact_pump_addr(0xC29A35); }
 
 
 /*
@@ -4497,7 +4694,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC28770, btlact_spy, btlact_spy_step },
     { 0xC2889B, btlact_null, NULL },
     { 0xC2889E, btlact_steal, NULL },
-    { 0xC288EB, btlact_freezetime, NULL },
+    { 0xC288EB, btlact_freezetime, btlact_freezetime_step },
     { 0xC289CE, btlact_diamondize, btlact_diamondize_step },
     { 0xC28A92, btlact_paralyze, btlact_paralyze_step },
     { 0xC28AEB, btlact_nauseate, btlact_nauseate_step },
@@ -4549,14 +4746,14 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC29650, btlact_psi_freeze_beta, btlact_psi_freeze_beta_step },
     { 0xC29659, btlact_psi_freeze_gamma, btlact_psi_freeze_gamma_step },
     { 0xC29662, btlact_psi_freeze_omega, btlact_psi_freeze_omega_step },
-    { 0xC29871, btlact_psi_thunder_alpha, NULL },
-    { 0xC2987D, btlact_psi_thunder_beta, NULL },
-    { 0xC29889, btlact_psi_thunder_gamma, NULL },
-    { 0xC29895, btlact_psi_thunder_omega, NULL },
-    { 0xC29987, btlact_psi_flash_alpha, NULL },
-    { 0xC299AE, btlact_psi_flash_beta, NULL },
-    { 0xC299EF, btlact_psi_flash_gamma, NULL },
-    { 0xC29A35, btlact_psi_flash_omega, NULL },
+    { 0xC29871, btlact_psi_thunder_alpha, btlact_psi_thunder_alpha_step },
+    { 0xC2987D, btlact_psi_thunder_beta, btlact_psi_thunder_beta_step },
+    { 0xC29889, btlact_psi_thunder_gamma, btlact_psi_thunder_gamma_step },
+    { 0xC29895, btlact_psi_thunder_omega, btlact_psi_thunder_omega_step },
+    { 0xC29987, btlact_psi_flash_alpha, btlact_psi_flash_alpha_step },
+    { 0xC299AE, btlact_psi_flash_beta, btlact_psi_flash_beta_step },
+    { 0xC299EF, btlact_psi_flash_gamma, btlact_psi_flash_gamma_step },
+    { 0xC29A35, btlact_psi_flash_omega, btlact_psi_flash_omega_step },
     { 0xC29AA6, btlact_psi_starstorm_alpha, btlact_psi_starstorm_alpha_step },
     { 0xC29AAF, btlact_psi_starstorm_omega, btlact_psi_starstorm_omega_step },
     { 0xC29AC6, btlact_lifeup_alpha, btlact_lifeup_alpha_step },
@@ -4637,7 +4834,7 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC2ACDA, btlact_pray_rending_sound, btlact_pray_rending_sound_step },
     { 0xC2AD1B, btlact_pray, NULL },
     { 0xC2B0A1, (void(*)(void))btlact_mirror, btlact_mirror_step },
-    { 0xC2B27D, btlact_eat_food, NULL },
+    { 0xC2B27D, btlact_eat_food, btlact_eat_food_step },
     { 0xC2C13C, btlact_sow_seeds, btlact_sow_seeds_step },
     { 0xC2C145, btlact_call_for_help, btlact_call_for_help_step },
     { 0xC2C14E, (void(*)(void))btlact_rainbow_of_colours, NULL },
