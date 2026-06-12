@@ -3786,7 +3786,7 @@ void btlact_giygas_prayer_9(void) {
 }
 
 
-const BattleActionEntry btlact_dispatch_table[] = {
+static const BattleActionEntry btlact_dispatch_table[] = {
     /* Sorted by ROM address for binary search */
     { 0xC1DE43, btlact_switch_weapons, NULL },
     { 0xC1E00F, btlact_switch_armor, NULL },
@@ -3999,6 +3999,13 @@ static void btlact_pump_addr(uint32_t rom_addr) {
     btlact_pump((uint16_t)idx);
 }
 
+/*
+ * JUMP_TEMP_FUNCTION_POINTER — Port of asm/overworld/jump_temp_function_pointer.asm.
+ * Assembly: JML (TEMP_FUNCTION_POINTER) — indirect long jump through a
+ * 24-bit ROM address stored in bt.temp_function_pointer. The C port
+ * dispatches through btlact_dispatch_table instead; the ROM addresses come
+ * from the battle_action_table asset (loaded from the donor ROM).
+ */
 void jump_temp_function_pointer(void) {
     int idx = btlact_find(bt.temp_function_pointer);
     if (idx < 0) {

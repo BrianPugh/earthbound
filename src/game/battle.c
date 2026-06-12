@@ -79,10 +79,6 @@ static uint16_t instant_win_sorted_defense[4];
 /* Assembly globals referenced by battle_routine and final-attack dispatch */
 #include "game_main.h"
 
-/* ---- Forward declarations ---- */
-void display_text_with_prompt(const uint8_t *text, size_t size);
-void display_text_with_prompt_addr(uint32_t addr);
-
 /* Asset table references loaded from ROM (defined near battle_routine) */
 extern const uint8_t *btl_entry_ptr_table;
 extern const uint8_t *btl_entry_bg_table;
@@ -3380,15 +3376,6 @@ void play_giygas_weakened_sequence(uint16_t music,
     wait_for_fade_with_tick();
 }
 
-/*
- * JUMP_TEMP_FUNCTION_POINTER — Port of asm/overworld/jump_temp_function_pointer.asm.
- * Assembly: JML (TEMP_FUNCTION_POINTER) — indirect long jump through a
- * 24-bit ROM address stored in bt.temp_function_pointer.
- *
- * In the C port, we dispatch via a lookup table mapping ROM addresses to
- * C function pointers. ROM addresses come from the battle_action_table
- * (loaded from the donor ROM).
- */
 /* ======================================================================
  * BATTLE_ROUTINE (asm/battle/main_battle_routine.asm)
  *

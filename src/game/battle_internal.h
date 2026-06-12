@@ -41,8 +41,7 @@ extern const uint8_t *npc_ai_table;
 
 /* ---- Functions defined in battle.c, called by battle_actions.c ---- */
 
-/* Battle flow helpers */
-void display_in_battle_text_addr(uint32_t addr);
+/* Battle flow helpers (display_in_battle_text_addr et al. are in battle.h) */
 void display_text_with_prompt(const uint8_t *text, size_t size);
 void display_text_with_prompt_addr(uint32_t addr);
 void display_battle_cutscene_text(uint16_t group, uint16_t music, uint32_t text_addr);
@@ -265,8 +264,8 @@ void wait_and_update_battle_effects(void);
 
 /* ---- Functions defined in battle_actions.c, called by battle.c ---- */
 
-/* Action dispatch */
-void jump_temp_function_pointer(void);
+/* Action dispatch: jump_temp_function_pointer / battle_action_dispatch are
+ * declared in battle.h (text.c needs them too). */
 
 /* Stealable item shared state */
 #define MAX_STEALABLE_ITEMS (14 * 4)

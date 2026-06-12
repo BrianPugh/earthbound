@@ -1693,6 +1693,9 @@ union ModeState {
  * BATTLE → BATTLE_MENU → BATTLE_PSI_MENU → DETERMINE_TARGETING →
  * BATTLE_ENEMY_SELECT is 9 levels, plus CC_08 CALL_TEXT can nest extra
  * DISPLAY_TEXT levels and the Phase-D flip adds the BOOT/OVERWORLD root.
+ * The turn-execution branch (BATTLE → BATTLE_ACTION → DISPLAY_TEXT →
+ * TEXT_PROMPT) is 8 from the same entry; converting the battle_calc.c
+ * pipeline to child modes will deepen it — re-check this bound then.
  * 16 leaves headroom (mode_push logs + drops on overflow rather than
  * corrupting the stack). Raising this changes the on-disk
  * SECTION_MODE_STACK size — harmless pre-cutover (savestates are not
