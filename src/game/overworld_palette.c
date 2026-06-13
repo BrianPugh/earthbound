@@ -24,6 +24,7 @@
 #include "game/map_loader.h"
 #include "game/window.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init */
 #include "game/text.h"
 #include "game/door.h"
 #include "game/inventory.h"
@@ -37,6 +38,7 @@
 #include "core/memory.h"
 #include "core/decomp.h"
 #include "core/mode_stack.h"
+#include "core/log.h"
 #include "game_main.h"
 #include <string.h>
 #include "data/text_refs.h"
@@ -106,26 +108,55 @@ void check_low_hp_alert(uint16_t party_index) {
     /* Threshold = 20% of max HP = max_hp * 20 / 100 */
     uint16_t threshold = (uint16_t)((uint32_t)cs->max_hp * 20 / 100);
     if (cs->current_hp < threshold) {
-        /* HP is low — show alert if not already shown */
+        /* HP is low — show alert if not already shown. SHOW_HP_ALERT is now
+         * GAME_MODE_HP_ALERT; this pump bridge drives it (the parent
+         * update_overworld_damage loop is still blocking and STEP_PUSHes at
+         * Phase D). */
         if (!ow.hp_alert_shown[party_index]) {
-            /* Port of SHOW_HP_ALERT (asm/overworld/show_hp_alert.asm).
-             * Opens a text window with "[name]'s HP is very low!" message.
-             * Assembly: disable entities -> open window -> set attacker name
-             *           -> DISPLAY_TEXT_PTR MSG_SYS_MAP_CRITICAL_SITUATION
-             *           -> close window -> WINDOW_TICK -> enable entities. */
-            disable_all_entities();
-            create_window(0x01);  /* WINDOW::TEXT_STANDARD */
-            set_battle_attacker_name((const char *)cs->name,
-                                    sizeof(cs->name));
-            display_text_from_addr(MSG_SYS_HP_CRITICAL_WARNING);
-            close_focus_window();
-            window_tick();
-            enable_all_entities();
+            ModeState init = { .hp_alert = { .phase = HA_TEXT,
+                                             .party_index = (uint8_t)party_index } };
+            pump_mode(GAME_MODE_HP_ALERT, &init);
             ow.hp_alert_shown[party_index] = 1;
         }
     } else {
         /* HP is OK — clear the alert flag */
         ow.hp_alert_shown[party_index] = 0;
+    }
+}
+
+/* ---- GAME_MODE_HP_ALERT step (run-to-completion port of SHOW_HP_ALERT) ----
+ * See GAME_MODE_HP_ALERT in core/mode_stack.h. Assembly: disable entities ->
+ * open window -> set attacker name -> DISPLAY_TEXT_PTR
+ * MSG_SYS_MAP_CRITICAL_SITUATION -> close window -> WINDOW_TICK -> enable. */
+StepResult mode_step_hp_alert(ModeState *st) {
+    HpAlertState *hs = &st->hp_alert;
+
+    switch ((HpAlertPhase)hs->phase) {
+    case HA_TEXT: {
+        uint8_t char_id = game_state.player_controlled_party_members[hs->party_index];
+        CharStruct *cs = &party_characters[char_id];
+        disable_all_entities();
+        create_window(0x01);  /* WINDOW::TEXT_STANDARD */
+        set_battle_attacker_name((const char *)cs->name, sizeof(cs->name));
+        hs->phase = HA_CLOSE;
+        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
+        if (dt_make_child_init(&dt_init, MSG_SYS_HP_CRITICAL_WARNING))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                 (uint32_t)MSG_SYS_HP_CRITICAL_WARNING);
+        return STEP_RESULT_CONTINUE();
+    }
+
+    case HA_CLOSE:
+        close_focus_window();
+        window_tick_work();
+        hs->phase = HA_DONE;
+        return STEP_RESULT_CONTINUE();
+
+    case HA_DONE:
+    default:
+        enable_all_entities();
+        return STEP_RESULT_POP(0);
     }
 }
 

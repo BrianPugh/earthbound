@@ -139,6 +139,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_PP_RECOVERY_FLASH]   = mode_step_pp_recovery_flash,   /* battle.c */
     [GAME_MODE_TELEPORT]            = mode_step_teleport,            /* overworld_teleport.c */
     [GAME_MODE_BICYCLE_DISMOUNT]    = mode_step_bicycle_dismount,    /* overworld_teleport.c */
+    [GAME_MODE_HP_ALERT]            = mode_step_hp_alert,            /* overworld_palette.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

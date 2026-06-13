@@ -85,6 +85,7 @@ typedef enum {
     GAME_MODE_PP_RECOVERY_FLASH,   /* instant-win PP recovery purple flashes (event script) */
     GAME_MODE_TELEPORT,            /* PSI teleport driver (teleport_mainloop) */
     GAME_MODE_BICYCLE_DISMOUNT,    /* "got off the bicycle" message + dismount */
+    GAME_MODE_HP_ALERT,            /* "HP is very low!" overworld warning (show_hp_alert) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1862,6 +1863,27 @@ typedef struct {
     uint8_t phase;  /* BicycleDismountPhase */
 } BicycleDismountState;
 
+/* GAME_MODE_HP_ALERT — run-to-completion port of SHOW_HP_ALERT
+ * (asm/overworld/show_hp_alert.asm), the "[name]'s HP is very low!" overworld
+ * warning shown by check_low_hp_alert() (overworld_palette.c) when a party
+ * member drops below 20% HP. HA_TEXT disables entities, opens the text window,
+ * sets the battler name, and STEP_PUSHes the warning (DISPLAY_TEXT); HA_CLOSE
+ * closes the window + one window_tick frame; HA_DONE re-enables entities and
+ * POPs. party_index selects whose name/HP triggered it (re-derived at HA_TEXT).
+ * Pumped by check_low_hp_alert() (still called inline-blocking mid-loop from
+ * update_overworld_damage, a per-frame root function — it STEP_PUSHes at
+ * Phase D). Always pops 0. */
+typedef enum {
+    HA_TEXT = 0,   /* disable entities, window + battler name, push the warning */
+    HA_CLOSE,      /* close focus window + one window_tick frame */
+    HA_DONE,       /* enable entities, POP */
+} HpAlertPhase;
+
+typedef struct {
+    uint8_t phase;        /* HpAlertPhase */
+    uint8_t party_index;  /* 0-based party slot whose name + HP triggered the alert */
+} HpAlertState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -1925,6 +1947,7 @@ union ModeState {
     PpRecoveryFlashState  pp_recovery_flash;
     TeleportState         teleport;
     BicycleDismountState  bicycle_dismount;
+    HpAlertState          hp_alert;
     uint8_t               _raw[160];
 };
 
@@ -2236,6 +2259,10 @@ StepResult mode_step_teleport(ModeState *st);
 /* GAME_MODE_BICYCLE_DISMOUNT step (defined in overworld_teleport.c). Zero-init;
  * pumped by get_off_bicycle_with_message(). Always pops 0. */
 StepResult mode_step_bicycle_dismount(ModeState *st);
+
+/* GAME_MODE_HP_ALERT step (defined in overworld_palette.c). Init via
+ * ModeState.hp_alert{party_index}; pumped by check_low_hp_alert(). Always pops 0. */
+StepResult mode_step_hp_alert(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
