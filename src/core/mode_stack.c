@@ -150,6 +150,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_BICYCLE_DISMOUNT]    = mode_step_bicycle_dismount,    /* overworld_teleport.c */
     [GAME_MODE_HP_ALERT]            = mode_step_hp_alert,            /* overworld_palette.c */
     [GAME_MODE_GAME_OVER]           = mode_step_game_over,           /* overworld_palette.c */
+    [GAME_MODE_OVERWORLD]           = mode_step_overworld,           /* game_main.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

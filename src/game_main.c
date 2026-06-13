@@ -1048,149 +1048,226 @@ static void overworld_boot(void) {
  * back to the BOOT state instead of unwinding the call stack, so the host needs
  * a single loop with no restart wrapper.
  *
- * Two states currently exist: BOOT (one-time intro/init, still blocking) and
- * OVERWORLD (the converted run-to-completion overworld frame). Modal contexts
- * reached from the overworld (battle, menus, dialogue, fades) still run their
- * own internal blocking loops for now and will be converted incrementally.
- * See docs/plans/savestate-unified-loop.md.
+ * Two states exist: BOOT (the intro/init state machine, driven on g_mode_stack)
+ * and OVERWORLD (the overworld root, now GAME_MODE_OVERWORLD at g_mode_stack[0]).
+ * Both dispatch the mode-stack top one step per frame; every modal context reached
+ * from the overworld (battle, menus, dialogue, fades, teleport, game-over) is a
+ * mode pushed onto the stack. The only blocking holdouts are debug-only paths
+ * (debug_y_button_menu) and the pump-bridge wrappers that still drive already-
+ * converted modes for any remaining inline callers (deleted at the Phase D cutover,
+ * D4). See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
-
-typedef enum { OW_CONTINUE, OW_GAME_OVER } OwStepResult;
 
 typedef enum { LOOP_BOOT, LOOP_OVERWORLD } LoopMode;
 static LoopMode g_loop_mode = LOOP_BOOT;
-static bool g_overworld_first_step;
 static bool g_boot_setup_done;   /* stage-1 boot setup (intro push / skip-intro) done this boot */
 
-/* One frame of post-vblank overworld processing — the work the assembly main
- * loop did *after* WAIT_UNTIL_NEXT_FRAME (port of main.asm lines 30-161).
- * Returns OW_GAME_OVER when the party is wiped out and the player chose Continue
- * (caller re-boots); OW_CONTINUE otherwise. The former `continue` statements
- * (restart loop, skipping damage/spawn) become `return OW_CONTINUE`. */
-static OwStepResult overworld_post(void) {
-    /* Assembly lines 30-42: process queued interactions.
-     * Check if there are queued interactions (read != write index)
-     * and no battle/swirl is in progress. */
-    if (ow.current_queued_interaction != ow.next_queued_interaction &&
-        !ow.battle_swirl_countdown &&
-        !ow.enemy_has_been_touched &&
-        !ow.battle_mode) {
-        process_queued_interactions();
-        ow.input_disable_frame_counter++;
-        goto loop_end;  /* Assembly: JMP @LOOP_END (runs damage update + spawn) */
-    }
+/* GAME_MODE_OVERWORLD step — run-to-completion port of overworld_post() +
+ * overworld_step() (port of main.asm lines 25-161). See OverworldPhase in
+ * core/mode_stack.h for the phase map. Each former inline pump-bridge driver is a
+ * STEP_PUSH with a resume phase; the render tail is the OWP_RENDER per-frame
+ * CONTINUE; the post→render split + first-frame render-only are preserved (the
+ * mode is pushed with phase = OWP_RENDER). The internal for(;;) advances phases
+ * with `continue` (no yield) and returns on a PUSH/CONTINUE/POP. */
+StepResult mode_step_overworld(ModeState *mst) {
+    OverworldModeState *st = &mst->overworld;
+    static ModeState child;  /* outlives this dispatch (root/pump copies it) */
 
-    /* Assembly lines 43-52: skip input processing in special modes */
-    if (game_state.camera_mode == 2 ||
-        game_state.walking_style == WALKING_STYLE_ESCALATOR ||
-        ow.battle_swirl_countdown)
-        goto loop_end;
+    for (;;) {
+        switch ((OverworldPhase)st->phase) {
+        case OWP_RENDER:
+            /* Assembly lines 25-29: render frame, then advance to POST next frame.
+             * This is also the entry/first-frame phase (render once before the
+             * first POST, matching the assembly's pre-WAIT render). */
+            oam_clear();
+            run_actionscript_frame();
+            update_screen();
+            update_swirl_effect();  /* advances the battle swirl animation */
+            st->phase = OWP_POST_TOP;
+            return STEP_RESULT_CONTINUE();
 
-    /* Assembly lines 52-56: battle mode transition.
-     * Port of main.asm: if BATTLE_MODE != 0, call INIT_BATTLE_OVERWORLD
-     * and increment INPUT_DISABLE_FRAME_COUNTER to suppress input for 1 frame. */
-    if (ow.battle_mode) {
-        init_battle_overworld();
-        ow.input_disable_frame_counter++;
-        goto after_bicycle;  /* Assembly line 56: BRA @CHECK_DEBUG (skips bicycle) */
-    }
+        case OWP_POST_TOP:
+            /* Assembly lines 30-42: process queued interactions (read != write
+             * index) when no battle/swirl is in progress -> loop_end. */
+            if (ow.current_queued_interaction != ow.next_queued_interaction &&
+                !ow.battle_swirl_countdown &&
+                !ow.enemy_has_been_touched &&
+                !ow.battle_mode) {
+                child = (ModeState){0};
+                child.process_interaction.phase = PI_DISPATCH;
+                st->phase = OWP_RESUME_INTERACTION;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PROCESS_INTERACTION, &child);
+            }
+            /* Assembly lines 43-52: skip input in special modes -> loop_end. */
+            if (game_state.camera_mode == 2 ||
+                game_state.walking_style == WALKING_STYLE_ESCALATOR ||
+                ow.battle_swirl_countdown) {
+                st->phase = OWP_LOOP_START;
+                continue;
+            }
+            /* Assembly lines 52-56: battle-mode transition. */
+            if (ow.battle_mode) {
+                child = (ModeState){0};
+                child.battle_entry.phase = BE_ENTER;
+                st->phase = OWP_RESUME_BATTLE;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENTRY, &child);
+            }
+            /* Assembly lines 57-66: bicycle dismount (A/L while on the bicycle). */
+            if ((core.pad1_pressed & PAD_CONFIRM) &&
+                game_state.walking_style == WALKING_STYLE_BICYCLE) {
+                disable_all_entities();
+                child = (ModeState){0};
+                child.bicycle_dismount.phase = BD_TEXT;
+                st->phase = OWP_RESUME_BICYCLE;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BICYCLE_DISMOUNT, &child);
+            }
+            st->phase = OWP_POST_DEBUG;
+            continue;
 
-    /* Assembly lines 57-66: bicycle dismount check.
-     * If A or L pressed while walking_style == BICYCLE (3), dismount. */
-    if ((core.pad1_pressed & PAD_CONFIRM) &&
-        game_state.walking_style == WALKING_STYLE_BICYCLE) {
-        disable_all_entities();
-        get_off_bicycle_with_message();
-        enable_all_entities();
-        return OW_CONTINUE;  /* Assembly: JMP @LOOP_BEGIN (skips damage/spawn) */
-    }
+        case OWP_RESUME_INTERACTION:
+            /* Assembly line 41: after the interaction, suppress input 1 frame. */
+            ow.input_disable_frame_counter++;
+            st->phase = OWP_LOOP_START;
+            continue;
 
-after_bicycle:
-    /* Assembly lines 67-88: @CHECK_DEBUG — debug menu and debug key checks.
-     * When ow.debug_flag is set, special button combos trigger debug features.
-     * (B or SELECT) held + R pressed → DEBUG_Y_BUTTON_MENU.
-     * Full menu not ported; dispatches available debug commands. */
-    if (ow.debug_flag) {
-        /* (B|SELECT) held + R just pressed → debug Y button menu (lines 70-77) */
-        if (debug_menu_requested ||
-            ((core.pad1_held & PAD_CANCEL) && (core.pad1_pressed & PAD_R))) {
+        case OWP_RESUME_BATTLE:
+            /* Assembly line 55-56: after the battle, suppress input 1 frame and
+             * jump to @CHECK_DEBUG (skipping the bicycle check). */
+            ow.input_disable_frame_counter++;
+            st->phase = OWP_POST_DEBUG;
+            continue;
+
+        case OWP_RESUME_BICYCLE:
+            /* Assembly: after the dismount message, JMP @LOOP_BEGIN (skip damage/
+             * spawn) -> render and start the next frame's POST. */
+            enable_all_entities();
+            st->phase = OWP_RENDER;
+            continue;
+
+        case OWP_POST_DEBUG:
+            /* Assembly lines 67-88: @CHECK_DEBUG. (B|SELECT) held + R just pressed
+             * -> the debug Y-button menu. debug_y_button_menu() stays inline-
+             * blocking (debug-only; its Goods sub-front cannot be a mode yet), so
+             * a savestate inside it is not yet on the mode stack — documented
+             * deferral. It pumps its children, then JMP @LOOP_BEGIN (skip
+             * damage/spawn). */
+            if (ow.debug_flag) {
+                if (debug_menu_requested ||
+                    ((core.pad1_held & PAD_CANCEL) && (core.pad1_pressed & PAD_R))) {
+                    debug_menu_requested = false;
+                    debug_y_button_menu();
+                    st->phase = OWP_RENDER;
+                    continue;
+                }
+            }
             debug_menu_requested = false;
-            debug_y_button_menu();
-            return OW_CONTINUE;  /* JMP @LOOP_BEGIN */
+
+            /* Assembly lines 89-92: skip the rest if swirl/enemy active. */
+            if (ow.battle_swirl_countdown || ow.enemy_has_been_touched) {
+                st->phase = OWP_RENDER;
+                continue;
+            }
+            st->phase = OWP_POST_INPUT;
+            continue;
+
+        case OWP_POST_INPUT:
+            /* Assembly lines 93-124: button input processing. The four button
+             * handlers all resume at the teleport check (OWP_POST_TELEPORT). */
+            if (ow.input_disable_frame_counter > 0) {
+                ow.input_disable_frame_counter--;
+            } else if (!ow.pending_interactions) {
+                if (core.pad1_pressed & PAD_A) {
+                    child = (ModeState){0};
+                    child.pause_menu.phase = PM_ENTER;
+                    st->phase = OWP_POST_TELEPORT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &child);
+                } else if ((core.pad1_pressed & PAD_CANCEL) &&
+                           game_state.walking_style != WALKING_STYLE_BICYCLE) {
+                    child = (ModeState){0};
+                    child.hppp_display.phase = HD_ENTER;
+                    st->phase = OWP_POST_TELEPORT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_HPPP_DISPLAY, &child);
+                } else if (core.pad1_pressed & PAD_X) {
+                    /* show_town_map(): push the display variant if there is a map;
+                     * OWP_RESUME_TOWNMAP re-enables entities afterward. No map ->
+                     * fall through to the teleport check (no push). */
+                    if (show_town_map_prepare(&child)) {
+                        st->phase = OWP_RESUME_TOWNMAP;
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+                    }
+                } else if (core.pad1_pressed & PAD_L) {
+                    child = (ModeState){0};
+                    child.quick_checktalk.phase = QCT_TEXT;
+                    st->phase = OWP_POST_TELEPORT;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_QUICK_CHECKTALK, &child);
+                }
+            }
+            st->phase = OWP_POST_TELEPORT;
+            continue;
+
+        case OWP_RESUME_TOWNMAP:
+            /* show_town_map()'s enable bracket, after the town map pops. */
+            enable_all_entities();
+            st->phase = OWP_POST_TELEPORT;
+            continue;
+
+        case OWP_POST_TELEPORT:
+            /* Assembly lines 125-128: PSI teleport. Resume at loop_end. */
+            if (ow.psi_teleport_destination) {
+                st->phase = OWP_LOOP_START;
+                return STEP_RESULT_PUSH(GAME_MODE_TELEPORT);
+            }
+            st->phase = OWP_LOOP_START;
+            continue;
+
+        case OWP_LOOP_START:
+            /* Assembly lines 152-161: begin a fresh UPDATE_OVERWORLD_DAMAGE pass. */
+            st->dmg = (OwDamageState){0};
+            st->phase = OWP_LOOP_END;
+            continue;
+
+        case OWP_LOOP_END:
+            /* Drive the damage loop. A mid-loop low-HP warning is a STEP_PUSH
+             * (HP_ALERT); ow_damage_step() resumes via st->dmg on re-entry (we
+             * stay in OWP_LOOP_END, which does NOT reset st->dmg). On completion,
+             * a total HP of 0 pushes GAME_MODE_GAME_OVER (spawn()). */
+            if (ow_damage_step(&st->dmg) == OW_DMG_ALERT) {
+                child = (ModeState){0};
+                child.hp_alert.phase = HA_TEXT;
+                child.hp_alert.party_index = st->dmg.i;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_HP_ALERT, &child);
+            }
+            if (st->dmg.total_hp == 0) {
+                child = (ModeState){0};
+                child.game_over.phase = GO_ENTER;
+                st->phase = OWP_GAMEOVER_RESULT;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_GAME_OVER, &child);
+            }
+            st->phase = OWP_RENDER;
+            continue;
+
+        case OWP_GAMEOVER_RESULT:
+        default:
+            /* GAME_OVER popped -1 ("Continue" -> reboot) or 0 ("No Continue" ->
+             * the world was reinitialised; render and carry on). The reboot pops
+             * the root; game_loop_step sees the drained stack and re-boots. */
+            if (mode_child_result() != 0)
+                return STEP_RESULT_POP(0);
+            st->phase = OWP_RENDER;
+            continue;
         }
     }
-    debug_menu_requested = false;
-
-    /* Assembly lines 89-92: skip remaining checks if swirl/enemy active */
-    if (ow.battle_swirl_countdown || ow.enemy_has_been_touched)
-        return OW_CONTINUE;  /* jump to @LOOP_BEGIN */
-
-    /* Assembly lines 93-124: button input processing */
-    if (ow.input_disable_frame_counter > 0) {
-        /* Assembly line 124: DEC INPUT_DISABLE_FRAME_COUNTER */
-        ow.input_disable_frame_counter--;
-    } else if (!ow.pending_interactions) {
-        /* Assembly lines 97-100: A → OPEN_MENU_BUTTON (full pause menu) */
-        if (core.pad1_pressed & PAD_A) {
-            open_menu_button();
-        }
-        /* Assembly lines 103-110: B/Select → OPEN_HPPP_DISPLAY */
-        else if ((core.pad1_pressed & PAD_CANCEL) &&
-                 game_state.walking_style != WALKING_STYLE_BICYCLE) {
-            open_hppp_display();
-        }
-        /* Assembly lines 112-116: X → SHOW_TOWN_MAP */
-        else if (core.pad1_pressed & PAD_X) {
-            show_town_map();
-        }
-        /* Assembly lines 118-121: L → OPEN_MENU_BUTTON_CHECKTALK */
-        else if (core.pad1_pressed & PAD_L) {
-            open_menu_button_checktalk();
-        }
-    }
-
-    /* Assembly lines 125-128: PSI teleport processing */
-    if (ow.psi_teleport_destination) {
-        teleport_mainloop();
-    }
-
-loop_end:
-    /* Assembly lines 152-161: UPDATE_OVERWORLD_DAMAGE + SPAWN.
-     * update_overworld_damage() applies poison/environmental damage each frame.
-     * If it returns 0 (all party KO'd), SPAWN handles game-over/comeback.
-     * If SPAWN returns non-zero (player chose Continue), the caller transitions
-     * back to BOOT to restart from the intro/init sequence. */
-    if (update_overworld_damage() == 0) {
-        if (spawn() != 0)
-            return OW_GAME_OVER;
-    }
-    return OW_CONTINUE;
-}
-
-/* One overworld frame: process the previous frame's input (post-vblank work),
- * then render the next frame (pre-vblank work). The single host_process_frame()
- * yield happens in the caller, between steps, so this post→render split keeps
- * the original RENDER → vblank → POST ordering and input latching intact.
- * The first step after boot skips POST (no prior frame's input to process),
- * matching the assembly which renders once before the first WAIT. */
-static OwStepResult overworld_step(void) {
-    if (!g_overworld_first_step) {
-        if (overworld_post() == OW_GAME_OVER)
-            return OW_GAME_OVER;
-    }
-    g_overworld_first_step = false;
-
-    /* Assembly lines 25-29: render frame */
-    oam_clear();
-    run_actionscript_frame();
-    update_screen();
-    /* Assembly line 28: UPDATE_SWIRL_EFFECT (advances battle swirl animation) */
-    update_swirl_effect();
-    return OW_CONTINUE;
 }
 
 /* Advance the game by one frame's pre-yield work. Called once per frame by the
- * host's single top-level loop; the host performs host_process_frame() after. */
+ * host's single top-level loop; the host performs host_process_frame() after.
+ *
+ * BOOT drives the intro state machine on g_mode_stack; on the final POP that
+ * drains the stack it falls through (no yield) into overworld_boot() + the
+ * GAME_MODE_OVERWORLD push, and dispatches the OW mode's first step (the first
+ * render) in the same frame — the assembly has no WAIT between init and the first
+ * loop iteration. The OW mode then runs as g_mode_stack[0]; it POPs only to
+ * signal a "Continue" game-over reboot (the drained stack -> back to BOOT). */
 void game_loop_step(void) {
     switch (g_loop_mode) {
     case LOOP_BOOT:
@@ -1200,13 +1277,10 @@ void game_loop_step(void) {
             boot_begin();
         }
 
-        /* Stage 2: drive the intro state machine one step per frame. The root
-         * loop's host_process_frame() is the only yield, so a savestate taken
-         * mid-intro lands on serializable mode-stack state. This mirrors
+        /* Stage 2: drive the intro state machine one step per frame. This mirrors
          * pump_mode() exactly: yield (break) after every PUSH/CONTINUE and after
          * any POP that leaves the stack non-empty; on the final POP that drains
-         * the stack, fall through WITHOUT yielding into the overworld init —
-         * matching pump_mode()'s "completed without an extra yield". */
+         * the stack, fall through WITHOUT yielding into the overworld init. */
         if (g_mode_stack.depth > 0) {
             uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
             StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
@@ -1224,20 +1298,37 @@ void game_loop_step(void) {
             }
         }
 
-        /* Stage 3: overworld init, then fall through to the first overworld render
-         * in this same frame — the assembly has no WAIT between init and the first
-         * loop iteration (main.asm line 23→24), and inserting one would make the
-         * screen visible a script frame too early. */
+        /* Stage 3: overworld init, then push the OW root mode and dispatch its
+         * first step (the first render) in this same frame — the assembly has no
+         * WAIT between init and the first loop iteration (main.asm line 23→24),
+         * and inserting one would make the screen visible a script frame early. */
         overworld_boot();
-        g_overworld_first_step = true;
+        {
+            ModeState init = { .overworld = { .phase = OWP_RENDER } };
+            mode_push(GAME_MODE_OVERWORLD, &init);
+        }
         g_loop_mode = LOOP_OVERWORLD;
         /* fallthrough */
-    case LOOP_OVERWORLD:
-        if (overworld_step() == OW_GAME_OVER) {
-            g_loop_mode = LOOP_BOOT;     /* re-boot (intro/comeback) on next step */
-            g_boot_setup_done = false;   /* replay stage-1 setup on the next boot */
+    case LOOP_OVERWORLD: {
+        /* Dispatch the mode-stack top: the OW root (g_mode_stack[0]) plus any
+         * child it has pushed (battle, menu, dialogue, fade, ...). Same shape as
+         * the BOOT machine. The OW root POPs only on a "Continue" game-over, which
+         * drains the stack -> transition back to BOOT to replay the intro/init. */
+        uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
+        StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
+                                          &g_mode_stack.state[top]);
+        if (r.kind == STEP_PUSH) {
+            mode_push(r.push_mode, r.push_init);
+        } else if (r.kind == STEP_POP) {
+            mode_pop(r.pop_result);
+            if (g_mode_stack.depth == 0) {
+                g_loop_mode = LOOP_BOOT;     /* re-boot (intro/comeback) next step */
+                g_boot_setup_done = false;   /* replay stage-1 setup on the next boot */
+            }
         }
+        /* STEP_CONTINUE: nothing extra; the host yields after this returns. */
         break;
+    }
     }
 }
 

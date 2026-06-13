@@ -502,6 +502,37 @@ void show_town_map(void) {
     enable_all_entities();
 }
 
+/* show_town_map() + display_town_map()'s front half, split for the overworld root
+ * mode (GAME_MODE_OVERWORLD). Returns true (with *init = the TOWN_MAP display push)
+ * if there is a map to show; the caller re-enables entities after it pops. Returns
+ * false if there is no Town Map item or no map at this location (the disable/enable
+ * bracket is balanced here for the no-map case, matching show_town_map()). */
+bool show_town_map_prepare(ModeState *init) {
+    if (find_item_in_inventory2(CHAR_ID_ANY, ITEM_TOWN_MAP) == 0)
+        return false;
+
+    disable_all_entities();
+
+    town_map_animation_frame = 60;
+    town_map_player_icon_animation_frame = 20;
+    frames_until_map_icon_palette_update = 12;
+
+    uint16_t raw_id = get_town_map_id(game_state.leader_x_coord,
+                                       game_state.leader_y_coord);
+    uint16_t map_id = raw_id & 0x000F;
+    if (map_id == 0) {
+        /* No map at this location: balance the disable (show_town_map's enable). */
+        enable_all_entities();
+        return false;
+    }
+
+    *init = (ModeState){0};
+    init->town_map.phase = TM_LOAD_BEGIN;
+    init->town_map.menu_mode = 0;
+    init->town_map.map_id = (uint8_t)(map_id - 1);
+    return true;
+}
+
 /*
  * RUN_TOWN_MAP_MENU (asm/text/menu/run_town_map_menu.asm)
  *

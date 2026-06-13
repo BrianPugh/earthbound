@@ -3,6 +3,7 @@
 
 #include "core/types.h"
 #include "game/display_text.h"  /* ScriptReader (embedded in DisplayTextState) */
+#include "game/overworld.h"     /* OwDamageState (embedded in OverworldState) */
 
 /* ---------------------------------------------------------------------------
  * Explicit mode stack (savestate-anywhere migration, phase 2).
@@ -87,6 +88,7 @@ typedef enum {
     GAME_MODE_BICYCLE_DISMOUNT,    /* "got off the bicycle" message + dismount */
     GAME_MODE_HP_ALERT,            /* "HP is very low!" overworld warning (show_hp_alert) */
     GAME_MODE_GAME_OVER,           /* game-over / comeback sequence (spawn + play_comeback_sequence) */
+    GAME_MODE_OVERWORLD,           /* overworld root mode (overworld_post + overworld_step) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1934,6 +1936,51 @@ typedef struct {
     uint16_t saved_y;   /* ow.respawn_y captured at GO_ENTER */
 } GameOverState;
 
+/* GAME_MODE_OVERWORLD — the overworld root mode (g_mode_stack[0]). Run-to-
+ * completion port of overworld_post() + overworld_step() (game_main.c, port of
+ * main.asm lines 25-161). Each frame the post-vblank input logic (steps 1-8 of
+ * overworld_post) runs across the OWP_POST_* phases, then the render tail
+ * (oam_clear / run_actionscript_frame / update_screen / update_swirl_effect) runs
+ * at OWP_RENDER and the step CONTINUEs (one yield = one frame).
+ *
+ * Every former inline pump-bridge driver becomes a STEP_PUSH with a resume phase:
+ *   process_queued_interactions -> PROCESS_INTERACTION (OWP_RESUME_INTERACTION)
+ *   init_battle_overworld       -> BATTLE_ENTRY        (OWP_RESUME_BATTLE)
+ *   get_off_bicycle_with_message-> BICYCLE_DISMOUNT    (OWP_RESUME_BICYCLE)
+ *   open_menu_button            -> PAUSE_MENU          (-> OWP_POST_TELEPORT)
+ *   open_hppp_display           -> HPPP_DISPLAY        (-> OWP_POST_TELEPORT)
+ *   show_town_map               -> TOWN_MAP            (OWP_RESUME_TOWNMAP)
+ *   open_menu_button_checktalk  -> QUICK_CHECKTALK     (-> OWP_POST_TELEPORT)
+ *   teleport_mainloop           -> TELEPORT            (-> OWP_LOOP_START)
+ *   update_overworld_damage loop-> HP_ALERT mid-loop   (-> OWP_LOOP_END resume)
+ *   spawn                       -> GAME_OVER           (OWP_GAMEOVER_RESULT)
+ * debug_y_button_menu() stays inline-blocking (debug-only; its Goods sub-front
+ * cannot be a mode yet — documented deferral, like battle.c's debug loops).
+ *
+ * The first frame after boot renders without running POST (the assembly's first
+ * loop iteration): the mode is pushed with phase = OWP_RENDER, which renders then
+ * advances to OWP_POST_TOP. A "Continue" game-over POPs the root; game_loop_step
+ * sees the drained stack and re-boots. The mode otherwise never pops. */
+typedef enum {
+    OWP_RENDER = 0,         /* render tail; -> OWP_POST_TOP (also the entry/first-frame phase) */
+    OWP_POST_TOP,           /* post 1-4: interaction / special-mode / battle / bicycle */
+    OWP_POST_DEBUG,         /* post 5-6: debug menu (inline), swirl/touched skip */
+    OWP_POST_INPUT,         /* post 7: A/B/X/L input handlers */
+    OWP_POST_TELEPORT,      /* post 8: PSI teleport check */
+    OWP_RESUME_INTERACTION, /* after PROCESS_INTERACTION: input_disable++ -> loop_end */
+    OWP_RESUME_BATTLE,      /* after BATTLE_ENTRY: input_disable++ -> OWP_POST_DEBUG */
+    OWP_RESUME_BICYCLE,     /* after BICYCLE_DISMOUNT: enable entities -> render (skip loop_end) */
+    OWP_RESUME_TOWNMAP,     /* after TOWN_MAP: enable entities -> OWP_POST_TELEPORT */
+    OWP_LOOP_START,         /* loop_end entry: reset the damage-loop state */
+    OWP_LOOP_END,           /* damage loop driver: HP_ALERT pushes mid-loop, spawn at the end */
+    OWP_GAMEOVER_RESULT,    /* after GAME_OVER pops: Continue -> reboot, No Continue -> render */
+} OverworldPhase;
+
+typedef struct {
+    uint8_t       phase; /* OverworldPhase */
+    OwDamageState dmg;   /* update_overworld_damage loop progress (resumable HP_ALERT) */
+} OverworldModeState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -1999,6 +2046,7 @@ union ModeState {
     BicycleDismountState  bicycle_dismount;
     HpAlertState          hp_alert;
     GameOverState         game_over;
+    OverworldModeState    overworld;
     uint8_t               _raw[160];
 };
 
@@ -2318,6 +2366,11 @@ StepResult mode_step_hp_alert(ModeState *st);
 /* GAME_MODE_GAME_OVER step (defined in overworld_palette.c). Zero-init
  * (phase = GO_ENTER); pumped by spawn(). Pops -1 (Continue) or 0 (No Continue). */
 StepResult mode_step_game_over(ModeState *st);
+
+/* GAME_MODE_OVERWORLD step (defined in game_main.c). The overworld root mode at
+ * g_mode_stack[0]; pushed with phase = OWP_RENDER at the boot->overworld handoff.
+ * POPs only to signal a "Continue" game-over reboot; otherwise runs forever. */
+StepResult mode_step_overworld(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */

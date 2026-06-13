@@ -20,6 +20,15 @@
 /* SHOW_TOWN_MAP (C13CE5) — checks for Town Map item, shows map if found. */
 void show_town_map(void);
 
+/* Overworld X-button town-map entry, split for GAME_MODE_OVERWORLD. Runs
+ * show_town_map()/display_town_map()'s synchronous front half: if the party has
+ * the Town Map item AND the leader's location has a map, disables entities, fills
+ * *init with the GAME_MODE_TOWN_MAP (display variant) push, and returns true — the
+ * OW mode pushes it then re-enables entities on resume. Returns false (no push, no
+ * entity bracketing left dangling) if there is no map to show. */
+typedef union ModeState ModeState;
+bool show_town_map_prepare(ModeState *init);
+
 /* DISPLAY_TOWN_MAP (C4D681) — full display with auto map selection from
  * leader position. Returns the map_id shown (0 if none). */
 uint16_t display_town_map(void);
