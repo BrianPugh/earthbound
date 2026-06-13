@@ -96,32 +96,32 @@ void start_enemy_touch_flash(void) {
 
 /* ---- CHECK_LOW_HP_ALERT (port of asm/overworld/check_low_hp_alert.asm) ----
  *
- * Checks if a party member's HP has fallen below 20% of max.
- * If so and the alert hasn't been shown yet, shows a warning message.
+ * Checks whether a party member's HP has fallen below 20% of max. Returns true
+ * if the "[name]'s HP is very low!" warning should be shown now (it had not been
+ * shown yet) — the caller (the damage loop) shows GAME_MODE_HP_ALERT, either via
+ * a pump (blocking wrapper) or a STEP_PUSH (the overworld root mode). The
+ * already-shown latch (ow.hp_alert_shown) is set here so a resume does not
+ * re-show, matching the assembly which set it after the message returned.
  *
  * party_index: 0-based index into party_order / player_controlled_party_members.
  */
-void check_low_hp_alert(uint16_t party_index) {
+static bool ow_check_low_hp(uint16_t party_index) {
     uint8_t char_id = game_state.player_controlled_party_members[party_index];
     CharStruct *cs = &party_characters[char_id];
 
     /* Threshold = 20% of max HP = max_hp * 20 / 100 */
     uint16_t threshold = (uint16_t)((uint32_t)cs->max_hp * 20 / 100);
     if (cs->current_hp < threshold) {
-        /* HP is low — show alert if not already shown. SHOW_HP_ALERT is now
-         * GAME_MODE_HP_ALERT; this pump bridge drives it (the parent
-         * update_overworld_damage loop is still blocking and STEP_PUSHes at
-         * Phase D). */
+        /* HP is low — show alert if not already shown */
         if (!ow.hp_alert_shown[party_index]) {
-            ModeState init = { .hp_alert = { .phase = HA_TEXT,
-                                             .party_index = (uint8_t)party_index } };
-            pump_mode(GAME_MODE_HP_ALERT, &init);
             ow.hp_alert_shown[party_index] = 1;
+            return true;
         }
     } else {
         /* HP is OK — clear the alert flag */
         ow.hp_alert_shown[party_index] = 0;
     }
+    return false;
 }
 
 /* ---- GAME_MODE_HP_ALERT step (run-to-completion port of SHOW_HP_ALERT) ----
@@ -178,16 +178,30 @@ StepResult mode_step_hp_alert(ModeState *st) {
  * Returns total remaining HP across living party members.
  * A return value of 0 indicates a potential game-over (all KO'd -> SPAWN).
  */
-uint16_t update_overworld_damage(void) {
-    /* Early exit: special camera mode or status suppressed */
-    if (game_state.camera_mode == 2) return 1;
-    if (ow.overworld_status_suppression) return 1;
+OwDamageStatus ow_damage_step(OwDamageState *s) {
+    if (!s->started) {
+        s->started = 1;
+        s->i = 0;
+        s->ko_count = 0;
+        s->total_hp = 0;
+        s->damage_events = 0;
+        s->resume_alert = 0;
 
-    uint16_t ko_count = 0;       /* @LOCAL04: number of members KO'd this frame */
-    uint16_t total_hp = 0;       /* @LOCAL03: total remaining HP */
-    uint16_t damage_events = 0;  /* @VIRTUAL04: number of damage ticks applied */
+        /* Early exit: special camera mode or status suppressed (the assembly
+         * returns 1 without running the loop or the post-loop flash/KO update). */
+        if (game_state.camera_mode == 2) {
+            s->total_hp = 1;
+            return OW_DMG_DONE;
+        }
+        if (ow.overworld_status_suppression) {
+            s->total_hp = 1;
+            return OW_DMG_DONE;
+        }
+    }
 
-    for (uint16_t i = 0; i < 6; i++) {
+    while (s->i < 6) {
+        uint16_t i = s->i;
+
         /* Read party_order to check if slot is occupied.
          * party_order stores character IDs: 1-4 = chosen four, 0 = empty. */
         uint8_t order_id = game_state.party_order[i];
@@ -201,106 +215,132 @@ uint16_t update_overworld_damage(void) {
 
         uint8_t affliction = cs->afflictions[0];
 
-        /* Skip unconscious (1) and affliction 2 */
-        if (affliction == 1) goto next_member;
-        if (affliction == 2) goto next_member;
-
-        if (affliction == 5) {
-            /* --- Poison damage: 10 HP every 120 frames --- */
-            if (ow.overworld_damage_countdown_frames[i] > 0) {
-                ow.overworld_damage_countdown_frames[i]--;
-                if (ow.overworld_damage_countdown_frames[i] != 0)
-                    goto after_damage;
-                /* Timer expired — apply damage */
-                damage_events++;
-                cs->current_hp -= 10;
-                cs->current_hp_target -= 10;
-                check_low_hp_alert(i);
-            } else {
-                /* Reset timer */
-                ow.overworld_damage_countdown_frames[i] = 120;
-            }
-            goto after_damage;
-        }
-
-        /* --- Environmental/sunstroke damage --- */
-        {
-            bool apply_env = false;
-            if (affliction >= 4 && affliction <= 7) {
-                apply_env = true;
-            } else if ((game_state.trodden_tile_type & 0x000C) == 12) {
-                /* Hot tile damage (no affliction required) */
-                apply_env = true;
+        if (s->resume_alert) {
+            /* Re-entry after the member's HP_ALERT popped: skip damage
+             * application and resume at the depletion check, exactly where the
+             * assembly's `goto after_damage` would land after the message. */
+            s->resume_alert = 0;
+        } else {
+            /* Skip unconscious (1) and affliction 2 (no after_damage check). */
+            if (affliction == 1 || affliction == 2) {
+                s->i++;
+                continue;
             }
 
-            if (apply_env) {
+            bool need_alert = false;
+            if (affliction == 5) {
+                /* --- Poison damage: 10 HP every 120 frames --- */
                 if (ow.overworld_damage_countdown_frames[i] > 0) {
                     ow.overworld_damage_countdown_frames[i]--;
                     if (ow.overworld_damage_countdown_frames[i] != 0)
-                        goto after_damage;
+                        goto after_damage;  /* no damage this frame */
                     /* Timer expired — apply damage */
-                    damage_events++;
-                    if (affliction == 4) {
-                        /* Sunstroke: 10 HP damage */
-                        cs->current_hp -= 10;
-                        cs->current_hp_target -= 10;
-                    } else {
-                        /* Other environmental: 2 HP damage */
-                        cs->current_hp -= 2;
-                        cs->current_hp_target -= 2;
-                    }
-                    check_low_hp_alert(i);
+                    s->damage_events++;
+                    cs->current_hp -= 10;
+                    cs->current_hp_target -= 10;
+                    need_alert = ow_check_low_hp(i);
                 } else {
-                    /* Reset timer: 120 frames for sunstroke, 240 for others */
-                    ow.overworld_damage_countdown_frames[i] = (affliction == 4) ? 120 : 240;
+                    /* Reset timer */
+                    ow.overworld_damage_countdown_frames[i] = 120;
                 }
+            } else {
+                /* --- Environmental/sunstroke damage --- */
+                bool apply_env = false;
+                if (affliction >= 4 && affliction <= 7) {
+                    apply_env = true;
+                } else if ((game_state.trodden_tile_type & 0x000C) == 12) {
+                    /* Hot tile damage (no affliction required) */
+                    apply_env = true;
+                }
+
+                if (apply_env) {
+                    if (ow.overworld_damage_countdown_frames[i] > 0) {
+                        ow.overworld_damage_countdown_frames[i]--;
+                        if (ow.overworld_damage_countdown_frames[i] != 0)
+                            goto after_damage;  /* no damage this frame */
+                        /* Timer expired — apply damage */
+                        s->damage_events++;
+                        if (affliction == 4) {
+                            /* Sunstroke: 10 HP damage */
+                            cs->current_hp -= 10;
+                            cs->current_hp_target -= 10;
+                        } else {
+                            /* Other environmental: 2 HP damage */
+                            cs->current_hp -= 2;
+                            cs->current_hp_target -= 2;
+                        }
+                        need_alert = ow_check_low_hp(i);
+                    } else {
+                        /* Reset timer: 120 frames for sunstroke, 240 for others */
+                        ow.overworld_damage_countdown_frames[i] = (affliction == 4) ? 120 : 240;
+                    }
+                }
+            }
+
+            if (need_alert) {
+                /* Yield to show the "[name]'s HP is very low!" warning. The
+                 * caller pushes/pumps GAME_MODE_HP_ALERT for member s->i, then
+                 * re-calls; resume_alert routes us to after_damage on re-entry. */
+                s->resume_alert = 1;
+                return OW_DMG_ALERT;
             }
         }
 
 after_damage:
         /* Check if HP has been depleted (negative or zero) */
         if (cs->current_hp == 0 || cs->current_hp > 0x8000) {
-            /* Already unconscious? Skip */
-            if (affliction == 1) goto next_member;
+            /* Already unconscious? Skip (no HP accumulation). */
+            if (affliction != 1) {
+                /* Clear affliction bytes 0-4 only (assembly loop: counter < 5).
+                 * afflictions[5] (SHIELDS/PSI status) and [6] are NOT cleared. */
+                memset(cs->afflictions, 0, 5);
+                cs->afflictions[0] = 1;  /* Unconscious */
+                cs->current_hp_target = 0;
+                cs->current_hp = 0;
 
-            /* Clear affliction bytes 0-4 only (assembly loop: counter < 5, i.e. i=0..4).
-             * afflictions[5] (SHIELDS/PSI status) and afflictions[6] are NOT cleared. */
-            memset(cs->afflictions, 0, 5);
-            cs->afflictions[0] = 1;  /* Unconscious */
-            cs->current_hp_target = 0;
-            cs->current_hp = 0;
-
-            /* Set entity script var3 = 16 to trigger KO animation.
-             * char_struct.unknown59 = entity slot for this character. */
-            uint16_t entity_slot = cs->unknown59;
-            entities.var[3][entity_slot] = 16;
-            ko_count++;
-            goto next_member;
+                /* Set entity script var3 = 16 to trigger KO animation.
+                 * char_struct.unknown59 = entity slot for this character. */
+                uint16_t entity_slot = cs->unknown59;
+                entities.var[3][entity_slot] = 16;
+                s->ko_count++;
+            }
+        } else if (affliction != 2) {
+            /* Accumulate HP for surviving, non-affliction-2 members */
+            s->total_hp += cs->current_hp;
         }
 
-        /* Accumulate HP for surviving, non-affliction-2 members */
-        if (affliction != 2) {
-            total_hp += cs->current_hp;
-        }
-
-next_member:
-        (void)0;
+        s->i++;
     }
 
     /* If any damage ticked, flash the screen red */
-    if (damage_events > 0) {
+    if (s->damage_events > 0) {
         start_enemy_touch_flash();
     }
 
     /* If any party member was KO'd, update party state */
-    if (ko_count > 0) {
+    if (s->ko_count > 0) {
         bt.party_members_alive_overworld = 0;
         update_party();
         refresh_party_entities();
         enable_all_entities();
     }
 
-    return total_hp;
+    return OW_DMG_DONE;
+}
+
+/* Blocking wrapper: drive ow_damage_step() to completion, pumping the low-HP
+ * warning inline. Behaviour-identical to the original mid-loop check_low_hp_alert
+ * pump. The GAME_MODE_OVERWORLD root mode (Phase D) drives the stepper itself and
+ * STEP_PUSHes the alert instead. */
+uint16_t update_overworld_damage(void) {
+    OwDamageState s = {0};
+    for (;;) {
+        if (ow_damage_step(&s) == OW_DMG_DONE)
+            return s.total_hp;
+        /* OW_DMG_ALERT: show the warning for member s.i, then resume. */
+        ModeState init = { .hp_alert = { .phase = HA_TEXT, .party_index = s.i } };
+        pump_mode(GAME_MODE_HP_ALERT, &init);
+    }
 }
 
 /* ====================================================================

@@ -764,6 +764,29 @@ void get_off_bicycle_with_message(void);
  * Returns total remaining HP (0 = all party KO'd -> triggers SPAWN). */
 uint16_t update_overworld_damage(void);
 
+/* Resumable form of the update_overworld_damage party loop. The blocking wrapper
+ * update_overworld_damage() drives this and pumps GAME_MODE_HP_ALERT inline; the
+ * GAME_MODE_OVERWORLD root mode drives it and STEP_PUSHes HP_ALERT instead — the
+ * loop yields mid-iteration so a savestate during a low-HP warning lands on the
+ * mode stack rather than the C stack. All progress lives in OwDamageState; the
+ * function resumes from where it left off when re-called after the alert pops. */
+typedef struct {
+    uint8_t  started;       /* 0 = run the early-exit checks + init on first call */
+    uint8_t  i;             /* party loop index (0..5) */
+    uint8_t  resume_alert;  /* 1 = re-entry after an HP_ALERT for member i: skip
+                             * damage application, resume at the depletion check */
+    uint16_t ko_count;      /* @LOCAL04: members KO'd this pass */
+    uint16_t total_hp;      /* @LOCAL03: accumulated remaining HP (the return value) */
+    uint16_t damage_events; /* @VIRTUAL04: damage ticks applied this pass */
+} OwDamageState;
+
+typedef enum {
+    OW_DMG_DONE = 0, /* finished; s->total_hp holds the return value */
+    OW_DMG_ALERT,    /* show GAME_MODE_HP_ALERT for member s->i, then call again */
+} OwDamageStatus;
+
+OwDamageStatus ow_damage_step(OwDamageState *s);
+
 /* INITIATE_ENEMY_ENCOUNTER: Port of asm/overworld/initiate_enemy_encounter.asm.
  * Called after camera shake when an enemy touches the party.
  * Determines battle initiative from approach directions, sets up battle group,

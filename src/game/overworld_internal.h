@@ -34,7 +34,6 @@ void load_enemy_spawn_data(void);
 /* ---- Palette/damage functions (overworld_palette.c) ---- */
 void restore_bg_palette_callback(void);
 void start_enemy_touch_flash(void);
-void check_low_hp_alert(uint16_t party_index);
 int16_t skippable_pause(uint16_t frames);
 void load_map_palette_animation_frame(uint16_t frame_index);
 void initialize_map_palette_fade(uint16_t frames);
