@@ -1945,9 +1945,13 @@ typedef struct {
     uint16_t saved_y;   /* ow.respawn_y captured at GO_ENTER */
 } GameOverState;
 
-/* GAME_MODE_OVERWORLD — the overworld root mode (g_mode_stack[0]). Run-to-
- * completion port of overworld_post() + overworld_step() (game_main.c, port of
- * main.asm lines 25-161). Each frame the post-vblank input logic (steps 1-8 of
+/* GAME_MODE_OVERWORLD — the permanent root mode (g_mode_stack[0]), pushed once at
+ * game_init() and never popped. It folds in the BOOT machine (D3): its OWP_BOOT_*
+ * phases run boot_begin() (which pushes INIT_INTRO as a child, or does the
+ * skip-intro init) and then overworld_boot() + the first render, with no yield
+ * between overworld_boot() and OWP_RENDER. After boot it is the overworld loop:
+ * run-to-completion port of overworld_post() + overworld_step() (game_main.c, port
+ * of main.asm lines 25-161). Each frame the post-vblank input logic (steps 1-8 of
  * overworld_post) runs across the OWP_POST_* phases, then the render tail
  * (oam_clear / run_actionscript_frame / update_screen / update_swirl_effect) runs
  * at OWP_RENDER and the step CONTINUEs (one yield = one frame).
@@ -1967,9 +1971,9 @@ typedef struct {
  * cannot be a mode yet — documented deferral, like battle.c's debug loops).
  *
  * The first frame after boot renders without running POST (the assembly's first
- * loop iteration): the mode is pushed with phase = OWP_RENDER, which renders then
- * advances to OWP_POST_TOP. A "Continue" game-over POPs the root; game_loop_step
- * sees the drained stack and re-boots. The mode otherwise never pops. */
+ * loop iteration): OWP_BOOT_AWAIT advances to OWP_RENDER, which renders then
+ * advances to OWP_POST_TOP. A "Continue" game-over resets the root's phase back to
+ * OWP_BOOT_SETUP (replaying boot/intro) rather than popping. The root never pops. */
 typedef enum {
     OWP_RENDER = 0,         /* render tail; -> OWP_POST_TOP (also the entry/first-frame phase) */
     OWP_POST_TOP,           /* post 1-4: interaction / special-mode / battle / bicycle */
@@ -1983,6 +1987,10 @@ typedef enum {
     OWP_LOOP_START,         /* loop_end entry: reset the damage-loop state */
     OWP_LOOP_END,           /* damage loop driver: HP_ALERT pushes mid-loop, spawn at the end */
     OWP_GAMEOVER_RESULT,    /* after GAME_OVER pops: Continue -> reboot, No Continue -> render */
+    OWP_BOOT_SETUP,         /* boot stage 1: boot_begin() (push INIT_INTRO / skip-intro). The
+                             * root's initial phase + the game-over "Continue" reboot target. */
+    OWP_BOOT_AWAIT,         /* boot stage 3: after INIT_INTRO pops back, overworld_boot() then
+                             * -> OWP_RENDER in the same step (no yield = no Ness-flash). */
 } OverworldPhase;
 
 typedef struct {

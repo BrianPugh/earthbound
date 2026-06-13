@@ -226,7 +226,8 @@ StepResult mode_step_init_intro(ModeState *ms) {
  * The one-shot initialization (asm:20-42, including the two startup vblanks)
  * runs here, then the state machine that cycles logos -> gas station -> title ->
  * attract (and exits to the file select on a button press) is left on the stack
- * for the root loop to drive one step per frame (game_main.c's LOOP_BOOT). This
+ * for the generic pump to drive one step per frame (init_intro is pushed as a
+ * child of the overworld root by its OWP_BOOT_SETUP phase, game_main.c). This
  * no longer pump_mode()s the intro to completion itself, so a savestate taken
  * mid-intro lands on serializable mode-stack state rather than a blocked C stack.
  */

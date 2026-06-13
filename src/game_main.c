@@ -953,16 +953,16 @@ cleanup:
     enable_all_entities();
 }
 
-/* boot_begin — stage 1 of boot: one-shot setup, run once at the top of LOOP_BOOT.
+/* boot_begin — boot stage 1: one-shot setup, run once from OWP_BOOT_SETUP.
  *
  * Normal path: init_intro() does its one-shot init and PUSHes GAME_MODE_INIT_INTRO
- * onto the mode stack; game_loop_step() then drives that intro state machine one
- * step per frame (the root loop owns the single yield), so no blocking pump_mode()
- * runs the intro to completion any more. Once the stack drains, game_loop_step()
- * falls through to overworld_boot() (stage 3). See docs/plans/savestate-unified-loop.md.
+ * as a child of the overworld root; the generic pump then drives that intro state
+ * machine one step per frame (the root loop owns the single yield). Once the intro
+ * pops back, the root's OWP_BOOT_AWAIT runs overworld_boot(). See
+ * docs/plans/savestate-unified-loop.md.
  *
  * --skip-intro path: do the minimal init the intro would otherwise perform and push
- * nothing, so game_loop_step() proceeds straight to overworld_boot(). */
+ * nothing, so OWP_BOOT_SETUP flows straight into OWP_BOOT_AWAIT/overworld_boot(). */
 static void boot_begin(void) {
     if (platform_skip_intro) {
         /* Debug: skip intro/file select, go directly to overworld.
@@ -995,7 +995,8 @@ static void boot_begin(void) {
  *
  * IMPORTANT: this must NOT yield before the first overworld render — the assembly
  * has no WAIT between init and @LOOP_BEGIN (see the fade_in note below). The caller
- * (game_loop_step) runs this and the first overworld_step() in the same frame. */
+ * (OWP_BOOT_AWAIT) runs this and the first OWP_RENDER in the same step (its
+ * `continue` into OWP_RENDER does not yield). */
 static void overworld_boot(void) {
     /* Sprite data lives in ROM on the SNES (always available). In the C port
      * it must be loaded from extracted asset files. The naming screen (new game)
@@ -1044,37 +1045,55 @@ static void overworld_boot(void) {
  * The host's single top-level loop calls game_loop_step() once per frame, then
  * performs the one and only host_process_frame() yield. game_loop_step() advances
  * whatever context the game is in by one frame's worth of pre-yield work and
- * returns — it never blocks on vblank itself. Restart-on-game-over transitions
- * back to the BOOT state instead of unwinding the call stack, so the host needs
- * a single loop with no restart wrapper.
+ * returns — it never blocks on vblank itself.
  *
- * Two states exist: BOOT (the intro/init state machine, driven on g_mode_stack)
- * and OVERWORLD (the overworld root, now GAME_MODE_OVERWORLD at g_mode_stack[0]).
- * Both dispatch the mode-stack top one step per frame; every modal context reached
- * from the overworld (battle, menus, dialogue, fades, teleport, game-over) is a
+ * After D3 there is ONE generic pump: game_loop_step() dispatches the mode-stack
+ * top one step and applies its PUSH/POP. g_mode_stack[0] is the permanent
+ * GAME_MODE_OVERWORLD root, which folds in boot (OWP_BOOT_* phases run the intro as
+ * a child, then overworld_boot()) and never pops — a "Continue" game-over resets
+ * the root to its boot phase instead of unwinding. Every modal context reached from
+ * the overworld (battle, menus, dialogue, fades, teleport, intro, game-over) is a
  * mode pushed onto the stack. The only blocking holdouts are debug-only paths
  * (debug_y_button_menu) and the pump-bridge wrappers that still drive already-
  * converted modes for any remaining inline callers (deleted at the Phase D cutover,
  * D4). See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
 
-typedef enum { LOOP_BOOT, LOOP_OVERWORLD } LoopMode;
-static LoopMode g_loop_mode = LOOP_BOOT;
-static bool g_boot_setup_done;   /* stage-1 boot setup (intro push / skip-intro) done this boot */
-
-/* GAME_MODE_OVERWORLD step — run-to-completion port of overworld_post() +
- * overworld_step() (port of main.asm lines 25-161). See OverworldPhase in
- * core/mode_stack.h for the phase map. Each former inline pump-bridge driver is a
- * STEP_PUSH with a resume phase; the render tail is the OWP_RENDER per-frame
- * CONTINUE; the post→render split + first-frame render-only are preserved (the
- * mode is pushed with phase = OWP_RENDER). The internal for(;;) advances phases
- * with `continue` (no yield) and returns on a PUSH/CONTINUE/POP. */
+/* GAME_MODE_OVERWORLD step — the permanent root (g_mode_stack[0]). Boot stages
+ * (OWP_BOOT_SETUP/AWAIT) fold in the former LOOP_BOOT machine, then it is the
+ * run-to-completion port of overworld_post() + overworld_step() (port of main.asm
+ * lines 25-161). See OverworldPhase in core/mode_stack.h for the phase map. Each
+ * former inline pump-bridge driver is a STEP_PUSH with a resume phase; the render
+ * tail is the OWP_RENDER per-frame CONTINUE; the post→render split + first-frame
+ * render-only are preserved. The internal for(;;) advances phases with `continue`
+ * (no yield) and returns on a PUSH/CONTINUE/POP. The root never pops. */
 StepResult mode_step_overworld(ModeState *mst) {
     OverworldModeState *st = &mst->overworld;
     static ModeState child;  /* outlives this dispatch (root/pump copies it) */
 
     for (;;) {
         switch ((OverworldPhase)st->phase) {
+        case OWP_BOOT_SETUP:
+            /* Boot stage 1 (folded in at D3): one-shot setup. boot_begin() pushes
+             * GAME_MODE_INIT_INTRO as a child (normal path) or does the skip-intro
+             * init and pushes nothing. If a child was pushed, yield so it runs and
+             * resume at OWP_BOOT_AWAIT on its pop; otherwise (skip-intro) flow
+             * straight into overworld_boot() with no yield. */
+            boot_begin();
+            st->phase = OWP_BOOT_AWAIT;
+            if (g_mode_stack.depth > 1)
+                return STEP_RESULT_CONTINUE();
+            continue;
+
+        case OWP_BOOT_AWAIT:
+            /* Boot stage 3: the intro has finished (or was skipped). overworld_boot()
+             * and the first render run in THIS step (the `continue` into OWP_RENDER
+             * does not yield) — the assembly has no WAIT between init and the first
+             * loop iteration, and a yield here flashes Ness a script frame early. */
+            overworld_boot();
+            st->phase = OWP_RENDER;
+            continue;
+
         case OWP_RENDER:
             /* Assembly lines 25-29: render frame, then advance to POST next frame.
              * This is also the entry/first-frame phase (render once before the
@@ -1249,10 +1268,14 @@ StepResult mode_step_overworld(ModeState *mst) {
         case OWP_GAMEOVER_RESULT:
         default:
             /* GAME_OVER popped -1 ("Continue" -> reboot) or 0 ("No Continue" ->
-             * the world was reinitialised; render and carry on). The reboot pops
-             * the root; game_loop_step sees the drained stack and re-boots. */
-            if (mode_child_result() != 0)
-                return STEP_RESULT_POP(0);
+             * the world was reinitialised; render and carry on). The root never
+             * pops; a "Continue" reboot resets this root back to its boot phase
+             * (replaying boot_begin/intro), mirroring the former g_loop_mode reset
+             * to LOOP_BOOT. */
+            if (mode_child_result() != 0) {
+                *st = (OverworldModeState){ .phase = OWP_BOOT_SETUP };
+                return STEP_RESULT_CONTINUE();
+            }
             st->phase = OWP_RENDER;
             continue;
         }
@@ -1262,74 +1285,22 @@ StepResult mode_step_overworld(ModeState *mst) {
 /* Advance the game by one frame's pre-yield work. Called once per frame by the
  * host's single top-level loop; the host performs host_process_frame() after.
  *
- * BOOT drives the intro state machine on g_mode_stack; on the final POP that
- * drains the stack it falls through (no yield) into overworld_boot() + the
- * GAME_MODE_OVERWORLD push, and dispatches the OW mode's first step (the first
- * render) in the same frame — the assembly has no WAIT between init and the first
- * loop iteration. The OW mode then runs as g_mode_stack[0]; it POPs only to
- * signal a "Continue" game-over reboot (the drained stack -> back to BOOT). */
+ * The single generic pump (D3): dispatch the mode-stack top one step, then apply
+ * its PUSH/POP. The same body as pump_mode()'s loop, minus the floor and the host
+ * yield (the host owns the one yield). g_mode_stack[0] is the permanent
+ * GAME_MODE_OVERWORLD root (pushed in game_init); its OWP_BOOT_* phases fold in the
+ * former BOOT machine and its OWP_GAMEOVER "Continue" path resets itself to boot
+ * rather than popping, so the root never pops and the stack is never empty. */
 void game_loop_step(void) {
-    switch (g_loop_mode) {
-    case LOOP_BOOT:
-        /* Stage 1: one-shot setup (push GAME_MODE_INIT_INTRO, or skip-intro init). */
-        if (!g_boot_setup_done) {
-            g_boot_setup_done = true;
-            boot_begin();
-        }
-
-        /* Stage 2: drive the intro state machine one step per frame. This mirrors
-         * pump_mode() exactly: yield (break) after every PUSH/CONTINUE and after
-         * any POP that leaves the stack non-empty; on the final POP that drains
-         * the stack, fall through WITHOUT yielding into the overworld init. */
-        if (g_mode_stack.depth > 0) {
-            uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
-            StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
-                                              &g_mode_stack.state[top]);
-            if (r.kind == STEP_PUSH) {
-                mode_push(r.push_mode, r.push_init);
-                break;
-            } else if (r.kind == STEP_POP) {
-                mode_pop(r.pop_result);
-                if (g_mode_stack.depth > 0)
-                    break;
-                /* stack drained: intro complete — fall through, no yield */
-            } else {
-                break;  /* STEP_CONTINUE */
-            }
-        }
-
-        /* Stage 3: overworld init, then push the OW root mode and dispatch its
-         * first step (the first render) in this same frame — the assembly has no
-         * WAIT between init and the first loop iteration (main.asm line 23→24),
-         * and inserting one would make the screen visible a script frame early. */
-        overworld_boot();
-        {
-            ModeState init = { .overworld = { .phase = OWP_RENDER } };
-            mode_push(GAME_MODE_OVERWORLD, &init);
-        }
-        g_loop_mode = LOOP_OVERWORLD;
-        /* fallthrough */
-    case LOOP_OVERWORLD: {
-        /* Dispatch the mode-stack top: the OW root (g_mode_stack[0]) plus any
-         * child it has pushed (battle, menu, dialogue, fade, ...). Same shape as
-         * the BOOT machine. The OW root POPs only on a "Continue" game-over, which
-         * drains the stack -> transition back to BOOT to replay the intro/init. */
-        uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
-        StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
-                                          &g_mode_stack.state[top]);
-        if (r.kind == STEP_PUSH) {
-            mode_push(r.push_mode, r.push_init);
-        } else if (r.kind == STEP_POP) {
-            mode_pop(r.pop_result);
-            if (g_mode_stack.depth == 0) {
-                g_loop_mode = LOOP_BOOT;     /* re-boot (intro/comeback) next step */
-                g_boot_setup_done = false;   /* replay stage-1 setup on the next boot */
-            }
-        }
-        /* STEP_CONTINUE: nothing extra; the host yields after this returns. */
-        break;
+    uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
+    StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
+                                      &g_mode_stack.state[top]);
+    if (r.kind == STEP_PUSH) {
+        mode_push(r.push_mode, r.push_init);
+    } else if (r.kind == STEP_POP) {
+        mode_pop(r.pop_result);
     }
-    }
+    /* STEP_CONTINUE: nothing extra; the host yields after this returns. */
 }
 
 /* Legacy entry point retained for ports that drive the game with
@@ -1351,4 +1322,10 @@ void game_init(void) {
     rng_seed(0x56781234U);
     game_state_init();
     floating_sprite_table_load();
+
+    /* Push the permanent GAME_MODE_OVERWORLD root (g_mode_stack[0]) so the first
+     * game_loop_step() dispatches its OWP_BOOT_SETUP phase (boot_begin -> intro).
+     * The root is never popped; the stack is never empty after this. */
+    ModeState root = { .overworld = { .phase = OWP_BOOT_SETUP } };
+    mode_push(GAME_MODE_OVERWORLD, &root);
 }
