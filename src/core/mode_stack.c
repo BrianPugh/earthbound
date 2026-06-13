@@ -151,6 +151,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_HP_ALERT]            = mode_step_hp_alert,            /* overworld_palette.c */
     [GAME_MODE_GAME_OVER]           = mode_step_game_over,           /* overworld_palette.c */
     [GAME_MODE_OVERWORLD]           = mode_step_overworld,           /* game_main.c */
+    [GAME_MODE_DEBUG_GOODS]         = mode_step_debug_goods,         /* game_main.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

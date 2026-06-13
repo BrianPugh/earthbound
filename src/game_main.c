@@ -580,16 +580,24 @@ static void debug_y_button_flag(void) {
 }
 
 /*
- * debug_y_button_goods — Port of DEBUG_Y_BUTTON_GOODS (asm/overworld/debug/y_button_goods.asm).
+ * mode_step_debug_goods — run-to-completion port of DEBUG_Y_BUTTON_GOODS
+ * (asm/overworld/debug/y_button_goods.asm). See DebugGoodsState in mode_stack.h.
  *
- * Interactive item browser/giver. Shows item ID and name.
- * D-pad navigates (up/down by 1, left/right by 10), A gives item to a
- * selected character (auto-equips weapons), B exits.
+ * Interactive item browser/giver. Shows item ID and name. D-pad navigates
+ * (up/down by 1, left/right by 10), A gives item to a selected character
+ * (auto-equips weapons), B exits. The blocking form was a raw for(;;){ ...
+ * wait_for_vblank(); ... } loop with an inline char_select_prompt(mode 1) — the
+ * last non-mode debug driver. The A path now runs char_select_prompt's mode-1
+ * (overworld) flow as a STEP_PUSH of SELECTION_MENU, bracketed by
+ * char_select_overworld_prepare/finish (the determine-targetting ally pattern).
+ * The single yield is owned by the pump/root; this body never calls
+ * wait_for_vblank(). Input is read post-yield (the established pattern).
  */
-static void debug_y_button_goods(void) {
-    uint16_t item_id = 0;
+StepResult mode_step_debug_goods(ModeState *mst) {
+    DebugGoodsState *s = &mst->debug_goods;
 
-    for (;;) {
+    switch ((DebugGoodsPhase)s->phase) {
+    case DG_DRAW: {
         set_instant_printing();
         create_window(WINDOW_FILE_SELECT_MENU);
         set_window_number_padding(2);
@@ -597,67 +605,98 @@ static void debug_y_button_goods(void) {
         /* US: set padding to 130, cursor to (0,0), print number, cursor to (3,0) */
         set_window_number_padding(130);
         set_focus_text_cursor(0, 0);
-        print_number((int)item_id, 1);
+        print_number((int)s->item_id, 1);
         set_focus_text_cursor(3, 0);
 
         /* Print item name (EB-encoded, 25 chars max) */
-        const ItemConfig *item = get_item_entry(item_id);
+        const ItemConfig *item = get_item_entry(s->item_id);
         if (item)
             print_text_with_word_splitting(item->name, ITEM_NAME_LEN);
 
         clear_instant_printing();
-        window_tick();
-
-        uint16_t new_id = item_id;
-
-        for (;;) {
-            wait_for_vblank();
-
-            if (core.pad1_held & PAD_UP) {
-                new_id = item_id + 1;
-                break;
-            }
-            if (core.pad1_held & PAD_DOWN) {
-                new_id = item_id - 1;
-                break;
-            }
-            if (core.pad1_held & PAD_RIGHT) {
-                new_id = item_id + 10;
-                break;
-            }
-            if (core.pad1_held & PAD_LEFT) {
-                new_id = item_id - 10;
-                break;
-            }
-            if (core.pad1_pressed & PAD_CONFIRM) {
-                /* Give item to selected character */
-                uint16_t char_id = char_select_prompt(1, 1, NULL, NULL);
-                if (char_id == 0)
-                    break;  /* Cancelled */
-                if (find_inventory_space2(char_id) == 0)
-                    break;  /* No room */
-                give_item_to_character(char_id, item_id);
-                /* Auto-equip if it's a weapon/armor type (type == 2) */
-                if (check_item_usable_by(char_id, item_id) == 0)
-                    goto exit;
-                if (get_item_type(item_id) != 2)
-                    goto exit;
-                uint16_t slot = find_empty_inventory_slot(char_id);
-                equip_item(char_id, slot);
-                goto exit;
-            }
-            if (core.pad1_pressed & PAD_CANCEL) {
-                goto exit;
-            }
-        }
-
-        /* Validate: assembly uses CMP #$0100 (256), unsigned */
-        if (new_id < 256)
-            item_id = new_id;
+        window_tick_work();
+        s->phase = DG_INPUT;
+        return STEP_RESULT_CONTINUE();
     }
 
-exit:
-    close_window(WINDOW_FILE_SELECT_MENU);
+    case DG_INPUT: {
+        /* d-pad navigates (held), A gives, B exits. Any nav returns to DG_DRAW
+         * to re-render; the cadence (one step per two frames) matches the
+         * blocking draw-frame + input-frame loop. */
+        uint16_t new_id = s->item_id;
+        bool changed = false;
+        if (core.pad1_held & PAD_UP) {
+            new_id = s->item_id + 1; changed = true;
+        } else if (core.pad1_held & PAD_DOWN) {
+            new_id = s->item_id - 1; changed = true;
+        } else if (core.pad1_held & PAD_RIGHT) {
+            new_id = s->item_id + 10; changed = true;
+        } else if (core.pad1_held & PAD_LEFT) {
+            new_id = s->item_id - 10; changed = true;
+        } else if (core.pad1_pressed & PAD_CONFIRM) {
+            /* Give item to selected character: char_select_prompt(1, 1, NULL,
+             * NULL)'s name window, with its SELECTION_MENU STEP_PUSHed; the
+             * mode-1 epilogue runs in DG_GIVE_RESULT after it pops. */
+            s->saved_argument_memory = get_argument_memory();
+            s->give_window_id = char_select_overworld_prepare(NULL);
+            ModeState child = {0};
+            child.selection_menu.phase        = SM_SETUP;
+            child.selection_menu.allow_cancel = 1;
+            s->phase = DG_GIVE_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child);
+        } else if (core.pad1_pressed & PAD_CANCEL) {
+            close_window(WINDOW_FILE_SELECT_MENU);
+            return STEP_RESULT_POP(0);
+        }
+
+        if (changed) {
+            /* Validate: assembly uses CMP #$0100 (256), unsigned */
+            if (new_id < 256)
+                s->item_id = new_id;
+            s->phase = DG_DRAW;
+        }
+        return STEP_RESULT_CONTINUE();
+    }
+
+    case DG_GIVE_RESULT:
+    default: {
+        /* The char-select SELECTION_MENU popped. Run char_select_prompt's mode-1
+         * epilogue (window close, attrs, pagination) + argument_memory restore,
+         * then the give/equip tail. */
+        uint16_t char_id = (uint16_t)mode_child_result();
+        char_select_overworld_finish(s->give_window_id, false);
+        set_argument_memory(s->saved_argument_memory);
+
+        /* Cancelled (0) or no inventory room -> back to browsing (the blocking
+         * form's `break` out of the inner loop, which redrew the same item). */
+        if (char_id == 0 || find_inventory_space2(char_id) == 0) {
+            s->phase = DG_DRAW;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        give_item_to_character(char_id, s->item_id);
+        /* Auto-equip if it's a weapon/armor type (usable by char && type == 2). */
+        if (check_item_usable_by(char_id, s->item_id) != 0 &&
+            get_item_type(s->item_id) == 2) {
+            uint16_t slot = find_empty_inventory_slot(char_id);
+            equip_item(char_id, slot);
+        }
+        close_window(WINDOW_FILE_SELECT_MENU);
+        return STEP_RESULT_POP(0);
+    }
+    }
+}
+
+/*
+ * debug_y_button_goods — pump bridge for GAME_MODE_DEBUG_GOODS. Deleted at the
+ * Phase D cutover (D4b); for now it lets the still-blocking debug Y-button menu
+ * drive the goods browser to completion.
+ */
+static void debug_y_button_goods(void) {
+    ModeState init = {0};
+    init.debug_goods.phase   = DG_DRAW;
+    init.debug_goods.item_id = 0;
+    pump_mode(GAME_MODE_DEBUG_GOODS, &init);
 }
 
 /*

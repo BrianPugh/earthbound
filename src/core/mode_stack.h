@@ -89,6 +89,7 @@ typedef enum {
     GAME_MODE_HP_ALERT,            /* "HP is very low!" overworld warning (show_hp_alert) */
     GAME_MODE_GAME_OVER,           /* game-over / comeback sequence (spawn + play_comeback_sequence) */
     GAME_MODE_OVERWORLD,           /* overworld root mode (overworld_post + overworld_step) */
+    GAME_MODE_DEBUG_GOODS,         /* debug Y-button Goods item browser/giver (debug_y_button_goods) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1096,10 +1097,8 @@ typedef struct {
 /* GAME_MODE_DEBUG_YMENU — run-to-completion port of the two clean-leaf debug
  * Y-button menus (debug_y_button_flag, debug_y_button_guide in game_main.c). Both
  * are an outer redraw + inner input wait; `kind` selects which. (debug_y_button_
- * goods is NOT here: its A action calls char_select_prompt(mode 1), which is still
- * a blocking selection_menu wrapper, not a pushable mode — converting goods now
- * would leave its "inside char_select" position on the native stack. Revisit when
- * char_select_prompt mode 1 becomes a mode, then convert goods via STEP_PUSH.) */
+ * goods is its own GAME_MODE_DEBUG_GOODS — its A action's char_select_prompt(mode
+ * 1) is now a STEP_PUSH of SELECTION_MENU via char_select_overworld_prepare.) */
 typedef enum {
     DBG_YMENU_FLAG = 0,  /* event flag editor */
     DBG_YMENU_GUIDE,     /* active-script entity counter (draw once, wait for cancel) */
@@ -1115,6 +1114,27 @@ typedef struct {
     uint8_t  kind;   /* DebugYMenuKind */
     uint16_t index;  /* FLAG: current flag index (1-1999) */
 } DebugYMenuState;
+
+/* GAME_MODE_DEBUG_GOODS — run-to-completion port of debug_y_button_goods
+ * (game_main.c), the debug Y-button "Goods" item browser/giver. The blocking
+ * form was a raw for(;;){...wait_for_vblank();...} loop with an inline
+ * char_select_prompt(mode 1) — the last non-mode debug driver. D-pad browses
+ * item ids (±1 held up/down, ±10 left/right), A gives the item to a selected
+ * party member (auto-equips weapons/armor), B exits. The A path STEP_PUSHes
+ * SELECTION_MENU exactly as the determine-targetting ally pick does
+ * (char_select_overworld_prepare/finish bracket the push). */
+typedef enum {
+    DG_DRAW = 0,       /* (re)draw the item id + name window, then yield */
+    DG_INPUT,          /* read input; nav / A (give) / B (exit) */
+    DG_GIVE_RESULT,    /* the char-select SELECTION_MENU popped: give/equip or redraw */
+} DebugGoodsPhase;
+
+typedef struct {
+    uint8_t  phase;                  /* DebugGoodsPhase */
+    uint16_t item_id;                /* current item id (0-255) */
+    uint16_t give_window_id;         /* char-select window id to close in DG_GIVE_RESULT */
+    uint32_t saved_argument_memory;  /* focus window argument_memory across the push */
+} DebugGoodsState;
 
 /* GAME_MODE_BATTLE_WAIT — run-to-completion port of the family of blocking
  * "advance one frame until <condition>" loops scattered through the battle code.
@@ -2064,6 +2084,7 @@ union ModeState {
     HpAlertState          hp_alert;
     GameOverState         game_over;
     OverworldModeState    overworld;
+    DebugGoodsState       debug_goods;
     uint8_t               _raw[160];
 };
 
@@ -2131,6 +2152,10 @@ StepResult mode_step_sound_stone(ModeState *st);
  * ModeState.debug_ymenu (phase = DY_DRAW, kind, index) before
  * pump_mode(GAME_MODE_DEBUG_YMENU). Always pops 0. */
 StepResult mode_step_debug_ymenu(ModeState *st);
+
+/* GAME_MODE_DEBUG_GOODS step (defined in game_main.c). Init via
+ * ModeState.debug_goods (phase = DG_DRAW, item_id = 0). Always pops 0. */
+StepResult mode_step_debug_goods(ModeState *st);
 
 /* GAME_MODE_BATTLE_WAIT step (defined in battle.c, where the swirl/PSI/meter
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for

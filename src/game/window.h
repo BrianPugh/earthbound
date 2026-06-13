@@ -318,6 +318,13 @@ uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id);
 void char_select_make_init(union ModeState *init, uint16_t mode, uint16_t allow_cancel,
                            uint8_t on_change_id, uint8_t check_valid_id);
 
+/* char_select_prompt mode-1 (overworld) prologue/epilogue, factored out so an
+ * already-converted parent can build the party-name window and STEP_PUSH
+ * SELECTION_MENU itself (the determine-targetting ally pick + debug Goods).
+ * Defined in battle.c. _prepare returns the window id to close in _finish. */
+uint16_t char_select_overworld_prepare(void (*on_change)(uint16_t));
+void     char_select_overworld_finish(uint16_t window_id, bool had_on_change);
+
 /* CLEAR_FOCUS_WINDOW_MENU_OPTIONS: Port of asm/text/window/clear_focus_window_menu_options.asm.
  * Resets the menu item count of the focus window to 0. */
 void clear_focus_window_menu_options(void);
