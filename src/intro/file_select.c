@@ -1605,7 +1605,9 @@ static uint16_t fm_take_result(FileMenuState *st) {
 }
 
 /*
- * GAME_MODE_FILE_MENU step — run-to-completion port of file_menu_loop()'s loop.
+ * GAME_MODE_FILE_MENU step — run-to-completion port of the file-menu cascade
+ * (the loop half of the former file_menu_loop(); its one-shot setup is now
+ * file_menu_setup()).
  * See FileMenuState in mode_stack.h for the phase machine and what stays blocking.
  * The synchronous build/apply helpers and the sub-menu pushes let several
  * phases chain within one dispatch (the internal for-loop), matching the blocking
@@ -1892,7 +1894,7 @@ StepResult mode_step_file_menu(ModeState *ms) {
  * fade-in wait and the menu cascade run as GAME_MODE_FILE_MENU.
  * Ported from FILE_SELECT_INIT + RUN_FILE_MENU in assembly.
  */
-uint16_t file_menu_loop(void) {
+void file_menu_setup(void) {
     /* Load asset data for file select screen */
     dont_care_names_data = ASSET_DATA(ASSET_US_DATA_DONT_CARE_NAMES_BIN);
     hp_meter_speeds_data = ASSET_DATA(ASSET_DATA_HP_METER_SPEEDS_BIN);
@@ -1905,7 +1907,6 @@ uint16_t file_menu_loop(void) {
     /* Fade in (matching assembly: FADE_IN with X=1) */
     fade_in(1, 1);
 
-    ModeState init = {0};
-    init.file_menu.phase = FM_FADEIN_WAIT;
-    return (uint16_t)pump_mode(GAME_MODE_FILE_MENU, &init);
+    /* The file-menu cascade itself runs as GAME_MODE_FILE_MENU (FM_FADEIN_WAIT),
+     * STEP_PUSHed by the init_intro parent after this setup returns. */
 }

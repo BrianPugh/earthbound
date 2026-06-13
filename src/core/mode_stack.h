@@ -1580,12 +1580,16 @@ typedef struct {
     uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
 } TitleScreenState;
 
-/* GAME_MODE_ATTRACT — run-to-completion port of the three blocking loops at the
- * tail of run_attract_mode() (attract_mode.c), an idle title-screen demo scene.
- * The one-shot setup AND the blocking display_text_from_addr() that drives the
- * scene script (which pumps its own converted text waits internally) stay in the
- * blocking wrapper; only the post-script loops live here:
+/* GAME_MODE_ATTRACT — run-to-completion port of run_attract_mode() (attract_mode.c),
+ * an idle title-screen demo scene. The one-shot setup runs inline in
+ * run_attract_mode_prepare() (called by the init_intro parent before the push);
+ * the scene-driving DISPLAY_TEXT and the three post-script loops live here:
  *
+ *   AT_SCRIPT     - STEP_PUSH GAME_MODE_DISPLAY_TEXT with the scene's attract-mode
+ *                   bytecode (attract_mode_text_addrs[scene_index]) — the script
+ *                   sets flags, teleports, spawns entities, and pauses for the scene
+ *                   duration. On its POP -> AT_MAIN. (Replaces the former blocking
+ *                   display_text_from_addr() in run_attract_mode().)
  *   AT_MAIN       - while(actionscript_state == 0): update_swirl_effect(), then a
  *                   button check (any button -> result 1), then render_frame_tick_
  *                   work() + fade_update() + the frame<=1 TM override + the 36000-
@@ -1602,7 +1606,8 @@ typedef struct {
  * earlier than the blocking loop (which yielded before it) — an accepted
  * imperceptible shift on this brief cosmetic close animation. */
 typedef enum {
-    AT_MAIN = 0,
+    AT_SCRIPT = 0,
+    AT_MAIN,
     AT_OVAL_CLOSE,
     AT_FADEOUT,
 } AttractPhase;
@@ -1611,6 +1616,7 @@ typedef struct {
     uint8_t  phase;          /* AttractPhase */
     uint8_t  button_pressed; /* result: a button ended the scene */
     uint16_t loop_frame;     /* AT_MAIN: frame counter (TM override + timeout) */
+    uint16_t scene_index;    /* AT_SCRIPT: which attract scene script to run */
 } AttractState;
 
 /* GAME_MODE_FILE_MENU — run-to-completion port of file_menu_loop() (file_select.c),
@@ -1660,12 +1666,13 @@ typedef struct {
 
 /* GAME_MODE_INIT_INTRO — run-to-completion port of init_intro()'s state machine
  * (init_intro.c). STEP_PUSHes the converted intro leaves (INTRO_LOGO, GAS_STATION,
- * TITLE_SCREEN) and FILE_MENU as children, branching on mode_child_result(). The
- * yield-free transitions (change_music, fade_out_if_visible, the PPU cleanup, the
- * post-file-menu cleanup) run inline at the phase boundaries. Attract scenes still
- * run via the blocking run_attract_mode() wrapper, called inline: its scene is
- * driven by display_text_from_addr() (the text interpreter), which is not yet a
- * mode. The one-shot init_intro() setup stays in the blocking wrapper. */
+ * TITLE_SCREEN), ATTRACT, and FILE_MENU as children, branching on
+ * mode_child_result(). The yield-free transitions (change_music,
+ * fade_out_if_visible, the PPU cleanup, the per-scene attract setup via
+ * run_attract_mode_prepare(), the file-menu setup via file_menu_setup(), the
+ * post-file-menu cleanup) run inline at the phase boundaries. The one-shot
+ * init_intro() setup runs in the init_intro() entry. The intro is now STEP_PUSH
+ * end-to-end (no inline pump bridges remain). */
 typedef enum {
     II_LOGO = 0,        /* push INTRO_LOGO */
     II_LOGO_RESULT,
@@ -1673,9 +1680,11 @@ typedef enum {
     II_GAS_RESULT,
     II_TITLE,           /* change_music(TITLE_SCREEN); title setup; push TITLE_SCREEN */
     II_TITLE_RESULT,
-    II_ATTRACT,         /* run the attract scene table (blocking run_attract_mode) */
-    II_FILE_MENU,       /* exit cleanup; change_music(SETUP); push FILE_MENU */
-    II_FILE_MENU_DONE,  /* post-file-menu cleanup (window_tick_work) then pop */
+    II_ATTRACT,         /* per-scene setup (run_attract_mode_prepare); push ATTRACT */
+    II_ATTRACT_RESULT,  /* button -> file menu; else next scene or back to title */
+    II_FILE_MENU,       /* exit cleanup; change_music(SETUP); setup; push FILE_MENU */
+    II_FILE_MENU_POST,  /* post-file-menu cleanup (clear_instant_printing/window_tick_work) */
+    II_FILE_MENU_DONE,  /* clear disabled_transitions; free title script data; pop */
 } InitIntroPhase;
 
 typedef struct {

@@ -3,6 +3,7 @@
 #include "intro/gas_station.h"
 #include "intro/title_screen.h"
 #include "intro/attract_mode.h"
+#include "intro/file_select.h"
 #include "data/event_script_data.h"
 #include "snes/ppu.h"
 #include "core/memory.h"
@@ -19,9 +20,6 @@
 
 /* Forward declarations */
 #include "game_main.h"
-
-/* Forward declaration for file select (Phase 7) */
-extern uint16_t file_menu_loop(void);
 
 /* Blocking fade-out if the screen is currently visible.
  * Port of FADE_OUT_WITH_MOSAIC(step=4, delay=1, mosaic=0) used in the
@@ -50,7 +48,7 @@ static void init_intro_exit_cleanup(void) {
     ppu.tm = 1;  /* BG1 only */
     ppu.ts = 0;
     /* Assembly line 246: re-enable music changes for normal gameplay.
-     * MUST be before file_menu_loop so music changes work during file select. */
+     * MUST be before the file menu so music changes work during file select. */
     ow.disable_music_changes = 0;
 }
 
@@ -68,15 +66,14 @@ static ModeState ii_child_init;
 /*
  * GAME_MODE_INIT_INTRO step — run-to-completion port of INIT_INTRO's state
  * machine (asm/intro/init_intro.asm, US retail path). See InitIntroState in
- * mode_stack.h. The intro leaves (logos, gas station, title screen) are STEP_
- * PUSHed as their own modes after their yield-free setup runs inline; the result
- * each hands back (button skip vs normal completion) is read via mode_child_
- * result() in the matching *_RESULT phase. Attract scenes and the file menu run
- * via their blocking wrappers inline (run_attract_mode() blocks on the not-yet-
- * converted text interpreter; file_menu_loop() does one-shot setup before pumping
- * GAME_MODE_FILE_MENU). The brief fade_out_if_visible() / exit-cleanup transitions
- * also run inline (they yield via direct wait_for_vblank, only on input-driven
- * skip paths). The pump owns the single yield.
+ * mode_stack.h. Every child stage — the intro leaves (logos, gas station, title
+ * screen), the attract scenes (GAME_MODE_ATTRACT), and the file menu
+ * (GAME_MODE_FILE_MENU) — is STEP_PUSHed as its own mode after its yield-free
+ * setup runs inline; the result each hands back (button skip vs normal
+ * completion) is read via mode_child_result() in the matching *_RESULT phase.
+ * The intro is now STEP_PUSH end-to-end. The brief fade_out_if_visible() /
+ * exit-cleanup transitions still run inline (they yield via direct
+ * wait_for_vblank, only on input-driven skip paths). The pump owns the yield.
  */
 StepResult mode_step_init_intro(ModeState *ms) {
     InitIntroState *st = &ms->init_intro;
@@ -155,32 +152,52 @@ StepResult mode_step_init_intro(ModeState *ms) {
             continue;
 
         case II_ATTRACT: {
-            /* Attract scenes run back-to-back via the blocking run_attract_mode()
-             * wrapper. A button press during ANY scene exits directly to file
-             * select (asm @UNKNOWN27, init_intro.asm:212-247). */
+            /* Attract scenes run back-to-back. The yield-free per-scene setup runs
+             * inline (run_attract_mode_prepare); GAME_MODE_ATTRACT then drives the
+             * scene (its AT_SCRIPT phase) and pops 1 if a button was pressed during
+             * ANY scene -> exit directly to file select (asm @UNKNOWN27,
+             * init_intro.asm:212-247). */
             if (st->attract_index == 0)
                 change_music(157); /* MUSIC::ATTRACT_MODE (first scene only) */
             uint16_t scene = init_intro_attract_scenes[st->attract_index];
-            if (run_attract_mode(scene) != 0) {
-                st->phase = II_FILE_MENU;
-                continue;
-            }
-            st->attract_index++;
-            if (st->attract_index >= INIT_INTRO_ATTRACT_COUNT) {
-                /* After all attract scenes, loop back to the title screen. */
-                st->title_quick_mode = 0;
-                st->phase = II_TITLE;
-            }
-            /* else: stay in II_ATTRACT and run the next scene immediately. */
-            continue;
+            run_attract_mode_prepare(scene);
+            ii_child_init = (ModeState){0};
+            ii_child_init.attract.phase       = AT_SCRIPT;
+            ii_child_init.attract.scene_index = scene;
+            st->phase = II_ATTRACT_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ATTRACT, &ii_child_init);
         }
+
+        case II_ATTRACT_RESULT:
+            if (mode_child_result() != 0) {
+                /* Button during a scene — exit to file select. */
+                st->phase = II_FILE_MENU;
+            } else {
+                st->attract_index++;
+                if (st->attract_index >= INIT_INTRO_ATTRACT_COUNT) {
+                    /* After all attract scenes, loop back to the title screen. */
+                    st->title_quick_mode = 0;
+                    st->phase = II_TITLE;
+                } else {
+                    /* Run the next scene immediately. */
+                    st->phase = II_ATTRACT;
+                }
+            }
+            continue;
 
         case II_FILE_MENU:
             /* Exit cleanup + file select. RUN_FILE_MENU (run_file_menu.asm).
-             * file_menu_loop() runs blocking (one-shot setup + pumps FILE_MENU). */
+             * The yield-free file-menu setup runs inline (file_menu_setup); the
+             * cascade runs as GAME_MODE_FILE_MENU. */
             init_intro_exit_cleanup();
             change_music(3); /* MUSIC::SETUP_SCREEN */
-            file_menu_loop();
+            file_menu_setup();
+            ii_child_init = (ModeState){0};
+            ii_child_init.file_menu.phase = FM_FADEIN_WAIT;
+            st->phase = II_FILE_MENU_POST;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FILE_MENU, &ii_child_init);
+
+        case II_FILE_MENU_POST:
             /* RUN_FILE_MENU post-cleanup (run_file_menu.asm:13-17). The single
              * window_tick() becomes window_tick_work() + the CONTINUE yield. */
             clear_instant_printing();

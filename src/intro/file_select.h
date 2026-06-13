@@ -3,10 +3,11 @@
 
 #include "core/types.h"
 
-/* Run the complete file menu loop.
-   Returns when user selects Start Game or completes New Game naming.
-   Ported from FILE_MENU_LOOP in asm/intro/file_select_menu_loop.asm */
-uint16_t file_menu_loop(void);
+/* One-shot setup for the file menu (the yield-free front half of FILE_MENU_LOOP,
+ * asm/intro/file_select_menu_loop.asm): loads the file-select asset data, runs
+ * FILE_SELECT_INIT, and starts the fade-in. The init_intro parent calls this,
+ * then STEP_PUSHes GAME_MODE_FILE_MENU (phase FM_FADEIN_WAIT) to run the cascade. */
+void file_menu_setup(void);
 
 /* Identifies the (stable global) buffer a naming dialog writes its result into.
  * The output buffer was a uint8_t* parameter; it is replaced by this ID so the

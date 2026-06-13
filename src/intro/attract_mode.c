@@ -14,6 +14,7 @@
 #include "entity/sprite.h"
 #include "game/battle_bg.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"
 #include "game/fade.h"
 #include "game/game_state.h"
 #include "game/map_loader.h"
@@ -73,6 +74,23 @@ StepResult mode_step_attract_mode(ModeState *st) {
   AttractState *s = &st->attract;
 
   switch ((AttractPhase)s->phase) {
+  case AT_SCRIPT: {
+    /* Drive the scene by running its attract-mode bytecode script as a child
+     * DISPLAY_TEXT (replaces the former blocking display_text_from_addr()). The
+     * script sets event flags, adds party members, teleports to the scene
+     * location, spawns entities with movement scripts, and pauses for the scene
+     * duration. On its POP we resume at AT_MAIN to run the post-script frames. */
+    s->phase = AT_MAIN;
+    static ModeState dt_init; /* must outlive this dispatch (pump copies it) */
+    if (dt_make_child_init(&dt_init, attract_mode_text_addrs[s->scene_index])) {
+      return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+    }
+    /* Unresolvable address: warn-and-continue, matching the blocking path. */
+    LOG_WARN("attract: resolve_text_addr(0x%06X) returned NULL\n",
+             attract_mode_text_addrs[s->scene_index]);
+    return STEP_RESULT_CONTINUE();
+  }
+
   case AT_MAIN: {
     /* while(actionscript_state == 0): swirl, button check, render, fade, TM. */
     bool done = false;
@@ -125,7 +143,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
   return STEP_RESULT_POP(s->button_pressed);
 }
 
-uint16_t run_attract_mode(uint16_t scene_index) {
+void run_attract_mode_prepare(uint16_t scene_index) {
   /* Clamp scene index to valid range */
   if (scene_index >= 10)
     scene_index = 9;
@@ -210,16 +228,13 @@ uint16_t run_attract_mode(uint16_t scene_index) {
   /* Step 13: Clear actionscript state */
   ert.actionscript_state = 0;
 
-  /* Step 14: Run DISPLAY_TEXT with attract mode scene script.
-   * This drives the entire scene: sets event flags, adds party members,
-   * teleports to the scene location (loading map data), spawns entities
-   * with movement scripts, and pauses for the scene duration.
-   * DISPLAY_TEXT blocks until the script hits END_BLOCK. */
-  {
-    display_text_from_addr(attract_mode_text_addrs[scene_index]);
-  }
-
-  /* The assembly does NOT clear ow.camera_focus_entity here — the camera
+  /* Step 14 (the scene-driving DISPLAY_TEXT) now runs as GAME_MODE_ATTRACT's
+   * AT_SCRIPT phase (see mode_step_attract_mode), pushed by the init_intro parent
+   * after this one-shot setup returns. The script drives the entire scene: sets
+   * event flags, adds party members, teleports to the scene location (loading map
+   * data), spawns entities with movement scripts, and pauses for the duration.
+   *
+   * The assembly does NOT clear ow.camera_focus_entity here — the camera
    * naturally follows the focus entity (sprite 106, invisible pathfinder)
    * during the entire scene via render_frame_tick()'s scroll update.
    * This is what makes the view pan across the map through the oval window.
@@ -243,11 +258,8 @@ uint16_t run_attract_mode(uint16_t scene_index) {
    * EVENT_002 / party follower) uses an 8-bit STA that preserves the
    * OBJECT_TICK_DISABLED flag in the high byte. */
 
-  /* The main scene loop, the oval-close wait, and the fade-out + cleanup now
-   * run as GAME_MODE_ATTRACT (see mode_step_attract_mode above). The blocking
-   * display_text_from_addr() above already drove the scene script to its
-   * END_BLOCK; this mode runs the remaining post-script frames. */
-  ModeState init = {0};
-  init.attract.phase = AT_MAIN;
-  return (uint16_t)pump_mode(GAME_MODE_ATTRACT, &init);
+  /* The scene-driving DISPLAY_TEXT (AT_SCRIPT), the main scene loop, the
+   * oval-close wait, and the fade-out + cleanup all run as GAME_MODE_ATTRACT
+   * (see mode_step_attract_mode above), pushed by the init_intro parent after
+   * this setup returns. */
 }
