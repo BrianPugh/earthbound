@@ -30,6 +30,8 @@
 
 #include "game/overworld_internal.h"
 #include "game/game_state.h"
+#include "core/mode_stack.h"
+#include "core/log.h"
 #include "game/audio.h"
 #include "game/fade.h"
 #include "game/position_buffer.h"
@@ -37,6 +39,7 @@
 #include "game/window.h"
 #include "game/door.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"  /* dt_make_child_init */
 #include "entity/entity.h"
 #include "entity/sprite.h"
 #include "snes/ppu.h"
@@ -107,12 +110,14 @@ static void reset_entities_after_teleport(void) {
     change_music(ml.next_map_music_track);
 }
 
-/* ---- RUN_TELEPORT_FAILURE_SEQUENCE (port of asm/overworld/teleport/run_teleport_failure_sequence.asm) ----
+/* ---- RUN_TELEPORT_FAILURE_SEQUENCE prologue (port of asm/overworld/teleport/run_teleport_failure_sequence.asm) ----
  *
- * Called when PSI Teleport fails (bumps into obstacle).
- * Plays failure music, sets party status to "charred", runs 180 frames
- * with surface/graphics update tick callbacks, then clears status. */
-static void run_teleport_failure_sequence(void) {
+ * Called when PSI Teleport fails (bumps into obstacle). The synchronous front
+ * half: play failure music, flag party walking-style change, swap to the
+ * surface/graphics-update tick callbacks, and set party status to "charred".
+ * The blocking 180-frame wait + status clear that followed live in
+ * GAME_MODE_TELEPORT (TP_FAIL_WAIT). */
+static void teleport_failure_prologue(void) {
     ow.disabled_transitions = 1;
 
     /* Play teleport failure music (MUSIC::TELEPORT_FAIL = 14) */
@@ -130,17 +135,6 @@ static void run_teleport_failure_sequence(void) {
 
     /* Set party_status = 1 (charred appearance) */
     game_state.party_status = 1;
-
-    /* Wait 180 frames.
-     * Assembly: OAM_CLEAR + RUN_ACTIONSCRIPT_FRAME + UPDATE_SCREEN +
-     * WAIT_UNTIL_NEXT_FRAME. render_frame_tick() does all four. */
-    for (int i = 0; i < 180; i++) {
-        render_frame_tick();
-    }
-
-    /* Clear party_status and re-enable transitions */
-    game_state.party_status = 0;
-    ow.disabled_transitions = 0;
 }
 
 /* ---- UPDATE_PSI_TELEPORT_SPEED (port of asm/overworld/teleport/update_psi_teleport_speed.asm) ----
@@ -785,91 +779,140 @@ static void init_teleport_departure(void) {
  * For INSTANT: stops music, freezes entities, loads destination, fades in.
  * For other styles: plays departure animation, fades, loads, plays arrival. */
 void teleport_mainloop(void) {
-    /* Assembly line 8: stop music */
-    stop_music();
-    render_frame_tick();
+    /* Pump bridge for the three still-blocking callers (the overworld root in
+     * game_main.c, and the post-battle teleport checks in GAME_MODE_BATTLE_ENTRY
+     * / GAME_MODE_BATTLE_SCRIPTED). They STEP_PUSH GAME_MODE_TELEPORT at Phase D. */
+    pump_mode(GAME_MODE_TELEPORT, NULL);
+}
 
-    /* Assembly line 10: freeze NPC entities */
-    teleport_freeze_entities();
+/* ---- GAME_MODE_TELEPORT step (run-to-completion port of TELEPORT_MAINLOOP) ----
+ * Phase machine + faithfulness notes documented at GAME_MODE_TELEPORT in
+ * core/mode_stack.h. Synchronous phase transitions loop without yielding
+ * (matching the assembly fall-through); each frame of animation/wait returns
+ * STEP_CONTINUE so the pump owns the single yield. */
+StepResult mode_step_teleport(ModeState *st) {
+    TeleportState *ts = &st->teleport;
 
-    /* Assembly line 13-14: clear teleport speed and state */
-    ow.psi_teleport_speed = 0;
-    ow.psi_teleport_speed_int = 0;
-    ow.psi_teleport_state = 0;
+    for (;;) {
+        switch (ts->phase) {
+        case TP_BEGIN:
+            /* Assembly: STOP_MUSIC + WAIT_UNTIL_NEXT_FRAME (a bare wait). */
+            stop_music();
+            ts->phase = TP_SETUP;
+            return STEP_RESULT_CONTINUE();
 
-    /* Assembly line 15-16: clear party hide flags and init beta state */
-    clear_party_sprite_hide_flags();
-    init_psi_teleport_beta();
+        case TP_SETUP:
+            /* Assembly lines 10-49: freeze NPCs, clear teleport state, assign
+             * the style's tick callbacks, start the teleport-out music. */
+            teleport_freeze_entities();
+            ow.psi_teleport_speed = 0;
+            ow.psi_teleport_speed_int = 0;
+            ow.psi_teleport_state = 0;
+            clear_party_sprite_hide_flags();
+            init_psi_teleport_beta();
 
-    /* Style-based tick callback setup (assembly lines 17-49) */
-    switch (ow.psi_teleport_style) {
-    case TELEPORT_STYLE_PSI_ALPHA:
-    case TELEPORT_STYLE_STAR_MASTER:
-        set_party_tick_callbacks(INIT_ENTITY_SLOT,
-                                 0xC0E28F,  /* PSI_TELEPORT_ALPHA_TICK */
-                                 0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
-        break;
-    case TELEPORT_STYLE_PSI_BETA:
-        set_party_tick_callbacks(INIT_ENTITY_SLOT,
-                                 0xC0E516,  /* PSI_TELEPORT_BETA_TICK */
-                                 0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
-        break;
-    case TELEPORT_STYLE_INSTANT:
-        /* Skip tick callbacks entirely — go straight to arrived state */
-        ow.psi_teleport_state = 1;
-        break;
-    case TELEPORT_STYLE_PSI_BETTER:
-        set_party_tick_callbacks(INIT_ENTITY_SLOT,
-                                 0xC0E516,  /* PSI_TELEPORT_BETA_TICK */
-                                 0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
-        break;
-    }
+            switch (ow.psi_teleport_style) {
+            case TELEPORT_STYLE_PSI_ALPHA:
+            case TELEPORT_STYLE_STAR_MASTER:
+                set_party_tick_callbacks(INIT_ENTITY_SLOT,
+                                         0xC0E28F,  /* PSI_TELEPORT_ALPHA_TICK */
+                                         0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
+                break;
+            case TELEPORT_STYLE_PSI_BETA:
+                set_party_tick_callbacks(INIT_ENTITY_SLOT,
+                                         0xC0E516,  /* PSI_TELEPORT_BETA_TICK */
+                                         0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
+                break;
+            case TELEPORT_STYLE_INSTANT:
+                /* Skip tick callbacks entirely — go straight to arrived state */
+                ow.psi_teleport_state = 1;
+                break;
+            case TELEPORT_STYLE_PSI_BETTER:
+                set_party_tick_callbacks(INIT_ENTITY_SLOT,
+                                         0xC0E516,  /* PSI_TELEPORT_BETA_TICK */
+                                         0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
+                break;
+            }
 
-    /* Play teleport music (skip for INSTANT) */
-    if (ow.psi_teleport_style != TELEPORT_STYLE_INSTANT) {
-        change_music(13);  /* MUSIC::TELEPORT_OUT */
-    }
+            if (ow.psi_teleport_style != TELEPORT_STYLE_INSTANT) {
+                change_music(13);  /* MUSIC::TELEPORT_OUT */
+            }
+            ts->phase = TP_LOOP;
+            continue;  /* assembly falls straight to @TELEPORT_LOOP_CHECK */
 
-    /* Teleport loop: run animation frames until state changes (lines 57-65) */
-    while (ow.psi_teleport_state == 0) {
-        oam_clear();
-        run_actionscript_frame();
-        teleport_freeze_entities_conditional();
-        update_screen();
-        render_frame_tick();
-    }
+        case TP_LOOP:
+            if (ow.psi_teleport_state != 0) {
+                /* Terminal state reached. Dispatch synchronously, matching the
+                 * assembly BEQ chain at @TELEPORT_LOOP_CHECK. */
+                if (ow.psi_teleport_state == 1) {
+                    /* STATE_ARRIVED: successful teleport (all synchronous;
+                     * the STAR_MASTER text is queued, not displayed inline). */
+                    init_teleport_arrival();
+                    load_teleport_destination();
+                    init_teleport_departure();
+                    if (ow.psi_teleport_style == TELEPORT_STYLE_STAR_MASTER) {
+                        freeze_and_queue_text_interaction(MSG_DSRT_EVT_LEARN_TELEPORT);
+                    }
+                    ts->phase = TP_CLEANUP;
+                } else if (ow.psi_teleport_state == 2) {
+                    /* STATE_FAILED: charred-status failure sequence. */
+                    teleport_failure_prologue();
+                    ts->frame_i = 0;
+                    ts->phase = TP_FAIL_WAIT;
+                } else {
+                    ts->phase = TP_CLEANUP;
+                }
+                continue;  /* no yield — fall to the chosen phase */
+            }
+            /* Animation frame: a SINGLE render per yield (assembly loop body —
+             * the prior blocking C added a redundant render_frame_tick here). */
+            oam_clear();
+            run_actionscript_frame();
+            teleport_freeze_entities_conditional();
+            update_screen();
+            return STEP_RESULT_CONTINUE();
 
-    /* Dispatch based on state */
-    if (ow.psi_teleport_state == 1) {
-        /* STATE_ARRIVED: successful teleport */
-        init_teleport_arrival();
-        load_teleport_destination();
-        init_teleport_departure();
+        case TP_FAIL_WAIT:
+            /* RUN_TELEPORT_FAILURE_SEQUENCE's 180-frame charred-status wait. */
+            if (ts->frame_i < 180) {
+                render_frame_tick_work();
+                ts->frame_i++;
+                return STEP_RESULT_CONTINUE();
+            }
+            game_state.party_status = 0;
+            ow.disabled_transitions = 0;
+            ts->frame_i = 0;
+            ts->phase = TP_FAIL_SETTLE;
+            continue;
 
-        /* Style STAR_MASTER (5): display master teleport text */
-        if (ow.psi_teleport_style == TELEPORT_STYLE_STAR_MASTER) {
-            freeze_and_queue_text_interaction(MSG_DSRT_EVT_LEARN_TELEPORT);
+        case TP_FAIL_SETTLE:
+            /* Assembly: LDA #10; JSL WAIT_FRAMES_WITH_UPDATES. */
+            if (ts->frame_i < 10) {
+                oam_clear();
+                run_actionscript_frame();
+                update_screen();
+                ts->frame_i++;
+                return STEP_RESULT_CONTINUE();
+            }
+            ts->phase = TP_CLEANUP;
+            continue;
+
+        case TP_CLEANUP:
+        default:
+            /* CLEANUP (assembly lines 86-97): restore normal tick callbacks,
+             * reset entities, re-enable all, clear teleport state. */
+            set_party_tick_callbacks(INIT_ENTITY_SLOT,
+                                     0xC05200,  /* UPDATE_OVERWORLD_FRAME */
+                                     0xC04D78); /* UPDATE_FOLLOWER_STATE */
+            reset_entities_after_teleport();
+            enable_all_entities();
+            ow.psi_teleport_speed = 0;
+            ow.psi_teleport_speed_int = 0;
+            ow.player_intangibility_frames = 0;
+            ow.psi_teleport_destination = 0;
+            return STEP_RESULT_POP(0);
         }
-    } else if (ow.psi_teleport_state == 2) {
-        /* STATE_FAILED: teleport failure sequence */
-        run_teleport_failure_sequence();
-        /* Assembly: LDA #10; JSL WAIT_FRAMES_WITH_UPDATES */
-        wait_frames_with_updates(10);
     }
-
-    /* CLEANUP (assembly lines 86-97):
-     * Restore normal tick callbacks, reset entities, re-enable all. */
-    set_party_tick_callbacks(INIT_ENTITY_SLOT,
-                             0xC05200,  /* UPDATE_OVERWORLD_FRAME */
-                             0xC04D78); /* UPDATE_FOLLOWER_STATE */
-    reset_entities_after_teleport();
-    enable_all_entities();
-
-    /* Clear teleport state */
-    ow.psi_teleport_speed = 0;
-    ow.psi_teleport_speed_int = 0;
-    ow.player_intangibility_frames = 0;
-    ow.psi_teleport_destination = 0;
 }
 
 /* ---- GET_DIRECTION_FROM_PLAYER_TO_ENTITY ----
@@ -933,12 +976,41 @@ int16_t choose_entity_direction_to_player(void) {
  *   WINDOW_TICK
  *   DISMOUNT_BICYCLE */
 void get_off_bicycle_with_message(void) {
-    /* Port of asm/overworld/get_off_bicycle.asm.
-     * Shows "got off the bicycle" message, then dismounts. */
-    create_window(0x01);  /* WINDOW::TEXT_STANDARD */
-    set_working_memory(1);
-    display_text_from_addr(MSG_SYS_BIKE_GOT_OFF);
-    close_focus_window();
-    window_tick();
-    dismount_bicycle();
+    /* Pump bridge for the overworld root (game_main.c); the root STEP_PUSHes
+     * GAME_MODE_BICYCLE_DISMOUNT at Phase D. */
+    pump_mode(GAME_MODE_BICYCLE_DISMOUNT, NULL);
+}
+
+/* ---- GAME_MODE_BICYCLE_DISMOUNT step (run-to-completion port of GET_OFF_BICYCLE) ----
+ * See GAME_MODE_BICYCLE_DISMOUNT in core/mode_stack.h. */
+StepResult mode_step_bicycle_dismount(ModeState *st) {
+    BicycleDismountState *bs = &st->bicycle_dismount;
+
+    switch ((BicycleDismountPhase)bs->phase) {
+    case BD_TEXT: {
+        /* Assembly: CREATE_WINDOW(TEXT_STANDARD), SET_WORKING_MEMORY(1),
+         * DISPLAY_TEXT_PTR MSG_SYS_BIKE_GOT_OFF. */
+        create_window(0x01);  /* WINDOW::TEXT_STANDARD */
+        set_working_memory(1);
+        bs->phase = BD_CLOSE;
+        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
+        if (dt_make_child_init(&dt_init, MSG_SYS_BIKE_GOT_OFF))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                 (uint32_t)MSG_SYS_BIKE_GOT_OFF);
+        return STEP_RESULT_CONTINUE();
+    }
+
+    case BD_CLOSE:
+        /* Assembly: CLOSE_FOCUS_WINDOW + WINDOW_TICK (one frame). */
+        close_focus_window();
+        window_tick_work();
+        bs->phase = BD_DISMOUNT;
+        return STEP_RESULT_CONTINUE();
+
+    case BD_DISMOUNT:
+    default:
+        dismount_bicycle();
+        return STEP_RESULT_POP(0);
+    }
 }

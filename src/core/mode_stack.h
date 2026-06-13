@@ -83,6 +83,8 @@ typedef enum {
     GAME_MODE_BATTLE_KO,           /* battler death driver (battle_ko_target) */
     GAME_MODE_ACTIONSCRIPT_FRAME,  /* finish an interrupted run_actionscript_frame() */
     GAME_MODE_PP_RECOVERY_FLASH,   /* instant-win PP recovery purple flashes (event script) */
+    GAME_MODE_TELEPORT,            /* PSI teleport driver (teleport_mainloop) */
+    GAME_MODE_BICYCLE_DISMOUNT,    /* "got off the bicycle" message + dismount */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1804,6 +1806,62 @@ typedef struct {
     uint32_t fo_script_size;   /* AS_CHILD_FLYOVER: script byte length */
 } ActionscriptFrameState;
 
+/* GAME_MODE_TELEPORT — run-to-completion port of teleport_mainloop()
+ * (overworld_teleport.c, asm/misc/teleport_mainloop.asm): the PSI-teleport
+ * driver. Stops music + one wait (TP_BEGIN), then the synchronous style setup
+ * (freeze entities, tick-callback assignment, teleport music) in TP_SETUP, then
+ * the per-frame animation loop (TP_LOOP: oam_clear + run_actionscript_frame +
+ * teleport_freeze_entities_conditional + update_screen, one yield) until
+ * ow.psi_teleport_state leaves 0. State 1 (arrived) runs the arrival load
+ * synchronously; state 2 (failed) runs the 180-frame charred-status failure
+ * sequence (TP_FAIL_WAIT) plus a 10-frame settle (TP_FAIL_SETTLE); TP_CLEANUP
+ * restores the normal tick callbacks and clears teleport state. All the live
+ * teleport state already lives in serialized globals (ow.psi_teleport_*,
+ * game_state.party_status); only the failure-loop frame counter is hoisted.
+ *
+ * Faithfulness note: the assembly loop body renders ONCE per yield
+ * (WAIT_UNTIL_NEXT_FRAME is a bare wait). The prior blocking C port called
+ * render_frame_tick() AFTER the inlined body in the main loop (and after
+ * stop_music), double-rendering the actionscript frame each iteration (~2x
+ * animation speed). This port matches the assembly: a single render per yield.
+ *
+ * teleport_mainloop() (overworld_teleport.c) is the pump bridge for its three
+ * still-blocking callers (the overworld root in game_main.c, and the
+ * post-battle teleport checks in GAME_MODE_BATTLE_ENTRY / _SCRIPTED); they
+ * STEP_PUSH at Phase D. Always pops 0. */
+typedef enum {
+    TP_BEGIN = 0,    /* stop_music, one wait */
+    TP_SETUP,        /* freeze + clears + tick-callback setup + music (synchronous) */
+    TP_LOOP,         /* animation loop: render one frame until state != 0 */
+    TP_FAIL_WAIT,    /* failure: 180-frame charred-status render loop */
+    TP_FAIL_SETTLE,  /* failure: wait_frames_with_updates(10) */
+    TP_CLEANUP,      /* restore callbacks, reset entities, clear state, POP */
+} TeleportPhase;
+
+typedef struct {
+    uint8_t  phase;     /* TeleportPhase */
+    uint16_t frame_i;   /* TP_FAIL_WAIT / TP_FAIL_SETTLE frame counter */
+} TeleportState;
+
+/* GAME_MODE_BICYCLE_DISMOUNT — run-to-completion port of
+ * get_off_bicycle_with_message() (overworld_teleport.c,
+ * asm/overworld/get_off_bicycle.asm): show the "got off the bicycle" message,
+ * then dismount. BD_TEXT creates the standard text window and STEP_PUSHes the
+ * message (DISPLAY_TEXT); BD_CLOSE closes the window + one window_tick frame;
+ * BD_DISMOUNT calls dismount_bicycle() and POPs. The caller (the overworld
+ * root) brackets the call with disable/enable_all_entities, unchanged.
+ * get_off_bicycle_with_message() is the pump bridge; the root STEP_PUSHes at
+ * Phase D. Always pops 0. */
+typedef enum {
+    BD_TEXT = 0,   /* create window + push the "got off the bicycle" text */
+    BD_CLOSE,      /* close focus window + one window_tick frame */
+    BD_DISMOUNT,   /* dismount_bicycle, POP */
+} BicycleDismountPhase;
+
+typedef struct {
+    uint8_t phase;  /* BicycleDismountPhase */
+} BicycleDismountState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -1865,6 +1923,8 @@ union ModeState {
     BattleKoState         battle_ko;
     ActionscriptFrameState actionscript_frame;
     PpRecoveryFlashState  pp_recovery_flash;
+    TeleportState         teleport;
+    BicycleDismountState  bicycle_dismount;
     uint8_t               _raw[160];
 };
 
@@ -2168,6 +2228,14 @@ StepResult mode_step_actionscript_frame(ModeState *st);
 /* GAME_MODE_PP_RECOVERY_FLASH step (defined in battle.c). Zero-init; pushed by
  * GAME_MODE_ACTIONSCRIPT_FRAME (AS_CHILD_PP_RECOVERY). Always pops 0. */
 StepResult mode_step_pp_recovery_flash(ModeState *st);
+
+/* GAME_MODE_TELEPORT step (defined in overworld_teleport.c). Zero-init; pumped
+ * by teleport_mainloop(). Always pops 0. */
+StepResult mode_step_teleport(ModeState *st);
+
+/* GAME_MODE_BICYCLE_DISMOUNT step (defined in overworld_teleport.c). Zero-init;
+ * pumped by get_off_bicycle_with_message(). Always pops 0. */
+StepResult mode_step_bicycle_dismount(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
