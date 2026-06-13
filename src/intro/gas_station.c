@@ -342,13 +342,7 @@ void gas_station_setup(void) {
     gas_station_load();
 }
 
-uint16_t gas_station(void) {
-    gas_station_setup();
-
-    ModeState init = {0};
-    init.gas_station.phase = GS_PH1;
-    init.gas_station.fade_delay_left = 11;
-    init.gas_station.brightness_fading = 1;
-    init.gas_station.remaining = 236;
-    return (uint16_t)pump_mode(GAME_MODE_GAS_STATION, &init);
-}
+/* The blocking gas_station() pump bridge was deleted (D4b); init_intro
+ * (GAME_MODE_INIT_INTRO) runs gas_station_setup() then STEP_PUSHes
+ * GAME_MODE_GAS_STATION (phase GS_PH1, fade_delay_left 11, brightness_fading 1,
+ * remaining 236) directly. */

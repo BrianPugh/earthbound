@@ -291,12 +291,13 @@ uint16_t selection_menu(uint16_t allow_cancel);
  * allow_cancel: 1 = B/SELECT cancels.
  *
  * on_change: called with party member ID when selection changes. NULL = none.
- * check_valid: called with party member ID; returns non-zero if valid. NULL = all valid. */
-uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
-                            void (*on_change)(uint16_t),
-                            uint16_t (*check_valid)(uint16_t));
+ * check_valid: called with party member ID; returns non-zero if valid. NULL = all valid.
+ *
+ * The blocking char_select_prompt() pump bridge over GAME_MODE_CHAR_SELECT was
+ * deleted in D4b; callers build the child init directly (see battle.c) and
+ * STEP_PUSH CHAR_SELECT / SELECTION_MENU. */
 
-/* Serializable callback dispatch for GAME_MODE_CHAR_SELECT. char_select_prompt's
+/* Serializable callback dispatch for GAME_MODE_CHAR_SELECT. The char-select
  * on_change/check_valid function pointers cannot live in a savestate-able
  * ModeState, so they are mapped to CharSelectOnChangeId/CharSelectCheckValidId
  * (cs_*_id) and invoked from the step function by ID (cs_invoke_*). Defined in

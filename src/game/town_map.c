@@ -533,9 +533,15 @@ bool show_town_map_prepare(ModeState *init) {
     return true;
 }
 
-/* run_town_map_menu()'s front half, split for mode callers that STEP_PUSH the
- * TOWN_MAP child directly (e.g. the debug Y-button menu). Sets the icon-animation
- * globals (static to this TU) and fills *init with the menu-mode display push. */
+/*
+ * RUN_TOWN_MAP_MENU (asm/text/menu/run_town_map_menu.asm)
+ *
+ * Town map display with up/down navigation between maps. Used when selecting Town
+ * Map from the items menu / the debug Y-button GUIDE command. The blocking
+ * run_town_map_menu() pump bridge was deleted (D4b); callers run this prepare
+ * (set the icon-animation globals, static to this TU, and fill *init with the
+ * menu-mode display push) then STEP_PUSH GAME_MODE_TOWN_MAP directly.
+ */
 void run_town_map_menu_prepare(ModeState *init) {
     town_map_animation_frame = 60;
     town_map_player_icon_animation_frame = 20;
@@ -546,16 +552,4 @@ void run_town_map_menu_prepare(ModeState *init) {
     init->town_map.menu_mode = 1;
     init->town_map.map_id = 0;
     init->town_map.prev_map = 0;
-}
-
-/*
- * RUN_TOWN_MAP_MENU (asm/text/menu/run_town_map_menu.asm)
- *
- * Town map display with up/down navigation between maps.
- * Used when selecting Town Map from the items menu.
- */
-void run_town_map_menu(void) {
-    ModeState init;
-    run_town_map_menu_prepare(&init);
-    pump_mode(GAME_MODE_TOWN_MAP, &init);
 }

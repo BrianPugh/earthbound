@@ -58,23 +58,11 @@ void show_hppp_windows(void);
  * Port of DISPLAY_MONEY_WINDOW (asm/text/window/display_money_window.asm). */
 void display_money_window(void);
 
-/* Open the HP/PP and money display (B/Select button handler).
- * Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
- * Shows HP/PP windows + money, waits for button press to dismiss.
- * A/L within this display calls open_menu_button(). */
-void open_hppp_display(void);
-
-/* OPEN_MENU_BUTTON — Full pause menu (Talk to, Goods, PSI, Equip, Check, Status).
- * Port of asm/overworld/open_menu.asm.
- * Called on A button in overworld, or A/L from HPPP display.
- * Handles all cleanup (close windows, enable entities) before returning. */
-void open_menu_button(void);
-
-/* OPEN_MENU_BUTTON_CHECKTALK — Quick talk/check (L button).
- * Port of asm/overworld/open_menu.asm lines 616-644.
- * Tries talk_to first, then check, falls back to "Nothing problem here."
- * Handles all cleanup before returning. */
-void open_menu_button_checktalk(void);
+/* open_hppp_display (B-button HP/PP display), open_menu_button (A-button pause
+ * menu), and open_menu_button_checktalk (L-button quick talk/check) were the
+ * blocking pump bridges over GAME_MODE_HPPP_DISPLAY / GAME_MODE_PAUSE_MENU /
+ * GAME_MODE_QUICK_CHECKTALK. The overworld root (GAME_MODE_OVERWORLD) now
+ * STEP_PUSHes those modes directly (D1), so the bridges are deleted (D4b). */
 
 /* Set up BG3 as a text overlay layer. */
 void text_setup_bg3(void);

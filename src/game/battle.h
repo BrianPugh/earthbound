@@ -1065,13 +1065,10 @@ void battle_init_player_stats(uint16_t character, Battler *target);
 
 /* ---- Battle entry points (asm/battle/init_*.asm) ---- */
 
-/* INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm)
- * Entry point for random encounters triggered from overworld.
- * Handles instant win, battle, post-battle map reload, entity reset.
- * Pump bridge over GAME_MODE_BATTLE_ENTRY (init_battle_common is inlined
- * in the mode; scripted battles run as GAME_MODE_BATTLE_SCRIPTED pushed
- * by CC_1F_23). */
-void init_battle_overworld(void);
+/* INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm) — random encounters from
+ * the overworld — is GAME_MODE_BATTLE_ENTRY (mode_step_battle_entry); the overworld
+ * root STEP_PUSHes it. (The init_battle_overworld() pump bridge was deleted in D4b;
+ * scripted battles run as GAME_MODE_BATTLE_SCRIPTED pushed by CC_1F_23.) */
 
 /* ---- External dependencies (implemented elsewhere) ---- */
 

@@ -25,7 +25,6 @@ void update_party_entity_from_buffer(int16_t entity_offset);
 int16_t get_direction_from_player_to_entity(void);
 int16_t get_opposite_direction_from_player_to_entity(void);
 int16_t choose_entity_direction_to_player(void);
-void get_off_bicycle_with_message(void);
 
 /* ---- Spawn functions (overworld_spawn.c) ---- */
 bool ensure_delivery_tables(void);
@@ -34,13 +33,12 @@ void load_enemy_spawn_data(void);
 /* ---- Palette/damage functions (overworld_palette.c) ---- */
 void restore_bg_palette_callback(void);
 void start_enemy_touch_flash(void);
-int16_t skippable_pause(uint16_t frames);
+/* skippable_pause / animate_map_palette_change / fade_palette_to_white /
+ * animate_palette_fade_with_rendering pump bridges over GAME_MODE_PALETTE_FADE were
+ * deleted in D4b (the GAME_OVER mode STEP_PUSHes PALETTE_FADE directly). */
 void load_map_palette_animation_frame(uint16_t frame_index);
 void initialize_map_palette_fade(uint16_t frames);
 void update_map_palette_fade(void);
-int16_t animate_map_palette_change(uint16_t frame_index, uint16_t frames);
-void fade_palette_to_white(uint16_t frames);
-void animate_palette_fade_with_rendering(uint16_t frames);
 
 /* ---- Collision functions (overworld_collision.c) ---- */
 int16_t check_entity_collision_at_position(int16_t x, int16_t y, int16_t entity_slot);

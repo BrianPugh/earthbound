@@ -3049,20 +3049,6 @@ StepResult mode_step_pause_menu(ModeState *ms) {
     }
 }
 
-/* OPEN_MENU_BUTTON — Port of asm/overworld/open_menu.asm.
- * Full pause menu: Talk to, Goods, PSI, Equip, Check, Status. Thin bridge over
- * GAME_MODE_PAUSE_MENU (run to completion via pump_mode while the overworld
- * post-input driver is still blocking). */
-void open_menu_button(void) {
-    ModeState init = { .pause_menu = { .phase = PM_ENTER } };
-    pump_mode(GAME_MODE_PAUSE_MENU, &init);
-}
-
-/* OPEN_MENU_BUTTON_CHECKTALK — Port of asm/overworld/open_menu.asm lines 616-644.
- *
- * Quick talk/check: tries TALK_TO first, then CHECK if no talk result.
- * Falls back to MSG_SYS_NOPROBLEM ("Nothing problem here.").
- * Called on L button in the overworld. */
 /* GAME_MODE_QUICK_CHECKTALK step — run-to-completion form of
  * open_menu_button_checktalk(). The dialogue (DISPLAY_TEXT) and the entity
  * fade-out wait (ENTITY_FADE_WAIT) are STEP_PUSHed so the quick talk/check lives
@@ -3104,24 +3090,6 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
     }
 }
 
-/* OPEN_MENU_BUTTON_CHECKTALK — Port of asm/overworld/open_menu.asm lines 616-644.
- * Quick talk/check (L button in the overworld): tries TALK_TO first, then CHECK,
- * falling back to MSG_SYS_NOTHING_WRONG_HERE. Thin bridge over
- * GAME_MODE_QUICK_CHECKTALK (run to completion via pump_mode while overworld_post
- * is still a blocking driver). */
-void open_menu_button_checktalk(void) {
-    ModeState init = { .quick_checktalk = { .phase = QCT_TEXT } };
-    pump_mode(GAME_MODE_QUICK_CHECKTALK, &init);
-}
-
-/* Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
- * Called when B/Select is pressed in the overworld.
- * Shows HP/PP windows and money, loops until dismissed.
- * A/L button opens full menu (OPEN_MENU_BUTTON).
- *
- * When compiled with -DEB_B_OPENS_MAIN_MENU, the wait loop is skipped: after
- * showing the HPPP/money windows, control falls straight into the main pause
- * menu. This lets the game be played with two action buttons (B + L). */
 /* GAME_MODE_HPPP_DISPLAY step — run-to-completion form of open_hppp_display().
  * See HpppDisplayState in mode_stack.h. The full pause menu is STEP_PUSHed
  * (GAME_MODE_PAUSE_MENU owns ALL the cleanup — hide HPPP, close windows,
@@ -3197,16 +3165,6 @@ StepResult mode_step_hppp_display(ModeState *ms) {
     }
 }
 
-/* Port of OPEN_HPPP_DISPLAY (asm/text/open_hppp_display.asm).
- * Called when B/Select is pressed in the overworld. Shows HP/PP windows and
- * money, waits until dismissed; A/L opens the full menu (the pause-menu mode).
- * With -DEB_B_OPENS_MAIN_MENU the wait is skipped and control falls straight
- * into the main pause menu (two-action-button play: B + L). Thin bridge over
- * GAME_MODE_HPPP_DISPLAY while overworld_post is still a blocking driver. */
-void open_hppp_display(void) {
-    ModeState init = { .hppp_display = { .phase = HD_ENTER } };
-    pump_mode(GAME_MODE_HPPP_DISPLAY, &init);
-}
 
 void text_setup_bg3(void) {
     /* BG3SC: tilemap at word $7C00 */

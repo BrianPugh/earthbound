@@ -8,9 +8,9 @@
 #define LOGO_APE       1
 #define LOGO_HALKEN    2
 
-/* Display the logo sequence (Nintendo -> APE -> HAL).
-   Returns non-zero if the user pressed a button to skip. */
-uint16_t logo_screen(void);
+/* Display the logo sequence (Nintendo -> APE -> HAL): GAME_MODE_INTRO_LOGO,
+   STEP_PUSHed by init_intro. (The blocking logo_screen() pump bridge was deleted
+   in D4b.) */
 
 /* Load and decompress a single logo's assets.
    logo_id: LOGO_NINTENDO, LOGO_APE, or LOGO_HALKEN */

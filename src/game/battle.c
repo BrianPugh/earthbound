@@ -512,50 +512,14 @@ StepResult mode_step_char_select(ModeState *ms) {
 
 /*
  * CHAR_SELECT_PROMPT — Port of asm/text/character_select_prompt.asm (~418 lines).
- *
- * Party member selection with two modes:
- *   mode == 1: Overworld-style — creates a text window with party member names,
- *              runs SELECTION_MENU, uses on_change as cursor_move_callback.
- *   mode == 0: Battle-style — HPPP column selection with LEFT/RIGHT navigation,
- *              highlights current character via SELECT_BATTLE_MENU_CHARACTER.
- *   mode == 2: Like mode 0 but always starts at index 0 (ignores stored character).
- *
- * on_change: called with party member ID (1-based) when selection moves. NULL = none.
- * check_valid: called with party member ID; returns non-zero if valid. NULL = all valid.
- *              Used to skip characters (e.g., Jeff in PSI menu).
- *
- * Returns: 1-based character ID (PARTY_MEMBER enum), or 0 if cancelled.
+ * Party member selection (mode 1 = overworld name window + SELECTION_MENU; modes
+ * 0/2 = battle-style HP/PP column selection). The blocking char_select_prompt()
+ * pump bridge over GAME_MODE_CHAR_SELECT was deleted in D4b — every caller now
+ * builds the child init directly (char_select_make_init + STEP_PUSH CHAR_SELECT
+ * for the battle path; char_select_overworld_prepare/finish bracketing a
+ * STEP_PUSH SELECTION_MENU for the overworld path) and reads the choice from
+ * mode_child_result().
  */
-uint16_t char_select_prompt(uint16_t mode, uint16_t allow_cancel,
-                            void (*on_change)(uint16_t),
-                            uint16_t (*check_valid)(uint16_t)) {
-    /* Save active window's argument_memory (assembly lines 31-37). */
-    uint32_t saved_argument_memory = get_argument_memory();
-    uint16_t result = 0;
-
-    if (mode == 1) {
-        /* --- Overworld path (assembly lines 41-126) ---
-         * Creates a window with party member names and runs SELECTION_MENU. */
-        uint16_t window_id = char_select_overworld_prepare(on_change);
-
-        result = selection_menu(allow_cancel);
-
-        char_select_overworld_finish(window_id, on_change != NULL);
-        set_argument_memory(saved_argument_memory);
-        return result;
-    }
-
-    /* --- Battle-style path (assembly lines 127-405): HP/PP column selection,
-     * now run as GAME_MODE_CHAR_SELECT (run-to-completion). The input loop lives
-     * in mode_step_char_select(). --- */
-    ModeState init;
-    char_select_make_init(&init, mode, allow_cancel,
-                          cs_onchange_id(on_change), cs_checkvalid_id(check_valid));
-
-    /* The step performs @CLEANUP_AND_RETURN (restore argument_memory,
-     * pagination_animation_frame = -1) before it pops. */
-    return (uint16_t)pump_mode(GAME_MODE_CHAR_SELECT, &init);
-}
 
 /* char_select_prompt mode-1 (overworld path) prologue, factored out so an
  * already-converted parent (GAME_MODE_DETERMINE_TARGETING's ally pick) can
@@ -6173,15 +6137,9 @@ StepResult mode_step_battle_entry(ModeState *state) {
     }
 }
 
-/* Pump bridge for the still-blocking overworld root loop caller
- * (game_main.c overworld_step — converts at the Phase D flip). */
-void init_battle_overworld(void) {
-    if (ow.battle_mode == 0)
-        return;
-    ModeState init = {0};
-    init.battle_entry.phase = BE_ENTER;
-    pump_mode(GAME_MODE_BATTLE_ENTRY, &init);
-}
+/* The init_battle_overworld() pump bridge over GAME_MODE_BATTLE_ENTRY was deleted
+ * in D4b; the overworld root (GAME_MODE_OVERWORLD) STEP_PUSHes BATTLE_ENTRY
+ * (phase BE_ENTER) directly, guarded by its own ow.battle_mode check. */
 
 /*
  * INIT_BATTLE_SCRIPTED (asm/battle/init_scripted.asm)

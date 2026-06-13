@@ -3,14 +3,10 @@
 
 #include "core/types.h"
 
-/* Run the gas station scene.
-   Returns non-zero if user pressed a button to skip.
-   Ported from GAS_STATION in asm/intro/gas_station.asm */
-uint16_t gas_station(void);
-
 /* Yield-free one-shot setup for the gas-station scene (INIT_ENTITY_SYSTEM +
-   GAS_STATION_LOAD). Run before pushing GAME_MODE_GAS_STATION; the gas_station()
-   wrapper calls it too. */
+   GAS_STATION_LOAD). Run before pushing GAME_MODE_GAS_STATION. (The blocking
+   gas_station() pump bridge — port of GAS_STATION in asm/intro/gas_station.asm —
+   was deleted in D4b; init_intro STEP_PUSHes the mode.) */
 void gas_station_setup(void);
 
 #endif /* INTRO_GAS_STATION_H */

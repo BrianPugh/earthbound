@@ -33,11 +33,10 @@ bool show_town_map_prepare(ModeState *init);
  * leader position. Returns the map_id shown (0 if none). */
 uint16_t display_town_map(void);
 
-/* RUN_TOWN_MAP_MENU (C4D744) — display with up/down map selection. */
-void run_town_map_menu(void);
-
-/* run_town_map_menu()'s front half: set the icon-animation globals and fill *init
- * with the menu-mode TOWN_MAP display push, for mode callers that STEP_PUSH it. */
+/* RUN_TOWN_MAP_MENU (C4D744) — display with up/down map selection. Set the
+ * icon-animation globals and fill *init with the menu-mode TOWN_MAP display push;
+ * callers STEP_PUSH GAME_MODE_TOWN_MAP. (The blocking run_town_map_menu() pump
+ * bridge was deleted in D4b.) */
 void run_town_map_menu_prepare(ModeState *init);
 
 #endif /* GAME_TOWN_MAP_H */

@@ -328,20 +328,10 @@ after_damage:
     return OW_DMG_DONE;
 }
 
-/* Blocking wrapper: drive ow_damage_step() to completion, pumping the low-HP
- * warning inline. Behaviour-identical to the original mid-loop check_low_hp_alert
- * pump. The GAME_MODE_OVERWORLD root mode (Phase D) drives the stepper itself and
- * STEP_PUSHes the alert instead. */
-uint16_t update_overworld_damage(void) {
-    OwDamageState s = {0};
-    for (;;) {
-        if (ow_damage_step(&s) == OW_DMG_DONE)
-            return s.total_hp;
-        /* OW_DMG_ALERT: show the warning for member s.i, then resume. */
-        ModeState init = { .hp_alert = { .phase = HA_TEXT, .party_index = s.i } };
-        pump_mode(GAME_MODE_HP_ALERT, &init);
-    }
-}
+/* The blocking update_overworld_damage() pump bridge (drive ow_damage_step() to
+ * completion, pumping the low-HP warning inline) was deleted in D4b: the
+ * GAME_MODE_OVERWORLD root drives ow_damage_step() itself and STEP_PUSHes
+ * GAME_MODE_HP_ALERT on OW_DMG_ALERT. */
 
 /* ====================================================================
  * SPAWN system — Game Over / Comeback sequence
@@ -450,14 +440,14 @@ StepResult mode_step_palette_fade(ModeState *st) {
     return STEP_RESULT_POP(0);   /* unreachable */
 }
 
-/* ---- SKIPPABLE_PAUSE (port of asm/text/skippable_pause.asm) ----
- * Waits for 'frames' vblanks. Returns -1 if any button pressed, 0 when done. */
-int16_t skippable_pause(uint16_t frames) {
-    ModeState init = {0};
-    init.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
-    init.palette_fade.remaining = frames;
-    return (int16_t)pump_mode(GAME_MODE_PALETTE_FADE, &init);
-}
+/* SKIPPABLE_PAUSE (asm/text/skippable_pause.asm), ANIMATE_MAP_PALETTE_CHANGE,
+ * FADE_PALETTE_TO_WHITE and ANIMATE_PALETTE_FADE_WITH_RENDERING were blocking pump
+ * bridges over GAME_MODE_PALETTE_FADE. Their sole callers (spawn/comeback) became
+ * the GAME_OVER mode (D1b), which STEP_PUSHes GAME_MODE_PALETTE_FADE (kinds
+ * PF_SKIPPABLE_PAUSE / PF_MAP_CHANGE / PF_TO_WHITE / PF_WITH_RENDERING) directly,
+ * so the bridges were deleted (D4b). The non-bridge setup helpers below
+ * (load_map_palette_animation_frame / initialize_map_palette_fade /
+ * update_map_palette_fade) are still called by the GAME_OVER mode. */
 
 /* ---- LOAD_MAP_PALETTE_ANIMATION_FRAME (port of asm/system/palette/load_map_palette_animation_frame.asm) ----
  * Copies current palette groups 2-7 into mf->target as a base,
@@ -560,58 +550,6 @@ void update_map_palette_fade(void) {
     }
 
     ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
-}
-
-/* ---- ANIMATE_MAP_PALETTE_CHANGE (port of asm/system/palette/animate_map_palette_change.asm) ----
- * Stages palette data, runs a fade over 'frames' vblanks (skippable by button press),
- * then copies the final staged palette back to live ert.palettes.
- * Returns -1 if button pressed (skipped), 0 if completed normally. */
-int16_t animate_map_palette_change(uint16_t frame_index, uint16_t frames) {
-    load_map_palette_animation_frame(frame_index);
-    initialize_map_palette_fade(frames);
-
-    /* The fade loop + the post-completion copy-back (asm MEMCPY16 BUFFER+$7800,
-     * PALETTES+64, 192) run to completion as PF_MAP_CHANGE. */
-    ModeState init = {0};
-    init.palette_fade.kind      = PF_MAP_CHANGE;
-    init.palette_fade.remaining = frames;
-    return (int16_t)pump_mode(GAME_MODE_PALETTE_FADE, &init);
-}
-
-/* ---- FADE_PALETTE_TO_WHITE (port of asm/system/palette/fade_palette_to_white.asm) ----
- * Fades all 256 palette entries toward white over 'frames' vblanks,
- * then fills the entire palette with $FFFF (white). */
-void fade_palette_to_white(uint16_t frames) {
-    /* Load current ert.palettes to fade ert.buffer (level=100 = full brightness).
-     * Assembly: LOAD_PALETTE_TO_FADE_BUFFER(100) */
-    load_palette_to_fade_buffer(100);
-
-    /* Prepare slopes for all palette groups (mask $FFFF = all groups).
-     * Assembly: PREPARE_PALETTE_FADE(frames, $FFFF) */
-    prepare_palette_fade_slopes((int16_t)frames, 0xFFFF);
-
-    /* The fade loop + the trailing white-fill/upload frame (asm MEMSET16 +
-     * PALETTE_UPLOAD_FULL + one more vblank) run to completion as PF_TO_WHITE. */
-    ModeState init = {0};
-    init.palette_fade.kind      = PF_TO_WHITE;
-    init.palette_fade.remaining = frames;
-    pump_mode(GAME_MODE_PALETTE_FADE, &init);
-}
-
-/* ---- ANIMATE_PALETTE_FADE_WITH_RENDERING (port of asm/system/palette/animate_palette_fade_with_rendering.asm) ----
- * Runs a palette fade over 'frames' vblanks with full entity rendering each frame.
- * Assembly: PREPARE_PALETTE_FADE(frames, $FFFF), then loop with
- *           UPDATE_MAP_PALETTE_ANIMATION + OAM_CLEAR + RUN_ACTIONSCRIPT_FRAME +
- *           UPDATE_SCREEN + WAIT_UNTIL_NEXT_FRAME, then FINALIZE_PALETTE_FADE. */
-void animate_palette_fade_with_rendering(uint16_t frames) {
-    prepare_palette_fade_slopes((int16_t)frames, 0xFFFF);
-
-    /* The render-fade loop + finalize_palette_fade() run to completion as
-     * PF_WITH_RENDERING. */
-    ModeState init = {0};
-    init.palette_fade.kind      = PF_WITH_RENDERING;
-    init.palette_fade.remaining = frames;
-    pump_mode(GAME_MODE_PALETTE_FADE, &init);
 }
 
 /* ---- INITIALIZE_GAME_OVER_SCREEN (port of asm/misc/initialize_game_over_screen.asm) ----

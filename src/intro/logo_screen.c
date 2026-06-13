@@ -204,9 +204,6 @@ StepResult mode_step_intro_logo(ModeState *st) {
     return STEP_RESULT_POP(0);
 }
 
-uint16_t logo_screen(void) {
-    ModeState init = {0};
-    init.intro_logo.phase = LG_LOAD;
-    init.intro_logo.logo_idx = 0;
-    return (uint16_t)pump_mode(GAME_MODE_INTRO_LOGO, &init);
-}
+/* The blocking logo_screen() pump bridge was deleted (D4b); init_intro
+ * (GAME_MODE_INIT_INTRO) STEP_PUSHes GAME_MODE_INTRO_LOGO (phase LG_LOAD,
+ * logo_idx 0) directly. */

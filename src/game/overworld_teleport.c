@@ -967,19 +967,9 @@ int16_t choose_entity_direction_to_player(void) {
 
 /* ---- GET_OFF_BICYCLE (port of asm/overworld/get_off_bicycle.asm) ----
  *
- * Displays the "got off the bicycle" message, then calls DISMOUNT_BICYCLE.
- * Assembly:
- *   CREATE_WINDOW(WINDOW::TEXT_STANDARD)
- *   SET_WORKING_MEMORY(1)
- *   DISPLAY_TEXT_PTR MSG_SYS_BICYCLE_OFF
- *   CLOSE_FOCUS_WINDOW
- *   WINDOW_TICK
- *   DISMOUNT_BICYCLE */
-void get_off_bicycle_with_message(void) {
-    /* Pump bridge for the overworld root (game_main.c); the root STEP_PUSHes
-     * GAME_MODE_BICYCLE_DISMOUNT at Phase D. */
-    pump_mode(GAME_MODE_BICYCLE_DISMOUNT, NULL);
-}
+ * Displays the "got off the bicycle" message, then calls DISMOUNT_BICYCLE. The
+ * blocking get_off_bicycle_with_message() pump bridge was deleted (D4b); the
+ * overworld root (GAME_MODE_OVERWORLD) STEP_PUSHes GAME_MODE_BICYCLE_DISMOUNT. */
 
 /* ---- GAME_MODE_BICYCLE_DISMOUNT step (run-to-completion port of GET_OFF_BICYCLE) ----
  * See GAME_MODE_BICYCLE_DISMOUNT in core/mode_stack.h. */

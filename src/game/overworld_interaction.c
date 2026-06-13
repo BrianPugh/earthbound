@@ -80,14 +80,6 @@ StepResult mode_step_text_wait_fade(ModeState *st) {
     }
 }
 
-/* Thin bridge over GAME_MODE_TEXT_WAIT_FADE (run to completion via pump_mode
- * while the overworld driver is still blocking; STEP_PUSHed directly once
- * process_queued_interactions / door_transition become modes). */
-void display_text_and_wait_for_fade(uint32_t text_addr) {
-    ModeState init = { .text_wait_fade = { .phase = TWF_TEXT, .text_addr = text_addr } };
-    pump_mode(GAME_MODE_TEXT_WAIT_FADE, &init);
-}
-
 /* ---- PROCESS_QUEUED_INTERACTIONS (port of process_queued_interactions.asm) ----
  *
  * Port of asm/overworld/process_queued_interactions.asm.
@@ -185,13 +177,10 @@ StepResult mode_step_process_interaction(ModeState *st) {
     }
 }
 
-/* Thin bridge over GAME_MODE_PROCESS_INTERACTION (run to completion via pump_mode
- * while the overworld step is still a blocking loop; STEP_PUSHed directly once
- * the overworld step becomes a mode at the flip). */
-void process_queued_interactions(void) {
-    ModeState init = { .process_interaction = { .phase = PI_DISPATCH } };
-    pump_mode(GAME_MODE_PROCESS_INTERACTION, &init);
-}
+/* The display_text_and_wait_for_fade() and process_queued_interactions() pump
+ * bridges (over GAME_MODE_TEXT_WAIT_FADE / GAME_MODE_PROCESS_INTERACTION) were
+ * deleted (D4b): the overworld root STEP_PUSHes PROCESS_INTERACTION, which itself
+ * STEP_PUSHes TEXT_WAIT_FADE / DOOR_TRANSITION. */
 
 /* ---- RELOAD_HOTSPOTS (port of asm/overworld/reload_hotspots.asm) ----
  *

@@ -636,16 +636,10 @@ void wait_frames_with_updates(uint16_t count);
  * Port of RUN_FRAMES_UNTIL_FADE_DONE (asm/system/palette/run_frames_until_fade_done.asm). */
 void run_frames_until_fade_done(void);
 
-/* Display text from a SNES ROM address and wait for entity fade to complete.
- * Port of DISPLAY_TEXT_AND_WAIT_FOR_FADE (asm/text/display_text_and_wait_for_fade.asm).
- * Disables all entities, runs text script, waits for any entity fade,
- * then re-enables all entities. */
-void display_text_and_wait_for_fade(uint32_t text_addr);
-
-/* Process the next queued interaction (NPC text, door, screen reload, etc.).
- * Port of PROCESS_QUEUED_INTERACTIONS (asm/overworld/process_queued_interactions.asm).
- * Dequeues from the circular interaction queue and dispatches by type. */
-void process_queued_interactions(void);
+/* display_text_and_wait_for_fade (GAME_MODE_TEXT_WAIT_FADE) and
+ * process_queued_interactions (GAME_MODE_PROCESS_INTERACTION) pump bridges were
+ * deleted in D4b; the overworld root STEP_PUSHes PROCESS_INTERACTION, which itself
+ * STEP_PUSHes TEXT_WAIT_FADE / DOOR_TRANSITION. */
 
 /* Make an NPC entity face the leader (opposite direction).
  * Port of SET_ENTITY_DIRECTION_FROM_LEADER (asm/overworld/entity/set_entity_direction_from_leader.asm). */
@@ -754,19 +748,13 @@ int16_t get_opposite_direction_from_player_to_entity(void);
  * Otherwise returns direction toward player. */
 int16_t choose_entity_direction_to_player(void);
 
-/* GET_OFF_BICYCLE_WITH_MESSAGE:
- * Port of GET_OFF_BICYCLE (asm/overworld/get_off_bicycle.asm).
- * Displays "got off the bicycle" text, then calls dismount_bicycle(). */
-void get_off_bicycle_with_message(void);
-
 /* UPDATE_OVERWORLD_DAMAGE: Port of asm/overworld/update_overworld_damage.asm.
- * Applies per-frame poison/environmental damage to party members.
- * Returns total remaining HP (0 = all party KO'd -> triggers SPAWN). */
-uint16_t update_overworld_damage(void);
-
-/* Resumable form of the update_overworld_damage party loop. The blocking wrapper
- * update_overworld_damage() drives this and pumps GAME_MODE_HP_ALERT inline; the
- * GAME_MODE_OVERWORLD root mode drives it and STEP_PUSHes HP_ALERT instead — the
+ * Applies per-frame poison/environmental damage to party members (total remaining
+ * HP = 0 -> all party KO'd -> SPAWN). The blocking update_overworld_damage() pump
+ * bridge was deleted in D4b; drive ow_damage_step() below directly.
+ *
+ * Resumable form of the update_overworld_damage party loop. The
+ * GAME_MODE_OVERWORLD root mode drives it and STEP_PUSHes HP_ALERT — the
  * loop yields mid-iteration so a savestate during a low-HP warning lands on the
  * mode stack rather than the C stack. All progress lives in OwDamageState; the
  * function resumes from where it left off when re-called after the alert pops. */
