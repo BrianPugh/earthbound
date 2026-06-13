@@ -780,7 +780,7 @@ uint16_t open_store_menu(uint16_t shop_id) {
      * INITIALIZE_WINDOW_FLAVOUR_PALETTE.
      * Cursor callback updates HPPP window display to show stat comparison
      * when hovering over equippable items. */
-    set_cursor_move_callback(set_hppp_window_mode_item);
+    set_cursor_move_callback(set_hppp_window_mode_item, CURSOR_CB_HPPP_MODE_ITEM);
     initialize_window_flavour_palette();
 
     /* Assembly line 94-95: selection_menu(1) — allow cancel */

@@ -224,6 +224,7 @@ WindowInfo *create_window(uint16_t window_id) {
     w->current_option = WINDOW_ID_NONE;
     w->menu_page_number = 1;
     w->cursor_move_callback = NULL;
+    w->cursor_move_callback_id = CURSOR_CB_NONE;
     w->menu_count = 0;
     w->palette_index = 0;
     w->title[0] = '\0';
@@ -2848,10 +2849,12 @@ void init_used_bg2_tile_map(void) {
  * The callback is invoked by selection_menu() when the cursor moves,
  * receiving the selected item's userdata (type 2) or index+1 (type 1).
  */
-void set_cursor_move_callback(void (*cb)(uint16_t)) {
+void set_cursor_move_callback(void (*cb)(uint16_t), CursorCallbackId id) {
     WindowInfo *w = get_window(win.current_focus_window);
-    if (w)
+    if (w) {
         w->cursor_move_callback = cb;
+        w->cursor_move_callback_id = (uint8_t)id;
+    }
 }
 
 /*
@@ -2861,8 +2864,10 @@ void set_cursor_move_callback(void (*cb)(uint16_t)) {
  */
 void clear_cursor_move_callback(void) {
     WindowInfo *w = get_window(win.current_focus_window);
-    if (w)
+    if (w) {
         w->cursor_move_callback = NULL;
+        w->cursor_move_callback_id = CURSOR_CB_NONE;
+    }
 }
 
 /*

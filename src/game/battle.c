@@ -593,7 +593,10 @@ uint16_t char_select_overworld_prepare(void (*on_change)(uint16_t)) {
 
     /* Set cursor move callback from on_change parameter (assembly lines 112-116). */
     if (on_change) {
-        set_cursor_move_callback(on_change);
+        /* The overworld char-select path sets the on_change fn as the cursor
+         * callback; its serializable id reuses the CS_ONCHANGE_* values, which
+         * CursorCallbackId mirrors (see the _Static_asserts in text.c). */
+        set_cursor_move_callback(on_change, (CursorCallbackId)cs_onchange_id(on_change));
     }
     return window_id;
 }

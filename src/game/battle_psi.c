@@ -537,7 +537,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
              * time; the PSI-list cursor callback lives in the re-fetchable
              * WindowInfo across the push. */
             set_window_focus(WINDOW_PSI_CATEGORY);
-            set_cursor_move_callback(generate_battle_psi_list_callback);
+            set_cursor_move_callback(generate_battle_psi_list_callback, CURSOR_CB_PSI_LIST_GEN);
             /* Print menu items only on first entry (US: :61-68) */
             if (!st->menu_printed) {
                 print_menu_items();
@@ -571,7 +571,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
              * target/cost cursor callback rides the WindowInfo. */
             create_window(WINDOW_TEXT_STANDARD);
             generate_battle_psi_list_callback(st->category);
-            set_cursor_move_callback(display_psi_target_and_cost);
+            set_cursor_move_callback(display_psi_target_and_cost, CURSOR_CB_PSI_TARGET_COST);
             child_init = (ModeState){0};
             child_init.selection_menu.phase        = SM_SETUP;
             child_init.selection_menu.allow_cancel = 1;

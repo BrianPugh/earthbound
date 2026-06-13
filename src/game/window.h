@@ -85,6 +85,34 @@ typedef struct {
 /* Window title size (asm: 22 bytes for US, 16 for JP) */
 #define WINDOW_TITLE_SIZE 23  /* 22 chars + null terminator */
 
+/* Serializable id for WindowInfo.cursor_move_callback (savestate hardening, D0a).
+ * The fn ptr is kept for runtime invocation; this id is its serializable form, set
+ * alongside the ptr at every set_cursor_move_callback() site and used to rebind the
+ * ptr after a state load (the rebind switch lands with state_dump_load() in D5).
+ * The char-select on_change values mirror the CS_ONCHANGE_* enum (core/mode_stack.h)
+ * numerically — the overworld char-select path sets an on_change fn as the cursor
+ * callback, so reusing the values lets one resolver cover both. _Static_asserts in
+ * text.c keep them in sync. See docs/plans/savestate-unified-loop.md (Phase D, D0). */
+typedef enum {
+    CURSOR_CB_NONE = 0,
+    /* --- char-select on_change callbacks (mirror CS_ONCHANGE_*, mode_stack.h) --- */
+    CURSOR_CB_CS_EQUIPMENT   = 1,   /* show_equipment_and_stats_callback (text.c) */
+    CURSOR_CB_CS_PSI_LIST    = 2,   /* display_character_psi_list        (text.c) */
+    CURSOR_CB_CS_STATUS      = 3,   /* display_status_window             (text.c) */
+    CURSOR_CB_CS_WEAPON_NAME = 4,   /* get_weapon_item_name_callback     (text.c) */
+    CURSOR_CB_CS_BODY_NAME   = 5,   /* get_body_item_name_callback       (text.c) */
+    /* --- menu preview cursor callbacks (own numeric space, above CS_ONCHANGE_*) --- */
+    CURSOR_CB_HPPP_MODE_ITEM = 16,  /* set_hppp_window_mode_item          (display_text_menus.c) */
+    CURSOR_CB_PSI_LIST_GEN,         /* generate_battle_psi_list_callback  (battle_psi.c) */
+    CURSOR_CB_PSI_TARGET_COST,      /* display_psi_target_and_cost        (battle_psi.c) */
+    CURSOR_CB_PSI_DESCRIPTION,      /* display_psi_description            (text.c) */
+    CURSOR_CB_EQUIP_PREVIEW_WEAPON, /* equip_preview_callbacks[0]         (text.c) */
+    CURSOR_CB_EQUIP_PREVIEW_BODY,   /* equip_preview_callbacks[1] */
+    CURSOR_CB_EQUIP_PREVIEW_ARMS,   /* equip_preview_callbacks[2] */
+    CURSOR_CB_EQUIP_PREVIEW_OTHER,  /* equip_preview_callbacks[3] */
+    CURSOR_CB_FLAVOUR_PREVIEW,      /* preview_flavour_callback           (file_select.c) */
+} CursorCallbackId;
+
 /* Window info - matches window_stats from structs.asm (82 bytes in asm) */
 typedef struct {
     bool     active;
@@ -112,6 +140,8 @@ typedef struct {
     uint16_t tilemap_address;       /* asm offset 53: per-window tilemap offset */
     void   (*cursor_move_callback)(uint16_t value); /* asm offset 55: called on cursor movement
                                                        asm passes userdata (type 2) or index+1 (type 1) */
+    uint8_t  cursor_move_callback_id; /* CursorCallbackId — serializable form of the
+                                         fn ptr above (savestate hardening, D0a). */
     uint8_t  title_slot;              /* asm offset 59: TITLED_WINDOWS slot index (1-5), 0=none */
     uint8_t  title_tile_count;        /* number of VWF tile columns rendered for title (set once at set_window_title time) */
     char     title[WINDOW_TITLE_SIZE]; /* asm offset 60: window title text (tiny font) */
@@ -510,8 +540,10 @@ void restore_window_text_attributes(void);
 /* SET_CURSOR_MOVE_CALLBACK: Port of asm/text/menu/set_cursor_move_callback.asm.
  * Sets the cursor_move_callback for the current focus window.
  * The callback receives the selected item's userdata (type 2) or
- * index+1 (type 1) when the cursor moves. */
-void set_cursor_move_callback(void (*cb)(uint16_t));
+ * index+1 (type 1) when the cursor moves. `id` is the serializable CursorCallbackId
+ * for `cb` (savestate hardening, D0a) — stored alongside the ptr so the window
+ * system can be restored from a state dump. */
+void set_cursor_move_callback(void (*cb)(uint16_t), CursorCallbackId id);
 
 /* CLEAR_CURSOR_MOVE_CALLBACK: Port of asm/text/menu/clear_cursor_move_callback.asm.
  * Clears the cursor_move_callback for the current focus window. */

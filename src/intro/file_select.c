@@ -462,8 +462,10 @@ static int fm_flavour_build(void) {
     add_menu_item("Banana flavor", 4, 0, 5);
     add_menu_item("Peanut flavor", 5, 0, 6);
 
-    /* Set cursor move callback to preview palette (asm: SET_CURSOR_MOVE_CALLBACK) */
+    /* Set cursor move callback to preview palette (asm: SET_CURSOR_MOVE_CALLBACK).
+     * Set the serializable id alongside the ptr (savestate hardening, D0a). */
     w->cursor_move_callback = preview_flavour_callback;
+    w->cursor_move_callback_id = CURSOR_CB_FLAVOUR_PREVIEW;
 
     print_menu_items();
     return -1;

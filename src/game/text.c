@@ -1066,6 +1066,17 @@ static void get_body_item_name_callback(uint16_t char_id) {
  * callers pass NULL and never reach this mode. Defined in text.c because four of
  * the six callbacks are static to this file. See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
+/* The CursorCallbackId char-select values (window.h) mirror CS_ONCHANGE_*
+ * (mode_stack.h) so the overworld char-select path can store a cursor-callback id
+ * via a plain cast of cs_onchange_id()'s result (see char_select_overworld_prepare).
+ * These asserts fail the build if the two enums ever drift apart. */
+_Static_assert((int)CURSOR_CB_NONE         == (int)CS_ONCHANGE_NONE,        "cursor cb id drift");
+_Static_assert((int)CURSOR_CB_CS_EQUIPMENT == (int)CS_ONCHANGE_EQUIPMENT,   "cursor cb id drift");
+_Static_assert((int)CURSOR_CB_CS_PSI_LIST  == (int)CS_ONCHANGE_PSI_LIST,    "cursor cb id drift");
+_Static_assert((int)CURSOR_CB_CS_STATUS    == (int)CS_ONCHANGE_STATUS,      "cursor cb id drift");
+_Static_assert((int)CURSOR_CB_CS_WEAPON_NAME == (int)CS_ONCHANGE_WEAPON_NAME, "cursor cb id drift");
+_Static_assert((int)CURSOR_CB_CS_BODY_NAME == (int)CS_ONCHANGE_BODY_NAME,   "cursor cb id drift");
+
 uint8_t cs_onchange_id(void (*fn)(uint16_t)) {
     if (fn == NULL)                              return CS_ONCHANGE_NONE;
     if (fn == show_equipment_and_stats_callback) return CS_ONCHANGE_EQUIPMENT;
@@ -1592,7 +1603,9 @@ StepResult mode_step_equip_menu(ModeState *ms) {
              * Lives in the re-fetchable WindowInfo — safe across the push. */
             character_for_equip_menu = char_id;
             if (slot_type >= 1 && slot_type <= 4) {
-                set_cursor_move_callback(equip_preview_callbacks[slot_type - 1]);
+                set_cursor_move_callback(equip_preview_callbacks[slot_type - 1],
+                                         (CursorCallbackId)(CURSOR_CB_EQUIP_PREVIEW_WEAPON
+                                                            + (slot_type - 1)));
             }
 
             /* Show header "Which?" and run the item selection */
@@ -1730,7 +1743,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
             /* Assembly lines 71-74: GENERATE_BATTLE_PSI_LIST fills the
              * TEXT_STANDARD window as the cursor moves between categories. */
-            set_cursor_move_callback(generate_battle_psi_list_callback);
+            set_cursor_move_callback(generate_battle_psi_list_callback, CURSOR_CB_PSI_LIST_GEN);
             return pm_push_selection_status(st, SU_CAT_RESULT);
 
         case SU_CAT_RESULT: {
@@ -1759,7 +1772,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
              * DESCRIPTION renders each ability's description as cursor moves. */
             set_window_focus(WINDOW_TEXT_STANDARD);
             bt.last_selected_psi_description = 0x00FF;  /* force first redraw */
-            set_cursor_move_callback(display_psi_description);
+            set_cursor_move_callback(display_psi_description, CURSOR_CB_PSI_DESCRIPTION);
             st->phase = SU_PSI;
             continue;
         }
@@ -1870,7 +1883,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
 
             /* Select a PSI ability; the target/cost preview lives in the
              * re-fetchable WindowInfo, safe across the push. */
-            set_cursor_move_callback(display_psi_target_and_cost);
+            set_cursor_move_callback(display_psi_target_and_cost, CURSOR_CB_PSI_TARGET_COST);
             return pm_push_selection_psi(st, PS_ABILITY_RESULT);
 
         case PS_ABILITY_RESULT: {
