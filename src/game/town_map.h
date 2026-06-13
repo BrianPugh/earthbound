@@ -36,4 +36,8 @@ uint16_t display_town_map(void);
 /* RUN_TOWN_MAP_MENU (C4D744) — display with up/down map selection. */
 void run_town_map_menu(void);
 
+/* run_town_map_menu()'s front half: set the icon-animation globals and fill *init
+ * with the menu-mode TOWN_MAP display push, for mode callers that STEP_PUSH it. */
+void run_town_map_menu_prepare(ModeState *init);
+
 #endif /* GAME_TOWN_MAP_H */

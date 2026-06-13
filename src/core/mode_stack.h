@@ -90,6 +90,7 @@ typedef enum {
     GAME_MODE_GAME_OVER,           /* game-over / comeback sequence (spawn + play_comeback_sequence) */
     GAME_MODE_OVERWORLD,           /* overworld root mode (overworld_post + overworld_step) */
     GAME_MODE_DEBUG_GOODS,         /* debug Y-button Goods item browser/giver (debug_y_button_goods) */
+    GAME_MODE_DEBUG_MENU,          /* debug Y-button parent menu (debug_y_button_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1136,6 +1137,30 @@ typedef struct {
     uint32_t saved_argument_memory;  /* focus window argument_memory across the push */
 } DebugGoodsState;
 
+/* GAME_MODE_DEBUG_MENU — run-to-completion port of debug_y_button_menu
+ * (game_main.c), the debug Y-button parent menu (hold B/SELECT + R in the
+ * overworld with ow.debug_flag set). The blocking form was a `display_menu:`-goto
+ * loop: build a 23-item phone menu, selection_menu(1), a 23-case dispatch, an
+ * @AFTER_COMMAND message-display loop, then a @CLEANUP fade wait. Each phase here
+ * matches an asm sequence point; every blocking child driver becomes a STEP_PUSH.
+ * Commands that still block via wait_for_vblank but never pump (Warp/CAST/STAFF) or
+ * are synchronous (Save/learn_special_psi/Meter) run inline within DM_DISPATCH;
+ * the deep pump bridges they cannot yet avoid (enter_your_name_please naming,
+ * debug_teleport after CAST/STAFF) stay inline this commit — D4b converts them. */
+typedef enum {
+    DM_ENTER = 0,  /* one-shot: disable entities, SFX, show HP/PP windows */
+    DM_BUILD,      /* (re)build the 23-item menu window, push SELECTION_MENU */
+    DM_DISPATCH,   /* the menu popped: 23-case command dispatch */
+    DM_AFTER,      /* @AFTER_COMMAND: optional message text, then rebuild the menu */
+    DM_CLEANUP,    /* close windows + hide HP/PP, push ENTITY_FADE_WAIT */
+    DM_DONE,       /* re-enable entities, POP 0 */
+} DebugMenuPhase;
+
+typedef struct {
+    uint8_t  phase;         /* DebugMenuPhase */
+    uint32_t message_addr;  /* @AFTER_COMMAND text addr (0 = none); DM_DISPATCH→DM_AFTER */
+} DebugMenuState;
+
 /* GAME_MODE_BATTLE_WAIT — run-to-completion port of the family of blocking
  * "advance one frame until <condition>" loops scattered through the battle code.
  * Each former loop body funnelled through window_tick() (or, for the swirl-update
@@ -2085,6 +2110,7 @@ union ModeState {
     GameOverState         game_over;
     OverworldModeState    overworld;
     DebugGoodsState       debug_goods;
+    DebugMenuState        debug_menu;
     uint8_t               _raw[160];
 };
 
@@ -2156,6 +2182,10 @@ StepResult mode_step_debug_ymenu(ModeState *st);
 /* GAME_MODE_DEBUG_GOODS step (defined in game_main.c). Init via
  * ModeState.debug_goods (phase = DG_DRAW, item_id = 0). Always pops 0. */
 StepResult mode_step_debug_goods(ModeState *st);
+
+/* GAME_MODE_DEBUG_MENU step (defined in game_main.c). Init via
+ * ModeState.debug_menu (phase = DM_ENTER). Always pops 0. */
+StepResult mode_step_debug_menu(ModeState *st);
 
 /* GAME_MODE_BATTLE_WAIT step (defined in battle.c, where the swirl/PSI/meter
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for

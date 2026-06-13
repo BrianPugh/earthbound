@@ -533,6 +533,21 @@ bool show_town_map_prepare(ModeState *init) {
     return true;
 }
 
+/* run_town_map_menu()'s front half, split for mode callers that STEP_PUSH the
+ * TOWN_MAP child directly (e.g. the debug Y-button menu). Sets the icon-animation
+ * globals (static to this TU) and fills *init with the menu-mode display push. */
+void run_town_map_menu_prepare(ModeState *init) {
+    town_map_animation_frame = 60;
+    town_map_player_icon_animation_frame = 20;
+    frames_until_map_icon_palette_update = 12;
+
+    *init = (ModeState){0};
+    init->town_map.phase = TM_LOAD_BEGIN;
+    init->town_map.menu_mode = 1;
+    init->town_map.map_id = 0;
+    init->town_map.prev_map = 0;
+}
+
 /*
  * RUN_TOWN_MAP_MENU (asm/text/menu/run_town_map_menu.asm)
  *
@@ -540,14 +555,7 @@ bool show_town_map_prepare(ModeState *init) {
  * Used when selecting Town Map from the items menu.
  */
 void run_town_map_menu(void) {
-    town_map_animation_frame = 60;
-    town_map_player_icon_animation_frame = 20;
-    frames_until_map_icon_palette_update = 12;
-
-    ModeState init = {0};
-    init.town_map.phase = TM_LOAD_BEGIN;
-    init.town_map.menu_mode = 1;
-    init.town_map.map_id = 0;
-    init.town_map.prev_map = 0;
+    ModeState init;
+    run_town_map_menu_prepare(&init);
     pump_mode(GAME_MODE_TOWN_MAP, &init);
 }

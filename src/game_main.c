@@ -565,21 +565,6 @@ StepResult mode_step_debug_ymenu(ModeState *st) {
 }
 
 /*
- * debug_y_button_flag — Port of DEBUG_Y_BUTTON_FLAG (asm/overworld/debug/y_button_flag.asm).
- *
- * Interactive event flag editor (GAME_MODE_DEBUG_YMENU, kind FLAG). Shows current
- * flag index and ON/OFF state. D-pad navigates (up/down by 1, left/right by 10),
- * A toggles, B exits.
- */
-static void debug_y_button_flag(void) {
-    ModeState init = {0};
-    init.debug_ymenu.phase = DY_DRAW;
-    init.debug_ymenu.kind = DBG_YMENU_FLAG;
-    init.debug_ymenu.index = 1;  /* Start at FLG_TEMP_0 (index 1) */
-    pump_mode(GAME_MODE_DEBUG_YMENU, &init);
-}
-
-/*
  * mode_step_debug_goods — run-to-completion port of DEBUG_Y_BUTTON_GOODS
  * (asm/overworld/debug/y_button_goods.asm). See DebugGoodsState in mode_stack.h.
  *
@@ -688,31 +673,6 @@ StepResult mode_step_debug_goods(ModeState *mst) {
 }
 
 /*
- * debug_y_button_goods — pump bridge for GAME_MODE_DEBUG_GOODS. Deleted at the
- * Phase D cutover (D4b); for now it lets the still-blocking debug Y-button menu
- * drive the goods browser to completion.
- */
-static void debug_y_button_goods(void) {
-    ModeState init = {0};
-    init.debug_goods.phase   = DG_DRAW;
-    init.debug_goods.item_id = 0;
-    pump_mode(GAME_MODE_DEBUG_GOODS, &init);
-}
-
-/*
- * debug_y_button_guide — Port of DEBUG_Y_BUTTON_GUIDE (asm/overworld/debug/y_button_guide.asm).
- *
- * Counts entities with active scripts (script_table != -1) and displays
- * the count. Press B to dismiss.
- */
-static void debug_y_button_guide(void) {
-    ModeState init = {0};
-    init.debug_ymenu.phase = DY_DRAW;
-    init.debug_ymenu.kind = DBG_YMENU_GUIDE;
-    pump_mode(GAME_MODE_DEBUG_YMENU, &init);
-}
-
-/*
  * debug_teleport — Port of TELEPORT (asm/overworld/teleport.asm).
  *
  * Full teleport to a destination table entry. Used after CAST and CREDITS
@@ -779,10 +739,21 @@ static void debug_teleport(uint8_t dest_id) {
 }
 
 /*
- * DEBUG_Y_BUTTON_MENU — Port of asm/system/debug/y_button_menu.asm.
+ * mode_step_debug_menu — run-to-completion port of DEBUG_Y_BUTTON_MENU
+ * (asm/system/debug/y_button_menu.asm), the debug Y-button parent menu. See
+ * DebugMenuState in mode_stack.h. Triggered by holding B/SELECT + R in the
+ * overworld with ow.debug_flag set. The blocking form was a `display_menu:`-goto
+ * loop; each phase here is an asm sequence point, every blocking child driver
+ * becomes a STEP_PUSH, and the single yield is owned by the root.
  *
- * Debug menu triggered by holding B or SELECT + pressing R in the overworld
- * when ow.debug_flag is set. Opens a scrollable menu with debug commands.
+ * Commands that block only via wait_for_vblank/host_process_frame but never
+ * pump_mode (Warp/CAST/STAFF), and the synchronous ones (Save/learn_special_psi/
+ * Meter), run inline within DM_DISPATCH — host_process_frame does not re-enter the
+ * mode stack, so this is safe (and matches the blocking form's behaviour). The two
+ * deep pump bridges these commands can't yet avoid — enter_your_name_please
+ * (naming) and debug_teleport (screen_transition, called by CAST/STAFF after the
+ * cutscene) — stay inline this commit; D4b converts them with their non-debug
+ * callers.
  *
  * Menu items match DEBUG_MENU_TEXT in asm/data/debug/menu_text.asm (US):
  *  1=Flag  2=Goods  3=Save  4=Apple  5=Banana  6=TV  7=Event  8=Warp
@@ -790,206 +761,262 @@ static void debug_teleport(uint8_t dest_id) {
  *  15=GUIDE  16=TRACK  17=CAST  18=STONE  19=STAFF  20=Meter
  *  21=REPLAY  22=TEST1  23=TEST2  24=(disable replay)
  */
-static void debug_y_button_menu(void) {
-    disable_all_entities();
-    play_sfx(1);  /* SFX::CURSOR1 */
-    show_hppp_windows();
+StepResult mode_step_debug_menu(ModeState *mst) {
+    DebugMenuState *s = &mst->debug_menu;
+    static ModeState child; /* child init: pump copies it immediately */
 
-    /* Assembly uses @LOCAL04 (US) / @VIRTUAL06 (JPN) as a message pointer.
-     * When non-NULL after a command, it opens TEXT_STANDARD and displays that text.
-     * This implements the @AFTER_COMMAND message display loop. */
-    uint32_t message_addr = 0;
+    switch ((DebugMenuPhase)s->phase) {
+    case DM_ENTER:
+        /* Assembly entry (lines 15-19): disable entities, SFX, show HP/PP. */
+        disable_all_entities();
+        play_sfx(1);  /* SFX::CURSOR1 */
+        show_hppp_windows();
+        s->phase = DM_BUILD;
+        return STEP_RESULT_CONTINUE();
 
-display_menu:
-    create_window(WINDOW_PHONE_MENU);
+    case DM_BUILD:
+        /* Assembly @DISPLAY_MENU: (re)build the 23-item menu window, then push the
+         * selection. Assembly uses @LOCAL04 as an @AFTER_COMMAND message pointer
+         * (here DebugMenuState.message_addr), reset before each selection. */
+        s->message_addr = 0;
+        create_window(WINDOW_PHONE_MENU);
+        add_menu_item_no_position("Flag",      1);
+        add_menu_item_no_position("Goods",     2);
+        add_menu_item_no_position("Save",      3);
+        add_menu_item_no_position("Apple",     4);
+        add_menu_item_no_position("Banana",    5);
+        add_menu_item_no_position("TV",        6);
+        add_menu_item_no_position("Event",     7);
+        add_menu_item_no_position("Warp",      8);
+        add_menu_item_no_position("Tea",       9);
+        add_menu_item_no_position("Teleport", 10);
+        add_menu_item_no_position("Star ~",   11);
+        add_menu_item_no_position("Star ^",   12);
+        add_menu_item_no_position("Player 0", 13);
+        add_menu_item_no_position("Player 1", 14);
+        add_menu_item_no_position("GUIDE",    15);
+        add_menu_item_no_position("TRACK",    16);
+        add_menu_item_no_position("CAST",     17);
+        add_menu_item_no_position("STONE",    18);
+        add_menu_item_no_position("STAFF",    19);
+        add_menu_item_no_position("Meter",    20);
+        add_menu_item_no_position("REPLAY",   21);
+        add_menu_item_no_position("TEST1",    22);
+        add_menu_item_no_position("TEST2",    23);
+        open_window_and_print_menu(1, 0);
+        child = (ModeState){0};
+        child.selection_menu.phase        = SM_SETUP;
+        child.selection_menu.allow_cancel = 1;
+        s->phase = DM_DISPATCH;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child);
 
-    /* Build menu items matching DEBUG_MENU_TEXT order */
-    add_menu_item_no_position("Flag",      1);
-    add_menu_item_no_position("Goods",     2);
-    add_menu_item_no_position("Save",      3);
-    add_menu_item_no_position("Apple",     4);
-    add_menu_item_no_position("Banana",    5);
-    add_menu_item_no_position("TV",        6);
-    add_menu_item_no_position("Event",     7);
-    add_menu_item_no_position("Warp",      8);
-    add_menu_item_no_position("Tea",       9);
-    add_menu_item_no_position("Teleport", 10);
-    add_menu_item_no_position("Star ~",   11);
-    add_menu_item_no_position("Star ^",   12);
-    add_menu_item_no_position("Player 0", 13);
-    add_menu_item_no_position("Player 1", 14);
-    add_menu_item_no_position("GUIDE",    15);
-    add_menu_item_no_position("TRACK",    16);
-    add_menu_item_no_position("CAST",     17);
-    add_menu_item_no_position("STONE",    18);
-    add_menu_item_no_position("STAFF",    19);
-    add_menu_item_no_position("Meter",    20);
-    add_menu_item_no_position("REPLAY",   21);
-    add_menu_item_no_position("TEST1",    22);
-    add_menu_item_no_position("TEST2",    23);
-
-    open_window_and_print_menu(1, 0);
-    uint16_t result = selection_menu(1);  /* allow_cancel=1 */
-    message_addr = 0;
-
-    switch (result) {
-    case 1:
-        /* FLAGS — assembly @CMD_FLAGS (line 107): JSL DEBUG_Y_BUTTON_FLAG. */
-        debug_y_button_flag();
-        break;
-    case 2:
-        /* GOODS — assembly @CMD_GOODS (line 110): JSL DEBUG_Y_BUTTON_GOODS. */
-        debug_y_button_goods();
-        break;
-    case 3:
-        /* SAVE — assembly @CMD_SAVE (lines 113-118).
-         * Save current game and update respawn coordinates. */
-        save_game(current_save_slot - 1);
-        ow.respawn_x = game_state.leader_x_coord;
-        ow.respawn_y = game_state.leader_y_coord;
-        break;
-    case 4:
-        /* Apple (MSG_DEBUG_00) — assembly @CMD_MSG_00 (lines 119-124). */
-        message_addr = MSG_DBG_MAIN_MENU;
-        break;
-    case 5:
-        /* Banana (MSG_DEBUG_01) — assembly @CMD_MSG_01 (lines 125-130). */
-        message_addr = MSG_DBG_EVENT_SCENE_SELECT;
-        break;
-    case 6:
-        /* TV (MSG_DEBUG_02) — assembly @CMD_MSG_02 (lines 131-136). */
-        message_addr = MSG_DBG_MONSTER_TOGGLE;
-        break;
-    case 7:
-        /* Event — assembly @CMD_MSG_UNKNOWN (lines 137-142). */
-        message_addr = MSG_DBGTXT_DEBUG_MENU_CAMERA_MOVE;
-        break;
-    case 8: {
-        /* WARP — assembly @CMD_WARP (lines 143-179).
-         * Flash HP/PP windows 30 times, then teleport to Onett center (7696, 2280). */
-        for (int i = 0; i < 30; i++) {
-            undraw_hp_pp_window(0);
-            update_hppp_meter_and_render();
-            update_hppp_meter_and_render();
-            draw_and_mark_hppp_window(0);
-            update_hppp_meter_and_render();
-            update_hppp_meter_and_render();
+    case DM_DISPATCH: {
+        /* The selection menu popped: dispatch the chosen command. Pushes set their
+         * resume to DM_AFTER (where the optional message text shows, then the menu
+         * rebuilds); TEST2/REPLAY/default end the menu via DM_CLEANUP. */
+        uint16_t result = (uint16_t)mode_child_result();
+        s->message_addr = 0;
+        switch (result) {
+        case 1:
+            /* FLAGS — assembly @CMD_FLAGS: JSL DEBUG_Y_BUTTON_FLAG. */
+            child = (ModeState){0};
+            child.debug_ymenu.phase = DY_DRAW;
+            child.debug_ymenu.kind  = DBG_YMENU_FLAG;
+            child.debug_ymenu.index = 1;  /* Start at FLG_TEMP_0 (index 1) */
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
+        case 2:
+            /* GOODS — assembly @CMD_GOODS: JSL DEBUG_Y_BUTTON_GOODS. */
+            child = (ModeState){0};
+            child.debug_goods.phase   = DG_DRAW;
+            child.debug_goods.item_id = 0;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_GOODS, &child);
+        case 3:
+            /* SAVE — assembly @CMD_SAVE: save + update respawn coordinates. */
+            save_game(current_save_slot - 1);
+            ow.respawn_x = game_state.leader_x_coord;
+            ow.respawn_y = game_state.leader_y_coord;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 4:
+            /* Apple (MSG_DEBUG_00) — assembly @CMD_MSG_00. */
+            s->message_addr = MSG_DBG_MAIN_MENU;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 5:
+            /* Banana (MSG_DEBUG_01) — assembly @CMD_MSG_01. */
+            s->message_addr = MSG_DBG_EVENT_SCENE_SELECT;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 6:
+            /* TV (MSG_DEBUG_02) — assembly @CMD_MSG_02. */
+            s->message_addr = MSG_DBG_MONSTER_TOGGLE;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 7:
+            /* Event — assembly @CMD_MSG_UNKNOWN. */
+            s->message_addr = MSG_DBGTXT_DEBUG_MENU_CAMERA_MOVE;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 8: {
+            /* WARP — assembly @CMD_WARP. Flash HP/PP windows 30 times, then
+             * teleport to Onett center (7696, 2280). Inline-blocking but pump-free
+             * (update_hppp_meter_and_render/fade_* block via host_process_frame,
+             * not the mode stack) — a savestate cannot land mid-warp, accepted. */
+            for (int i = 0; i < 30; i++) {
+                undraw_hp_pp_window(0);
+                update_hppp_meter_and_render();
+                update_hppp_meter_and_render();
+                draw_and_mark_hppp_window(0);
+                update_hppp_meter_and_render();
+                update_hppp_meter_and_render();
+            }
+            fade_out(1, 0);
+            load_map_at_position(7696, 2280);
+            set_leader_position_and_load_party(7696, 2280, 0);
+            fade_in(1, 0);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
         }
-        fade_out(1, 0);
-        load_map_at_position(7696, 2280);
-        set_leader_position_and_load_party(7696, 2280, 0);
-        fade_in(1, 0);
-        break;
+        case 9: {
+            /* Tea (COFFEE/TEA) — assembly @CMD_COFFEE_TEA: random coffee/tea scene.
+             * Push GAME_MODE_FLYOVER (FO_COFFEETEA), the coffeetea_scene() init. */
+            uint16_t type = rng_next_byte() & 1;
+            child = (ModeState){0};
+            child.flyover.kind        = FO_COFFEETEA;
+            child.flyover.phase       = FOP_CT_FADEOUT1;
+            child.flyover.id          = type;
+            child.flyover.pos         = 0;
+            child.flyover.script_size =
+                (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &child);
+        }
+        case 10:
+            /* Teleport (PSI_1) — assembly @CMD_PSI_1: learn special PSI type 1. */
+            learn_special_psi(1);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 11:
+            /* Star ~ (PSI_2) — assembly @CMD_PSI_2: learn special PSI type 2. */
+            learn_special_psi(2);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 12:
+            /* Star ^ (PSI_3_4) — assembly @CMD_PSI_3_4: learn PSI types 3 and 4. */
+            learn_special_psi(3);
+            learn_special_psi(4);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 13:
+            /* Player 0 (NAME_0) — assembly @CMD_NAME_0: name character 0 (Ness).
+             * Inline naming (text_input_dialog pumps NAMING_*); D4b converts it. */
+            enter_your_name_please(0);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 14:
+            /* Player 1 (NAME_1) — assembly @CMD_NAME_1: name character 1 (Paula). */
+            enter_your_name_please(1);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 15:
+            /* GUIDE — assembly @CMD_TOWN_MAP: JSL RUN_TOWN_MAP_MENU. (The label
+             * says "GUIDE" but the assembly dispatches to the town map.) */
+            run_town_map_menu_prepare(&child);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+        case 16:
+            /* TRACK — assembly @CMD_GUIDE: JSL DEBUG_Y_BUTTON_GUIDE (script counter). */
+            child = (ModeState){0};
+            child.debug_ymenu.phase = DY_DRAW;
+            child.debug_ymenu.kind  = DBG_YMENU_GUIDE;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
+        case 17:
+            /* CAST — assembly @CMD_CAST: play cast scene, then teleport to dest 1.
+             * play_cast_scene blocks via host_process_frame only (pump-free);
+             * debug_teleport pumps screen_transition (inline this commit, D4b). */
+            play_cast_scene();
+            debug_teleport(1);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 18:
+            /* STONE — assembly @CMD_SOUND_STONE: sound stone melody (cancellable). */
+            child = (ModeState){0};
+            child.sound_stone.phase       = SS_SETUP1;
+            child.sound_stone.cancellable = 1;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
+        case 19:
+            /* STAFF (CREDITS) — assembly @CMD_CREDITS: play credits, then dest 1. */
+            play_credits();
+            debug_teleport(1);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 20:
+            /* Meter (FLIPOUT) — assembly @CMD_FLIPOUT: toggle HP/PP flipout mode. */
+            toggle_hppp_flipout_mode(bt.hppp_meter_flipout_mode ? 0 : 1);
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 22:
+            /* TEST1 (MSG_BTL) — assembly @CMD_MSG_BTL: show
+             * MSG_BTL7_PRAY_RESPONSE_STRANGER (0xC9F70C). */
+            s->message_addr = 0xC9F70C;
+            s->phase = DM_AFTER;
+            return STEP_RESULT_CONTINUE();
+        case 23:
+            /* TEST2 (TO_BE_CONTINUED) — assembly @CMD_TO_BE_CONTINUED: close
+             * windows, display the "To Be Continued" text, then cleanup. */
+            close_all_windows();
+            hide_hppp_windows();
+            s->phase = DM_CLEANUP;
+            if (dt_make_child_init(&child, MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            LOG_WARN("debug menu: resolve_text_addr(0x%06X) returned NULL\n",
+                     (unsigned)MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH);
+            return STEP_RESULT_CONTINUE();
+        case 21:
+            /* REPLAY — assembly @CMD_REPLAY: START_REPLAY_MODE. Replay recording is
+             * not applicable to the C port (SNES SRAM); go straight to cleanup. */
+        default:
+            /* Cancelled or item 24+ → DISABLE_REPLAY_MODE (also N/A); cleanup. */
+            s->phase = DM_CLEANUP;
+            return STEP_RESULT_CONTINUE();
+        }
     }
-    case 9: {
-        /* Tea (COFFEE/TEA) — assembly @CMD_COFFEE_TEA (lines 180-184).
-         * Random coffee or tea scene. */
-        uint16_t type = rng_next_byte() & 1;
-        coffeetea_scene(type);
-        break;
-    }
-    case 10:
-        /* Teleport (PSI_1) — assembly @CMD_PSI_1 (lines 185-188).
-         * Learn special PSI type 1. */
-        learn_special_psi(1);
-        break;
-    case 11:
-        /* Star ~ (PSI_2) — assembly @CMD_PSI_2 (lines 189-191).
-         * Learn special PSI type 2. */
-        learn_special_psi(2);
-        break;
-    case 12:
-        /* Star ^ (PSI_3_4) — assembly @CMD_PSI_3_4 (lines 193-198).
-         * Learn special PSI types 3 and 4. */
-        learn_special_psi(3);
-        learn_special_psi(4);
-        break;
-    case 13:
-        /* Player 0 (NAME_0) — assembly @CMD_NAME_0 (lines 199-202).
-         * Open naming screen for character 0 (Ness). */
-        enter_your_name_please(0);
-        break;
-    case 14:
-        /* Player 1 (NAME_1) — assembly @CMD_NAME_1 (lines 203-210).
-         * Open naming screen for character 1 (Paula). */
-        enter_your_name_please(1);
-        break;
-    case 15:
-        /* GUIDE — assembly @CMD_TOWN_MAP (lines 211-213): JSL RUN_TOWN_MAP_MENU.
-         * Note: menu label says "GUIDE" but assembly dispatches to town map. */
-        run_town_map_menu();
-        break;
-    case 16:
-        /* TRACK — assembly @CMD_GUIDE (lines 214-216): JSL DEBUG_Y_BUTTON_GUIDE. */
-        debug_y_button_guide();
-        break;
-    case 17:
-        /* CAST — assembly @CMD_CAST (lines 217-221).
-         * Play cast scene, then teleport to destination 1 to return to overworld. */
-        play_cast_scene();
-        debug_teleport(1);
-        break;
-    case 18:
-        /* STONE — assembly @CMD_SOUND_STONE (lines 222-225).
-         * Play sound stone melody (cancellable=1). */
-        use_sound_stone(1);
-        break;
-    case 19:
-        /* STAFF (CREDITS) — assembly @CMD_CREDITS (lines 226-230).
-         * Play credits, then teleport to destination 1. */
-        play_credits();
-        debug_teleport(1);
-        break;
-    case 20:
-        /* Meter (FLIPOUT) — assembly @CMD_FLIPOUT (lines 231-239).
-         * Toggle HP/PP meter flipout mode. */
-        toggle_hppp_flipout_mode(bt.hppp_meter_flipout_mode ? 0 : 1);
-        break;
-    case 21:
-        /* REPLAY — assembly @CMD_REPLAY (lines 240-242): JSL START_REPLAY_MODE.
-         * Replay recording system not applicable to C port (requires SNES SRAM).
-         * Assembly goes directly to cleanup. */
-        goto cleanup;
-    case 22:
-        /* TEST1 (MSG_BTL) — assembly @CMD_MSG_BTL (lines 243-248).
-         * Sets message pointer to MSG_BTL7_PRAY_RESPONSE_STRANGER (0xC9F70C). */
-        message_addr = 0xC9F70C;
-        break;
-    case 23: {
-        /* TEST2 (TO_BE_CONTINUED) — assembly @CMD_TO_BE_CONTINUED (lines 249-255).
-         * Close windows, display "To Be Continued" text, then cleanup. */
+
+    case DM_AFTER:
+        /* Assembly @AFTER_COMMAND: if a command set a message address, close the
+         * menu window, open TEXT_STANDARD and display it; then loop back to rebuild
+         * the menu. If no message, just rebuild. */
+        if (s->message_addr != 0) {
+            uint32_t addr = s->message_addr;
+            s->message_addr = 0;
+            close_focus_window();
+            create_window(WINDOW_TEXT_STANDARD);
+            s->phase = DM_BUILD;
+            if (dt_make_child_init(&child, addr))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            LOG_WARN("debug menu: resolve_text_addr(0x%06X) returned NULL\n",
+                     (unsigned)addr);
+            return STEP_RESULT_CONTINUE();
+        }
+        s->phase = DM_BUILD;
+        return STEP_RESULT_CONTINUE();
+
+    case DM_CLEANUP:
+        /* Assembly @CLEANUP: close windows, hide HP/PP, wait for entity fade. */
         close_all_windows();
         hide_hppp_windows();
-        display_text_from_addr(MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH);
-        goto cleanup;
-    }
+        s->phase = DM_DONE;
+        return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
+
+    case DM_DONE:
     default:
-        /* Cancelled or item 24+ → DISABLE_REPLAY_MODE.
-         * Assembly @CMD_DISABLE_REPLAY (lines 256-258).
-         * Replay system not applicable to C port. Goes directly to cleanup. */
-        goto cleanup;
+        enable_all_entities();
+        return STEP_RESULT_POP(0);
     }
-
-    /* Assembly @AFTER_COMMAND (lines 259-275):
-     * If a message address was set, close the menu window, open TEXT_STANDARD,
-     * display the message text, then loop back to show the menu again.
-     * If no message, just redisplay the menu. */
-    if (message_addr != 0) {
-        close_focus_window();
-        create_window(WINDOW_TEXT_STANDARD);
-        display_text_from_addr(message_addr);
-    }
-    goto display_menu;
-
-cleanup:
-    /* Assembly @CLEANUP (lines 276-285) */
-    close_all_windows();
-    hide_hppp_windows();
-
-    /* Wait for entity fade to complete (assembly @WAIT_FADE, lines 279-283) */
-    pump_mode(GAME_MODE_ENTITY_FADE_WAIT, NULL);
-
-    enable_all_entities();
 }
 
 /* boot_begin — boot stage 1: one-shot setup, run once from OWP_BOOT_SETUP.
@@ -1092,10 +1119,12 @@ static void overworld_boot(void) {
  * a child, then overworld_boot()) and never pops — a "Continue" game-over resets
  * the root to its boot phase instead of unwinding. Every modal context reached from
  * the overworld (battle, menus, dialogue, fades, teleport, intro, game-over) is a
- * mode pushed onto the stack. The only blocking holdouts are debug-only paths
- * (debug_y_button_menu) and the pump-bridge wrappers that still drive already-
- * converted modes for any remaining inline callers (deleted at the Phase D cutover,
- * D4). See docs/plans/savestate-unified-loop.md.
+ * mode pushed onto the stack — including the debug Y-button menu
+ * (GAME_MODE_DEBUG_MENU). The only blocking holdouts are the pump-bridge wrappers
+ * that still drive already-converted modes for remaining inline callers, plus a few
+ * deep debug pump bridges (enter_your_name_please naming, debug_teleport) still
+ * called inline from the debug menu (deleted at the Phase D cutover, D4b). See
+ * docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
 
 /* GAME_MODE_OVERWORLD step — the permanent root (g_mode_stack[0]). Boot stages
@@ -1204,18 +1233,16 @@ StepResult mode_step_overworld(ModeState *mst) {
 
         case OWP_POST_DEBUG:
             /* Assembly lines 67-88: @CHECK_DEBUG. (B|SELECT) held + R just pressed
-             * -> the debug Y-button menu. debug_y_button_menu() stays inline-
-             * blocking (debug-only; its Goods sub-front cannot be a mode yet), so
-             * a savestate inside it is not yet on the mode stack — documented
-             * deferral. It pumps its children, then JMP @LOOP_BEGIN (skip
-             * damage/spawn). */
+             * -> the debug Y-button menu (GAME_MODE_DEBUG_MENU). On its POP, resume
+             * at OWP_RENDER (the assembly JMP @LOOP_BEGIN skips damage/spawn). */
             if (ow.debug_flag) {
                 if (debug_menu_requested ||
                     ((core.pad1_held & PAD_CANCEL) && (core.pad1_pressed & PAD_R))) {
                     debug_menu_requested = false;
-                    debug_y_button_menu();
+                    child = (ModeState){0};
+                    child.debug_menu.phase = DM_ENTER;
                     st->phase = OWP_RENDER;
-                    continue;
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_MENU, &child);
                 }
             }
             debug_menu_requested = false;
