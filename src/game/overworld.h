@@ -81,6 +81,15 @@ typedef struct {
 END_PACKED_STRUCT
 ASSERT_STRUCT_SIZE(DeliveryEntry, 20);
 
+/* Serializable id for ow.post_teleport_callback (savestate hardening, D0 audit).
+ * The fn ptr is kept for runtime invocation; this id is its serializable form,
+ * set alongside the ptr and used to rebind it after a state load (D5). The only
+ * non-NULL callback the scripts ever install is undraw_flyover_text. */
+typedef enum {
+    POST_TELEPORT_CB_NONE = 0,
+    POST_TELEPORT_CB_UNDRAW_FLYOVER_TEXT = 1,
+} PostTeleportCallbackId;
+
 /* ---- OverworldState: all overworld module globals ---- */
 typedef struct {
     /* Entity spawn control */
@@ -269,6 +278,8 @@ typedef struct {
      * after the next teleport completes.  Set by flyover/sanctuary scripts
      * to UNDRAW_FLYOVER_TEXT; TELEPORT calls it then clears it. */
     void (*post_teleport_callback)(void);
+    uint8_t post_teleport_callback_id; /* PostTeleportCallbackId — serializable form
+                                          of the ptr above (savestate hardening, D0). */
 } OverworldState;
 
 extern OverworldState ow;

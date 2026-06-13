@@ -721,6 +721,7 @@ static void debug_teleport(uint8_t dest_id) {
     if (ow.post_teleport_callback) {
         ow.post_teleport_callback();
         ow.post_teleport_callback = NULL;
+        ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
     }
 
     flush_entity_creation_queue();

@@ -841,8 +841,10 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
                               | ((uint32_t)(uint16_t)value << 16);
             if (rom_addr == ROM_ADDR_UNDRAW_FLYOVER_TEXT) {
                 ow.post_teleport_callback = undraw_flyover_text;
+                ow.post_teleport_callback_id = POST_TELEPORT_CB_UNDRAW_FLYOVER_TEXT;
             } else if (rom_addr == 0) {
                 ow.post_teleport_callback = NULL;
+                ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
             } else {
                 LOG_WARN("WARN: POST_TELEPORT_CALLBACK unknown ROM addr $%06X\n",
                          rom_addr);

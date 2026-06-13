@@ -366,7 +366,8 @@ int main(void) {
     FIELD(OverworldState, delivery_timers, "i16[10]"); SEP();
     FIELD(OverworldState, delivery_attempts, "i16[10]"); SEP();
     FIELD(OverworldState, spawning_travelling_photographer_id, "u16"); SEP();
-    LAST_BLOB_FIELD(OverworldState, post_teleport_callback);
+    BLOB_FIELD(OverworldState, post_teleport_callback); SEP();
+    LAST_FIELD(OverworldState, post_teleport_callback_id, "u8");
     END_SECTION();
 
     SEP();

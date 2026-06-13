@@ -226,6 +226,7 @@ static void cc_1f_teleport_to(ScriptReader *r) {
     if (ow.post_teleport_callback) {
         ow.post_teleport_callback();
         ow.post_teleport_callback = NULL;
+        ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
     }
 
     /* FLUSH_ENTITY_CREATION_QUEUE (teleport.asm line 120).
