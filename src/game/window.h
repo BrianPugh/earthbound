@@ -149,8 +149,12 @@ typedef struct {
     MenuItem  menu_items[24];
     uint8_t   menu_count;
     uint8_t   current_option;       /* asm offset 43 */
-    uint16_t *content_tilemap;      /* pointer into shared tilemap pool */
+    uint16_t *content_tilemap;      /* pointer into shared tilemap pool (win.tilemap_pool) */
     uint16_t  content_tilemap_size; /* allocated entries in pool */
+    uint16_t  content_tilemap_offset; /* index of content_tilemap within win.tilemap_pool —
+                                         serializable form of the ptr above (savestate
+                                         hardening, D0b). Valid only when size > 0; the ptr is
+                                         rebuilt from this offset on state load (D5). */
 } WindowInfo;
 
 /* Forward declarations for struct fields. */

@@ -150,6 +150,7 @@ static uint16_t *tilemap_pool_alloc(uint16_t count) {
 static void tilemap_pool_free(WindowInfo *w) {
     w->content_tilemap = NULL;
     w->content_tilemap_size = 0;
+    w->content_tilemap_offset = 0;  /* size == 0 means "no allocation"; offset unused */
 }
 
 WindowInfo *create_window(uint16_t window_id) {
@@ -247,6 +248,8 @@ WindowInfo *create_window(uint16_t window_id) {
         w->content_tilemap = tilemap_pool_alloc(needed);
         assert(w->content_tilemap && "tilemap pool exhausted — increase WINDOW_TILEMAP_POOL_SIZE");
         w->content_tilemap_size = needed;
+        /* Keep the serializable pool offset in sync with the ptr (savestate D0b). */
+        w->content_tilemap_offset = (uint16_t)(w->content_tilemap - win.tilemap_pool);
     }
     memset(w->content_tilemap, 0, w->content_tilemap_size * sizeof(uint16_t));
 
