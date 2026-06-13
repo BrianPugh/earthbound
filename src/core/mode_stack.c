@@ -57,6 +57,15 @@ static StepResult mode_step_fade_wait(ModeState *st) {
          * ordering exactly (no phase shift). */
         window_tick_work();
         break;
+    case FADE_TICK_SCREEN_ONLY:
+        /* Body of the former while(fade_active()) loop in
+         * wait_for_fade_complete() (game-over screen fades, no entity
+         * actionscripts): oam_clear + update_screen, the fade advancing as it
+         * did in the blocking loop's wait_for_vblank. */
+        oam_clear();
+        update_screen();
+        fade_update();
+        break;
     }
     return STEP_RESULT_CONTINUE();
 }
@@ -140,6 +149,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_TELEPORT]            = mode_step_teleport,            /* overworld_teleport.c */
     [GAME_MODE_BICYCLE_DISMOUNT]    = mode_step_bicycle_dismount,    /* overworld_teleport.c */
     [GAME_MODE_HP_ALERT]            = mode_step_hp_alert,            /* overworld_palette.c */
+    [GAME_MODE_GAME_OVER]           = mode_step_game_over,           /* overworld_palette.c */
 };
 
 StepResult mode_dispatch_step(GameMode mode, ModeState *st) {

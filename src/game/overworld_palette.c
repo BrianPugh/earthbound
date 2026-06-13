@@ -617,8 +617,12 @@ void animate_palette_fade_with_rendering(uint16_t frames) {
 /* ---- INITIALIZE_GAME_OVER_SCREEN (port of asm/misc/initialize_game_over_screen.asm) ----
  * Displays the "You Lose" screen. Plays game-over music if all party members
  * are dead, decompresses game-over graphics/tilemap/palette, sets up VRAM,
- * loads UI state, fades in. */
-void initialize_game_over_screen(void) {
+ * loads UI state, fades in. Split into a begin/setup pair so GAME_MODE_GAME_OVER
+ * can yield on the two embedded wait_for_fade_complete()s.
+ *
+ * game_over_screen_begin(): the music + fade-out front half. Returns true if a
+ * fade-out was started (the caller must wait for it before the setup half). */
+static bool game_over_screen_begin(void) {
     if (!bt.party_members_alive_overworld) {
         /* Play "You Lose" music and fade out with mosaic */
         change_music(MUSIC_YOU_LOSE);
@@ -626,9 +630,14 @@ void initialize_game_over_screen(void) {
         /* FADE_OUT_WITH_MOSAIC(step=1, delay=1, mosaic_enable=0)
          * Assembly: LDY #0; LDX #1; TXA; JSL FADE_OUT_WITH_MOSAIC */
         fade_out(1, 1);
-        wait_for_fade_complete();
+        return true;
     }
+    return false;
+}
 
+/* game_over_screen_setup(): the decompress/VRAM/palette/UI setup + the fade-in
+ * start (the caller waits for the fade-in to complete). */
+static void game_over_screen_setup(void) {
     /* Clear overworld state */
     ml.loaded_animated_tile_count = 0;
     ml.map_palette_animation_loaded = 0;
@@ -741,154 +750,222 @@ void initialize_game_over_screen(void) {
     ppu.bg_hofs[2] = 0;  /* BG3_X_POS — prevents text window horizontal wrapping */
     ppu.bg_vofs[2] = 0;  /* BG3_Y_POS */
 
-    /* Fade in (step=1, delay=1) and wait for completion */
+    /* Fade in (step=1, delay=1); the caller waits for completion. */
     fade_in(1, 1);
-    wait_for_fade_complete();
 }
 
-/* ---- PLAY_COMEBACK_SEQUENCE (port of asm/misc/play_comeback_sequence.asm) ----
- * Displays the comeback dialogue (MSG_SYS_REVIVE_AFTER_KO) and runs 4 palette
- * animation phases with skippable pauses between them.
- * Returns -1 if player chose "Continue", 0 if "No Continue". */
-int16_t play_comeback_sequence(void) {
-    /* Initial pause (60 frames) */
-    skippable_pause(60);
+/* ---- GAME_MODE_GAME_OVER step ----
+ * Run-to-completion port of spawn() (asm/overworld/spawn.asm) with
+ * initialize_game_over_screen() and play_comeback_sequence()
+ * (asm/misc/play_comeback_sequence.asm) inlined as phases. See GameOverPhase in
+ * core/mode_stack.h. Pops -1 ("Continue") or 0 ("No Continue"). */
+StepResult mode_step_game_over(ModeState *mst) {
+    GameOverState *st = &mst->game_over;
+    static ModeState child;  /* outlives this dispatch (pump/root copies it) */
 
-    /* Display comeback message text.
-     * Assembly: DISPLAY_TEXT_PTR MSG_SYS_REVIVE_AFTER_KO */
-    display_text_from_addr(MSG_SYS_REVIVE_AFTER_KO);
+    /* play_comeback_sequence's no-continue branch: an 8-step fade chain
+     * (pause0, anim1, pause, anim2, pause, anim3, pause, anim4). Each entry is a
+     * PALETTE_FADE child; a -1 pop (button skip) short-circuits to the tail
+     * (the assembly's `if (... != 0) return 0;`). */
+    static const struct { uint8_t pf_kind; uint8_t frame_index; uint16_t frames; } nc_seq[8] = {
+        { PF_SKIPPABLE_PAUSE, 0, 60 },
+        { PF_MAP_CHANGE,      1, 90 },
+        { PF_SKIPPABLE_PAUSE, 0, 1  },
+        { PF_MAP_CHANGE,      2, 90 },
+        { PF_SKIPPABLE_PAUSE, 0, 1  },
+        { PF_MAP_CHANGE,      3, 90 },
+        { PF_SKIPPABLE_PAUSE, 0, 1  },
+        { PF_MAP_CHANGE,      4, 8  },
+    };
 
-    /* Close all windows and hide HPPP.
-     * Assembly: JSL CLOSE_ALL_WINDOWS_AND_HIDE_HPPP */
-    close_all_windows();
-    window_tick();
-    hide_hppp_windows();
-    window_tick();
+    for (;;) {
+        switch ((GameOverPhase)st->phase) {
+        case GO_ENTER:
+            st->saved_x = ow.respawn_x;
+            st->saved_y = ow.respawn_y;
+            disable_all_entities();
+            st->phase = GO_SETUP;
+            if (game_over_screen_begin()) {
+                /* fade-out started: wait for it before the setup half */
+                child = (ModeState){0};
+                child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+            }
+            continue;  /* party not all-dead: no fade, straight to setup */
 
-    /* Assembly: GET_EVENT_FLAG(EVENT_FLAG_NOCONTINUE_SELECTED); CMP #0; BNE @NO_CONTINUE
-     * If flag NOT set -> player chose "Continue" -> pause 60, return -1.
-     * If flag IS set -> player chose "No Continue" -> run fade phases, return 0. */
-    if (!event_flag_get(EVENT_FLAG_NOCONTINUE_SELECTED)) {
-        /* Player chose "Continue" — just pause and return -1 */
-        skippable_pause(60);
-        return -1;
+        case GO_SETUP:
+            game_over_screen_setup();
+            /* fade-in started: wait for it */
+            st->phase = GO_CB_PAUSE;
+            child = (ModeState){0};
+            child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+
+        case GO_CB_PAUSE:
+            /* play_comeback_sequence: initial skippable_pause(60), result ignored */
+            st->phase = GO_CB_TEXT;
+            child = (ModeState){0};
+            child.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
+            child.palette_fade.remaining = 60;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+
+        case GO_CB_TEXT:
+            /* DISPLAY_TEXT_PTR MSG_SYS_REVIVE_AFTER_KO (the comeback dialogue,
+             * which sets EVENT_FLAG_NOCONTINUE_SELECTED on the player's choice) */
+            st->phase = GO_CB_CLOSE1;
+            if (dt_make_child_init(&child, MSG_SYS_REVIVE_AFTER_KO))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                     (uint32_t)MSG_SYS_REVIVE_AFTER_KO);
+            continue;
+
+        case GO_CB_CLOSE1:
+            /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: close_all_windows + window_tick */
+            close_all_windows();
+            window_tick_work();
+            st->phase = GO_CB_CLOSE2;
+            return STEP_RESULT_CONTINUE();
+
+        case GO_CB_CLOSE2:
+            hide_hppp_windows();
+            window_tick_work();
+            st->phase = GO_CB_DECIDE;
+            return STEP_RESULT_CONTINUE();
+
+        case GO_CB_DECIDE:
+            if (!event_flag_get(EVENT_FLAG_NOCONTINUE_SELECTED)) {
+                /* "Continue": skippable_pause(60) (result ignored) then -1 */
+                st->phase = GO_CONT_FADE;
+                child = (ModeState){0};
+                child.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
+                child.palette_fade.remaining = 60;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+            }
+            /* "No Continue": run the fade chain */
+            st->nc_step = 0;
+            st->phase = GO_NC_SEQ;
+            continue;
+
+        case GO_CONT_FADE:
+            /* spawn() Continue path: FADE_OUT_WITH_MOSAIC(2,1) + wait */
+            fade_out(2, 1);
+            st->phase = GO_CONT_DONE;
+            child = (ModeState){0};
+            child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+
+        case GO_CONT_DONE:
+            enable_all_entities();
+            return STEP_RESULT_POP(-1);
+
+        case GO_NC_SEQ:
+            if (st->nc_step >= 8) { st->phase = GO_NC_WHITE; continue; }
+            child = (ModeState){0};
+            child.palette_fade.kind      = nc_seq[st->nc_step].pf_kind;
+            child.palette_fade.remaining = nc_seq[st->nc_step].frames;
+            if (nc_seq[st->nc_step].pf_kind == PF_MAP_CHANGE) {
+                /* animate_map_palette_change setup runs inline before the push */
+                load_map_palette_animation_frame(nc_seq[st->nc_step].frame_index);
+                initialize_map_palette_fade(nc_seq[st->nc_step].frames);
+            }
+            st->phase = GO_NC_SEQ_CHECK;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+
+        case GO_NC_SEQ_CHECK:
+            if (mode_child_result() != 0) {
+                /* button skip: play_comeback returns 0 -> jump to the tail */
+                st->phase = GO_NC_WHITE;
+            } else {
+                st->nc_step++;
+                st->phase = GO_NC_SEQ;
+            }
+            continue;
+
+        case GO_NC_WHITE:
+            /* spawn() No-Continue: fade_palette_to_white(32) */
+            load_palette_to_fade_buffer(100);
+            prepare_palette_fade_slopes(32, 0xFFFF);
+            st->phase = GO_NC_REINIT;
+            child = (ModeState){0};
+            child.palette_fade.kind      = PF_TO_WHITE;
+            child.palette_fade.remaining = 32;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+
+        case GO_NC_REINIT:
+            /* Stop audio effects (WRITE_APU_PORT1 2); TM_MIRROR = $17; invalidate
+             * map/music caches; wipe palettes on next map load. */
+            write_apu_port1(2);
+            ppu.tm = 0x17;
+            ow.loaded_map_tile_combo    = -1;
+            ml.current_map_music_track  = (uint16_t)-1;
+            audio_invalidate_music_cache();
+            dr.wipe_palettes_on_map_load = 1;
+            /* wait_for_vblank() -> one CONTINUE before initialize_map */
+            st->phase = GO_NC_MAP;
+            return STEP_RESULT_CONTINUE();
+
+        case GO_NC_MAP: {
+            /* Reinitialize the map at the respawn position (direction LEFT). */
+            initialize_map(st->saved_x, st->saved_y, 6);
+
+            int leader_char_id = game_state.party_members[0] & 0xFF;
+            CharStruct *leader_cs = &party_characters[leader_char_id - 1];
+            for (int i = 0; i < 6; i++)
+                leader_cs->afflictions[i] = 0;
+            leader_cs->current_hp_target = leader_cs->max_hp;
+            leader_cs->current_hp        = leader_cs->max_hp;
+            leader_cs->current_pp_target = 0;
+            leader_cs->current_pp        = 0;
+
+            /* Halve money (round up). */
+            game_state.money_carried = (game_state.money_carried + 1) / 2;
+            refresh_party_entities();
+
+            for (uint16_t flag = 1; flag <= 10; flag++)
+                event_flag_clear(flag);
+            for (int slot = 0; slot < MAX_ENTITIES; slot++)
+                entities.collided_objects[slot] = -1;
+
+            reset_queued_interactions();
+            ow.dad_phone_queued = 0;
+            ow.player_intangibility_frames = 0;
+
+            /* spawn_buzz_buzz(): push the buzz-buzz check text (entity-spawn CC
+             * codes gated by flags); spawn_delivery_entities() runs on resume,
+             * exactly the door DTR_FINALIZE/DTR_BUZZ_DONE split. */
+            st->phase = GO_NC_BUZZ_DONE;
+            if (dt_make_child_init(&child, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                     (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
+            continue;
+        }
+
+        case GO_NC_BUZZ_DONE:
+            spawn_delivery_entities();
+            oam_clear();
+            enable_all_entities();
+            /* animate_palette_fade_with_rendering(32) */
+            prepare_palette_fade_slopes(32, 0xFFFF);
+            st->phase = GO_NC_FINISH;
+            child = (ModeState){0};
+            child.palette_fade.kind      = PF_WITH_RENDERING;
+            child.palette_fade.remaining = 32;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+
+        case GO_NC_FINISH:
+        default:
+            return STEP_RESULT_POP(0);
+        }
     }
-
-    /* Player chose "No Continue" — run 4 palette fade phases */
-
-    /* 60-frame pause, then palette animation phase 1 (90 frames) */
-    if (skippable_pause(60) != 0) return 0;
-    if (animate_map_palette_change(1, 90) != 0) return 0;
-    if (skippable_pause(1) != 0) return 0;
-
-    /* Phase 2: palette animation phase 2 (90 frames) */
-    if (animate_map_palette_change(2, 90) != 0) return 0;
-    if (skippable_pause(1) != 0) return 0;
-
-    /* Phase 3: palette animation phase 3 (90 frames) */
-    if (animate_map_palette_change(3, 90) != 0) return 0;
-    if (skippable_pause(1) != 0) return 0;
-
-    /* Phase 4: palette animation phase 4 (8 frames) */
-    if (animate_map_palette_change(4, 8) != 0) return 0;
-
-    return 0;
 }
 
 /* ---- SPAWN (port of asm/overworld/spawn.asm) ----
- * Game over / comeback sequence. Called when all party members are KO'd.
- * Saves respawn position, shows game over screen, runs comeback sequence,
- * then either returns to overworld (continue) or reinitializes the map (no continue). */
+ * Game over / comeback sequence, run when the whole party is KO'd. Pump bridge
+ * over GAME_MODE_GAME_OVER for the still-blocking overworld root caller; the root
+ * STEP_PUSHes at Phase D. Returns -1 ("Continue" -> the caller re-boots) or 0
+ * ("No Continue" -> the world was reinitialised; the caller continues). */
 int16_t spawn(void) {
-    uint16_t saved_x = ow.respawn_x;
-    uint16_t saved_y = ow.respawn_y;
-
-    disable_all_entities();
-    initialize_game_over_screen();
-    int16_t comeback_result = play_comeback_sequence();
-
-    if (comeback_result != 0) {
-        /* Player chose "Continue" (result == -1) — fade out and return.
-         * Assembly: CMP #0; BEQ @COMEBACK_SEQUENCE_FAILED; FADE_OUT_WITH_MOSAIC */
-        fade_out(2, 1);
-        wait_for_fade_complete();
-        enable_all_entities();
-        return comeback_result;
-    }
-
-    /* Player chose "No Continue" — reinitialize the world */
-
-    /* Fade all ert.palettes to white (32 frames) */
-    fade_palette_to_white(32);
-
-    /* Stop audio effects.
-     * Assembly: LDA #2; JSL WRITE_APU_PORT1 */
-    write_apu_port1(2);
-
-    /* TM_MIRROR = $17 (all layers + OBJ on main screen) */
-    ppu.tm = 0x17;
-
-    /* Invalidate map/music caches so they reload.
-     * Assembly: LDA #-1; STA LOADED_MAP_TILE_COMBO / CURRENT_MAP_MUSIC_TRACK / CURRENT_MUSIC_TRACK */
-    ow.loaded_map_tile_combo = -1;
-    ml.current_map_music_track = (uint16_t)-1;
-    audio_invalidate_music_cache();
-
-    /* Set flag to wipe ert.palettes on next map load */
-    dr.wipe_palettes_on_map_load = 1;
-
-    wait_for_vblank();
-
-    /* Reinitialize the map at the respawn position.
-     * Assembly: LDA ow.respawn_x; LDX ow.respawn_y; LDY #6; JSL INITIALIZE_MAP */
-    initialize_map(saved_x, saved_y, 6 /* direction = LEFT */);
-
-    /* Compute leader character struct pointer.
-     * Assembly: party_members[0]-1 -> index into party_characters[] */
-    int leader_char_id = game_state.party_members[0] & 0xFF;
-    CharStruct *leader_cs = &party_characters[leader_char_id - 1];
-
-    /* Clear afflictions for leader (6 groups, matching assembly loop count).
-     * Assembly loops i=0..5 with SEP #$20; STZ char_struct::afflictions,X */
-    for (int i = 0; i < 6; i++)
-        leader_cs->afflictions[i] = 0;
-
-    /* Restore leader HP to max, zero PP.
-     * Assembly: max_hp -> current_hp_target -> current_hp; 0 -> current_pp_target -> current_pp */
-    leader_cs->current_hp_target = leader_cs->max_hp;
-    leader_cs->current_hp = leader_cs->max_hp;
-    leader_cs->current_pp_target = 0;
-    leader_cs->current_pp = 0;
-
-    /* Halve money (round up).
-     * Assembly: DIVISION32(money, 2) + (money & 1) = ceiling(money / 2) */
-    game_state.money_carried = (game_state.money_carried + 1) / 2;
-
-    refresh_party_entities();
-
-    /* Clear event flags 1-10 (set each to 0).
-     * Assembly: loop Y=1..10, SET_EVENT_FLAG(flag=Y, value=0) */
-    for (uint16_t flag = 1; flag <= 10; flag++)
-        event_flag_clear(flag);
-
-    /* Clear all entity collision objects.
-     * Assembly: loop 0..MAX_ENTITIES-1. */
-    for (int slot = 0; slot < MAX_ENTITIES; slot++)
-        entities.collided_objects[slot] = -1;
-
-    /* Reset interaction state */
-    reset_queued_interactions();
-    ow.dad_phone_queued = 0;
-    ow.player_intangibility_frames = 0;
-
-    /* Spawn buzz buzz entities and any pending deliveries */
-    spawn_buzz_buzz();
-
-    oam_clear();
-    enable_all_entities();
-
-    /* Animate palette fade with rendering (32 frames) */
-    animate_palette_fade_with_rendering(32);
-
-    return comeback_result;
+    ModeState init = { .game_over = { .phase = GO_ENTER } };
+    return (int16_t)pump_mode(GAME_MODE_GAME_OVER, &init);
 }

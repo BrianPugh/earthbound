@@ -41,8 +41,6 @@ void update_map_palette_fade(void);
 int16_t animate_map_palette_change(uint16_t frame_index, uint16_t frames);
 void fade_palette_to_white(uint16_t frames);
 void animate_palette_fade_with_rendering(uint16_t frames);
-void initialize_game_over_screen(void);
-int16_t play_comeback_sequence(void);
 
 /* ---- Collision functions (overworld_collision.c) ---- */
 int16_t check_entity_collision_at_position(int16_t x, int16_t y, int16_t entity_slot);

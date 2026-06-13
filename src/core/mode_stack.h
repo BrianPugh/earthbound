@@ -86,6 +86,7 @@ typedef enum {
     GAME_MODE_TELEPORT,            /* PSI teleport driver (teleport_mainloop) */
     GAME_MODE_BICYCLE_DISMOUNT,    /* "got off the bicycle" message + dismount */
     GAME_MODE_HP_ALERT,            /* "HP is very low!" overworld warning (show_hp_alert) */
+    GAME_MODE_GAME_OVER,           /* game-over / comeback sequence (spawn + play_comeback_sequence) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -128,6 +129,7 @@ typedef enum {
     FADE_TICK_OVERWORLD_RENDER = 0, /* oam_clear; run_actionscript_frame; update_screen; fade_update */
     FADE_TICK_BATTLE_EFFECTS,       /* update_battle_screen_effects() */
     FADE_TICK_WINDOW,               /* window_tick_work() — battle/menu fades with live windows */
+    FADE_TICK_SCREEN_ONLY,          /* oam_clear; update_screen; fade_update — port of wait_for_fade_complete() */
 } FadeTickKind;
 
 typedef struct {
@@ -1884,6 +1886,54 @@ typedef struct {
     uint8_t party_index;  /* 0-based party slot whose name + HP triggered the alert */
 } HpAlertState;
 
+/* GAME_MODE_GAME_OVER — run-to-completion port of spawn() (asm/overworld/spawn.asm)
+ * with initialize_game_over_screen() and play_comeback_sequence() inlined as
+ * phases. Shown when the whole party is KO'd in the overworld. The former blocking
+ * yields become child pushes / CONTINUEs:
+ *   - the game-over screen's fade-out/fade-in (wait_for_fade_complete) -> FADE_WAIT
+ *     (FADE_TICK_SCREEN_ONLY)
+ *   - the comeback dialogue (MSG_SYS_REVIVE_AFTER_KO) and the buzz-buzz check text
+ *     (MSG_EVT0_BUZZBUZZ_CHECK) -> DISPLAY_TEXT pushes
+ *   - the skippable pauses and the four map-palette fade phases -> PALETTE_FADE
+ *     (PF_SKIPPABLE_PAUSE / PF_MAP_CHANGE) pushes; a skip (-1) short-circuits the
+ *     no-continue fade chain straight to the world reinit (the assembly returns 0)
+ *   - fade_palette_to_white / animate_palette_fade_with_rendering -> PALETTE_FADE
+ *     (PF_TO_WHITE / PF_WITH_RENDERING) pushes
+ *   - the pre-map wait_for_vblank() -> one CONTINUE
+ * spawn_buzz_buzz() is decomposed at its call site exactly like the door
+ * DTR_FINALIZE/DTR_BUZZ_DONE path: push the buzz-buzz check text, then run
+ * spawn_delivery_entities() on resume.
+ *
+ * Pops the comeback result: -1 = player chose "Continue" (overworld_post re-renders
+ * the same map), 0 = "No Continue" (the world was reinitialised at the respawn
+ * point; overworld_post re-boots). spawn() (overworld_palette.c) is the pump bridge
+ * for the still-blocking overworld root loop caller; the root STEP_PUSHes at D1. */
+typedef enum {
+    GO_ENTER = 0,        /* save respawn, disable entities, game-over music + fade-out */
+    GO_SETUP,            /* game-over screen sync setup + fade-in */
+    GO_CB_PAUSE,         /* comeback: initial skippable_pause(60) (result ignored) */
+    GO_CB_TEXT,          /* comeback: push the MSG_SYS_REVIVE_AFTER_KO dialogue */
+    GO_CB_CLOSE1,        /* close_all_windows + one window_tick frame */
+    GO_CB_CLOSE2,        /* hide_hppp_windows + one window_tick frame */
+    GO_CB_DECIDE,        /* branch on the No-Continue flag */
+    GO_CONT_FADE,        /* Continue: after the trailing pause, fade_out(2,1) */
+    GO_CONT_DONE,        /* Continue: enable entities, POP -1 */
+    GO_NC_SEQ,           /* No-Continue: push the next pause/anim in the fade chain */
+    GO_NC_SEQ_CHECK,     /* No-Continue: skip -> tail, else advance the chain */
+    GO_NC_WHITE,         /* No-Continue tail: fade_palette_to_white(32) */
+    GO_NC_REINIT,        /* No-Continue: audio/PPU reset, then a pre-map vblank wait */
+    GO_NC_MAP,           /* No-Continue: initialize_map, leader/flags/entity reset, buzz text */
+    GO_NC_BUZZ_DONE,     /* No-Continue: spawn deliveries, enable entities, render-fade */
+    GO_NC_FINISH,        /* No-Continue: POP 0 */
+} GameOverPhase;
+
+typedef struct {
+    uint8_t  phase;     /* GameOverPhase */
+    uint8_t  nc_step;   /* GO_NC_SEQ index into the 8-entry no-continue fade chain */
+    uint16_t saved_x;   /* ow.respawn_x captured at GO_ENTER (used at GO_NC_MAP) */
+    uint16_t saved_y;   /* ow.respawn_y captured at GO_ENTER */
+} GameOverState;
+
 /* Per-mode hoisted locals (former stack variables). MUST be plain-old-data: no
  * pointers into the stack or heap that would not survive a save/reload. Sized
  * with headroom so adding a future mode's locals does not change the on-disk
@@ -1948,6 +1998,7 @@ union ModeState {
     TeleportState         teleport;
     BicycleDismountState  bicycle_dismount;
     HpAlertState          hp_alert;
+    GameOverState         game_over;
     uint8_t               _raw[160];
 };
 
@@ -2263,6 +2314,10 @@ StepResult mode_step_bicycle_dismount(ModeState *st);
 /* GAME_MODE_HP_ALERT step (defined in overworld_palette.c). Init via
  * ModeState.hp_alert{party_index}; pumped by check_low_hp_alert(). Always pops 0. */
 StepResult mode_step_hp_alert(ModeState *st);
+
+/* GAME_MODE_GAME_OVER step (defined in overworld_palette.c). Zero-init
+ * (phase = GO_ENTER); pumped by spawn(). Pops -1 (Continue) or 0 (No Continue). */
+StepResult mode_step_game_over(ModeState *st);
 
 /* Push `mode` onto the stack. If `init` is non-NULL its contents become the new
  * level's ModeState; otherwise the state is zeroed. */
