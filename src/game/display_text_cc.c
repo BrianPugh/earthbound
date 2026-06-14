@@ -888,13 +888,15 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     /* --- Event/input commands --- */
     case 0x41: {
         /* TRIGGER_SPECIAL_EVENT: 1 arg byte (event_id).
-         * Port of CC_1F_41 (asm/text/ccs/trigger_special_event.asm).
-         * Calls DISPATCH_SPECIAL_EVENT with arg, stores signed result
-         * in working_memory. Port of asm/text/dispatch_special_event.asm. */
+         * Port of CC_1F_41 (asm/text/ccs/trigger_special_event.asm). The 18-case
+         * DISPATCH_SPECIAL_EVENT is now GAME_MODE_SPECIAL_EVENT: STEP_PUSH it and
+         * store its result to working memory in DT_RESUME_CC1F_SPECIAL_EVENT. */
         uint8_t event_id = script_read_byte(r);
-        uint16_t result = dispatch_special_event(event_id);
-        set_working_memory((uint32_t)result);
-        break;
+        out_init->special_event.phase    = SE_ENTER;
+        out_init->special_event.event_id = event_id;
+        *out_mode   = GAME_MODE_SPECIAL_EVENT;
+        *out_resume = DT_RESUME_CC1F_SPECIAL_EVENT;
+        return true;
     }
     case 0x50:
         /* LOCK_INPUT: 0 args.

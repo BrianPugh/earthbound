@@ -347,14 +347,3 @@ void title_screen_setup(uint16_t quick_mode) {
     }
 }
 
-uint16_t show_title_screen(uint16_t quick_mode) {
-    title_screen_setup(quick_mode);
-
-    /* Run the warm-up, input/actionscript wait, and fade-out as a
-     * run-to-completion mode. ert.actionscript_state is left as the entity
-     * scripts set it (the ROM does not re-zero it here). */
-    ModeState init = {0};
-    init.title_screen.phase = TS_WARMUP;
-    init.title_screen.quick_mode = (uint8_t)quick_mode;
-    return (uint16_t)pump_mode(GAME_MODE_TITLE_SCREEN, &init);
-}

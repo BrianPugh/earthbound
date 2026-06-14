@@ -793,28 +793,13 @@ bool play_flyover_script_prepare(uint16_t id, uint16_t *saved_ent23_tick_hi,
 /* ======================================================================
  * COFFEETEA_SCENE (coffee_tea_scene.asm)
  *
- * Full-screen animated text sequence for coffee/tea breaks.
- * type: 0 = coffee, 1 = tea.
- *
- * Flow:
- *   1. Fade out with mosaic
- *   2. Init flyover screen + load coffee/tea battle BG
- *   3. Clear OAM, fade in
- *   4. Parse text script (similar to flyover but with smooth scrolling)
- *   5. Fade out, wait for completion
- *   6. Reload map, clear BG2, undraw flyover, fade in
+ * Full-screen animated text sequence for coffee/tea breaks (type 0 = coffee,
+ * 1 = tea). The entire scene runs to completion as GAME_MODE_FLYOVER
+ * (FO_COFFEETEA): fade out with mosaic, init flyover screen + load coffee/tea
+ * battle BG, clear OAM, fade in, parse the smooth-scroll text script, fade out
+ * and wait, reload map, clear BG2, undraw flyover, fade in. The blocking
+ * coffeetea_scene() pump bridge was deleted (D4b); its sole caller — the debug
+ * Tea command and CC_1F_41 cases 1/2 (GAME_MODE_SPECIAL_EVENT) — build the
+ * FO_COFFEETEA init and STEP_PUSH GAME_MODE_FLYOVER directly. (The script
+ * null-check happens in FOP_CT_SETUP_C, after the fade/BG setup.)
  * ====================================================================== */
-void coffeetea_scene(uint16_t type) {
-    /* The entire scene (initial fade-out, BG load, smooth-scroll script, fade-out
-     * wait, cleanup, fade-in) runs to completion as GAME_MODE_FLYOVER
-     * (FO_COFFEETEA). The script null-check happens in FOP_CT_SETUP_C (after the
-     * fade/BG setup), matching the blocking placement. */
-    ModeState init = {0};
-    init.flyover.kind        = FO_COFFEETEA;
-    init.flyover.phase       = FOP_CT_FADEOUT1;
-    init.flyover.id          = type;
-    init.flyover.pos         = 0;
-    init.flyover.script_size =
-        (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
-    pump_mode(GAME_MODE_FLYOVER, &init);
-}

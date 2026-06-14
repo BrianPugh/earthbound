@@ -93,6 +93,8 @@ typedef enum {
     GAME_MODE_DEBUG_MENU,          /* debug Y-button parent menu (debug_y_button_menu) */
     GAME_MODE_TELEPORT_TO,         /* script/debug instant teleport sequence (CC_1F_21 / debug CAST/STAFF) */
     GAME_MODE_NEW_GAME_NAMING,     /* new-game naming flow (new_game_naming) */
+    GAME_MODE_SPECIAL_EVENT,       /* CC_1F_41 special-event dispatch (dispatch_special_event) */
+    GAME_MODE_ENTER_NAME,          /* M2/EB player-name registry prompt (enter_your_name_please) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1770,6 +1772,46 @@ typedef struct {
     uint16_t wait_frames;  /* NGN_CONFIRM_WAIT countdown */
 } NewGameNamingState;
 
+/* GAME_MODE_SPECIAL_EVENT — run-to-completion port of dispatch_special_event()
+ * (display_text_menus.c), the 18-case dispatcher behind CC_1F_41. Most cases run
+ * inline with no yield (status suppression, flag clears, homesickness, bicycle
+ * dismount) or block only via host_process_frame (the cast/credits cutscenes);
+ * those compute their result and POP in SE_ENTER. The five modal cases STEP_PUSH
+ * an existing child — coffeetea (FLYOVER), the M2/EB name prompt (ENTER_NAME),
+ * the town map (TOWN_MAP), the sound stone (SOUND_STONE) and the title screen
+ * (TITLE_SCREEN) — and resume in SE_RESULT (POP the precomputed return value) or
+ * SE_RESULT_CHILD (POP the child's result, for the name prompt). The CC_1F_41
+ * channel stores the popped value to working memory in DT_RESUME_CC1F_SPECIAL_EVENT. */
+typedef enum {
+    SE_ENTER = 0,       /* dispatch on event_id: inline-POP or set up a child push */
+    SE_RESULT,          /* child popped: POP the precomputed `result` */
+    SE_RESULT_CHILD,    /* child popped: POP mode_child_result() (ENTER_NAME) */
+} SpecialEventPhase;
+
+typedef struct {
+    uint8_t  phase;     /* SpecialEventPhase */
+    uint8_t  event_id;  /* CC_1F_41 argument byte (1..18) */
+    uint16_t result;    /* precomputed return value carried across a child push */
+} SpecialEventState;
+
+/* GAME_MODE_ENTER_NAME — run-to-completion port of enter_your_name_please()
+ * (display_text_menus.c), the M2/EB player-name registry prompt (CC_1F_41 cases
+ * 3/4, also the debug menu's Player 0/1). EN_ENTER sets the text flags, creates
+ * WINDOW_NAMING_PROMPT, prints the prompt / existing name, then text_input_prepare()
+ * + STEP_PUSH TEXT_INPUT. EN_DONE reads the keyboard result (param-0 also copies
+ * the EB name into the M2 name), closes the window, restores the flags, POPs the
+ * result. */
+typedef enum {
+    EN_ENTER = 0,       /* set up prompt window + push TEXT_INPUT */
+    EN_DONE,            /* keyboard done: finalize + POP the result */
+} EnterNamePhase;
+
+typedef struct {
+    uint8_t  phase;     /* EnterNamePhase */
+    uint8_t  param;     /* 0 = EarthBound name path, 1 = Mother 2 name path */
+    uint16_t result;    /* keyboard result, captured on resume */
+} EnterNameState;
+
 /* GAME_MODE_INIT_INTRO — run-to-completion port of init_intro()'s state machine
  * (init_intro.c). STEP_PUSHes the converted intro leaves (INTRO_LOGO, GAS_STATION,
  * TITLE_SCREEN), ATTRACT, and FILE_MENU as children, branching on
@@ -1838,6 +1880,7 @@ typedef enum {
     DT_RESUME_CC1A_TELEPORT,    /* CC_1A_0B teleport menu: store TELEPORT_MENU result */
     DT_RESUME_CC1F_BATTLE,      /* CC_1F_23 trigger battle: store BATTLE_SCRIPTED result */
     DT_RESUME_CC1F_PHOTO,       /* CC_1F_D2 photographer: save_photo_state(cc1f_aux) */
+    DT_RESUME_CC1F_SPECIAL_EVENT, /* CC_1F_41: store SPECIAL_EVENT result to working_memory */
 } DisplayTextResume;
 
 typedef struct {
@@ -2143,6 +2186,8 @@ union ModeState {
     AttractState          attract;
     FileMenuState         file_menu;
     NewGameNamingState    new_game_naming;
+    SpecialEventState     special_event;
+    EnterNameState        enter_name;
     InitIntroState        init_intro;
     DisplayTextModeState  display_text;
     TextWaitFadeState     text_wait_fade;
@@ -2343,6 +2388,18 @@ StepResult mode_step_file_menu(ModeState *st);
  * ModeState.new_game_naming (phase = NGN_ENTER) before pushing GAME_MODE_NEW_GAME_
  * NAMING. Pops 1 when the game starts, 0 when backed out past the first name. */
 StepResult mode_step_new_game_naming(ModeState *st);
+
+/* GAME_MODE_SPECIAL_EVENT step (defined in display_text_menus.c). Init via
+ * ModeState.special_event (phase = SE_ENTER, event_id) before pushing
+ * GAME_MODE_SPECIAL_EVENT. Pops the dispatch_special_event() return value;
+ * CC_1F_41 stores it to working memory in DT_RESUME_CC1F_SPECIAL_EVENT. */
+StepResult mode_step_special_event(ModeState *st);
+
+/* GAME_MODE_ENTER_NAME step (defined in display_text_menus.c). Init via
+ * ModeState.enter_name (phase = EN_ENTER, param) before pushing
+ * GAME_MODE_ENTER_NAME. Pops the keyboard result (the former
+ * enter_your_name_please() return value). */
+StepResult mode_step_enter_name(ModeState *st);
 
 /* GAME_MODE_INIT_INTRO step (defined in init_intro.c). Init via
  * ModeState.init_intro (phase = II_LOGO) before pump_mode(GAME_MODE_INIT_INTRO).

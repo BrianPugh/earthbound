@@ -3,6 +3,8 @@
 
 #include "core/types.h"
 
+typedef union ModeState ModeState;
+
 /* One-shot setup for the file menu (the yield-free front half of FILE_MENU_LOOP,
  * asm/intro/file_select_menu_loop.asm): loads the file-select asset data, runs
  * FILE_SELECT_INIT, and starts the fade-in. The init_intro parent calls this,
@@ -26,20 +28,24 @@ typedef enum {
     NAME_TARGET_EB_PLAYER,    /* game_state.earthbound_playername */
 } NameTargetId;
 
-/* Shared keyboard input dialog for naming screens.
- * Port of TEXT_INPUT_DIALOG (asm/text/text_input_dialog.asm).
- * Creates keyboard window (0x1C), runs input loop, closes on done.
+/* Create the keyboard window and seed a TextInputState for GAME_MODE_TEXT_INPUT.
+ * The setup half of the on-screen naming keyboard (port of TEXT_INPUT_DIALOG,
+ * asm/text/text_input_dialog.asm): creates the keyboard window (0x1C); the modes
+ * that STEP_PUSH GAME_MODE_TEXT_INPUT (GAME_MODE_NEW_GAME_NAMING,
+ * GAME_MODE_ENTER_NAME) call this then push the mode, which runs the input loop
+ * and closes the window on done.
  *
  * name_target: NameTargetId selecting the output buffer (written on confirm)
  * max_len:     max characters to accept
  * naming_index: -1 for standalone (no Don't Care), >=0 for Don't Care
  * name_display_window_id: window where name VWF tiles are rendered
  * name_text_y: text row in that window for the name display (0-based)
- * existing_name: if non-NULL, pre-fill from this EB-encoded name
+ * existing_name: if non-NULL, pre-fill from this EB-encoded name (folded into the
+ *                seed so the pointer never enters the POD ModeState)
  *
- * Returns: 0 = confirmed, -1 = cancelled/back */
-int text_input_dialog(int name_target, int max_len, int naming_index,
-                      uint16_t name_display_window_id, int name_text_y,
-                      const uint8_t *existing_name);
+ * The mode pops 0 = confirmed, -1 = cancelled/back. */
+void text_input_prepare(ModeState *init, int name_target, int max_len,
+                        int naming_index, uint16_t name_display_window_id,
+                        int name_text_y, const uint8_t *existing_name);
 
 #endif /* INTRO_FILE_SELECT_H */

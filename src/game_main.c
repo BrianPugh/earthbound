@@ -686,8 +686,7 @@ StepResult mode_step_debug_goods(ModeState *mst) {
  * (Save/learn_special_psi/Meter), run inline within DM_DISPATCH — host_process_frame
  * does not re-enter the mode stack, so this is safe (and matches the blocking form's
  * behaviour). CAST/STAFF's teleport-back is GAME_MODE_TELEPORT_TO (STEP_PUSHed, D4b).
- * The one deep pump bridge still inline — enter_your_name_please (naming) — stays
- * this commit; D4b converts it with its non-debug callers.
+ * Player 0/1 naming is GAME_MODE_ENTER_NAME (STEP_PUSHed, D4b).
  *
  * Menu items match DEBUG_MENU_TEXT in asm/data/debug/menu_text.asm (US):
  *  1=Flag  2=Goods  3=Save  4=Apple  5=Banana  6=TV  7=Event  8=Warp
@@ -845,15 +844,19 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             return STEP_RESULT_CONTINUE();
         case 13:
             /* Player 0 (NAME_0) — assembly @CMD_NAME_0: name character 0 (Ness).
-             * Inline naming (text_input_dialog pumps NAMING_*); D4b converts it. */
-            enter_your_name_please(0);
+             * The M2/EB name prompt is GAME_MODE_ENTER_NAME (param 0). */
+            child = (ModeState){0};
+            child.enter_name.phase = EN_ENTER;
+            child.enter_name.param = 0;
             s->phase = DM_AFTER;
-            return STEP_RESULT_CONTINUE();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
         case 14:
             /* Player 1 (NAME_1) — assembly @CMD_NAME_1: name character 1 (Paula). */
-            enter_your_name_please(1);
+            child = (ModeState){0};
+            child.enter_name.phase = EN_ENTER;
+            child.enter_name.param = 1;
             s->phase = DM_AFTER;
-            return STEP_RESULT_CONTINUE();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
         case 15:
             /* GUIDE — assembly @CMD_TOWN_MAP: JSL RUN_TOWN_MAP_MENU. (The label
              * says "GUIDE" but the assembly dispatches to the town map.) */
@@ -1062,9 +1065,8 @@ static void overworld_boot(void) {
  * mode pushed onto the stack — including the debug Y-button menu
  * (GAME_MODE_DEBUG_MENU) and the script/debug teleport (GAME_MODE_TELEPORT_TO). The
  * only blocking holdouts are the pump-bridge wrappers that still drive
- * already-converted modes for remaining inline callers, plus one deep debug pump
- * bridge (enter_your_name_please naming) still called inline from the debug menu
- * (deleted at the Phase D cutover, D4b). See docs/plans/savestate-unified-loop.md.
+ * already-converted modes for remaining inline callers (deleted as their callers
+ * convert at the Phase D cutover, D4b). See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
 
 /* GAME_MODE_OVERWORLD step — the permanent root (g_mode_stack[0]). Boot stages

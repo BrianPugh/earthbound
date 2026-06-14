@@ -964,13 +964,13 @@ StepResult mode_step_text_input(ModeState *st) {
 }
 
 /* Create the keyboard window and seed a TextInputState for GAME_MODE_TEXT_INPUT.
- * Shared by the blocking text_input_dialog() bridge (still used by the debug menu
- * and the M2/EB player-name registry) and GAME_MODE_NEW_GAME_NAMING, which
- * STEP_PUSHes GAME_MODE_TEXT_INPUT directly. Any existing-name pre-fill is folded
- * into the seed so the existing_name pointer never enters the POD ModeState. */
-static void text_input_prepare(ModeState *init, int name_target, int max_len,
-                               int naming_index, uint16_t name_display_window_id,
-                               int name_text_y, const uint8_t *existing_name)
+ * Shared by the modes that STEP_PUSH GAME_MODE_TEXT_INPUT directly
+ * (GAME_MODE_NEW_GAME_NAMING and GAME_MODE_ENTER_NAME, the M2/EB player-name
+ * registry / debug Player 0/1). Any existing-name pre-fill is folded into the seed
+ * so the existing_name pointer never enters the POD ModeState. */
+void text_input_prepare(ModeState *init, int name_target, int max_len,
+                        int naming_index, uint16_t name_display_window_id,
+                        int name_text_y, const uint8_t *existing_name)
 {
     /* Create keyboard window (assembly: TEXT_INPUT_DIALOG line 43) */
     create_window(WINDOW_FILE_SELECT_NAMING_KB);
@@ -1001,18 +1001,6 @@ static void text_input_prepare(ModeState *init, int name_target, int max_len,
             s->name_pos++;
         }
     }
-}
-
-/* Thin bridge over GAME_MODE_TEXT_INPUT (run to completion via pump_mode while
- * the debug menu / player-name registry callers are still blocking). */
-int text_input_dialog(int name_target, int max_len, int naming_index,
-                      uint16_t name_display_window_id, int name_text_y,
-                      const uint8_t *existing_name)
-{
-    ModeState init;
-    text_input_prepare(&init, name_target, max_len, naming_index,
-                       name_display_window_id, name_text_y, existing_name);
-    return (int)pump_mode(GAME_MODE_TEXT_INPUT, &init);
 }
 
 /* GAME_MODE_NAMING_PROMPT step — run-to-completion port of the name_a_character()

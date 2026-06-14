@@ -66,10 +66,11 @@ static size_t phone_call_text_size;
 
 
 /*
- * ENTER_YOUR_NAME_PLEASE — Port of asm/text/enter_your_name_please.asm (117 lines).
+ * GAME_MODE_ENTER_NAME — run-to-completion port of ENTER_YOUR_NAME_PLEASE
+ * (asm/text/enter_your_name_please.asm, 117 lines).
  *
- * In-game name registration dialog.  Called from event scripts when the player
- * is asked to register their real name.
+ * In-game name registration dialog.  Reached from CC_1F_41 cases 3/4 (via
+ * GAME_MODE_SPECIAL_EVENT) and the debug menu's Player 0/1 commands.
  *
  * param=0: Register the EarthBound player name (earthbound_playername, 24 chars).
  *          Prompt: "Register your name, please".  Result also copied to
@@ -77,84 +78,97 @@ static size_t phone_call_text_size;
  * param=1: Register the Mother 2 player name (mother2_playername, 12 chars).
  *          Shows the existing EB player name as context above the keyboard.
  *
- * Returns TEXT_INPUT_DIALOG result (0 = confirmed, always 0 for standalone).
+ * Pops the TEXT_INPUT keyboard result (0 = confirmed, 0xFFFF = cancelled).
  */
-uint16_t enter_your_name_please(uint16_t param) {
-    /* Assembly: STZ ENABLE_WORD_WRAP, ALLOW_TEXT_OVERFLOW=1, SET_INSTANT_PRINTING */
-    dt.enable_word_wrap = 0;
-    dt.allow_text_overflow = 1;
-    set_instant_printing();
+StepResult mode_step_enter_name(ModeState *st) {
+    EnterNameState *s = &st->enter_name;
 
-    /* Create the prompt window (WINDOW::NAMING_PROMPT = 0x27) */
-    create_window(WINDOW_NAMING_PROMPT);
+    switch ((EnterNamePhase)s->phase) {
+    case EN_ENTER: {
+        /* Assembly: STZ ENABLE_WORD_WRAP, ALLOW_TEXT_OVERFLOW=1, SET_INSTANT_PRINTING */
+        dt.enable_word_wrap = 0;
+        dt.allow_text_overflow = 1;
+        set_instant_printing();
 
-    uint16_t result;
+        /* Create the prompt window (WINDOW::NAMING_PROMPT = 0x27) */
+        create_window(WINDOW_NAMING_PROMPT);
 
-    if (param != 0) {
-        /* --- Mother 2 player name path (param=1) ---
-         * Assembly lines 21-56: shows EB name at row 0, M2 name input at row 1. */
+        ModeState child;
+        if (s->param != 0) {
+            /* --- Mother 2 player name path (param=1) ---
+             * Assembly lines 21-56: shows EB name at row 0, M2 name input at row 1. */
 
-        /* Print existing EB player name at text position (0, 0) */
-        set_focus_text_cursor(0, 0);
-        /* Convert EB-encoded earthbound_playername to ASCII for print_string.
-         * Assembly: PRINT_STRING with max_len=24 from game_state pointer. */
-        int len = 0;
-        while (len < 24 && game_state.earthbound_playername[len] != 0x00) len++;
-        print_eb_string(game_state.earthbound_playername, len);
+            /* Print existing EB player name at text position (0, 0) */
+            set_focus_text_cursor(0, 0);
+            /* Assembly: PRINT_STRING with max_len=24 from game_state pointer. */
+            int len = 0;
+            while (len < 24 && game_state.earthbound_playername[len] != 0x00) len++;
+            print_eb_string(game_state.earthbound_playername, len);
 
-        /* Position cursor at row 1 for name input */
-        set_focus_text_cursor(0, 1);
+            /* Position cursor at row 1 for name input */
+            set_focus_text_cursor(0, 1);
 
-        /* Pre-fill existing M2 name if game_state byte 0 != 0
-         * (assembly lines 36-43: check GAME_STATE AND #$00FF) */
-        const uint8_t *existing_m2 = NULL;
-        if (((uint8_t *)&game_state)[0] != 0) {
-            existing_m2 = game_state.mother2_playername;
+            /* Pre-fill existing M2 name if game_state byte 0 != 0
+             * (assembly lines 36-43: check GAME_STATE AND #$00FF) */
+            const uint8_t *existing_m2 = NULL;
+            if (((uint8_t *)&game_state)[0] != 0) {
+                existing_m2 = game_state.mother2_playername;
+            }
+
+            /* Keyboard input for M2 name (12 chars, no Don't Care). Name display
+             * goes in NAMING_PROMPT at text row 1 (below EB name). */
+            text_input_prepare(&child, NAME_TARGET_M2_PLAYER, 12, -1,
+                               WINDOW_NAMING_PROMPT, 1, existing_m2);
+        } else {
+            /* --- EarthBound player name path (param=0) ---
+             * Assembly lines 58-104: shows prompt, EB name input at row 1,
+             * then copies result to mother2_playername (in EN_DONE). */
+
+            /* Print NAME_REGISTRY_REQUEST_STRING at text position (0, 0)
+             * Assembly: LOADPTR NAME_REGISTRY_REQUEST_STRING, PRINT_STRING #26 */
+            set_focus_text_cursor(0, 0);
+            print_eb_string(ASSET_DATA(ASSET_US_DATA_NAME_REGISTRY_REQUEST_STRING_BIN), 26);
+
+            /* Position cursor at row 1 for name input */
+            set_focus_text_cursor(0, 1);
+
+            /* Pre-fill existing EB name if non-empty (assembly lines 74-80) */
+            const uint8_t *existing_eb = NULL;
+            if (game_state.earthbound_playername[0] != 0) {
+                existing_eb = game_state.earthbound_playername;
+            }
+
+            /* Keyboard input for EB name (24 chars, no Don't Care). Name display
+             * goes in NAMING_PROMPT at text row 1 (below prompt). */
+            text_input_prepare(&child, NAME_TARGET_EB_PLAYER, 24, -1,
+                               WINDOW_NAMING_PROMPT, 1, existing_eb);
         }
 
-        /* TEXT_INPUT_DIALOG: keyboard input for M2 name (12 chars, no Don't Care).
-         * Name display goes in NAMING_PROMPT at text row 1 (below EB name). */
-        result = (uint16_t)text_input_dialog(NAME_TARGET_M2_PLAYER, 12, -1,
-                                             WINDOW_NAMING_PROMPT, 1, existing_m2);
-    } else {
-        /* --- EarthBound player name path (param=0) ---
-         * Assembly lines 58-104: shows prompt, EB name input at row 1,
-         * then copies result to mother2_playername. */
-
-        /* Print NAME_REGISTRY_REQUEST_STRING at text position (0, 0)
-         * Assembly: LOADPTR NAME_REGISTRY_REQUEST_STRING, PRINT_STRING #26 */
-        set_focus_text_cursor(0, 0);
-        print_eb_string(ASSET_DATA(ASSET_US_DATA_NAME_REGISTRY_REQUEST_STRING_BIN), 26);
-
-        /* Position cursor at row 1 for name input */
-        set_focus_text_cursor(0, 1);
-
-        /* Pre-fill existing EB name if non-empty (assembly lines 74-80) */
-        const uint8_t *existing_eb = NULL;
-        if (game_state.earthbound_playername[0] != 0) {
-            existing_eb = game_state.earthbound_playername;
-        }
-
-        /* TEXT_INPUT_DIALOG: keyboard input for EB name (24 chars, no Don't Care).
-         * Name display goes in NAMING_PROMPT at text row 1 (below prompt). */
-        result = (uint16_t)text_input_dialog(NAME_TARGET_EB_PLAYER, 24, -1,
-                                             WINDOW_NAMING_PROMPT, 1, existing_eb);
-
-        /* Assembly lines 96-104: PROCESS_NAME_INPUT_STRING + MEMCPY16.
-         * In US version, PROCESS_NAME_INPUT_STRING is effectively memcpy
-         * (romaji-to-kana is JP only; EB codes 0x50+ never match 0x41-0x5A).
-         * Copy first 12 bytes of EB name to M2 name. */
-        memcpy(game_state.mother2_playername, game_state.earthbound_playername,
-               sizeof(game_state.mother2_playername));
+        s->phase = EN_DONE;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &child);
     }
 
-    /* Cleanup (assembly @DONE, lines 105-117).
-     * text_input_dialog already closed the keyboard window (0x1C). */
-    close_window(WINDOW_NAMING_PROMPT);
-    dt.enable_word_wrap = 0xFF;
-    dt.allow_text_overflow = 0;
+    case EN_DONE:
+        s->result = (uint16_t)mode_child_result();
 
-    return result;
+        if (s->param == 0) {
+            /* Assembly lines 96-104: PROCESS_NAME_INPUT_STRING + MEMCPY16.
+             * In US version, PROCESS_NAME_INPUT_STRING is effectively memcpy
+             * (romaji-to-kana is JP only; EB codes 0x50+ never match 0x41-0x5A).
+             * Copy first 12 bytes of EB name to M2 name. */
+            memcpy(game_state.mother2_playername, game_state.earthbound_playername,
+                   sizeof(game_state.mother2_playername));
+        }
+
+        /* Cleanup (assembly @DONE, lines 105-117).
+         * TEXT_INPUT already closed the keyboard window (0x1C). */
+        close_window(WINDOW_NAMING_PROMPT);
+        dt.enable_word_wrap = 0xFF;
+        dt.allow_text_overflow = 0;
+        return STEP_RESULT_POP(s->result);
+    }
+
+    return STEP_RESULT_POP(0);
 }
 
 
@@ -220,14 +234,6 @@ static SoundStoneAssets ss_load_assets(void) {
 
     a.ok = true;
     return a;
-}
-
-uint16_t use_sound_stone(uint16_t cancellable) {
-    ModeState init = {0};
-    init.sound_stone.phase = SS_SETUP1;
-    init.sound_stone.cancellable = (uint8_t)(cancellable != 0);
-    pump_mode(GAME_MODE_SOUND_STONE, &init);
-    return 0;
 }
 
 /*
@@ -510,88 +516,109 @@ render_sprites:
 
 
 /*
- * DISPATCH_SPECIAL_EVENT (asm/text/dispatch_special_event.asm)
+ * GAME_MODE_SPECIAL_EVENT — run-to-completion port of DISPATCH_SPECIAL_EVENT
+ * (asm/text/dispatch_special_event.asm), the dispatch table for special in-game
+ * events triggered by CC 1F 41. Each event_id maps to a game sequence or state
+ * change; most return 0, some return meaningful values.
  *
- * Dispatch table for special in-game events triggered by CC 1F 41.
- * Each event_id maps to a specific game sequence or state change.
- * Returns 0 for most events; some return meaningful values.
+ * Inline cases (no yield, or blocking only via host_process_frame) compute and
+ * POP in SE_ENTER. The five modal cases STEP_PUSH an existing child mode and POP
+ * the result on resume: SE_RESULT for a precomputed return value, SE_RESULT_CHILD
+ * for the child's own result (the name prompt). CC_1F_41 stores the popped value
+ * to working memory in DT_RESUME_CC1F_SPECIAL_EVENT.
  */
-uint16_t dispatch_special_event(uint16_t event_id) {
-    switch (event_id) {
-    case 1:
-        /* COFFEE_SCENE: calls COFFEETEA_SCENE(0) */
-        coffeetea_scene(0);
-        return 0;
-    case 2:
-        /* TEA_SCENE: calls COFFEETEA_SCENE(1) */
-        coffeetea_scene(1);
-        return 0;
-    case 3:
-        /* REGISTER_REAL_NAME: calls ENTER_YOUR_NAME_PLEASE(0) */
-        return enter_your_name_please(0);
-    case 4:
-        /* REGISTER_REAL_NAME_2: calls ENTER_YOUR_NAME_PLEASE(1) */
-        return enter_your_name_please(1);
-    case 5:
-        /* SET_OVERWORLD_STATUS_SUPPRESSION(1) */
+StepResult mode_step_special_event(ModeState *st) {
+    SpecialEventState *s = &st->special_event;
+
+    /* Post-child resume: POP the carried result, or the child's own result. */
+    if (s->phase == SE_RESULT)
+        return STEP_RESULT_POP(s->result);
+    if (s->phase == SE_RESULT_CHILD)
+        return STEP_RESULT_POP((uint16_t)mode_child_result());
+
+    /* SE_ENTER: dispatch on event_id. */
+    ModeState child = {0};
+    switch (s->event_id) {
+    case 1:   /* COFFEE_SCENE: coffeetea_scene(0) */
+    case 2: { /* TEA_SCENE:    coffeetea_scene(1) */
+        uint16_t type = (s->event_id == 2) ? 1 : 0;
+        child.flyover.kind        = FO_COFFEETEA;
+        child.flyover.phase       = FOP_CT_FADEOUT1;
+        child.flyover.id          = type;
+        child.flyover.pos         = 0;
+        child.flyover.script_size =
+            (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
+        s->result = 0;
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &child);
+    }
+    case 3:  /* REGISTER_REAL_NAME:   enter_your_name_please(0) */
+    case 4:  /* REGISTER_REAL_NAME_2: enter_your_name_please(1) */
+        child.enter_name.phase = EN_ENTER;
+        child.enter_name.param = (s->event_id == 4) ? 1 : 0;
+        s->phase = SE_RESULT_CHILD;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
+    case 5:  /* SET_OVERWORLD_STATUS_SUPPRESSION(1) */
         ow.overworld_status_suppression = 1;
-        return 0;
-    case 6:
-        /* SET_OVERWORLD_STATUS_SUPPRESSION(get_event_flag(WIN_GIEGU)) */
+        return STEP_RESULT_POP(0);
+    case 6:  /* SET_OVERWORLD_STATUS_SUPPRESSION(get_event_flag(WIN_GIEGU)) */
         ow.overworld_status_suppression = event_flag_get(EVENT_FLAG_WIN_GIEGU) ? 1 : 0;
-        return 0;
-    case 7:
-        /* DISPLAY_TOWN_MAP */
-        return display_town_map();
+        return STEP_RESULT_POP(0);
+    case 7: { /* DISPLAY_TOWN_MAP — port of display_town_map(). Returns the map_id
+               * that was displayed (0 if none); the TOWN_MAP child's result is
+               * unused, so we carry map_id precomputed. */
+        uint16_t map_id = display_town_map_prepare(&child);
+        if (map_id == 0)
+            return STEP_RESULT_POP(0);
+        s->result = map_id;
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+    }
     case 8: {
         /* IS_ATTACKER_ENEMY: Port of asm/battle/is_attacker_enemy.asm.
          * Checks battler at bt.current_attacker offset; returns 1 if ally_or_enemy != 0. */
         Battler *atk = battler_from_offset(bt.current_attacker);
-        return (atk->ally_or_enemy != 0) ? 1 : 0;
+        return STEP_RESULT_POP((atk->ally_or_enemy != 0) ? 1 : 0);
     }
-    case 9:
-        /* USE_SOUND_STONE(cancellable=1) */
-        return use_sound_stone(1);
-    case 10:
-        /* SHOW_TITLE_SCREEN(1) */
-        show_title_screen(1);
-        return 0;
-    case 11:
-        /* PLAY_CAST_SCENE */
+    case 9:   /* USE_SOUND_STONE(cancellable=1) */
+    case 16:  /* USE_SOUND_STONE(cancellable=0) */
+        child.sound_stone.phase       = SS_SETUP1;
+        child.sound_stone.cancellable = (uint8_t)(s->event_id == 9);
+        s->result = 0;  /* use_sound_stone() always returned 0 */
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
+    case 10:  /* SHOW_TITLE_SCREEN(1) — the yield-free setup runs inline. */
+        title_screen_setup(1);
+        child.title_screen.phase      = TS_WARMUP;
+        child.title_screen.quick_mode = 1;
+        s->result = 0;
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &child);
+    case 11:  /* PLAY_CAST_SCENE — blocks via host_process_frame only (pump-free). */
         play_cast_scene();
-        return 0;
-    case 12:
-        /* PLAY_CREDITS */
+        return STEP_RESULT_POP(0);
+    case 12:  /* PLAY_CREDITS — blocks via host_process_frame only (pump-free). */
         play_credits();
-        return 0;
-    case 13:
-        /* TOGGLE_HPPP_FLIPOUT_MODE(1) — enable */
+        return STEP_RESULT_POP(0);
+    case 13:  /* TOGGLE_HPPP_FLIPOUT_MODE(1) — enable */
         toggle_hppp_flipout_mode(1);
-        return 0;
-    case 14:
-        /* TOGGLE_HPPP_FLIPOUT_MODE(0) — disable */
+        return STEP_RESULT_POP(0);
+    case 14:  /* TOGGLE_HPPP_FLIPOUT_MODE(0) — disable */
         toggle_hppp_flipout_mode(0);
-        return 0;
-    case 15:
-        /* CLEAR_ALL_EVENT_FLAGS: memset event_flags to 0 */
+        return STEP_RESULT_POP(0);
+    case 15:  /* CLEAR_ALL_EVENT_FLAGS: memset event_flags to 0 */
         memset(event_flags, 0, EVENT_FLAG_COUNT / 8);
-        return 0;
-    case 16:
-        /* USE_SOUND_STONE(cancellable=0) */
-        return use_sound_stone(0);
-    case 17:
-        /* ATTEMPT_HOMESICKNESS */
-        return attempt_homesickness();
-    case 18: {
-        /* CHECK_BICYCLE_AND_DISMOUNT: if walking_style==BICYCLE, dismount and return 1 */
+        return STEP_RESULT_POP(0);
+    case 17:  /* ATTEMPT_HOMESICKNESS */
+        return STEP_RESULT_POP(attempt_homesickness());
+    case 18:  /* CHECK_BICYCLE_AND_DISMOUNT: if walking_style==BICYCLE, dismount, return 1 */
         if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
             dismount_bicycle();
-            return 1;
+            return STEP_RESULT_POP(1);
         }
-        return 0;
-    }
+        return STEP_RESULT_POP(0);
     default:
-        return 0;
+        return STEP_RESULT_POP(0);
     }
 }
 

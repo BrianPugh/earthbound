@@ -22,10 +22,6 @@
 bool play_flyover_script_prepare(uint16_t id, uint16_t *saved_ent23_tick_hi,
                                  uint32_t *script_size);
 
-/* COFFEETEA_SCENE (coffee_tea_scene.asm) — coffee/tea break special event.
- * type: 0 = coffee, 1 = tea. */
-void coffeetea_scene(uint16_t type);
-
 /* LOAD_BACKGROUND_ANIMATION (load_background_animation.asm) —
  * Sets up BG mode 1, configures BG1/BG2 VRAM locations, loads battle BG.
  * Used by COFFEETEA_SCENE and LOAD_CAST_SCENE. */

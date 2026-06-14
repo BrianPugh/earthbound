@@ -1591,6 +1591,12 @@ StepResult mode_step_display_text(ModeState *ms) {
          * text — the tail of the former encounter_travelling_photographer(). */
         st->resume = DT_RESUME_NONE;
         save_photo_state(st->cc1f_aux);
+    } else if (st->resume == DT_RESUME_CC1F_SPECIAL_EVENT) {
+        /* CC_1F_41 special event: store the GAME_MODE_SPECIAL_EVENT result to
+         * working memory — the former set_working_memory(dispatch_special_event(...)).
+         * The original cast a uint16_t result, i.e. zero-extended. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
 
     ScriptReader *r = &st->reader;

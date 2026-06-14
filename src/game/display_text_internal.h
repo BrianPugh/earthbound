@@ -113,9 +113,6 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_aux);
 
 /* ---- Menu functions (display_text_menus.c) ---- */
-uint16_t enter_your_name_please(uint16_t param);
-uint16_t use_sound_stone(uint16_t cancellable);
-uint16_t dispatch_special_event(uint16_t event_id);
 void show_character_inventory(uint16_t window_id, uint16_t char_source);
 uint16_t open_store_menu(uint16_t shop_id);
 uint16_t select_escargo_express_item(void);

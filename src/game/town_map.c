@@ -464,10 +464,15 @@ StepResult mode_step_town_map(ModeState *st) {
 /*
  * DISPLAY_TOWN_MAP (asm/overworld/display_town_map.asm)
  *
- * Displays the town map based on the leader's current position.
- * Returns the map_id that was displayed (0 if none).
+ * Displays the town map based on the leader's current position. Split for
+ * GAME_MODE_SPECIAL_EVENT (CC_1F_41 case 7): sets the icon-animation globals
+ * (static to this TU) and returns the map_id to display (0 = none). When non-zero,
+ * fills *init with the TOWN_MAP display push; the caller STEP_PUSHes
+ * GAME_MODE_TOWN_MAP and returns map_id as the event result. (Unlike
+ * show_town_map_prepare, there is no Town Map item check or entity disable here —
+ * the event version is unconditional, matching the assembly.)
  */
-uint16_t display_town_map(void) {
+uint16_t display_town_map_prepare(ModeState *init) {
     town_map_animation_frame = 60;
     town_map_player_icon_animation_frame = 20;
     frames_until_map_icon_palette_update = 12;
@@ -477,29 +482,13 @@ uint16_t display_town_map(void) {
     uint16_t map_id = raw_id & 0x000F;
 
     if (map_id == 0)
-        return map_id;
+        return 0;
 
-    ModeState init = {0};
-    init.town_map.phase = TM_LOAD_BEGIN;
-    init.town_map.menu_mode = 0;
-    init.town_map.map_id = (uint8_t)(map_id - 1);
-    pump_mode(GAME_MODE_TOWN_MAP, &init);
-
+    *init = (ModeState){0};
+    init->town_map.phase = TM_LOAD_BEGIN;
+    init->town_map.menu_mode = 0;
+    init->town_map.map_id = (uint8_t)(map_id - 1);
     return map_id;
-}
-
-/*
- * SHOW_TOWN_MAP (asm/overworld/show_town_map.asm)
- *
- * Entry point from overworld X button: checks for Town Map item, shows map.
- */
-void show_town_map(void) {
-    if (find_item_in_inventory2(CHAR_ID_ANY, ITEM_TOWN_MAP) == 0)
-        return;
-
-    disable_all_entities();
-    display_town_map();
-    enable_all_entities();
 }
 
 /* show_town_map() + display_town_map()'s front half, split for the overworld root
