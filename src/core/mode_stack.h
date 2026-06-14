@@ -1904,6 +1904,8 @@ typedef enum {
     DT_RESUME_CC1F_BATTLE,      /* CC_1F_23 trigger battle: store BATTLE_SCRIPTED result */
     DT_RESUME_CC1F_PHOTO,       /* CC_1F_D2 photographer: save_photo_state(cc1f_aux) */
     DT_RESUME_CC1F_SPECIAL_EVENT, /* CC_1F_41: store SPECIAL_EVENT result to working_memory */
+    DT_RESUME_CC1A_SEL,         /* CC_1A_08/09 selection menu: store result to working_memory */
+    DT_RESUME_CC1A_SEL_CLEAR,   /* CC_1A_04 selection menu: store result + clear focus menu */
 } DisplayTextResume;
 
 typedef struct {

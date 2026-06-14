@@ -2094,12 +2094,20 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x04: {
         /* SELECTION_MENU_NO_CANCEL: 0 args.
          * Port of tree_1A.asm @SELECTION_MENU_NO_CANCEL.
-         * Runs selection_menu(0), stores result, clears focus window menu options. */
-        uint16_t result = selection_menu(0);
-        set_working_memory((uint32_t)result);
-        WindowInfo *w = get_focus_window_info();
-        if (w) w->menu_count = 0;
-        break;
+         * STEP_PUSHes GAME_MODE_SELECTION_MENU (allow_cancel=0); the result store
+         * + focus-menu clear run in DT_RESUME_CC1A_SEL_CLEAR on POP. selection_menu()
+         * returns 0 without pumping for a null/empty menu — replicate inline. */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (!w || w->menu_count == 0) {
+            set_working_memory(0);
+            if (w) w->menu_count = 0;
+            break;
+        }
+        out_init->selection_menu.phase        = SM_SETUP;
+        out_init->selection_menu.allow_cancel = 0;
+        *out_mode   = GAME_MODE_SELECTION_MENU;
+        *out_resume = DT_RESUME_CC1A_SEL_CLEAR;
+        return true;
     }
     case 0x05: {
         /* SHOW_CHARACTER_INVENTORY: 2 args (window_id, char_source).
@@ -2142,18 +2150,35 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x08: {
         /* SELECTION_MENU_NO_CANCEL (variant): 0 args.
          * Port of tree_1A.asm @SELECTION_MENU_NO_CANCEL_2.
-         * Same as 0x04 but does NOT clear menu options afterward. */
-        uint16_t result = selection_menu(0);
-        set_working_memory((uint32_t)result);
-        break;
+         * Same as 0x04 but does NOT clear menu options afterward — STEP_PUSHes
+         * GAME_MODE_SELECTION_MENU (allow_cancel=0), result store in
+         * DT_RESUME_CC1A_SEL on POP. Empty/null menu returns 0 inline. */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (!w || w->menu_count == 0) {
+            set_working_memory(0);
+            break;
+        }
+        out_init->selection_menu.phase        = SM_SETUP;
+        out_init->selection_menu.allow_cancel = 0;
+        *out_mode   = GAME_MODE_SELECTION_MENU;
+        *out_resume = DT_RESUME_CC1A_SEL;
+        return true;
     }
     case 0x09: {
         /* SELECTION_MENU_ALLOW_CANCEL: 0 args.
          * Port of tree_1A.asm @SELECTION_MENU_ALLOW_CANCEL.
-         * Runs selection_menu(1), stores result in working_memory. */
-        uint16_t result = selection_menu(1);
-        set_working_memory((uint32_t)result);
-        break;
+         * STEP_PUSHes GAME_MODE_SELECTION_MENU (allow_cancel=1); result store in
+         * DT_RESUME_CC1A_SEL on POP. Empty/null menu returns 0 inline. */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (!w || w->menu_count == 0) {
+            set_working_memory(0);
+            break;
+        }
+        out_init->selection_menu.phase        = SM_SETUP;
+        out_init->selection_menu.allow_cancel = 1;
+        *out_mode   = GAME_MODE_SELECTION_MENU;
+        *out_resume = DT_RESUME_CC1A_SEL;
+        return true;
     }
     case 0x0A: {
         /* DISPLAY_TELEPHONE_CONTACT: 0 args.

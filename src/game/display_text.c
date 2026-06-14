@@ -1597,6 +1597,18 @@ StepResult mode_step_display_text(ModeState *ms) {
          * The original cast a uint16_t result, i.e. zero-extended. */
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1A_SEL) {
+        /* CC_1A_08/09 selection menu: store the chosen userdata (0 on cancel)
+         * to working memory — the former selection_menu() return value. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC1A_SEL_CLEAR) {
+        /* CC_1A_04 selection menu: store the result, then clear the focus
+         * window's menu options — the tail of the former CC_1A_04. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+        WindowInfo *w = get_focus_window_info();
+        if (w) w->menu_count = 0;
     }
 
     ScriptReader *r = &st->reader;
