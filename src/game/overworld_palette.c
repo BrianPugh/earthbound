@@ -899,11 +899,7 @@ StepResult mode_step_game_over(ModeState *mst) {
 }
 
 /* ---- SPAWN (port of asm/overworld/spawn.asm) ----
- * Game over / comeback sequence, run when the whole party is KO'd. Pump bridge
- * over GAME_MODE_GAME_OVER for the still-blocking overworld root caller; the root
- * STEP_PUSHes at Phase D. Returns -1 ("Continue" -> the caller re-boots) or 0
- * ("No Continue" -> the world was reinitialised; the caller continues). */
-int16_t spawn(void) {
-    ModeState init = { .game_over = { .phase = GO_ENTER } };
-    return (int16_t)pump_mode(GAME_MODE_GAME_OVER, &init);
-}
+ * Game over / comeback sequence, run when the whole party is KO'd. The blocking
+ * pump bridge is gone — the overworld root (OWP_LOOP_END, game_main.c) STEP_PUSHes
+ * GAME_MODE_GAME_OVER directly (mode_step_game_over, above) and reads the pop
+ * result (-1 "Continue" -> reboot / 0 "No Continue" -> world reinitialised). */

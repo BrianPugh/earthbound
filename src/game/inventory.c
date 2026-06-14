@@ -1906,24 +1906,22 @@ StepResult mode_step_level_up(ModeState *state) {
 /* GAIN_EXP: Port of asm/misc/gain_exp.asm.
  * A=play_sound, X=char_id, PARAM_INT32=exp_amount.
  * Adds EXP, then loops level-ups while the next threshold is met. The
- * play_sound path displays text, so it runs as GAME_MODE_LEVEL_UP — all
- * converted callers (CC_1E_09, the battle end-of-round EXP loop, the
- * instant-win EXP loop) push the mode directly, so the pump branch currently
- * has no C callers; it stays as the assembly-faithful API for future ones.
- * The silent path never yields and loops inline. */
+ * text-displaying (play_sound != 0) path is GAME_MODE_LEVEL_UP: every real
+ * caller (CC_1E_09, the battle end-of-round EXP loop, the instant-win EXP loop)
+ * STEP_PUSHes the mode directly via level_up_make_init(), so this blocking entry
+ * is only ever reached with play_sound == 0. The pump bridge was removed for the
+ * pump_mode cutover; a play_sound != 0 call (none today) falls back to the silent
+ * level-up so stats still apply (minus the text) and warns. The silent path
+ * never yields and loops inline. */
 void gain_exp(uint16_t play_sound, uint16_t char_id, uint32_t exp_amount) {
     if (!gain_exp_prepare(char_id, exp_amount)) return;
 
-    if (play_sound == 0) {
-        do {
-            level_up_char_silent(char_id);
-        } while (level_up_pending(char_id));
-        return;
-    }
+    if (play_sound != 0)
+        LOG_WARN("gain_exp(play_sound=1): STEP_PUSH GAME_MODE_LEVEL_UP instead\n");
 
-    ModeState init;
-    level_up_make_init(&init, char_id);
-    pump_mode(GAME_MODE_LEVEL_UP, &init);
+    do {
+        level_up_char_silent(char_id);
+    } while (level_up_pending(char_id));
 }
 
 /* --- Financial functions --- */

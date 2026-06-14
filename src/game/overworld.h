@@ -825,11 +825,8 @@ void center_screen(uint16_t x, uint16_t y);
 void set_party_tick_callbacks(uint16_t leader_slot,
                               uint32_t leader_cb, uint32_t follower_cb);
 
-/* SPAWN: Port of asm/overworld/spawn.asm.
- * Game over / comeback sequence. Displays game over screen, runs
- * comeback dialogue with palette animations, revives leader, halves money,
- * clears event flags 1-10, and reinitializes the map.
- * Returns result of comeback sequence (-1 = continue, 0 = no continue). */
-int16_t spawn(void);
+/* SPAWN (asm/overworld/spawn.asm): the game over / comeback sequence is now
+ * GAME_MODE_GAME_OVER (mode_step_game_over, overworld_palette.c), STEP_PUSHed by
+ * the overworld root; the blocking spawn() bridge has been deleted. */
 
 #endif /* GAME_OVERWORLD_H */
