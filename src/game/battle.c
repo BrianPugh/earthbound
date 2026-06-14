@@ -879,20 +879,9 @@ check_flipout:
         ch->current_pp_target = 999;
 }
 
-/*
- * WAIT_FOR_FADE_WITH_TICK (asm/battle/wait_for_fade_with_tick.asm)
- *
- * Loops until the current fade completes, calling window_tick()
- * each frame to keep windows/sprites updating.
- */
-void wait_for_fade_with_tick(void) {
-    /* Run-to-completion form: the former loop body (window_tick) is now the
-     * GAME_MODE_FADE_WAIT step's FADE_TICK_WINDOW tick (window_tick_work, no
-     * internal yield); pump_mode owns the single yield. See
-     * docs/plans/savestate-unified-loop.md. */
-    ModeState init = { .fade_wait = { .tick_kind = FADE_TICK_WINDOW } };
-    pump_mode(GAME_MODE_FADE_WAIT, &init);
-}
+/* WAIT_FOR_FADE_WITH_TICK (asm/battle/wait_for_fade_with_tick.asm): the former
+ * blocking bridge is gone — its sole caller (load_battle_scene) now STEP_PUSHes
+ * GAME_MODE_FADE_WAIT (FADE_TICK_WINDOW = the former loop body) directly. */
 /*
  * FIND_NEXT_ENEMY_LETTER (asm/battle/find_next_enemy_letter.asm)
  *

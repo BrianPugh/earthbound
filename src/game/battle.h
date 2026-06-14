@@ -1149,9 +1149,6 @@ void reset_hppp_meter_speed_if_stable(void);
  * In flipout mode, oscillates HP between 999 and 1, PP between 999 and 0. */
 void hp_pp_roller(void);
 
-/* WAIT_FOR_FADE_WITH_TICK: Loop until fade completes, ticking windows each frame. */
-void wait_for_fade_with_tick(void);
-
 /* GET_BATTLE_SPRITE_WIDTH: Return width in 8px tile units for sprite ID (1-based). */
 uint16_t get_battle_sprite_width(uint16_t sprite_id);
 

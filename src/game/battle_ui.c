@@ -1302,77 +1302,95 @@ void setup_battle_enemy_sprites(void) {
  *   battle_group: enemy group index (into BTL_ENTRY_BG_TABLE / BTL_ENTRY_PTR_TABLE)
  *   music_id: music track to play (0 = don't change music)
  */
-void load_battle_scene(uint16_t battle_group, uint16_t music_id) {
-    uint16_t skip_swirl = 0;
+StepResult mode_step_load_battle_scene(ModeState *ms) {
+    LoadBattleSceneState *s = &ms->load_battle_scene;
+    static ModeState child;  /* outlives this step (the pump copies it on push) */
 
-    /* Determine if we should skip the swirl-in transition:
-     * - If not yet in battle mode (first load), skip swirl
-     * - If this is the final Giygas phase, skip swirl */
-    if (!bt.battle_mode_flag || battle_group == ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) {
-        skip_swirl = 1;
-    }
+    for (;;) {
+        switch ((LoadBattleScenePhase)s->phase) {
+        case LBS_ENTER:
+            /* Determine if we should skip the swirl-in transition:
+             * - If not yet in battle mode (first load), skip swirl
+             * - If this is the final Giygas phase, skip swirl */
+            s->skip_swirl = (!bt.battle_mode_flag ||
+                             s->group == ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) ? 1 : 0;
+            s->phase = LBS_LOAD;
 
-    /* Swirl in (if applicable) */
-    if (!skip_swirl) {
-        start_battle_swirl(6, 1, 30);
-        {
-            ModeState init = { .battle_wait = { .kind = BW_SWIRL_WINDOW } };
-            pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-        }
-    }
-
-    /* Set current battle group */
-    bt.current_battle_group = battle_group;
-
-    /* Read BG table entries for this battle group */
-    uint16_t bg_id = 0;
-    uint16_t palette_id = 0;
-    uint16_t letterbox_style = 0;
-    if (btl_entry_bg_table) {
-        uint16_t offset = bt.current_battle_group * 4;
-        bg_id = read_u16_le(&btl_entry_bg_table[offset]);
-        palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
-    }
-
-    /* Get letterbox style from btl_entry_ptr_table */
-    if (btl_entry_ptr_table) {
-        uint16_t entry_offset = bt.current_battle_group * 8 + 7; /* battle_entry_ptr_entry::letterbox_style */
-        letterbox_style = btl_entry_ptr_table[entry_offset];
-    }
-
-    /* Load battle visuals */
-    force_blank_and_wait_vblank();
-    load_enemy_battle_sprites();
-    text_load_window_gfx();
-    upload_text_tiles_to_vram(1);
-    load_battle_bg(bg_id, palette_id, letterbox_style);
-    setup_battle_enemy_sprites();
-    set_palette_upload_mode(24);
-    render_all_battle_sprites();
-
-    /* Mark battle mode active */
-    bt.battle_mode_flag = 1;
-
-    /* Play music if requested */
-    if (music_id != 0) {
-        change_music(music_id);
-    }
-
-    /* Fade in */
-    blank_screen_and_wait_vblank();
-    if (skip_swirl) {
-        /* Quick fade in (step=1, delay=4 frames) */
-        fade_in(1, 4);
-        wait_for_fade_with_tick();
-    } else {
-        /* Full fade in (step=15, delay=1 frame) + swirl out */
-        fade_in(15, 1);
-        if (battle_group != ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) {
-            start_battle_swirl(6, 0, 5);
-            {
-                ModeState init = { .battle_wait = { .kind = BW_SWIRL_WINDOW } };
-                pump_mode(GAME_MODE_BATTLE_WAIT, &init);
+            /* Swirl in (if applicable) */
+            if (!s->skip_swirl) {
+                start_battle_swirl(6, 1, 30);
+                memset(&child, 0, sizeof(child));
+                child.battle_wait.kind = BW_SWIRL_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
             }
+            /* skip_swirl path: no yield before the load (matches the original
+             * blocking flow) — continue into LBS_LOAD in the same step. */
+            continue;
+
+        case LBS_LOAD: {
+            /* Set current battle group */
+            bt.current_battle_group = s->group;
+
+            /* Read BG table entries for this battle group */
+            uint16_t bg_id = 0;
+            uint16_t palette_id = 0;
+            uint16_t letterbox_style = 0;
+            if (btl_entry_bg_table) {
+                uint16_t offset = bt.current_battle_group * 4;
+                bg_id = read_u16_le(&btl_entry_bg_table[offset]);
+                palette_id = read_u16_le(&btl_entry_bg_table[offset + 2]);
+            }
+
+            /* Get letterbox style from btl_entry_ptr_table */
+            if (btl_entry_ptr_table) {
+                uint16_t entry_offset = bt.current_battle_group * 8 + 7; /* battle_entry_ptr_entry::letterbox_style */
+                letterbox_style = btl_entry_ptr_table[entry_offset];
+            }
+
+            /* Load battle visuals (force_blank/blank-screen waits block via
+             * host_process_frame only — pump-free, run inline here). */
+            force_blank_and_wait_vblank();
+            load_enemy_battle_sprites();
+            text_load_window_gfx();
+            upload_text_tiles_to_vram(1);
+            load_battle_bg(bg_id, palette_id, letterbox_style);
+            setup_battle_enemy_sprites();
+            set_palette_upload_mode(24);
+            render_all_battle_sprites();
+
+            /* Mark battle mode active */
+            bt.battle_mode_flag = 1;
+
+            /* Play music if requested */
+            if (s->music != 0) {
+                change_music(s->music);
+            }
+
+            /* Fade in */
+            blank_screen_and_wait_vblank();
+            s->phase = LBS_DONE;
+            if (s->skip_swirl) {
+                /* Quick fade in (step=1, delay=4 frames) — the former
+                 * wait_for_fade_with_tick() is a FADE_WAIT push. */
+                fade_in(1, 4);
+                memset(&child, 0, sizeof(child));
+                child.fade_wait.tick_kind = FADE_TICK_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+            }
+            /* Full fade in (step=15, delay=1 frame) + swirl out */
+            fade_in(15, 1);
+            if (s->group != ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) {
+                start_battle_swirl(6, 0, 5);
+                memset(&child, 0, sizeof(child));
+                child.battle_wait.kind = BW_SWIRL_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            }
+            return STEP_RESULT_POP(0);
+        }
+
+        case LBS_DONE:
+        default:
+            return STEP_RESULT_POP(0);
         }
     }
 }

@@ -95,6 +95,7 @@ typedef enum {
     GAME_MODE_NEW_GAME_NAMING,     /* new-game naming flow (new_game_naming) */
     GAME_MODE_SPECIAL_EVENT,       /* CC_1F_41 special-event dispatch (dispatch_special_event) */
     GAME_MODE_ENTER_NAME,          /* M2/EB player-name registry prompt (enter_your_name_please) */
+    GAME_MODE_LOAD_BATTLE_SCENE,   /* boss-transition scene (re)load (load_battle_scene) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1231,6 +1232,27 @@ typedef struct {
     uint16_t remaining; /* BW_FRAMES: frames left to render */
 } BattleWaitState;
 
+/* GAME_MODE_LOAD_BATTLE_SCENE — run-to-completion port of load_battle_scene()
+ * (battle_ui.c): (re)loads the battle scene during boss transitions. The three
+ * blocking waits become STEP_PUSHes: the swirl-in / swirl-out are
+ * GAME_MODE_BATTLE_WAIT (BW_SWIRL_WINDOW), the fade-in is GAME_MODE_FADE_WAIT
+ * (FADE_TICK_WINDOW = the former wait_for_fade_with_tick()). The interleaved
+ * force_blank/blank-screen vblank waits block via host_process_frame only
+ * (pump-free) and run inline in the LBS_LOAD step. Init via group/music (phase =
+ * LBS_ENTER); skip_swirl is computed in LBS_ENTER. Always pops 0. */
+typedef enum {
+    LBS_ENTER = 0,  /* compute skip_swirl; swirl-in push (or continue) */
+    LBS_LOAD,       /* load visuals (inline) + fade-in / swirl-out push */
+    LBS_DONE,       /* pop */
+} LoadBattleScenePhase;
+
+typedef struct {
+    uint8_t  phase;       /* LoadBattleScenePhase */
+    uint8_t  skip_swirl;  /* captured in LBS_ENTER */
+    uint16_t group;       /* enemy group index */
+    uint16_t music;       /* music track (0 = unchanged) */
+} LoadBattleSceneState;
+
 /* GAME_MODE_BATTLE_ROW_SELECT — run-to-completion port of select_battle_row()
  * (battle_targeting.c): UP/DOWN choose the front (1) or back (2) row, A confirms,
  * B cancels. Three-phase machine in the verified char-select idiom: a render frame
@@ -2171,6 +2193,7 @@ union ModeState {
     SoundStoneState       sound_stone;
     DebugYMenuState       debug_ymenu;
     BattleWaitState       battle_wait;
+    LoadBattleSceneState  load_battle_scene;
     BattleRowSelectState  battle_row_select;
     BattleEnemySelectState battle_enemy_select;
     NamingEventsState     naming_events;
@@ -2305,6 +2328,12 @@ StepResult mode_step_debug_menu(ModeState *st);
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for
  * BW_FRAMES) before pump_mode(GAME_MODE_BATTLE_WAIT). Always pops 0. */
 StepResult mode_step_battle_wait(ModeState *st);
+
+/* GAME_MODE_LOAD_BATTLE_SCENE — see LoadBattleSceneState above. Init via
+ * ModeState.load_battle_scene (group, music; phase = LBS_ENTER) before the
+ * STEP_PUSH from the Giygas cutscene battle-action steppers. Always pops 0.
+ * Defined in battle_ui.c. */
+StepResult mode_step_load_battle_scene(ModeState *st);
 
 /* GAME_MODE_BATTLE_ROW_SELECT / GAME_MODE_BATTLE_ENEMY_SELECT steps (defined in
  * battle_targeting.c, where the targeting/flashing helpers live). Init the

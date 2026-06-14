@@ -102,6 +102,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_SOUND_STONE]   = mode_step_sound_stone,        /* defined in display_text_menus.c */
     [GAME_MODE_DEBUG_YMENU]   = mode_step_debug_ymenu,        /* defined in game_main.c */
     [GAME_MODE_BATTLE_WAIT]   = mode_step_battle_wait,        /* defined in battle.c */
+    [GAME_MODE_LOAD_BATTLE_SCENE] = mode_step_load_battle_scene, /* defined in battle_ui.c */
     [GAME_MODE_BATTLE_ROW_SELECT]   = mode_step_battle_row_select,   /* battle_targeting.c */
     [GAME_MODE_BATTLE_ENEMY_SELECT] = mode_step_battle_enemy_select, /* battle_targeting.c */
     [GAME_MODE_NAMING_EVENTS]       = mode_step_naming_events,       /* file_select.c */

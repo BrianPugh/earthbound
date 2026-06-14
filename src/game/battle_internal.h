@@ -45,8 +45,9 @@ extern const uint8_t *npc_ai_table;
 void display_text_with_prompt(const uint8_t *text, size_t size);
 void display_text_with_prompt_addr(uint32_t addr);
 
-/* Battle scene/setup */
-void load_battle_scene(uint16_t battle_group, uint16_t music_id);
+/* Battle scene/setup. load_battle_scene() is now GAME_MODE_LOAD_BATTLE_SCENE
+ * (mode_step_load_battle_scene, battle_ui.c) — STEP_PUSHed by the Giygas
+ * cutscene battle-action steppers; the blocking form is gone. */
 void load_battle_sprite(uint16_t sprite_id);
 void setup_battle_enemy_sprites(void);
 uint16_t layout_enemy_battle_positions(void);

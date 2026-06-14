@@ -4709,6 +4709,17 @@ static StepResult push_battle_wait_frames(ModeState *child, uint16_t frames) {
     return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, child);
 }
 
+/* STEP_PUSH the former blocking load_battle_scene() — now
+ * GAME_MODE_LOAD_BATTLE_SCENE (mode_step_load_battle_scene, battle_ui.c). */
+static StepResult push_load_battle_scene(ModeState *child, uint16_t group,
+                                         uint16_t music) {
+    memset(child, 0, sizeof(*child));
+    child->load_battle_scene.phase = LBS_ENTER;
+    child->load_battle_scene.group = group;
+    child->load_battle_scene.music = music;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_LOAD_BATTLE_SCENE, child);
+}
+
 /* DISPLAY_BATTLE_CUTSCENE_TEXT (asm/battle/display_battle_cutscene_text.asm):
  * fade out, show cutscene text with the battle UI hidden, reload the battle
  * scene, restore the UI, 1-second wait. Occupies 4 yield pcs. */
@@ -4740,18 +4751,21 @@ static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
         *out = push_fade_wait_window(&child);
         return true;
     case 3:
-        load_battle_scene(group, music);
+        st->pc = base + 4;
+        *out = push_load_battle_scene(&child, group, music);
+        return true;
+    case 4:
         bt.battle_mode_flag = 1;
         redirect_show_hppp_windows();
         create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
-        st->pc = base + 4;
+        st->pc = base + 5;
         *out = push_battle_wait_frames(&child, FRAMES_PER_SECOND);
         return true;
     default:
-        return false;  /* complete (st->pc == base + 4) */
+        return false;  /* complete (st->pc == base + 5) */
     }
 }
-#define CUTSCENE_TEXT_PCS 4
+#define CUTSCENE_TEXT_PCS 5
 
 /* PLAY_GIYGAS_WEAKENED_SEQUENCE (asm/battle/play_giygas_weakened_sequence.asm):
  * fade to black, Giygas-weakened text on a BG3-only screen, fade back.
@@ -4865,14 +4879,16 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
     case 0:
         bt.giygas_phase = GIYGAS_DEVILS_MACHINE_OFF;
         replace_boss_battler(ENEMY_GIYGAS_3);
-        load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_PHASE_1, MUSIC_GIYGAS_PHASE1);
         st->pc = 1;
+        return push_load_battle_scene(&child, ENEMY_GROUP_BOSS_GIYGAS_PHASE_1,
+                                      MUSIC_GIYGAS_PHASE1);
+    case 1:
+        st->pc = 2;
         if (battle_push_text_ex(&child, MSG_BTL6_MECH_POKEY_SPEECH_1B,
                                 true, false, 0))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
         /* FALLTHROUGH */
-    case 1:
-    default:
+    case 2:
         dt.blinking_triangle_flag = 0;
         /* Kill slot 9 (Pokey's mech) */
         bt.battlers_table[9].consciousness = 0;
@@ -4881,7 +4897,11 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
          * Assembly checksums hardware registers and wipes SRAM on failure.
          * Always passes for legitimate ROM; not applicable to C port. */
         replace_boss_battler(ENEMY_GIYGAS_4);
-        load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_PHASE_2, MUSIC_GIYGAS_PHASE2);
+        st->pc = 3;
+        return push_load_battle_scene(&child, ENEMY_GROUP_BOSS_GIYGAS_PHASE_2,
+                                      MUSIC_GIYGAS_PHASE2);
+    case 3:
+    default:
         bt.skip_death_text_and_cleanup = 1;
         return STEP_RESULT_POP(0);
     }
@@ -4920,10 +4940,13 @@ static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
         st->pc = 3;
         return push_battle_wait_frames(&child, FRAMES_PER_SECOND);
     case 3:
-    default:
         replace_boss_battler(ENEMY_GIYGAS_5);
-        load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_DURING_PRAYER_1,
-                          MUSIC_GIYGAS_PHASE3);
+        st->pc = 4;
+        return push_load_battle_scene(&child,
+                                      ENEMY_GROUP_BOSS_GIYGAS_DURING_PRAYER_1,
+                                      MUSIC_GIYGAS_PHASE3);
+    case 4:
+    default:
         bt.skip_death_text_and_cleanup = 1;
         return STEP_RESULT_POP(0);
     }
@@ -4963,11 +4986,15 @@ static StepResult btlact_giygas_prayer_1_step(BattleActionState *st) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
         /* FALLTHROUGH */
     case 3:
-    default:
         dt.blinking_triangle_flag = 0;
         bt.giygas_phase = GIYGAS_PRAYER_1_USED;
         replace_boss_battler(ENEMY_GIYGAS_6);
-        load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1, MUSIC_NONE);
+        st->pc++;
+        return push_load_battle_scene(&child,
+                                      ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
+                                      MUSIC_NONE);
+    case 4:
+    default:
         return STEP_RESULT_POP(0);
     }
 }
@@ -5032,6 +5059,7 @@ void btlact_giygas_prayer_6(void) { btlact_pump_addr(0xC2C675); }
  * AFTER_PRAYER_7 group and weakened music.
  * ====================================================================== */
 static StepResult btlact_giygas_prayer_7_step(BattleActionState *st) {
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     StepResult r;
 
     if (cutscene_text_steps(st, 0, ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
@@ -5040,9 +5068,16 @@ static StepResult btlact_giygas_prayer_7_step(BattleActionState *st) {
         return r;
     if (hurt_prayer_steps(st, CUTSCENE_TEXT_PCS, GIYGAS_PRAYER_DAMAGE_6, &r))
         return r;
-    bt.giygas_phase = GIYGAS_PRAYER_7_USED;
-    load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_7,
-                      MUSIC_GIYGAS_WEAKENED2);
+
+    /* Tail: phase + scene reload (a LOAD_BATTLE_SCENE push), then pop. */
+    uint8_t tail = CUTSCENE_TEXT_PCS + HURT_PRAYER_PCS;
+    if (st->pc == tail) {
+        bt.giygas_phase = GIYGAS_PRAYER_7_USED;
+        st->pc = tail + 1;
+        return push_load_battle_scene(&child,
+                                      ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_7,
+                                      MUSIC_GIYGAS_WEAKENED2);
+    }
     return STEP_RESULT_POP(0);
 }
 
@@ -5269,11 +5304,16 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
 
         case 23:
             stop_music();
-            load_battle_scene(ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL, MUSIC_NONE);
             st->pc = 24;
-            return push_battle_wait_frames(&child, 8 * FRAMES_PER_SECOND);
+            return push_load_battle_scene(&child,
+                                          ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL,
+                                          MUSIC_NONE);
 
         case 24:
+            st->pc = 25;
+            return push_battle_wait_frames(&child, 8 * FRAMES_PER_SECOND);
+
+        case 25:
         default:
             /* Signal special defeat */
             bt.special_defeat = 3;
