@@ -92,6 +92,7 @@ typedef enum {
     GAME_MODE_DEBUG_GOODS,         /* debug Y-button Goods item browser/giver (debug_y_button_goods) */
     GAME_MODE_DEBUG_MENU,          /* debug Y-button parent menu (debug_y_button_menu) */
     GAME_MODE_TELEPORT_TO,         /* script/debug instant teleport sequence (CC_1F_21 / debug CAST/STAFF) */
+    GAME_MODE_NEW_GAME_NAMING,     /* new-game naming flow (new_game_naming) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -1725,7 +1726,8 @@ typedef enum {
     FM_NG_SND_RESULT,
     FM_NG_FLV,          /* new-game: flavour menu */
     FM_NG_FLV_RESULT,
-    FM_NG_NAMING,       /* new-game: run naming (blocking) + finalize, or back to flavour */
+    FM_NG_NAMING,       /* new-game: push GAME_MODE_NEW_GAME_NAMING */
+    FM_NG_NAMING_RESULT,/* naming popped: started (pop 1) or backed out (re-enter flavour) */
 } FileMenuPhase;
 
 typedef struct {
@@ -1734,6 +1736,39 @@ typedef struct {
     uint16_t selected;      /* chosen slot, 1-based (file_select_menu result) */
     uint16_t result;        /* inline early-exit result for the *_RESULT phase */
 } FileMenuState;
+
+/* GAME_MODE_NEW_GAME_NAMING — run-to-completion port of new_game_naming()
+ * (file_select.c), the new-game character/pet/food/thing naming flow reached from
+ * the file-select new-game cascade (FM_NG_NAMING). Folds in the former blocking
+ * helpers name_a_character() and init_naming_screen_events(): each character is a
+ * three-push sequence — NAMING_PROMPT (render name box, wait for a button) ->
+ * TEXT_INPUT (the on-screen keyboard) -> NAMING_EVENTS (walk-out animation wait).
+ * The naming loop advances/retreats on the keyboard result; the confirmation
+ * screen pushes SELECTION_MENU and, on Yep, counts a 180-frame settle before the
+ * synchronous game-state initialisation. Nope restarts from NGN_ENTER (the
+ * original recursion). All yield-free setup/finalize runs inline at the phase
+ * boundaries.
+ *
+ * Pops 1 when the game is started (overworld follows), 0 when the player backs
+ * out past the first character (the parent re-enters flavour selection). */
+typedef enum {
+    NGN_ENTER = 0,      /* one-shot setup (music/asset/entity init); -> NGN_LOOP_HEAD */
+    NGN_LOOP_HEAD,      /* per-character: spawn sprites, build name box+prompt, push NAMING_PROMPT */
+    NGN_PROMPT_DONE,    /* prompt button pressed: build keyboard, push TEXT_INPUT */
+    NGN_INPUT_DONE,     /* keyboard done: record result, push NAMING_EVENTS (walk-out) */
+    NGN_EVENTS_DONE,    /* walk-out done: advance / retreat / back out */
+    NGN_CONFIRM_BUILD,  /* fill defaults, build confirmation windows, push SELECTION_MENU */
+    NGN_CONFIRM_DONE,   /* Nope -> restart; Yep -> change music + settle */
+    NGN_CONFIRM_WAIT,   /* 180-frame confirmation-animation settle */
+    NGN_FINALIZE,       /* initialise character stats/position/prologue, POP 1 */
+} NewGameNamingPhase;
+
+typedef struct {
+    uint8_t  phase;        /* NewGameNamingPhase */
+    int8_t   char_i;       /* current naming index (0..THINGS_NAMED_COUNT) */
+    int16_t  char_result;  /* keyboard result for the current character: 0 confirm / -1 cancel */
+    uint16_t wait_frames;  /* NGN_CONFIRM_WAIT countdown */
+} NewGameNamingState;
 
 /* GAME_MODE_INIT_INTRO — run-to-completion port of init_intro()'s state machine
  * (init_intro.c). STEP_PUSHes the converted intro leaves (INTRO_LOGO, GAS_STATION,
@@ -2107,6 +2142,7 @@ union ModeState {
     TitleScreenState      title_screen;
     AttractState          attract;
     FileMenuState         file_menu;
+    NewGameNamingState    new_game_naming;
     InitIntroState        init_intro;
     DisplayTextModeState  display_text;
     TextWaitFadeState     text_wait_fade;
@@ -2302,6 +2338,11 @@ StepResult mode_step_attract_mode(ModeState *st);
  * ModeState.file_menu (phase = FM_FADEIN_WAIT) before pump_mode(GAME_MODE_FILE_
  * MENU). Pops 1 when a game starts/loads, 0 on quit. */
 StepResult mode_step_file_menu(ModeState *st);
+
+/* GAME_MODE_NEW_GAME_NAMING step (defined in file_select.c). Init via
+ * ModeState.new_game_naming (phase = NGN_ENTER) before pushing GAME_MODE_NEW_GAME_
+ * NAMING. Pops 1 when the game starts, 0 when backed out past the first name. */
+StepResult mode_step_new_game_naming(ModeState *st);
 
 /* GAME_MODE_INIT_INTRO step (defined in init_intro.c). Init via
  * ModeState.init_intro (phase = II_LOGO) before pump_mode(GAME_MODE_INIT_INTRO).

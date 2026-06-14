@@ -117,6 +117,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_TITLE_SCREEN]        = mode_step_title_screen,        /* title_screen.c */
     [GAME_MODE_ATTRACT]             = mode_step_attract_mode,        /* attract_mode.c */
     [GAME_MODE_FILE_MENU]           = mode_step_file_menu,           /* file_select.c */
+    [GAME_MODE_NEW_GAME_NAMING]     = mode_step_new_game_naming,     /* file_select.c */
     [GAME_MODE_INIT_INTRO]          = mode_step_init_intro,          /* init_intro.c */
     [GAME_MODE_DISPLAY_TEXT]        = mode_step_display_text,        /* display_text.c */
     [GAME_MODE_ENTITY_FADE_WAIT]    = mode_step_entity_fade_wait,

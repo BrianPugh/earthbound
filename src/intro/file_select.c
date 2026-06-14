@@ -963,20 +963,21 @@ StepResult mode_step_text_input(ModeState *st) {
     return STEP_RESULT_CONTINUE();
 }
 
-/* Thin bridge over GAME_MODE_TEXT_INPUT (run to completion via pump_mode while
- * the intro/file-select root chain is still blocking). Creates the keyboard
- * window, seeds the mode state (including any existing-name pre-fill, so the
- * existing_name pointer never enters the POD ModeState), then pumps. */
-int text_input_dialog(int name_target, int max_len, int naming_index,
-                      uint16_t name_display_window_id, int name_text_y,
-                      const uint8_t *existing_name)
+/* Create the keyboard window and seed a TextInputState for GAME_MODE_TEXT_INPUT.
+ * Shared by the blocking text_input_dialog() bridge (still used by the debug menu
+ * and the M2/EB player-name registry) and GAME_MODE_NEW_GAME_NAMING, which
+ * STEP_PUSHes GAME_MODE_TEXT_INPUT directly. Any existing-name pre-fill is folded
+ * into the seed so the existing_name pointer never enters the POD ModeState. */
+static void text_input_prepare(ModeState *init, int name_target, int max_len,
+                               int naming_index, uint16_t name_display_window_id,
+                               int name_text_y, const uint8_t *existing_name)
 {
     /* Create keyboard window (assembly: TEXT_INPUT_DIALOG line 43) */
     create_window(WINDOW_FILE_SELECT_NAMING_KB);
     win.current_focus_window = WINDOW_FILE_SELECT_NAMING_KB;
 
-    ModeState init = {0};
-    TextInputState *s = &init.text_input;
+    *init = (ModeState){0};
+    TextInputState *s = &init->text_input;
     s->primed = 0;
     s->name_target = (uint8_t)name_target;
     s->naming_index = (int16_t)naming_index;
@@ -993,57 +994,25 @@ int text_input_dialog(int name_target, int max_len, int naming_index,
     s->cur_y = 0;
     s->frame_counter = 0;
 
-    /* Pre-fill from existing name if provided (eb_name zeroed by {0}). */
+    /* Pre-fill from existing name if provided (eb_name zeroed above). */
     if (existing_name) {
         for (int i = 0; i < max_len && i < (int)sizeof(s->eb_name) && existing_name[i] != 0; i++) {
             s->eb_name[i] = existing_name[i];
             s->name_pos++;
         }
     }
-
-    return (int)pump_mode(GAME_MODE_TEXT_INPUT, &init);
 }
 
-static int name_a_character(int name_target, int max_len, const uint8_t *eb_prompt,
-                            int eb_prompt_len, int naming_index) {
-    /* Assembly order (name_a_character.asm):
-       1. CREATE_WINDOW #FILE_SELECT_NAMING_NAME_BOX
-       2. Initialize name display (INITIALIZE_KEYBOARD_INPUT_VWF)
-       3. CREATE_WINDOW #FILE_SELECT_NAMING_MESSAGE + display prompt
-       4. Wait for button press
-       5. TEXT_INPUT_DIALOG creates the keyboard window */
-
-    /* Step 1: Create name box window first (assembly line 31) */
-    create_window(WINDOW_FILE_SELECT_NAMING_BOX);
-
-    /* Step 2: Create message window and display prompt (assembly lines 119-125) */
-    WindowInfo *msg_w = create_window(WINDOW_FILE_SELECT_NAMING_MSG);
-    if (msg_w) {
-        set_focus_text_cursor(0, 0);
-        print_eb_string(eb_prompt, eb_prompt_len);
-    }
-
-    /* Render initial name display (bullet + dashes) during prompt wait.
-       Assembly does this via INITIALIZE_KEYBOARD_INPUT_VWF before message window. */
-    int name_tile_cols;
-    {
-        uint8_t empty_name[16];
-        uint8_t display[16];
-        memset(empty_name, 0, sizeof(empty_name));
-        kb_build_name_display(display, empty_name, 0, max_len);
-        name_tile_cols = kb_render_name_tiles(display, max_len);
-    }
-
-    /* Step 4: Wait for a button press (GAME_MODE_NAMING_PROMPT, run to
-       completion via pump_mode while the intro chain is still blocking). */
-    ModeState init = {0};
-    init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
-    pump_mode(GAME_MODE_NAMING_PROMPT, &init);
-
-    /* Step 5: Keyboard input via shared text_input_dialog.
-       Name display goes in the name box window at text row 0. */
-    return text_input_dialog(name_target, max_len, naming_index,
-                             WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
+/* Thin bridge over GAME_MODE_TEXT_INPUT (run to completion via pump_mode while
+ * the debug menu / player-name registry callers are still blocking). */
+int text_input_dialog(int name_target, int max_len, int naming_index,
+                      uint16_t name_display_window_id, int name_text_y,
+                      const uint8_t *existing_name)
+{
+    ModeState init;
+    text_input_prepare(&init, name_target, max_len, naming_index,
+                       name_display_window_id, name_text_y, existing_name);
+    return (int)pump_mode(GAME_MODE_TEXT_INPUT, &init);
 }
 
 /* GAME_MODE_NAMING_PROMPT step — run-to-completion port of the name_a_character()
@@ -1194,21 +1163,6 @@ StepResult mode_step_naming_events(ModeState *st) {
 }
 
 /*
- * INIT_NAMING_SCREEN_EVENTS (C4D830.asm)
- *
- * After a character has been named, assigns return animation scripts to the
- * walk-in entities and waits for all entity scripts to complete. Thin bridge
- * over GAME_MODE_NAMING_EVENTS (run to completion via pump_mode while the
- * intro/file-select root chain is still blocking).
- */
-static void init_naming_screen_events(uint16_t naming_index) {
-    ModeState init = {0};
-    init.naming_events.phase = NE_WAIT_PENDING;
-    init.naming_events.naming_index = naming_index;
-    pump_mode(GAME_MODE_NAMING_EVENTS, &init);
-}
-
-/*
  * Create animated party sprites on the confirmation screen.
  * Port of CREATE_FILE_SELECT_PARTY_SPRITES (C4D8FA.asm).
  * Spawns 5 entities (Ness, Paula, Jeff, Poo, King) next to their name windows.
@@ -1286,186 +1240,254 @@ static void print_right_justified_name(const uint8_t *eb_name, int len,
     print_eb_string(eb_name, print_len);
 }
 
+/* Per-thing naming table: NameTargetId + max length, in naming order
+ * (Ness/Paula/Jeff/Poo, pet, favourite food, favourite thing). */
+static const struct {
+    int target;   /* NameTargetId (resolved to a global buffer on confirm) */
+    int max_len;
+} ng_name_targets[THINGS_NAMED_COUNT] = {
+    { NAME_TARGET_PARTY0, 5 }, { NAME_TARGET_PARTY1, 5 },
+    { NAME_TARGET_PARTY2, 5 }, { NAME_TARGET_PARTY3, 5 },
+    { NAME_TARGET_PET,    6 }, { NAME_TARGET_FOOD,   6 },
+    { NAME_TARGET_THING,  6 },
+};
+
+/* Child init for GAME_MODE_NEW_GAME_NAMING's STEP_PUSHes (NAMING_PROMPT /
+ * TEXT_INPUT / NAMING_EVENTS / SELECTION_MENU). Copied by STEP_RESULT_PUSH_INIT
+ * immediately; a file-static is fine (one child pending at a time). */
+static ModeState ngn_child_init;
+
 /*
- * Run the new game naming flow.
+ * GAME_MODE_NEW_GAME_NAMING step — run-to-completion port of new_game_naming().
+ * See NewGameNamingState in mode_stack.h for the phase machine. Folds in the
+ * former blocking helpers name_a_character() and init_naming_screen_events().
  */
-static bool new_game_naming(void) {
-    /* Matching assembly @CHANGE_TO_NAMING_SCREEN_MUSIC → @UNKNOWN18:
-       1. Change music
-       2. Close all windows (file select, flavour, etc.)
-       3. Enter naming loop with DISPLAY_ANIMATED_NAMING_SPRITE per character */
-    change_music(2); /* MUSIC::NAMING_SCREEN */
-    close_all_windows();
+StepResult mode_step_new_game_naming(ModeState *ms) {
+    NewGameNamingState *st = &ms->new_game_naming;
 
-    /* Load event script data for naming screen animations (EVENT_502-533).
-     * This loads the EVENT_SCRIPT_POINTERS table, script bytecode banks
-     * for C3/C4, and the naming screen entity table. */
-    load_event_script_data();
-    load_sprite_data();
+    for (;;) {
+        switch ((NewGameNamingPhase)st->phase) {
+        case NGN_ENTER:
+            /* Matching assembly @CHANGE_TO_NAMING_SCREEN_MUSIC → @UNKNOWN18:
+               change music, close all windows, load naming-screen assets, then
+               init the entity system once before the naming loop. */
+            change_music(2); /* MUSIC::NAMING_SCREEN */
+            close_all_windows();
+            load_event_script_data();
+            load_sprite_data();
+            entity_system_init();
+            clear_overworld_spritemaps();
+            memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
+            st->char_i = 0;
+            st->phase = NGN_LOOP_HEAD;
+            continue;
 
-    /* Naming prompts loaded from ROM asset (EB-encoded, NAMING_PROMPT_ENTRY_SIZE per entry) */
-
-    struct {
-        int target;   /* NameTargetId (resolved to a global buffer on confirm) */
-        int max_len;
-    } name_targets[THINGS_NAMED_COUNT];
-
-    name_targets[0] = (typeof(name_targets[0])){NAME_TARGET_PARTY0, 5};
-    name_targets[1] = (typeof(name_targets[0])){NAME_TARGET_PARTY1, 5};
-    name_targets[2] = (typeof(name_targets[0])){NAME_TARGET_PARTY2, 5};
-    name_targets[3] = (typeof(name_targets[0])){NAME_TARGET_PARTY3, 5};
-    name_targets[4] = (typeof(name_targets[0])){NAME_TARGET_PET, 6};
-    name_targets[5] = (typeof(name_targets[0])){NAME_TARGET_FOOD, 6};
-    name_targets[6] = (typeof(name_targets[0])){NAME_TARGET_THING, 6};
-
-    /* Initialize entity system once before the naming loop.
-     * Assembly: INIT_ENTITY_SYSTEM runs at FILE_SELECT_INIT time;
-     * entities then accumulate and deactivate naturally via scripts. */
-    entity_system_init();
-    clear_overworld_spritemaps();
-    memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
-
-    int i = 0;
-    while (i < THINGS_NAMED_COUNT) {
-        if (platform_input_quit_requested()) return false;
-
-        /* Create animated walk-in entities for this naming screen.
-         * Assembly: DISPLAY_ANIMATED_NAMING_SPRITE creates entities from
-         * NAMING_SCREEN_ENTITIES table — each character has sprite/script pairs
-         * that animate them walking onto the screen. */
-        display_animated_naming_sprite((uint16_t)i);
-
-        const uint8_t *eb_prompt = naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE;
-        int result = name_a_character(name_targets[i].target, name_targets[i].max_len,
-                                      eb_prompt, NAMING_PROMPT_ENTRY_SIZE, i);
-
-        /* Assembly (file_select_menu_loop.asm @NAMING_ADVANCE):
-         * ALWAYS call INIT_NAMING_SCREEN_EVENTS with the current index
-         * BEFORE advancing. This runs the return animation (entities walk
-         * off screen) and waits for all entity scripts to complete. */
-        init_naming_screen_events((uint16_t)i);
-
-        if (result == 0) {
-            /* Confirmed — advance to next character */
-            i++;
-        } else if (result == -1) {
-            /* Cancelled — go back to previous character */
-            if (i > 0) {
-                i--;
-            } else {
-                /* Going back past the first character — assembly
-                   (@NAMING_NEXT_CHARACTER, index == $FFFF) calls
-                   CLOSE_ALL_WINDOWS and returns to flavour selection. */
-                close_all_windows();
-                return false;
+        case NGN_LOOP_HEAD: {
+            if (platform_input_quit_requested())
+                return STEP_RESULT_POP(0);
+            if (st->char_i >= THINGS_NAMED_COUNT) {
+                st->phase = NGN_CONFIRM_BUILD;
+                continue;
             }
+            int i = st->char_i;
+
+            /* Create animated walk-in entities for this naming screen
+               (DISPLAY_ANIMATED_NAMING_SPRITE). */
+            display_animated_naming_sprite((uint16_t)i);
+
+            /* name_a_character() front (assembly name_a_character.asm):
+               create the name box, then the message window + prompt, then the
+               initial name display (bullet + dashes), then wait for a button
+               via GAME_MODE_NAMING_PROMPT. */
+            create_window(WINDOW_FILE_SELECT_NAMING_BOX);
+            WindowInfo *msg_w = create_window(WINDOW_FILE_SELECT_NAMING_MSG);
+            if (msg_w) {
+                set_focus_text_cursor(0, 0);
+                print_eb_string(naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE,
+                                NAMING_PROMPT_ENTRY_SIZE);
+            }
+            int name_tile_cols;
+            {
+                uint8_t empty_name[16];
+                uint8_t display[16];
+                memset(empty_name, 0, sizeof(empty_name));
+                kb_build_name_display(display, empty_name, 0, ng_name_targets[i].max_len);
+                name_tile_cols = kb_render_name_tiles(display, ng_name_targets[i].max_len);
+            }
+            ngn_child_init = (ModeState){0};
+            ngn_child_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
+            st->phase = NGN_PROMPT_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_PROMPT, &ngn_child_init);
         }
-    }
 
-    /* Set default names for any empty slots (first name in each group).
-     * Names are already EB-encoded in the ROM data — copy directly. */
-    for (int c = 0; c < 4; c++) {
-        if (party_characters[c].name[0] == 0) {
-            const uint8_t *eb_src = get_dont_care_name(c, 0);
-            for (int j = 0; j < 5 && eb_src[j] != 0; j++)
-                party_characters[c].name[j] = eb_src[j];
+        case NGN_PROMPT_DONE: {
+            /* name_a_character() step 5: the on-screen keyboard. Name display
+               goes in the name box window at text row 0. */
+            int i = st->char_i;
+            text_input_prepare(&ngn_child_init, ng_name_targets[i].target,
+                               ng_name_targets[i].max_len, i,
+                               WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
+            st->phase = NGN_INPUT_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &ngn_child_init);
         }
-    }
-    if (game_state.pet_name[0] == 0) {
-        const uint8_t *eb_src = get_dont_care_name(4, 0);
-        for (int j = 0; j < 6 && eb_src[j] != 0; j++)
-            game_state.pet_name[j] = eb_src[j];
-    }
-    if (game_state.favourite_food[0] == 0) {
-        const uint8_t *eb_src = get_dont_care_name(5, 0);
-        for (int j = 0; j < 6 && eb_src[j] != 0; j++)
-            game_state.favourite_food[j] = eb_src[j];
-    }
-    if (game_state.favourite_thing[4] == 0) {
-        const uint8_t *eb_src = get_dont_care_name(6, 0);
-        for (int j = 0; j < 6 && eb_src[j] != 0; j++)
-            game_state.favourite_thing[4 + j] = eb_src[j];
-    }
 
-    /* Set "PSI " prefix on favourite_thing */
-    game_state.favourite_thing[0] = ascii_to_eb_char('P');
-    game_state.favourite_thing[1] = ascii_to_eb_char('S');
-    game_state.favourite_thing[2] = ascii_to_eb_char('I');
-    game_state.favourite_thing[3] = ascii_to_eb_char(' ');
+        case NGN_INPUT_DONE: {
+            st->char_result = (int16_t)mode_child_result();
+            /* Assembly (@NAMING_ADVANCE): ALWAYS run INIT_NAMING_SCREEN_EVENTS
+               for the current index BEFORE advancing — the return animation
+               (entities walk off) + wait for all entity scripts to finish. */
+            ngn_child_init = (ModeState){0};
+            ngn_child_init.naming_events.phase = NE_WAIT_PENDING;
+            ngn_child_init.naming_events.naming_index = (uint16_t)st->char_i;
+            st->phase = NGN_EVENTS_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_EVENTS, &ngn_child_init);
+        }
 
-    /* Show confirmation.
-     * Assembly (file_select_menu_loop.asm line 307): CLOSE_ALL_WINDOWS,
-     * then SET_INSTANT_PRINTING, then creates confirmation windows.
-     * All naming entities are already deactivated by init_naming_screen_events. */
-    close_all_windows();
-    set_instant_printing();
+        case NGN_EVENTS_DONE:
+            if (st->char_result == 0) {
+                st->char_i++;             /* confirmed — advance */
+            } else {                      /* cancelled (-1) — go back */
+                if (st->char_i > 0) {
+                    st->char_i--;
+                } else {
+                    /* Back past the first character (@NAMING_NEXT_CHARACTER,
+                       index == $FFFF): close windows, return to flavour. */
+                    close_all_windows();
+                    return STEP_RESULT_POP(0);
+                }
+            }
+            st->phase = NGN_LOOP_HEAD;
+            continue;
 
-    /* Display all names for confirmation (print EB-encoded directly) */
-    for (int c = 0; c < 4; c++) {
-        WindowInfo *cw = create_window((uint16_t)(WINDOW_FILE_SELECT_CONFIRM_NESS + c));
-        if (cw) {
+        case NGN_CONFIRM_BUILD: {
+            /* Set default names for any empty slots (first name in each group).
+             * Names are already EB-encoded in the ROM data — copy directly. */
+            for (int c = 0; c < 4; c++) {
+                if (party_characters[c].name[0] == 0) {
+                    const uint8_t *eb_src = get_dont_care_name(c, 0);
+                    for (int j = 0; j < 5 && eb_src[j] != 0; j++)
+                        party_characters[c].name[j] = eb_src[j];
+                }
+            }
+            if (game_state.pet_name[0] == 0) {
+                const uint8_t *eb_src = get_dont_care_name(4, 0);
+                for (int j = 0; j < 6 && eb_src[j] != 0; j++)
+                    game_state.pet_name[j] = eb_src[j];
+            }
+            if (game_state.favourite_food[0] == 0) {
+                const uint8_t *eb_src = get_dont_care_name(5, 0);
+                for (int j = 0; j < 6 && eb_src[j] != 0; j++)
+                    game_state.favourite_food[j] = eb_src[j];
+            }
+            if (game_state.favourite_thing[4] == 0) {
+                const uint8_t *eb_src = get_dont_care_name(6, 0);
+                for (int j = 0; j < 6 && eb_src[j] != 0; j++)
+                    game_state.favourite_thing[4 + j] = eb_src[j];
+            }
+
+            /* Set "PSI " prefix on favourite_thing */
+            game_state.favourite_thing[0] = ascii_to_eb_char('P');
+            game_state.favourite_thing[1] = ascii_to_eb_char('S');
+            game_state.favourite_thing[2] = ascii_to_eb_char('I');
+            game_state.favourite_thing[3] = ascii_to_eb_char(' ');
+
+            /* Show confirmation (CLOSE_ALL_WINDOWS, SET_INSTANT_PRINTING, then
+             * confirmation windows). All naming entities are already
+             * deactivated by GAME_MODE_NAMING_EVENTS. */
+            close_all_windows();
+            set_instant_printing();
+
+            /* Display all names for confirmation (print EB-encoded directly) */
+            for (int c = 0; c < 4; c++) {
+                WindowInfo *cw = create_window((uint16_t)(WINDOW_FILE_SELECT_CONFIRM_NESS + c));
+                if (cw) {
+                    set_focus_text_cursor(0, 0);
+                    int len = 0;
+                    while (len < 5 && party_characters[c].name[len] != 0x00) len++;
+                    print_eb_string(party_characters[c].name, len);
+                }
+            }
+
+            /* Dog name */
+            WindowInfo *kw = create_window(WINDOW_FILE_SELECT_CONFIRM_KING);
+            if (kw) {
+                set_focus_text_cursor(0, 0);
+                int len = 0;
+                while (len < 6 && game_state.pet_name[len] != 0x00) len++;
+                print_eb_string(game_state.pet_name, len);
+            }
+
+            /* Favorite food — label on row 0, right-justified value on row 1 */
+            create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD);
             set_focus_text_cursor(0, 0);
-            int len = 0;
-            while (len < 5 && party_characters[c].name[len] != 0x00) len++;
-            print_eb_string(party_characters[c].name, len);
+            print_string("Favorite food:");
+            print_right_justified_name(game_state.favourite_food, 6, WINDOW_FILE_SELECT_CONFIRM_FOOD);
+
+            /* Favorite thing — same layout as food */
+            create_window(WINDOW_FILE_SELECT_CONFIRM_THING);
+            set_focus_text_cursor(0, 0);
+            print_string("Coolest thing:");
+            print_right_justified_name(game_state.favourite_thing + 4, 6, WINDOW_FILE_SELECT_CONFIRM_THING);
+
+            /* Are you sure? */
+            WindowInfo *mw = create_window(WINDOW_FILE_SELECT_CONFIRM_MSG);
+            if (mw) {
+                set_focus_text_cursor(0, 0);
+                print_string("Are you sure?");
+                /* Horizontal layout: Yep at text_x=14, Nope at text_x=18. */
+                add_menu_item("Yep", 1, 14, 0);
+                add_menu_item("Nope", 0, 18, 0);
+            }
+
+            /* PRINT_MENU_ITEMS then CREATE_FILE_SELECT_PARTY_SPRITES — no
+             * RENDER_ALL_WINDOWS in between (file_select_menu_loop.asm:470-471). */
+            print_menu_items();
+            create_file_select_party_sprites();
+
+            /* SELECTION_MENU(1): B enabled, returns 0 (same as "Nope"). */
+            ngn_child_init = (ModeState){0};
+            ngn_child_init.selection_menu.phase        = SM_SETUP;
+            ngn_child_init.selection_menu.allow_cancel = 1;
+            st->phase = NGN_CONFIRM_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &ngn_child_init);
         }
+
+        case NGN_CONFIRM_DONE: {
+            uint16_t confirm = (uint16_t)mode_child_result();
+            if (confirm == 0) {
+                /* Nope — clear entities and redo naming from the top (the
+                   original tail-recursion `return new_game_naming()`). */
+                entity_system_init();
+                close_all_windows();
+                *st = (NewGameNamingState){ .phase = NGN_ENTER };
+                continue;
+            }
+            /* Yep */
+            change_music(158); /* MUSIC::NAME_CONFIRMATION */
+            st->wait_frames = 180;
+            st->phase = NGN_CONFIRM_WAIT;
+            continue;
+        }
+
+        case NGN_CONFIRM_WAIT:
+            /* Wait for the confirmation animation (assembly 487-497: 180-frame
+               loop; the C original was wait_frames_or_button(180, 0) — no game
+               work, just yields). */
+            if (st->wait_frames > 0) {
+                st->wait_frames--;
+                return STEP_RESULT_CONTINUE();
+            }
+            st->phase = NGN_FINALIZE;
+            continue;
+
+        case NGN_FINALIZE:
+            break; /* fall out of the switch into the finalize body below */
+        }
+
+        break; /* NGN_FINALIZE reached: run the synchronous finalize, then POP */
     }
 
-    /* Dog name */
-    WindowInfo *kw = create_window(WINDOW_FILE_SELECT_CONFIRM_KING);
-    if (kw) {
-        set_focus_text_cursor(0, 0);
-        int len = 0;
-        while (len < 6 && game_state.pet_name[len] != 0x00) len++;
-        print_eb_string(game_state.pet_name, len);
-    }
-
-    /* Favorite food — assembly prints label on row 0, right-justifies value on row 1 */
-    create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD);
-    set_focus_text_cursor(0, 0);
-    print_string("Favorite food:");
-    print_right_justified_name(game_state.favourite_food, 6, WINDOW_FILE_SELECT_CONFIRM_FOOD);
-
-    /* Favorite thing — same layout as food */
-    create_window(WINDOW_FILE_SELECT_CONFIRM_THING);
-    set_focus_text_cursor(0, 0);
-    print_string("Coolest thing:");
-    print_right_justified_name(game_state.favourite_thing + 4, 6, WINDOW_FILE_SELECT_CONFIRM_THING);
-
-    /* Are you sure? */
-    WindowInfo *mw = create_window(WINDOW_FILE_SELECT_CONFIRM_MSG);
-    if (mw) {
-        set_focus_text_cursor(0, 0);
-        print_string("Are you sure?");
-        /* Horizontal layout matching assembly (file_select_menu_loop.asm):
-           Yep at text_x=14, Nope at text_x=18, both text_y=0 */
-        add_menu_item("Yep", 1, 14, 0);
-        add_menu_item("Nope", 0, 18, 0);
-    }
-
-    /* Assembly (file_select_menu_loop.asm:470-471): PRINT_MENU_ITEMS then
-     * CREATE_FILE_SELECT_PARTY_SPRITES — no RENDER_ALL_WINDOWS in between. */
-    print_menu_items();
-
-    /* Spawn animated party sprites next to name windows (assembly line 471) */
-    create_file_select_party_sprites();
-
-    /* Assembly (file_select_menu_loop.asm:474): LDA #1; JSR SELECTION_MENU
-     * — B button enabled, returns 0 (same as "Nope"). */
-    uint16_t confirm = selection_menu(1);
-
-    if (confirm == 0) {
-        /* Nope — clear entities and redo naming (assembly line 478) */
-        entity_system_init();
-        close_all_windows();
-        return new_game_naming();
-    }
-
-    /* Yep - initialize new game */
-    change_music(158); /* MUSIC::NAME_CONFIRMATION */
-
-    /* Wait for confirmation animation (assembly lines 487-497: 180-frame loop) */
-    wait_frames_or_button(180, 0);
+    /* ---- NGN_FINALIZE: initialise the new game (synchronous) ---------------- */
 
     /* Clear map entities after animation (assembly line 498) */
     entity_system_init();
@@ -1555,7 +1577,7 @@ static bool new_game_naming(void) {
 
     close_all_windows();
 
-    return true;
+    return STEP_RESULT_POP(1);
 }
 
 /*
@@ -1858,13 +1880,16 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
 
         case FM_NG_NAMING:
-            /* Naming screen. new_game_naming() is a self-contained blocking
-             * driver over the already-converted naming modes; it stays blocking
-             * here (the C-stack during it is acceptable — terminal, input-driven).
-             * Deferred to its own conversion, parallel to attract's text-
-             * interpreter dependency. */
+            /* Naming screen — GAME_MODE_NEW_GAME_NAMING (pops 1 = started, 0 =
+             * backed out past the first name). */
             current_save_slot = (uint8_t)st->selected;
-            if (!new_game_naming()) {
+            fm_child_init = (ModeState){0};
+            fm_child_init.new_game_naming.phase = NGN_ENTER;
+            st->phase = FM_NG_NAMING_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NEW_GAME_NAMING, &fm_child_init);
+
+        case FM_NG_NAMING_RESULT:
+            if (mode_child_result() == 0) {
                 /* Back out of naming: re-display all setup windows as backdrops,
                  * change music, re-enter flavour selection (file_select_menu_loop
                  * .asm:141-150). Save choices before the display_only load_game()s
