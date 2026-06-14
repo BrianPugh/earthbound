@@ -439,13 +439,76 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
  *   Phase 3: Draw all entities (build draw list → render spritemaps → OAM)
  *
  * If a script callroutine requests a child mode (text box, mosaic fade,
- * flyover), the frame is parked and finished as GAME_MODE_ACTIONSCRIPT_FRAME.
- * Bridge era: a local pump drives it (this function's callers are still
- * blocking drivers); at the Phase-D flip the converted overworld render step
- * STEP_PUSHes it instead. ert.disable_actionscript stays 1 across the child —
- * the blocking form held the same guard across its nested pump, so script
- * execution stays frozen during script-triggered modal contexts either way.
+ * flyover, pp-recovery), the frame is parked and finished as
+ * GAME_MODE_ACTIONSCRIPT_FRAME. There are two entry points:
+ *
+ *   - run_actionscript_frame_step() — the mode-step form. On a park it hands the
+ *     parked state to the calling mode step (via actionscript_frame_take_push())
+ *     as a STEP_PUSH; the root loop then drives the child to completion and the
+ *     caller resumes at its flush phase. This keeps the full state on the
+ *     serializable mode stack (single yield = save-anywhere).
+ *   - run_actionscript_frame() — the plain blocking form for the render-helper
+ *     layer (render_frame_tick / window_tick / wait_frames_with_updates /
+ *     dismount_bicycle / teleport-departure / ending), which yields via its own
+ *     wait_for_vblank() and has no mode step to push onto. A park is not expected
+ *     there (battle is guarded by battle_mode_flag; transitions/teleport freeze
+ *     entities; menus/credits run no action scripts), so it warns-and-drops the
+ *     child and finishes the frame to avoid stalling ert.disable_actionscript.
+ *
+ * ert.disable_actionscript stays 1 across the child either way — script
+ * execution stays frozen during a script-triggered modal context.
  */
+
+/* Parked-frame state staged between run_actionscript_frame_step() (fills it on a
+ * park) and actionscript_frame_take_push() (moves it onto the pushed
+ * GAME_MODE_ACTIONSCRIPT_FRAME state). Lives within one frame's work — it never
+ * crosses a host yield, so it is deliberately NOT serialized. */
+static ActionscriptFrameState g_asf_pending;
+
+bool run_actionscript_frame_step(void) {
+    if (ert.disable_actionscript)
+        return false;
+
+    ert.disable_actionscript = 1;
+
+    if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
+        as_state_from_request(&g_asf_pending);
+        return true;   /* frame parked; caller STEP_PUSHes ACTIONSCRIPT_FRAME */
+    }
+
+    as_frame_tail();
+    return false;
+}
+
+StepResult actionscript_frame_take_push(void) {
+    static ModeState init;   /* outlives this dispatch (mode_push copies it) */
+    memset(&init, 0, sizeof(init));
+    init.actionscript_frame = g_asf_pending;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
+}
+
+/* Finish a parked frame WITHOUT running the requested child modal: run the
+ * callroutine's epilogue at its sequence point, finish the suspended script
+ * chain + the remaining entities, then phases 2-3. Mirrors ASF_RESUME minus the
+ * child push. Only the blocking render-helper layer reaches this (a park is not
+ * expected there — see run_actionscript_frame()). */
+static void as_finish_parked_without_child(void) {
+    ActionscriptFrameState st;
+    as_state_from_request(&st);
+    for (;;) {
+        if (st.epilogue == AS_EPI_TEXT_FLAG)
+            event_flag_set(2);
+        EmsResult r = as_continue_entity(&st);
+        if (r == EMS_DONE)
+            r = as_run_phase1_from(ert.next_active_entity);
+        if (r != EMS_YIELD)
+            break;
+        /* A continuation requested another child — drop it too. */
+        as_state_from_request(&st);
+    }
+    as_frame_tail();
+}
+
 void run_actionscript_frame(void) {
     if (ert.disable_actionscript)
         return;
@@ -453,9 +516,10 @@ void run_actionscript_frame(void) {
     ert.disable_actionscript = 1;
 
     if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
-        ModeState init = {0};
-        as_state_from_request(&init.actionscript_frame);
-        pump_mode(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
+        LOG_WARN("WARNING: actionscript child mode requested from a blocking "
+                 "render-helper context (kind=%d) — modal dropped\n",
+                 (int)as_req.child_kind);
+        as_finish_parked_without_child();
         return;
     }
 

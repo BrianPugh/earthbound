@@ -865,11 +865,19 @@ StepResult mode_step_teleport(ModeState *st) {
                 continue;  /* no yield — fall to the chosen phase */
             }
             /* Animation frame: a SINGLE render per yield (assembly loop body —
-             * the prior blocking C added a redundant render_frame_tick here). */
+             * the prior blocking C added a redundant render_frame_tick here). A
+             * parked actionscript frame STEP_PUSHes ACTIONSCRIPT_FRAME and the
+             * post-render work runs at TP_LOOP_FLUSH on its pop. */
             oam_clear();
-            run_actionscript_frame();
+            ts->phase = TP_LOOP_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;
+
+        case TP_LOOP_FLUSH:
             teleport_freeze_entities_conditional();
             update_screen();
+            ts->phase = TP_LOOP;
             return STEP_RESULT_CONTINUE();
 
         case TP_ARRIVE: {
@@ -925,13 +933,19 @@ StepResult mode_step_teleport(ModeState *st) {
             /* Assembly: LDA #10; JSL WAIT_FRAMES_WITH_UPDATES. */
             if (ts->frame_i < 10) {
                 oam_clear();
-                run_actionscript_frame();
-                update_screen();
-                ts->frame_i++;
-                return STEP_RESULT_CONTINUE();
+                ts->phase = TP_FAIL_SETTLE_FLUSH;
+                if (run_actionscript_frame_step())
+                    return actionscript_frame_take_push();
+                continue;
             }
             ts->phase = TP_CLEANUP;
             continue;
+
+        case TP_FAIL_SETTLE_FLUSH:
+            update_screen();
+            ts->frame_i++;
+            ts->phase = TP_FAIL_SETTLE;
+            return STEP_RESULT_CONTINUE();
 
         case TP_CLEANUP:
         default:

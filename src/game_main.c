@@ -1107,9 +1107,17 @@ StepResult mode_step_overworld(ModeState *mst) {
         case OWP_RENDER:
             /* Assembly lines 25-29: render frame, then advance to POST next frame.
              * This is also the entry/first-frame phase (render once before the
-             * first POST, matching the assembly's pre-WAIT render). */
+             * first POST, matching the assembly's pre-WAIT render). If a script
+             * callroutine parks the frame for a child modal, STEP_PUSH
+             * GAME_MODE_ACTIONSCRIPT_FRAME and finish the render at OWP_RENDER_FLUSH
+             * when it pops. */
             oam_clear();
-            run_actionscript_frame();
+            st->phase = OWP_RENDER_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;   /* no park: flush in the same step (no yield) */
+
+        case OWP_RENDER_FLUSH:
             update_screen();
             update_swirl_effect();  /* advances the battle swirl animation */
             st->phase = OWP_POST_TOP;

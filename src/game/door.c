@@ -804,11 +804,17 @@ StepResult mode_step_screen_transition(ModeState *st) {
             oam_clear();
             update_transition_scroll();
             update_entity_screen_positions();
-            run_actionscript_frame();
+            s->phase = ST_EXIT_BODY_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;   /* no park: flush in the same step */
+
+        case ST_EXIT_BODY_FLUSH:
             update_screen();
             update_swirl_effect();
             s->frame++;
             s->pal_waited = 0;
+            s->phase = ST_EXIT_BODY;
             return STEP_RESULT_CONTINUE();   /* the iteration's main yield */
 
         case ST_EXIT_FINALIZE:
@@ -851,7 +857,12 @@ StepResult mode_step_screen_transition(ModeState *st) {
                 update_map_palette_animation();
             }
             oam_clear();
-            run_actionscript_frame();
+            s->phase = ST_ENTER_BODY_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;   /* no park: flush in the same step */
+
+        case ST_ENTER_BODY_FLUSH:
             update_swirl_effect();
             update_screen();
             s->pal_waited = 0;

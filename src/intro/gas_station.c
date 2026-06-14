@@ -293,8 +293,20 @@ StepResult mode_step_gas_station(ModeState *st) {
             s->remaining = 330;
             return STEP_RESULT_CONTINUE();
         }
-        run_actionscript_frame();
+        /* A script callroutine (the gas-station cutscene has dialogue) may park
+         * the frame: STEP_PUSH GAME_MODE_ACTIONSCRIPT_FRAME and run the palette
+         * sync at GS_PH4_FLUSH when it pops. (This step function is a bare switch
+         * — no enclosing loop — so the no-park path runs the sync inline.) */
+        if (run_actionscript_frame_step()) {
+            s->phase = GS_PH4_FLUSH;
+            return actionscript_frame_take_push();
+        }
         gas_station_sync_palettes();
+        return STEP_RESULT_CONTINUE();   /* phase stays GS_PH4 */
+
+    case GS_PH4_FLUSH:
+        gas_station_sync_palettes();
+        s->phase = GS_PH4;
         return STEP_RESULT_CONTINUE();
 
     case GS_PH5:

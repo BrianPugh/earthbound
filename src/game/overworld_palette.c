@@ -390,6 +390,15 @@ StepResult mode_step_palette_fade(ModeState *st) {
         return STEP_RESULT_POP(0);
     }
 
+    if (s->phase == 2) {
+        /* PF_WITH_RENDERING: resume after a parked actionscript frame's child
+         * popped — run the post-render work, then continue the fade loop. */
+        s->phase = 0;
+        update_screen();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+    }
+
     switch ((PaletteFadeKind)s->kind) {
     case PF_SKIPPABLE_PAUSE:
         if (s->remaining == 0)
@@ -431,7 +440,10 @@ StepResult mode_step_palette_fade(ModeState *st) {
         }
         update_map_palette_animation();
         oam_clear();
-        run_actionscript_frame();
+        if (run_actionscript_frame_step()) {
+            s->phase = 2;   /* resume the post-render work at the top next entry */
+            return actionscript_frame_take_push();
+        }
         update_screen();
         s->remaining--;
         return STEP_RESULT_CONTINUE();

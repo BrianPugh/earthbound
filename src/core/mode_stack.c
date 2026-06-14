@@ -34,9 +34,21 @@ static StepResult mode_step_fade_wait(ModeState *st) {
     switch ((FadeTickKind)st->fade_wait.tick_kind) {
     case FADE_TICK_OVERWORLD_RENDER:
         /* Body of the former while(fade_active()) loop in
-         * run_frames_until_fade_done(): a full overworld render frame. */
+         * run_frames_until_fade_done(): a full overworld render frame. If a
+         * script callroutine parks the frame, STEP_PUSH GAME_MODE_ACTIONSCRIPT_FRAME
+         * and finish the post-render work (update_screen + fade_update) on the
+         * next entry via asf_flush. */
+        if (st->fade_wait.asf_flush) {
+            st->fade_wait.asf_flush = 0;
+            update_screen();
+            fade_update();
+            break;
+        }
         oam_clear();
-        run_actionscript_frame();
+        if (run_actionscript_frame_step()) {
+            st->fade_wait.asf_flush = 1;
+            return actionscript_frame_take_push();
+        }
         update_screen();
         fade_update();
         break;

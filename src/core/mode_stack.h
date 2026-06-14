@@ -146,6 +146,9 @@ typedef enum {
 
 typedef struct {
     uint8_t tick_kind;   /* FadeTickKind */
+    uint8_t asf_flush;   /* FADE_TICK_OVERWORLD_RENDER: 1 = resume after a parked
+                          * actionscript frame's child popped (do the post-render
+                          * update_screen + fade_update, then loop). */
 } FadeWaitState;
 
 /* GAME_MODE_TEXT_WAIT_FADE phases. Port of display_text_and_wait_for_fade():
@@ -1466,6 +1469,8 @@ typedef enum {
     ST_EXIT_POST,       /* post-finalize-yield: wipe flag + enable entities, POP */
     ST_ENTER_BODY,      /* enter fade-in loop iteration */
     ST_ENTER_POST,      /* post-yield: frame==1 disable, then increment */
+    ST_EXIT_BODY_FLUSH, /* resume after a parked actionscript frame popped (ST_EXIT_BODY) */
+    ST_ENTER_BODY_FLUSH,/* resume after a parked actionscript frame popped (ST_ENTER_BODY) */
 } ScreenTransitionPhase;
 
 typedef struct {
@@ -1686,6 +1691,7 @@ typedef enum {
     GS_PH4,
     GS_PH5,
     GS_PH6,
+    GS_PH4_FLUSH,   /* resume after a parked actionscript frame popped (GS_PH4) */
 } GasStationPhase;
 
 typedef struct {
@@ -2092,6 +2098,8 @@ typedef enum {
     TP_FAIL_WAIT,    /* failure: 180-frame charred-status render loop */
     TP_FAIL_SETTLE,  /* failure: wait_frames_with_updates(10) */
     TP_CLEANUP,      /* restore callbacks, reset entities, clear state, POP */
+    TP_LOOP_FLUSH,        /* resume after a parked actionscript frame popped (TP_LOOP) */
+    TP_FAIL_SETTLE_FLUSH, /* resume after a parked actionscript frame popped (TP_FAIL_SETTLE) */
 } TeleportPhase;
 
 typedef struct {
@@ -2233,6 +2241,8 @@ typedef enum {
                              * root's initial phase + the game-over "Continue" reboot target. */
     OWP_BOOT_AWAIT,         /* boot stage 3: after INIT_INTRO pops back, overworld_boot() then
                              * -> OWP_RENDER in the same step (no yield = no Ness-flash). */
+    OWP_RENDER_FLUSH,       /* resume after a parked actionscript frame's child popped:
+                             * update_screen + update_swirl_effect -> OWP_POST_TOP. */
 } OverworldPhase;
 
 typedef struct {
@@ -2345,6 +2355,35 @@ extern ModeStack g_mode_stack;
 
 /* Run one frame of `mode`'s step function. */
 StepResult mode_dispatch_step(GameMode mode, ModeState *st);
+
+/* ---- run_actionscript_frame, mode-step form (entity/script.c) ----------------
+ * A mode-step context renders one entity-system frame with these two calls:
+ *
+ *     oam_clear();
+ *     st->phase = <flush phase>;
+ *     if (run_actionscript_frame_step())
+ *         return actionscript_frame_take_push();
+ *     continue;   // no park: flush in the same step
+ *   <flush phase>:
+ *     update_screen(); ...post-render work...
+ *
+ * run_actionscript_frame_step() runs phase 1 (entity scripts + ticks). If a
+ * callroutine requests a child modal (text / mosaic / flyover / pp-recovery) the
+ * frame is PARKED and the function returns true: the caller must STEP_PUSH
+ * GAME_MODE_ACTIONSCRIPT_FRAME via actionscript_frame_take_push(), which finishes
+ * the parked frame (the child mode runs, then phases 2-3 + the reentrancy clear).
+ * On its pop the caller resumes at its flush phase and runs the post-render work
+ * (the part that followed run_actionscript_frame() in the blocking form). When no
+ * child is requested it returns false having completed the whole frame inline.
+ *
+ * The blocking helper layer (render_frame_tick / window_tick / wait_frames_with_
+ * updates / dismount_bicycle / teleport-departure / ending) keeps calling the
+ * plain void run_actionscript_frame() (entity.h), which warns-and-drops a stray
+ * park — those contexts do not run cutscene callroutines (battle is guarded by
+ * battle_mode_flag; transitions/teleport freeze entities; menus/credits run no
+ * action scripts), so a park there is not expected. */
+bool       run_actionscript_frame_step(void);
+StepResult actionscript_frame_take_push(void);
 
 /* GAME_MODE_NUMBER_SELECT step (defined in display_text_cc.c, where the text/
  * window helpers it needs live). Declared here so the dispatch table can wire it
