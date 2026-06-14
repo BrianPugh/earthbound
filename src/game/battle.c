@@ -1122,20 +1122,10 @@ StepResult mode_step_battle_apply(ModeState *ms) {
 
 /* rand_byte() and rand_limit() now in battle_internal.h */
 
-/*
- * WAIT (port of asm/system/wait.asm)
- *
- * Loops for the given number of frames, calling window_tick() each
- * iteration to keep the UI responsive (text rendering, palette animation,
- * entity updates, etc.).  The assembly calls WINDOW_TICK.
- */
-void battle_wait(uint16_t frames) {
-    /* Run-to-completion form: window_tick() each frame is the GAME_MODE_BATTLE_
-     * WAIT step's BW_FRAMES body (window_tick_work, no internal yield); pump_mode
-     * owns the single yield. See docs/plans/savestate-unified-loop.md. */
-    ModeState init = { .battle_wait = { .kind = BW_FRAMES, .remaining = frames } };
-    pump_mode(GAME_MODE_BATTLE_WAIT, &init);
-}
+/* WAIT (port of asm/system/wait.asm) — loop N frames calling window_tick() to keep
+ * the UI responsive — is now the GAME_MODE_BATTLE_WAIT BW_FRAMES kind, STEP_PUSHed
+ * via push_battle_wait_frames() by the battle-action steppers; the blocking
+ * battle_wait() bridge was deleted (D4b, callerless after the cutscene steppers). */
 
 /* GAME_MODE_BATTLE_WAIT — run-to-completion port of the battle "advance one frame
  * until <condition>" loops. The single yield belongs to the pump; this step only
@@ -2229,28 +2219,9 @@ char *return_battle_target_address(void) {
     return dt.battle_target_name;
 }
 
-/*
- * GIYGAS_HURT_PRAYER (asm/battle/giygas_hurt_prayer.asm)
- *
- * Applies prayer damage to Giygas (always battler slot 8, the first enemy).
- * Waits 1 second, sets target, applies 25% variance, green flash, SMAAAASH
- * flag, calc resist damage, then waits another second.
- */
-void giygas_hurt_prayer(uint16_t base_damage) {
-    battle_wait(FRAMES_PER_SECOND);
-
-    /* Target Giygas (slot 8 = first enemy) */
-    bt.current_target = FIRST_ENEMY_INDEX * sizeof(Battler);
-    fix_target_name();
-
-    bt.green_flash_duration = FRAMES_PER_SECOND;
-    bt.is_smaaaash_attack = 1;
-
-    uint16_t damage = battle_25pct_variance(base_damage);
-    battle_calc_resist_damage(damage, 0xFF);
-
-    battle_wait(FRAMES_PER_SECOND);
-}
+/* GIYGAS_HURT_PRAYER (asm/battle/giygas_hurt_prayer.asm) is now the resumable
+ * hurt_prayer_steps() battle-action stepper (battle_actions.c); the blocking
+ * version was deleted (D4b). */
 
 /* ======================================================================
  * PSI Flash sub-effects
@@ -3413,65 +3384,10 @@ close_and_return:
  */
 /* PSI animation defines moved to battle_psi.c */
 
-/* ======================================================================
- * DISPLAY_BATTLE_CUTSCENE_TEXT (asm/battle/display_battle_cutscene_text.asm)
- *
- * Fades out, shows cutscene text (hiding battle UI), then reloads battle
- * scene and restores UI. Used during Giygas prayer sequences.
- *
- * Parameters:
- *   group: enemy group to reload battle scene with
- *   music: music track to play after reload
- *   text_addr: SNES address of battle text to display during cutscene
- * ====================================================================== */
-void display_battle_cutscene_text(uint16_t group, uint16_t music,
-                                         uint32_t text_addr) {
-    fade_out(1, 4);
-    wait_for_fade_with_tick();
-    bt.battle_mode_flag = 0;
-    ml.current_map_music_track = 0;
-    close_all_windows_and_hide_hppp();
-    display_in_battle_text_addr(text_addr);
-    fade_out(1, 2);
-    wait_for_fade_with_tick();
-    load_battle_scene(group, music);
-    bt.battle_mode_flag = 1;
-    redirect_show_hppp_windows();
-    create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
-    battle_wait(FRAMES_PER_SECOND);  /* 1 second */
-}
-
-/* ======================================================================
- * PLAY_GIYGAS_WEAKENED_SEQUENCE (asm/battle/play_giygas_weakened_sequence.asm)
- *
- * Fades to black, shows Giygas weakened text on BG3-only screen,
- * then fades back to battle. Used during prayers 8 and 9.
- * ====================================================================== */
-void play_giygas_weakened_sequence(uint16_t music,
-                                          uint32_t text_addr) {
-    fade_out(1, 1);
-    write_apu_port1(2);
-    wait_for_fade_with_tick();
-    bt.battle_mode_flag = 0;
-    close_all_windows_and_hide_hppp();
-    ppu.tm = 0x04;  /* BG3 only */
-    change_music(191);  /* MUSIC::GIYGAS_WEAKENED */
-    fade_in(1, 1);
-    wait_for_fade_with_tick();
-    battle_wait(20);  /* 2 * SIXTHS_OF_A_SECOND = 20 frames */
-    display_in_battle_text_addr(text_addr);
-    bt.battle_mode_flag = 1;
-    battle_wait(20);  /* 2 * SIXTHS_OF_A_SECOND */
-    write_apu_port1(2);
-    fade_out(1, 1);
-    wait_for_fade_with_tick();
-    redirect_show_hppp_windows();
-    create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
-    ppu.tm = 0x17;  /* BG1 + BG2 + BG3 + OBJ */
-    change_music(music);
-    fade_in(1, 1);
-    wait_for_fade_with_tick();
-}
+/* DISPLAY_BATTLE_CUTSCENE_TEXT (asm/battle/display_battle_cutscene_text.asm) and
+ * PLAY_GIYGAS_WEAKENED_SEQUENCE (asm/battle/play_giygas_weakened_sequence.asm) are
+ * now the resumable cutscene_text_steps() / weakened_seq_steps() battle-action
+ * steppers (battle_actions.c); the blocking versions were deleted (D4b). */
 
 /* ======================================================================
  * BATTLE_ROUTINE (asm/battle/main_battle_routine.asm)

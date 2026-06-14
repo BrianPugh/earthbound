@@ -1110,7 +1110,6 @@ extern uint16_t find_first_unconscious_party_slot(void);
 extern uint16_t find_first_alive_party_member(void);
 extern void replace_boss_battler(uint16_t new_enemy_id);
 extern void enemy_flashing_on(uint16_t row, uint16_t enemy);
-extern void giygas_hurt_prayer(uint16_t base_damage);
 extern uint16_t autohealing(uint16_t status_group, uint16_t status_id);
 extern uint16_t autolifeup(void);
 extern void btlact_vitality_up_1d4(void);
