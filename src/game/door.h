@@ -90,11 +90,12 @@ void check_door_in_direction(uint16_t direction);
  * Sets interacting_npc_id = 0xFFFE and map_object_text if door found. */
 void check_door_near_leader(uint16_t direction);
 
-/* Full door transition sequence.
- * Port of DOOR_TRANSITION (asm/overworld/door_transition.asm).
- * Handles text display, event flag checks, screen transition,
- * map loading, music resolution, and party placement. */
-void door_transition(uint32_t door_data_ptr);
+/* Full door transition sequence (port of DOOR_TRANSITION,
+ * asm/overworld/door_transition.asm) — text display, event flag checks, screen
+ * transition, map loading, music resolution, party placement — runs as
+ * GAME_MODE_DOOR_TRANSITION (mode_step_door_transition), STEP_PUSHed directly by
+ * GAME_MODE_PROCESS_INTERACTION. The blocking door_transition() pump bridge was
+ * deleted in D4b. */
 
 /* Save/restore door interactions across a transition.
  * Port of PROCESS_DOOR_INTERACTIONS (asm/overworld/door/process_door_interactions.asm). */

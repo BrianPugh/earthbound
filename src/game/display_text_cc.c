@@ -1430,7 +1430,15 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         uint8_t tileset_combo = script_read_byte(r);
         uint8_t palette_index = script_read_byte(r);
         uint8_t fade_frames = script_read_byte(r);
-        load_map_palette(tileset_combo, palette_index, fade_frames);
+        /* fade_frames == 0 (or a bad asset) runs the instant swap inline and
+         * returns false; a real fade lays out the child in *out_init → STEP_PUSH
+         * GAME_MODE_MAP_PALETTE_FADE (no post-work, DT_RESUME_NONE). */
+        if (load_map_palette_prepare(tileset_combo, palette_index, fade_frames,
+                                     out_init)) {
+            *out_mode   = GAME_MODE_MAP_PALETTE_FADE;
+            *out_resume = DT_RESUME_NONE;
+            return true;
+        }
         break;
     }
     case 0xE4: {

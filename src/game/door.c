@@ -1232,11 +1232,3 @@ StepResult mode_step_door_transition(ModeState *ms) {
     }
 }
 
-/* Thin bridge over GAME_MODE_DOOR_TRANSITION (STEP_PUSHed directly by
- * GAME_MODE_PROCESS_INTERACTION; kept for any other/future blocking caller and to
- * preserve the public symbol). */
-void door_transition(uint32_t door_data_snes_ptr) {
-    ModeState init = { .door_transition = { .phase = DTR_BEGIN,
-                                            .door_ptr = door_data_snes_ptr } };
-    pump_mode(GAME_MODE_DOOR_TRANSITION, &init);
-}

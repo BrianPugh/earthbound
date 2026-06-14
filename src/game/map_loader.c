@@ -784,16 +784,19 @@ static void reload_sprite_group_palettes(void) {
  * Port of LOAD_MAP_PALETTE (asm/system/palette/load_map_palette.asm):
  *   1. MAP_PALETTE_PTR_TABLE[tileset_combo] → base pointer to palette data
  *   2. Offset within file = palette_index × 192
- *   3. fade_frames == 0: Copy 192 bytes to PALETTES sub-ert.palettes 2-7 (instant)
- *   4. fade_frames > 0: Smooth per-channel fade over N frames, then:
- *      - Slam final BG palette
- *      - Reload sprite ert.palettes from SPRITE_GROUP_PALETTES
- *      - ADJUST_SPRITE_PALETTES_BY_AVERAGE + LOAD_SPECIAL_SPRITE_PALETTE
+ *   3. fade_frames == 0: Copy 192 bytes to PALETTES sub-ert.palettes 2-7 (instant);
+ *      returns false (synchronous, nothing to push).
+ *   4. fade_frames > 0: Compute the per-channel fade slopes (into ert.buffer scratch)
+ *      and lay out the GAME_MODE_MAP_PALETTE_FADE child in *out_init; returns true so
+ *      the caller STEP_PUSHes it. The child runs the per-frame accumulate then the
+ *      finalize (slam final BG palette, reload sprite palettes from
+ *      SPRITE_GROUP_PALETTES, ADJUST_SPRITE_PALETTES_BY_AVERAGE +
+ *      LOAD_SPECIAL_SPRITE_PALETTE).
  *
  * Used by CC_1F_E1 (SET_MAP_PALETTE script command). Does NOT check
  * event flag overrides — scripts provide the final palette index directly. */
-void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
-                      uint16_t fade_frames) {
+bool load_map_palette_prepare(uint16_t tileset_combo, uint16_t palette_index,
+                              uint16_t fade_frames, ModeState *out_init) {
     /* Assembly line 21: clear palette animation flag */
     ml.map_palette_animation_loaded = 0;
 
@@ -801,21 +804,21 @@ void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
     size_t pal_size = ASSET_SIZE(ASSET_MAPS_PALETTES(tileset_combo));
     if (!pal_data) {
         LOG_WARN("map_loader: failed to load palette %d\n", tileset_combo);
-        return;
+        return false;
     }
 
     size_t offset = (size_t)palette_index * (BPP4PALETTE_SIZE * 6);
     if (offset + BPP4PALETTE_SIZE * 6 > pal_size) {
         LOG_WARN("map_loader: palette %d too small for index %d "
                 "(offset=%zu, size=%zu)\n", tileset_combo, palette_index, offset, pal_size);
-        return;
+        return false;
     }
 
     if (fade_frames == 0) {
         /* Instant path (assembly lines 44-48) */
         memcpy(&ert.palettes[32], pal_data + offset, BPP4PALETTE_SIZE * 6);
         ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-        return;
+        return false;
     }
 
     /* Fade path (assembly lines 49-89).
@@ -865,10 +868,10 @@ void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
     /* UPDATE_MAP_PALETTE_FADE each frame (assembly lines 60-89) — the per-frame
      * accumulate loop and the post-fade finalize run to completion as
      * GAME_MODE_MAP_PALETTE_FADE (the accumulators/slopes computed above live in
-     * ert.buffer scratch, which the step re-derives each frame). */
-    ModeState init = {0};
-    init.map_palette_fade.remaining = fade_frames;
-    pump_mode(GAME_MODE_MAP_PALETTE_FADE, &init);
+     * ert.buffer scratch, which the step re-derives each frame). The caller
+     * STEP_PUSHes the child mode; out_init is pre-zeroed by it. */
+    out_init->map_palette_fade.remaining = fade_frames;
+    return true;
 }
 
 /* ---- GAME_MODE_MAP_PALETTE_FADE step ----

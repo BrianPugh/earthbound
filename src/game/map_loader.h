@@ -251,11 +251,16 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx);
 
 
 /* Load a map palette by tileset combo and palette index.
- * fade_frames == 0: copies 192 bytes (6 sub-palettes) to PALETTES sub-palettes 2-7.
- * fade_frames > 0: smooth per-channel fade, then reloads and adjusts sprite palettes.
- * Port of LOAD_MAP_PALETTE (asm/system/palette/load_map_palette.asm). */
-void load_map_palette(uint16_t tileset_combo, uint16_t palette_index,
-                      uint16_t fade_frames);
+ * fade_frames == 0: copies 192 bytes (6 sub-palettes) to PALETTES sub-palettes 2-7
+ *   (instant, synchronous) — returns false (nothing to push).
+ * fade_frames > 0: lays out the per-channel fade in *init and returns true; the
+ *   caller STEP_PUSHes GAME_MODE_MAP_PALETTE_FADE to run the fade to completion.
+ * Returns false on a bad/too-small palette asset (instant no-op).
+ * Port of LOAD_MAP_PALETTE (asm/system/palette/load_map_palette.asm). The blocking
+ * load_map_palette() pump bridge was deleted in D4b; CC_1F_E1 pushes the child. */
+typedef union ModeState ModeState;
+bool load_map_palette_prepare(uint16_t tileset_combo, uint16_t palette_index,
+                              uint16_t fade_frames, ModeState *init);
 
 
 /* Advance palette animation by one frame. Decrements timer, loads next
