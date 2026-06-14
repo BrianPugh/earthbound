@@ -19,7 +19,6 @@ void psi_teleport_alpha_tick(int16_t entity_offset);
 void psi_teleport_beta_tick(int16_t entity_offset);
 void psi_teleport_decelerate_tick(int16_t entity_offset);
 void psi_teleport_success_tick(int16_t entity_offset);
-void teleport_mainloop(void);
 void calculate_velocity_components(uint16_t angle, int16_t speed, int16_t *out_x, int16_t *out_y);
 void update_party_entity_from_buffer(int16_t entity_offset);
 int16_t get_direction_from_player_to_entity(void);

@@ -691,16 +691,14 @@ typedef struct {
  * is the BE_DEBUG_WAIT phase; an instant win pushes GAME_MODE_INSTANT_WIN;
  * otherwise the mosaic fade-out starts and GAME_MODE_BATTLE is pushed.
  * BE_BATTLE_DONE runs the shared post-battle tail (update_party + flags)
- * and the per-result handling.
+ * and the per-result handling; a post-battle PSI teleport STEP_PUSHes
+ * GAME_MODE_TELEPORT (resume BE_RESET).
  *
- * Kept inline-blocking (documented deferrals): teleport_mainloop() (the PSI
- * teleport driver, its own large blocking machine in overworld_teleport.c)
- * and reload_map()'s force_blank/blank_screen one-shot vblank helpers.
+ * Kept inline-blocking (documented deferral): reload_map()'s
+ * force_blank/blank_screen one-shot vblank helpers.
  *
  * Always pops 0 (the blocking original returns void — a defeat result is
- * handled by the caller observing game state, not a return value).
- * init_battle_overworld() (battle.c) is the pump bridge for the
- * still-blocking overworld root loop caller (game_main.c, Phase D). */
+ * handled by the caller observing game state, not a return value). */
 typedef enum {
     BE_ENTER = 0,     /* battle_mode gate, debug checks, instant win / battle */
     BE_DEBUG_WAIT,    /* debug_mode_number==2: wait for the B button, skip battle */
@@ -721,10 +719,12 @@ typedef struct {
  * wait; BS_SWIRL_DONE starts the mosaic fade-out and pushes GAME_MODE_BATTLE;
  * BS_BATTLE_DONE runs the shared post-battle tail and per-result handling;
  * BS_CLEANUP/BS_FINISH split render_and_disable_entities() at its
- * render_frame_tick yield (work-then-yield, then the entity disable).
+ * render_frame_tick yield (work-then-yield, then the entity disable). A
+ * post-battle PSI teleport STEP_PUSHes GAME_MODE_TELEPORT (resume BS_CLEANUP on
+ * victory, BS_TELEPORT_DEFEATED to pop 1 on defeat).
  *
- * Kept inline-blocking (documented deferrals): teleport_mainloop() and
- * reload_map()'s one-shot vblank helpers, as in GAME_MODE_BATTLE_ENTRY.
+ * Kept inline-blocking (documented deferral): reload_map()'s one-shot vblank
+ * helpers, as in GAME_MODE_BATTLE_ENTRY.
  *
  * Pops 0 = normal victory/post-battle, 1 = party defeated. Pushed by
  * CC_1F_23 TRIGGER_BATTLE (cc_1f_dispatch push-signal; the result is stored
@@ -735,6 +735,7 @@ typedef enum {
     BS_BATTLE_DONE,   /* post-battle: party update, teleport/reload handling */
     BS_CLEANUP,       /* render_and_disable front half: party + render work */
     BS_FINISH,        /* entity disable + intangibility frames; pop the result */
+    BS_TELEPORT_DEFEATED, /* after a post-battle PSI teleport with the party defeated: pop 1 */
 } BattleScriptedPhase;
 
 typedef struct {

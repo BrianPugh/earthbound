@@ -825,10 +825,6 @@ void center_screen(uint16_t x, uint16_t y);
 void set_party_tick_callbacks(uint16_t leader_slot,
                               uint32_t leader_cb, uint32_t follower_cb);
 
-/* TELEPORT_MAINLOOP: Port of asm/misc/teleport_mainloop.asm.
- * Full teleport event loop. Handles all teleport styles. */
-void teleport_mainloop(void);
-
 /* SPAWN: Port of asm/overworld/spawn.asm.
  * Game over / comeback sequence. Displays game over screen, runs
  * comeback dialogue with palette animations, revives leader, halves money,

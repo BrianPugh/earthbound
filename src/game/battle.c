@@ -5944,11 +5944,9 @@ StepResult mode_step_pp_recovery_flash(ModeState *ms) {
  *
  * Run-to-completion: GAME_MODE_BATTLE_ENTRY. The debug exit-button busy-wait
  * is BE_DEBUG_WAIT; an instant win pushes GAME_MODE_INSTANT_WIN; the battle
- * is a GAME_MODE_BATTLE push. Kept inline-blocking (documented):
- * teleport_mainloop() (the PSI-teleport driver, its own large blocking
- * machine) and reload_map()'s force_blank/blank_screen one-shot vblank
- * helpers. init_battle_overworld() below is the pump bridge for the
- * still-blocking overworld root loop (game_main.c — Phase D).
+ * is a GAME_MODE_BATTLE push; a post-battle PSI teleport is a GAME_MODE_TELEPORT
+ * push (BE_BATTLE_DONE). Kept inline-blocking (documented): reload_map()'s
+ * force_blank/blank_screen one-shot vblank helpers.
  */
 StepResult mode_step_battle_entry(ModeState *state) {
     BattleEntryState *st = &state->battle_entry;
@@ -6018,9 +6016,10 @@ StepResult mode_step_battle_entry(ModeState *state) {
             ow.overworld_status_suppression = 0;
 
             if (ow.psi_teleport_destination != 0) {
-                /* PSI teleport triggered during battle (inline-blocking —
-                 * its own large driver, deferred) */
-                teleport_mainloop();
+                /* PSI teleport triggered during battle: run the teleport
+                 * sequence as GAME_MODE_TELEPORT, then continue to BE_RESET. */
+                st->phase = BE_RESET;
+                return STEP_RESULT_PUSH(GAME_MODE_TELEPORT);
             } else if (result == 0) {
                 /* Normal victory — reload the map and fade in */
                 /* Debug: CHECK_VIEW_CHARACTER_MODE — skip in C port */
@@ -6078,9 +6077,10 @@ StepResult mode_step_battle_entry(ModeState *state) {
  * BW_SWIRL_UPDATE push, the battle a GAME_MODE_BATTLE push (with
  * init_battle_common's fade-out/party-update halves inlined around it, as
  * in GAME_MODE_BATTLE_ENTRY), and render_and_disable_entities() is split
- * at its render_frame_tick yield (BS_CLEANUP work / BS_FINISH disable).
- * Kept inline-blocking (documented): teleport_mainloop() and reload_map()'s
- * one-shot vblank helpers. Pushed by CC_1F_23 TRIGGER_BATTLE (cc_1f_dispatch
+ * at its render_frame_tick yield (BS_CLEANUP work / BS_FINISH disable). A
+ * post-battle PSI teleport is a GAME_MODE_TELEPORT push (BS_BATTLE_DONE).
+ * Kept inline-blocking (documented): reload_map()'s one-shot vblank helpers.
+ * Pushed by CC_1F_23 TRIGGER_BATTLE (cc_1f_dispatch
  * push-signal; the result is stored to working memory in the
  * DT_RESUME_CC1F_BATTLE handler).
  *
@@ -6164,11 +6164,11 @@ StepResult mode_step_battle_scripted(ModeState *state) {
 
             /* Post-battle handling */
             if (ow.psi_teleport_destination != 0) {
-                /* PSI teleport triggered during battle (inline-blocking —
-                 * its own large driver, deferred) */
-                teleport_mainloop();
-                if (result != 0)
-                    return STEP_RESULT_POP(1);  /* party defeated */
+                /* PSI teleport triggered during battle: run the teleport
+                 * sequence as GAME_MODE_TELEPORT. On pop, a defeated party still
+                 * returns 1 (BS_TELEPORT_DEFEATED); otherwise continue cleanup. */
+                st->phase = (result != 0) ? BS_TELEPORT_DEFEATED : BS_CLEANUP;
+                return STEP_RESULT_PUSH(GAME_MODE_TELEPORT);
             } else if (result == 0) {
                 /* Normal victory — reload map and fade in */
                 reload_map();
@@ -6180,6 +6180,11 @@ StepResult mode_step_battle_scripted(ModeState *state) {
             st->phase = BS_CLEANUP;
             break;
         }
+
+        case BS_TELEPORT_DEFEATED:
+            /* After a post-battle PSI teleport with the party defeated: pop 1,
+             * skipping cleanup (matches the blocking `return 1` after teleport). */
+            return STEP_RESULT_POP(1);
 
         case BS_CLEANUP:
             /* Post-battle cleanup — render_and_disable_entities() split at

@@ -782,13 +782,12 @@ static bool init_teleport_departure_run(void) {
  *
  * Main teleport event loop. Handles all teleport styles.
  * For INSTANT: stops music, freezes entities, loads destination, fades in.
- * For other styles: plays departure animation, fades, loads, plays arrival. */
-void teleport_mainloop(void) {
-    /* Pump bridge for the three still-blocking callers (the overworld root in
-     * game_main.c, and the post-battle teleport checks in GAME_MODE_BATTLE_ENTRY
-     * / GAME_MODE_BATTLE_SCRIPTED). They STEP_PUSH GAME_MODE_TELEPORT at Phase D. */
-    pump_mode(GAME_MODE_TELEPORT, NULL);
-}
+ * For other styles: plays departure animation, fades, loads, plays arrival.
+ *
+ * The blocking teleport_mainloop() pump bridge was deleted (D4b); its only
+ * callers (the post-battle PSI-teleport checks in GAME_MODE_BATTLE_ENTRY /
+ * GAME_MODE_BATTLE_SCRIPTED — the overworld root already STEP_PUSHed in D1)
+ * STEP_PUSH GAME_MODE_TELEPORT directly. */
 
 /* ---- GAME_MODE_TELEPORT step (run-to-completion port of TELEPORT_MAINLOOP) ----
  * Phase machine + faithfulness notes documented at GAME_MODE_TELEPORT in
