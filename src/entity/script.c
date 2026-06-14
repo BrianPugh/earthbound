@@ -448,12 +448,16 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
  *     caller resumes at its flush phase. This keeps the full state on the
  *     serializable mode stack (single yield = save-anywhere).
  *   - run_actionscript_frame() — the plain blocking form for the render-helper
- *     layer (render_frame_tick / window_tick / wait_frames_with_updates /
- *     dismount_bicycle / teleport-departure / ending), which yields via its own
- *     wait_for_vblank() and has no mode step to push onto. A park is not expected
- *     there (battle is guarded by battle_mode_flag; transitions/teleport freeze
- *     entities; menus/credits run no action scripts), so it warns-and-drops the
- *     child and finishes the frame to avoid stalling ert.disable_actionscript.
+ *     layer (render_frame_tick / render_frame_tick_work / window_tick /
+ *     wait_frames_with_updates / dismount_bicycle / teleport-departure / ending /
+ *     the naming-screen helpers), which yields via its own wait_for_vblank() and
+ *     has no mode step to push onto. These DO run cutscene scripts that park — the
+ *     Onett opening renders its meteorite dialogue and the "War Against Giygas!"
+ *     flyover through this layer — so it still drives the child to completion via
+ *     the pump_mode bridge (a local yield loop). Those contexts are already not
+ *     savestate-able (C-local loop counters + wait_for_vblank), so the nested pump
+ *     does not regress save-anywhere; this bridge dies when the render-helper layer
+ *     itself is converted to mode steps alongside the display_text spine (Commit 3+).
  *
  * ert.disable_actionscript stays 1 across the child either way — script
  * execution stays frozen during a script-triggered modal context.
@@ -487,28 +491,6 @@ StepResult actionscript_frame_take_push(void) {
     return STEP_RESULT_PUSH_INIT(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
 }
 
-/* Finish a parked frame WITHOUT running the requested child modal: run the
- * callroutine's epilogue at its sequence point, finish the suspended script
- * chain + the remaining entities, then phases 2-3. Mirrors ASF_RESUME minus the
- * child push. Only the blocking render-helper layer reaches this (a park is not
- * expected there — see run_actionscript_frame()). */
-static void as_finish_parked_without_child(void) {
-    ActionscriptFrameState st;
-    as_state_from_request(&st);
-    for (;;) {
-        if (st.epilogue == AS_EPI_TEXT_FLAG)
-            event_flag_set(2);
-        EmsResult r = as_continue_entity(&st);
-        if (r == EMS_DONE)
-            r = as_run_phase1_from(ert.next_active_entity);
-        if (r != EMS_YIELD)
-            break;
-        /* A continuation requested another child — drop it too. */
-        as_state_from_request(&st);
-    }
-    as_frame_tail();
-}
-
 void run_actionscript_frame(void) {
     if (ert.disable_actionscript)
         return;
@@ -516,10 +498,12 @@ void run_actionscript_frame(void) {
     ert.disable_actionscript = 1;
 
     if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
-        LOG_WARN("WARNING: actionscript child mode requested from a blocking "
-                 "render-helper context (kind=%d) — modal dropped\n",
-                 (int)as_req.child_kind);
-        as_finish_parked_without_child();
+        /* Blocking render-helper context: drive the parked frame's child modal to
+         * completion via the local pump (the original behaviour). See the header
+         * comment — the render-helper layer legitimately runs cutscene callroutines. */
+        ModeState init = {0};
+        as_state_from_request(&init.actionscript_frame);
+        pump_mode(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
         return;
     }
 
