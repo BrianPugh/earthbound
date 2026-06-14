@@ -638,12 +638,14 @@ void psi_teleport_success_tick(int16_t entity_offset) {
 
 /* ---- INIT_TELEPORT_ARRIVAL (port of asm/overworld/teleport/init_teleport_arrival.asm) ----
  *
- * For INSTANT style: complete no-op (early return).
+ * For INSTANT style: complete no-op (early return → false, no fade-wait).
  * For other styles: disables collision on entities 24+, zeroes speed vars,
- * sets PSI_TELEPORT_SUCCESS_TICK callback, fades out. */
-static void init_teleport_arrival(void) {
+ * sets PSI_TELEPORT_SUCCESS_TICK callback, fades out, and returns true to signal a
+ * pending fade-wait — the former trailing run_frames_until_fade_done() is now a
+ * STEP_PUSH of GAME_MODE_FADE_WAIT by mode_step_teleport (TP_ARRIVE). */
+static bool init_teleport_arrival_setup(void) {
     if (ow.psi_teleport_style == TELEPORT_STYLE_INSTANT)
-        return;
+        return false;
 
     /* Non-INSTANT: disable collision for entities 24+ */
     for (int slot = PARTY_LEADER_ENTITY_INDEX; slot < MAX_ENTITIES; slot++) {
@@ -667,7 +669,7 @@ static void init_teleport_arrival(void) {
     ow.psi_teleport_success_screen_y = (int16_t)game_state.leader_y_coord;
 
     fade_out(1, 4);
-    run_frames_until_fade_done();
+    return true;  /* fade-wait pending → mode_step_teleport STEP_PUSHes FADE_WAIT */
 }
 
 /* ---- LOAD_TELEPORT_DESTINATION (port of asm/overworld/teleport/load_teleport_destination.asm) ----
@@ -716,15 +718,17 @@ static void load_teleport_destination(void) {
 
 /* ---- INIT_TELEPORT_DEPARTURE (port of asm/overworld/teleport/init_teleport_departure.asm) ----
  *
- * For INSTANT style: center screen, fade in, wait for fade.
- * For other styles: updates party graphics, sets speed/direction,
- * plays TELEPORT_IN music, waits 30 frames, fades in, animates. */
-static void init_teleport_departure(void) {
+ * For INSTANT style: center screen, fade in, then return true to signal a pending
+ *   fade-wait — the former trailing run_frames_until_fade_done() is now a STEP_PUSH
+ *   of GAME_MODE_FADE_WAIT by mode_step_teleport (TP_ARRIVE_DEST).
+ * For other styles: updates party graphics, sets speed/direction, plays TELEPORT_IN
+ *   music, waits 30 frames, fades in, animates — all inline via render_frame_tick
+ *   (deferred sequential N-frame helpers, not pump_mode); returns false (no push). */
+static bool init_teleport_departure_run(void) {
     if (ow.psi_teleport_style == TELEPORT_STYLE_INSTANT) {
         center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
         fade_in(1, 1);
-        run_frames_until_fade_done();
-        return;
+        return true;  /* fade-wait pending → STEP_PUSH FADE_WAIT */
     }
 
     /* Non-INSTANT: update all party member graphics */
@@ -771,6 +775,7 @@ static void init_teleport_departure(void) {
     }
 
     center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
+    return false;  /* non-INSTANT ran its animation inline; no fade-wait to push */
 }
 
 /* ---- TELEPORT_MAINLOOP (port of asm/misc/teleport_mainloop.asm) ----
@@ -845,15 +850,11 @@ StepResult mode_step_teleport(ModeState *st) {
                 /* Terminal state reached. Dispatch synchronously, matching the
                  * assembly BEQ chain at @TELEPORT_LOOP_CHECK. */
                 if (ow.psi_teleport_state == 1) {
-                    /* STATE_ARRIVED: successful teleport (all synchronous;
-                     * the STAR_MASTER text is queued, not displayed inline). */
-                    init_teleport_arrival();
-                    load_teleport_destination();
-                    init_teleport_departure();
-                    if (ow.psi_teleport_style == TELEPORT_STYLE_STAR_MASTER) {
-                        freeze_and_queue_text_interaction(MSG_DSRT_EVT_LEARN_TELEPORT);
-                    }
-                    ts->phase = TP_CLEANUP;
+                    /* STATE_ARRIVED: successful teleport. The arrival load runs
+                     * across TP_ARRIVE/TP_ARRIVE_DEST/TP_ARRIVE_DONE so the single
+                     * fade-wait (formerly run_frames_until_fade_done) is a STEP_PUSH
+                     * of GAME_MODE_FADE_WAIT; the STAR_MASTER text is queued. */
+                    ts->phase = TP_ARRIVE;
                 } else if (ow.psi_teleport_state == 2) {
                     /* STATE_FAILED: charred-status failure sequence. */
                     teleport_failure_prologue();
@@ -871,6 +872,42 @@ StepResult mode_step_teleport(ModeState *st) {
             teleport_freeze_entities_conditional();
             update_screen();
             return STEP_RESULT_CONTINUE();
+
+        case TP_ARRIVE: {
+            /* Arrival setup (non-INSTANT: fade out). A pending fade-wait → STEP_PUSH
+             * GAME_MODE_FADE_WAIT (FADE_TICK_OVERWORLD_RENDER), the former
+             * run_frames_until_fade_done(). INSTANT is a no-op → fall straight to
+             * the destination load. */
+            ts->phase = TP_ARRIVE_DEST;
+            if (init_teleport_arrival_setup()) {
+                static ModeState fw_init;  /* outlives this dispatch (pump copies it) */
+                fw_init.fade_wait = (FadeWaitState){ .tick_kind = FADE_TICK_OVERWORLD_RENDER };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &fw_init);
+            }
+            continue;
+        }
+
+        case TP_ARRIVE_DEST: {
+            /* Load the destination map, then run the departure. INSTANT departure
+             * (center + fade in) pushes the fade-wait; non-INSTANT runs its full
+             * animation inline (render_frame_tick loops) and falls through. */
+            load_teleport_destination();
+            ts->phase = TP_ARRIVE_DONE;
+            if (init_teleport_departure_run()) {
+                static ModeState fw_init;  /* outlives this dispatch (pump copies it) */
+                fw_init.fade_wait = (FadeWaitState){ .tick_kind = FADE_TICK_OVERWORLD_RENDER };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &fw_init);
+            }
+            continue;
+        }
+
+        case TP_ARRIVE_DONE:
+            /* STAR_MASTER queues the "learned Teleport" text (not displayed inline). */
+            if (ow.psi_teleport_style == TELEPORT_STYLE_STAR_MASTER) {
+                freeze_and_queue_text_interaction(MSG_DSRT_EVT_LEARN_TELEPORT);
+            }
+            ts->phase = TP_CLEANUP;
+            continue;
 
         case TP_FAIL_WAIT:
             /* RUN_TELEPORT_FAILURE_SEQUENCE's 180-frame charred-status wait. */

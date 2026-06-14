@@ -1399,21 +1399,10 @@ void wait_frames_with_updates(uint16_t count) {
     }
 }
 
-/* ---- RUN_FRAMES_UNTIL_FADE_DONE (port of C0DD0F) ----
- *
- * Loops running the full render frame (OAM_CLEAR → RUN_ACTIONSCRIPT_FRAME →
- * UPDATE_SCREEN → WAIT_UNTIL_NEXT_FRAME) until the fade has completed
- * (fade_parameters::step == 0). Called after fade_in/fade_out to block
- * until the brightness transition is done. */
-void run_frames_until_fade_done(void) {
-    /* Run-to-completion form: the former loop body (oam_clear → ... →
-     * fade_update) is now the GAME_MODE_FADE_WAIT step's FADE_TICK_OVERWORLD_RENDER
-     * tick, driven one frame at a time. pump_mode owns the single yield (formerly
-     * the trailing wait_for_vblank) and bails on quit. See
-     * docs/plans/savestate-unified-loop.md. */
-    ModeState init = { .fade_wait = { .tick_kind = FADE_TICK_OVERWORLD_RENDER } };
-    pump_mode(GAME_MODE_FADE_WAIT, &init);
-}
+/* RUN_FRAMES_UNTIL_FADE_DONE (C0DD0F) — its body is the GAME_MODE_FADE_WAIT step's
+ * FADE_TICK_OVERWORLD_RENDER tick. The blocking run_frames_until_fade_done() pump
+ * bridge was deleted in D4b; its only callers (PSI teleport arrival/departure)
+ * STEP_PUSH GAME_MODE_FADE_WAIT directly from mode_step_teleport. */
 
 /* ---- RENDER_FRAME_TICK (port of asm/system/render_frame_tick.asm) ----
  *

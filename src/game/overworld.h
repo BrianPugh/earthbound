@@ -632,9 +632,10 @@ void update_screen(void);
  * Port of WAIT_FRAMES_WITH_UPDATES (asm/overworld/wait_frames_with_updates.asm). */
 void wait_frames_with_updates(uint16_t count);
 
-/* Run the render loop until the current fade completes.
- * Port of RUN_FRAMES_UNTIL_FADE_DONE (asm/system/palette/run_frames_until_fade_done.asm). */
-void run_frames_until_fade_done(void);
+/* RUN_FRAMES_UNTIL_FADE_DONE (asm/system/palette/run_frames_until_fade_done.asm) is
+ * GAME_MODE_FADE_WAIT's FADE_TICK_OVERWORLD_RENDER tick; the blocking
+ * run_frames_until_fade_done() pump bridge was deleted in D4b (PSI teleport
+ * arrival/departure STEP_PUSH GAME_MODE_FADE_WAIT). */
 
 /* display_text_and_wait_for_fade (GAME_MODE_TEXT_WAIT_FADE) and
  * process_queued_interactions (GAME_MODE_PROCESS_INTERACTION) pump bridges were

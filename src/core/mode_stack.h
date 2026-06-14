@@ -1897,8 +1897,10 @@ typedef struct {
  * (freeze entities, tick-callback assignment, teleport music) in TP_SETUP, then
  * the per-frame animation loop (TP_LOOP: oam_clear + run_actionscript_frame +
  * teleport_freeze_entities_conditional + update_screen, one yield) until
- * ow.psi_teleport_state leaves 0. State 1 (arrived) runs the arrival load
- * synchronously; state 2 (failed) runs the 180-frame charred-status failure
+ * ow.psi_teleport_state leaves 0. State 1 (arrived) runs the arrival load across
+ * TP_ARRIVE/TP_ARRIVE_DEST/TP_ARRIVE_DONE, STEP_PUSHing GAME_MODE_FADE_WAIT for the
+ * single fade-wait (formerly run_frames_until_fade_done — arrival's for non-INSTANT,
+ * departure's for INSTANT); state 2 (failed) runs the 180-frame charred-status failure
  * sequence (TP_FAIL_WAIT) plus a 10-frame settle (TP_FAIL_SETTLE); TP_CLEANUP
  * restores the normal tick callbacks and clears teleport state. All the live
  * teleport state already lives in serialized globals (ow.psi_teleport_*,
@@ -1918,6 +1920,9 @@ typedef enum {
     TP_BEGIN = 0,    /* stop_music, one wait */
     TP_SETUP,        /* freeze + clears + tick-callback setup + music (synchronous) */
     TP_LOOP,         /* animation loop: render one frame until state != 0 */
+    TP_ARRIVE,       /* state 1: init_teleport_arrival_setup; STEP_PUSH fade-wait if pending */
+    TP_ARRIVE_DEST,  /* load destination + init_teleport_departure_run; STEP_PUSH fade-wait if pending */
+    TP_ARRIVE_DONE,  /* STAR_MASTER learn-text queue, then cleanup */
     TP_FAIL_WAIT,    /* failure: 180-frame charred-status render loop */
     TP_FAIL_SETTLE,  /* failure: wait_frames_with_updates(10) */
     TP_CLEANUP,      /* restore callbacks, reset entities, clear state, POP */
