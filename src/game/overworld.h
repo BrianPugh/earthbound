@@ -330,6 +330,14 @@ void render_frame_tick(void);
  * wrappers during the savestate-anywhere migration. */
 void render_frame_tick_work(void);
 
+/* Park-propagating split of render_frame_tick_work() (savestate D4b): a parked
+ * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.
+ * _step() returns true iff a frame parked — the caller must push
+ * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at
+ * its resume phase; on no park the tick finishes inline and _step() returns false. */
+bool render_frame_tick_work_step(void);
+void render_frame_tick_work_flush(void);
+
 /* Allocate/clear sprite VRAM table.
  * Port of ALLOC_SPRITE_MEM (asm/system/alloc_sprite_mem.asm).
  * id=0x8000 clears the entire table. */

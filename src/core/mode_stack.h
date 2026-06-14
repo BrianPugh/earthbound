@@ -1953,6 +1953,8 @@ typedef enum {
     DT_ENTER = 0, /* per-call prologue, then fall through to DT_RUN (no yield) */
     DT_RUN,       /* interpret control codes until a yield point */
     DT_DELAY,     /* typewriter per-character delay countdown */
+    DT_DELAY_FLUSH, /* resume after a typewriter-frame actionscript park: finish the
+                     * window_tick_work render (update_screen) + count the frame */
 } DisplayTextPhase;
 
 /* Post-child work a DISPLAY_TEXT level owes when a STEP_PUSHed child pops back to

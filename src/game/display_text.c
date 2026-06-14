@@ -389,6 +389,22 @@ void window_tick_work(void) {
         render_frame_tick_work();
 }
 
+/* Park-propagating split of window_tick_work() (savestate D4b). A mode-step caller
+ * does `if (window_tick_work_step()) { st->phase = <FLUSH>; return
+ * actionscript_frame_take_push(); }` and runs window_tick_work_flush() at <FLUSH>
+ * on the child's pop. _step() returns true ONLY when an actionscript frame parked;
+ * in every other case (no render this tick / battle / no park) the tick finishes
+ * inline and returns false. */
+bool window_tick_work_step(void) {
+    if (window_tick_prepare())
+        return render_frame_tick_work_step();
+    return false;   /* instant printing / no work: nothing to render or flush */
+}
+
+void window_tick_work_flush(void) {
+    render_frame_tick_work_flush();
+}
+
 void window_tick_without_instant_printing(void) {
     /* Port of WINDOW_TICK_WITHOUT_INSTANT_PRINTING
      * (asm/text/window_tick_without_instant_printing.asm).
@@ -1514,11 +1530,27 @@ StepResult mode_step_display_text(ModeState *ms) {
     DisplayTextModeState *st = &ms->display_text;
 
     /* DT_DELAY: typewriter per-character delay. One window_tick_work() per frame;
-     * the pump owns the yield. Mirrors the blocking for(i<delay) window_tick(). */
+     * the pump owns the yield. Mirrors the blocking for(i<delay) window_tick().
+     * If this frame's actionscript render parks a callroutine, STEP_PUSH the
+     * frame and count it at DT_DELAY_FLUSH when the child pops. */
     if (st->phase == DT_DELAY) {
-        window_tick_work();
+        if (window_tick_work_step()) {
+            st->phase = DT_DELAY_FLUSH;
+            return actionscript_frame_take_push();
+        }
         if (--st->delay_remaining == 0)
             st->phase = DT_RUN;
+        return STEP_RESULT_CONTINUE();
+    }
+
+    /* DT_DELAY_FLUSH: resume after a parked typewriter-frame actionscript render.
+     * Finish the render (update_screen) and count this frame against the delay. */
+    if (st->phase == DT_DELAY_FLUSH) {
+        window_tick_work_flush();
+        if (--st->delay_remaining == 0)
+            st->phase = DT_RUN;
+        else
+            st->phase = DT_DELAY;
         return STEP_RESULT_CONTINUE();
     }
 
@@ -1698,7 +1730,14 @@ StepResult mode_step_display_text(ModeState *ms) {
                  * pump yields once per frame — matching the blocking for-loop's
                  * window_tick() (work-then-yield) repeated `delay` times. */
                 int delay = (game_state.text_speed & 0xFF) + 1;
-                window_tick_work();
+                if (window_tick_work_step()) {
+                    /* This frame's actionscript render parked: STEP_PUSH it and
+                     * count this first delay frame at DT_DELAY_FLUSH on its pop
+                     * (delay_remaining = delay; FLUSH decrements to delay-1). */
+                    st->delay_remaining = (uint16_t)delay;
+                    st->phase = DT_DELAY_FLUSH;
+                    return actionscript_frame_take_push();
+                }
                 if (delay > 1) {
                     st->delay_remaining = (uint16_t)(delay - 1);
                     st->phase = DT_DELAY;

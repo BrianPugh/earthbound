@@ -1456,6 +1456,41 @@ void render_frame_tick_work(void) {
     update_screen();
 }
 
+/* ---- RENDER_FRAME_TICK_WORK, park-propagating split (savestate D4b) ----
+ *
+ * Same work as render_frame_tick_work() but the actionscript frame is driven via
+ * run_actionscript_frame_step() so a parked callroutine becomes a STEP_PUSH instead
+ * of a nested pump_mode. A mode-step caller does:
+ *
+ *     st->phase = <FLUSH>;
+ *     if (render_frame_tick_work_step())
+ *         return actionscript_frame_take_push();
+ *     // no park: the tick is fully complete; FLUSH already ran inline below
+ *
+ * and runs render_frame_tick_work_flush() at <FLUSH> on the child's pop. _step()
+ * returns true ONLY when an actionscript frame parked (caller must push + flush on
+ * resume); in every other case (instant/battle/no-park) the tick finishes inline
+ * and _step() returns false. */
+bool render_frame_tick_work_step(void) {
+    if (ow.render_hppp_windows & 0xFF)
+        update_text_window_palette();
+
+    if (bt.battle_mode_flag) {
+        update_battle_screen_effects();
+        return false;   /* battle path runs no actionscript frame */
+    }
+
+    oam_clear();
+    if (run_actionscript_frame_step())
+        return true;    /* parked: caller pushes ACTIONSCRIPT_FRAME, flushes on resume */
+    update_screen();    /* no park: finish inline */
+    return false;
+}
+
+void render_frame_tick_work_flush(void) {
+    update_screen();
+}
+
 /* ---- ALLOC_SPRITE_MEM (port of asm/system/alloc_sprite_mem.asm) ---- */
 void alloc_sprite_mem(uint16_t id, uint16_t param) {
     /* When id == 0x8000, clear the entire sprite VRAM table.

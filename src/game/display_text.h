@@ -258,6 +258,14 @@ void window_tick(void);
  * yield. Used by mode-stack step functions during the savestate migration. */
 void window_tick_work(void);
 
+/* Park-propagating split of window_tick_work() (savestate D4b): a parked
+ * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.
+ * _step() returns true iff a frame parked — the caller must push
+ * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at
+ * its resume phase; on no park the tick finishes inline and _step() returns false. */
+bool window_tick_work_step(void);
+void window_tick_work_flush(void);
+
 /* WINDOW_TICK_WITHOUT_INSTANT_PRINTING: Port of
  * asm/text/window_tick_without_instant_printing.asm.
  * Temporarily clears instant_printing, calls window_tick, re-enables it. */
