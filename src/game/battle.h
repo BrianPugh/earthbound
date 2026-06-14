@@ -639,10 +639,9 @@ void battle_decrease_defense(Battler *target);
 
 /* ---- PSI shield ---- */
 
-/* PSI_SHIELD_NULLIFY: Check if current target's PSI shield blocks/reflects the attack.
- * Sets SHIELD_HAS_NULLIFIED_DAMAGE, may swap attacker/target for reflection.
- * Returns 1 if attack was nullified, 0 if it proceeds normally. */
-uint16_t battle_psi_shield_nullify(void);
+/* PSI_SHIELD_NULLIFY is GAME_MODE_BATTLE_CALC kind BC_PSI_SHIELD_NULLIFY
+ * (mode_step_battle_calc) — the blocking battle_psi_shield_nullify() form was
+ * deleted with pump_mode; STEP_PUSH via battle_calc_make_init instead. */
 
 /* ---- KO / Revive ---- */
 
@@ -657,46 +656,13 @@ uint16_t battle_psi_shield_nullify(void);
 /* GET_BATTLE_ACTION_TYPE: Look up the action type (physical/PSI/etc.) for a given action ID. */
 uint16_t battle_get_action_type(uint16_t action_id);
 
-/* CALC_DAMAGE: Apply damage to a target, display damage text, handle Giygas
- * redirect, guts save, screen shake, and KO trigger.
- * Returns 1 always (signals damage was attempted). */
-uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage);
-
-/* CALC_RESIST_DAMAGE: Apply damage with guard/shield modifiers, handle KO,
- * shield reflection, and sleep wake chance.
- * damage: raw damage amount, resist_modifier: 0-255 resistance factor.
- * Returns final damage dealt. */
-uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier);
-
-/* MISS_CALC: Check if an attack misses based on miss rate.
- * miss_message_type: 0 for physical miss text, 1 for gun miss text.
- * Returns 1 if attack missed, 0 if it hits. */
-uint16_t battle_miss_calc(uint16_t miss_message_type);
-
-/* SMAAAASH: Check for critical hit (SMAAAASH attack).
- * Uses attacker's guts stat vs SUCCESS_500.
- * On success, deals 4x offense damage and weakens shields.
- * Returns 1 if SMAAAASH occurred, 0 otherwise. */
-uint16_t battle_smaaaash(void);
-
-/* ---- Attack damage calculations ---- */
-
-/* BTLACT_LEVEL_1_ATK: Standard physical attack.
- * damage = attacker.offense - target.defense, with 25% variance.
- * Includes miss/smaaaash/dodge checks and heals strangeness. */
-void battle_level_1_attack(void);
-
-/* BTLACT_LEVEL_2_ATK: Doubled physical attack.
- * damage = (attacker.offense * 2) - target.defense, with 25% variance. */
-void battle_level_2_attack(void);
-
-/* ---- Status helpers ---- */
-
-/* HEAL_STRANGENESS: Remove STRANGENESS status from current target if present. */
-void battle_heal_strangeness(void);
-
-/* WEAKEN_SHIELD: After PSI reflection, decrement shield HP and remove if depleted. */
-void battle_weaken_shield(void);
+/* The damage/miss/smaaaash/level-attack/heal-strangeness/weaken-shield blocking
+ * forms (battle_calc_damage / battle_calc_resist_damage / battle_miss_calc /
+ * battle_smaaaash / battle_level_[1-4]_attack / battle_heal_strangeness /
+ * battle_weaken_shield) were deleted with pump_mode at cutover — they are now
+ * GAME_MODE_BATTLE_CALC kinds (BC_CALC_DAMAGE / BC_RESIST_DAMAGE / BC_MISS_CALC /
+ * BC_SMAAAASH / BC_HEAL_STRANGENESS / BC_WEAKEN_SHIELD) and the btlact_level_N_attack
+ * steppers, STEP_PUSHed via battle_calc_make_init. */
 
 /* SHIELDS_COMMON: Apply or refresh a shield on a battler.
  * shield_type: STATUS_6_SHIELD, STATUS_6_SHIELD_POWER, etc.
@@ -798,10 +764,8 @@ uint16_t battle_success_luck40(void);
  * Returns 1 if rand(80) >= target.luck, 0 otherwise. */
 uint16_t battle_success_luck80(void);
 
-/* ---- NPC attack check ---- */
-
-/* FAIL_ATTACK_ON_NPCS: Returns 1 if current target is an NPC (attack fails). */
-uint16_t battle_fail_attack_on_npcs(void);
+/* FAIL_ATTACK_ON_NPCS is GAME_MODE_BATTLE_CALC kind BC_FAIL_ON_NPCS — the
+ * blocking battle_fail_attack_on_npcs() form was deleted with pump_mode. */
 
 /* ---- Status HP loss ---- */
 
@@ -845,66 +809,12 @@ void enemy_flashing_off(void);
 
 /* ---- Battle action handlers ---- */
 
-/* Individual battle actions (called via action dispatch table) */
-void btlact_bash(void);
-void btlact_shoot(void);
-void btlact_spy(void);
-void btlact_level_1_attack(void);
-void btlact_healing_alpha(void);
-void btlact_healing_beta(void);
-void btlact_healing_gamma(void);
-void btlact_healing_omega(void);
-void btlact_shield_alpha(void);
-void btlact_shield_beta(void);
-void btlact_psi_shield_alpha(void);
-void btlact_psi_shield_beta(void);
-
-/* HP/PP recovery actions (from asm/battle/actions/) */
-void btlact_hp_recovery_10(void);
-void btlact_hp_recovery_50(void);
-void btlact_hp_recovery_100(void);
-void btlact_hp_recovery_200(void);
-void btlact_hp_recovery_300(void);
-void btlact_hp_recovery_1d4(void);
-void btlact_hp_recovery_10000(void);
-void btlact_pp_recovery_20(void);
-void btlact_pp_recovery_80(void);
-
-/* Simple wrapper actions */
-void btlact_double_bash(void);
-
-/* Status effect actions */
-void btlact_poison(void);
-void btlact_nauseate(void);
-void btlact_feel_strange(void);
-void btlact_immobilize(void);
-void btlact_crying(void);
-void btlact_crying2(void);
-void btlact_solidify(void);
-void btlact_solidify_2(void);
-void btlact_mushroomize(void);
-void btlact_paralysis_alpha(void);
-void btlact_hypnosis_alpha(void);
-void btlact_brainshock_alpha(void);
-
 /* PSI Flash sub-effects (called from PSI Flash handler, not via action dispatch) */
 void flash_inflict_crying(void);
 void flash_inflict_paralysis(void);
 void flash_inflict_feeling_strange(void);
 
-/* Stat modification actions */
-void btlact_offense_up_alpha(void);
-void btlact_defense_down_alpha(void);
-void btlact_speed_up_1d4(void);
-void btlact_guts_up_1d4(void);
-void btlact_reduce_offense(void);
-void btlact_reduce_offense_defense(void);
-void btlact_sudden_guts_pill(void);
-void btlact_defense_spray(void);
-void btlact_defense_shower(void);
-void btlact_cut_guts(void);
-
-/* Null/empty actions */
+/* Null/empty actions (pure, stepper-less: their blocking form is the .func column) */
 void btlact_null(void);
 void btlact_enemy_extend(void);
 void btlact_null2(void);
@@ -919,76 +829,13 @@ void btlact_null10(void);
 void btlact_null11(void);
 void btlact_null12(void);
 
-/* Redirect copies */
-void redirect_btlact_brainshock_a_copy(void);
-void redirect_btlact_hypnosis_a_copy(void);
+/* The btlact_* blocking wrapper column + redirect copies + battle_level_N_attack
+ * blocking forms were deleted with pump_mode at cutover; converted actions
+ * dispatch via their btlact_*_step steppers (GAME_MODE_BATTLE_ACTION). Only the
+ * pure, stepper-less actions (the btlact_null* / btlact_steal / btlact_enemy_extend
+ * above) keep a blocking form. */
 
-/* Physical attack levels */
-void battle_level_3_attack(void);
-void battle_level_4_attack(void);
-void btlact_level_2_attack_poison(void);
-void btlact_level_2_attack_diamondize(void);
-
-/* PSI wrappers */
-void btlact_psi_fire_alpha(void);
-void btlact_psi_fire_beta(void);
-void btlact_psi_fire_gamma(void);
-void btlact_psi_fire_omega(void);
-void btlact_psi_freeze_alpha(void);
-void btlact_psi_freeze_beta(void);
-void btlact_psi_freeze_gamma(void);
-void btlact_psi_freeze_omega(void);
-void btlact_psi_rockin_alpha(void);
-void btlact_psi_rockin_beta(void);
-void btlact_psi_rockin_gamma(void);
-void btlact_psi_rockin_omega(void);
-void btlact_psi_starstorm_alpha(void);
-void btlact_psi_starstorm_omega(void);
-void btlact_psi_thunder_alpha(void);
-void btlact_psi_thunder_beta(void);
-void btlact_psi_thunder_gamma(void);
-void btlact_psi_thunder_omega(void);
-
-/* Lifeup */
-void btlact_lifeup_alpha(void);
-void btlact_lifeup_beta(void);
-void btlact_lifeup_gamma(void);
-void btlact_lifeup_omega(void);
-
-/* Bottle rockets */
-void btlact_bottle_rocket(void);
-void btlact_big_bottle_rocket(void);
-void btlact_multi_bottle_rocket(void);
-
-/* Item damage (spray/bomb) */
-void btlact_insecticide_spray(void);
-void btlact_xterminator_spray(void);
-void btlact_rust_promoter(void);
-void btlact_rust_promoter_dx(void);
-void btlact_bomb(void);
-void btlact_super_bomb(void);
-void btlact_350_fire_damage(void);
-void btlact_bag_of_dragonite(void);
-
-/* Item/misc actions */
-void btlact_yogurt_dispenser(void);
-void btlact_snake(void);
-/* Status effect actions (additional) */
-void btlact_cold(void);
-void btlact_inflict_poison(void);
-void btlact_paralyze(void);
-void btlact_inflict_solidification(void);
-void btlact_counter_psi(void);
-void btlact_distract(void);
-void btlact_neutralize(void);
-void apply_neutralize_to_all(void);
 void btlact_heal_poison(void);
-void btlact_shield_killer(void);
-
-/* Enemy actions */
-void btlact_call_for_help(void);
-void btlact_sow_seeds(void);
-void btlact_hungry_hp_sucker(void);
 
 /* Stealable item system */
 uint16_t find_stealable_items(void);
@@ -1001,47 +848,10 @@ void battle_copy_mirror_data(Battler *dest, const Battler *source);
 /* btlact_rainbow_of_colours is static */
 /* btlact_teleport_box is static */
 
-/* Freeze time (multi-hit bash) */
-void btlact_freezetime(void);
-
 /* Battle sprite screen clamping */
 void clamp_enemies_to_screen_width(void);
 
-/* Redirects (enemy reuse of player PSI) */
-void redirect_btlact_brainshock_alpha(void);
-void redirect_btlact_hypnosis_alpha(void);
-void redirect_btlact_paralysis_alpha(void);
-void redirect_btlact_offense_up_alpha(void);
-void redirect_btlact_defense_down_alpha(void);
-void redirect_btlact_shield_alpha(void);
-void redirect_btlact_shield_beta(void);
-void redirect_btlact_psi_shield_alpha(void);
-void redirect_btlact_psi_shield_beta(void);
-/* Additional status/combat actions */
-void btlact_diamondize(void);
-void btlact_possess(void);
 void btlact_steal(void);
-void btlact_reduce_pp(void);
-void btlact_magnet_a(void);
-void btlact_magnet_o(void);
-void btlact_random_stat_up_1d4(void);
-
-/* Physical+status combo attacks */
-void btlact_handbag_strap(void);
-void btlact_mummy_wrap(void);
-
-/* Special item actions */
-void btlact_fly_honey(void);
-
-/* PSI Flash */
-uint16_t flash_immunity_test(void);
-void btlact_psi_flash_alpha(void);
-void btlact_psi_flash_beta(void);
-void btlact_psi_flash_gamma(void);
-void btlact_psi_flash_omega(void);
-
-/* Special enemy death handlers */
-void btlact_clumsydeath(void);
 
 /* Character stat recalculation */
 void recalc_character_miss_rate(uint16_t character_id);

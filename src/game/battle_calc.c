@@ -37,8 +37,12 @@
  * (the death driver — death text, palette flashes, the final-attack path —
  * is its own mode; see mode_step_battle_ko, battle.c).
  *
- * The blocking battle_*() forms are pump_mode bridges over the same
- * steppers, so the unconverted battle_actions.c callers work unchanged.
+ * The blocking battle_*() forms (battle_miss_calc / battle_smaaaash /
+ * battle_calc_damage / battle_calc_resist_damage / battle_psi_shield_nullify /
+ * battle_weaken_shield / battle_heal_strangeness / battle_fail_attack_on_npcs)
+ * were pump_mode bridges over these steppers; they (and battle_calc_pump) were
+ * deleted with pump_mode at cutover. Callers STEP_PUSH GAME_MODE_BATTLE_CALC
+ * via battle_calc_make_init instead.
  * ====================================================================== */
 
 void battle_calc_make_init(ModeState *init, uint8_t kind,
@@ -47,13 +51,6 @@ void battle_calc_make_init(ModeState *init, uint8_t kind,
     init->battle_calc.kind = kind;
     init->battle_calc.arg0 = arg0;
     init->battle_calc.arg1 = arg1;
-}
-
-/* Blocking bridge: run one calc kind to completion, return its pop value. */
-static uint16_t battle_calc_pump(uint8_t kind, uint16_t arg0, uint16_t arg1) {
-    ModeState init;
-    battle_calc_make_init(&init, kind, arg0, arg1);
-    return (uint16_t)pump_mode(GAME_MODE_BATTLE_CALC, &init);
 }
 
 /* ======================================================================
@@ -450,11 +447,6 @@ static StepResult bc_psi_shield_nullify_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_psi_shield_nullify(void) {
-    return battle_calc_pump(BC_PSI_SHIELD_NULLIFY, 0, 0);
-}
-
-
 /* ======================================================================
  * Action type lookup
  * ====================================================================== */
@@ -688,9 +680,6 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage) {
-    return battle_calc_pump(BC_CALC_DAMAGE, target_offset, damage);
-}
 
 
 /* ======================================================================
@@ -912,9 +901,6 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier) {
-    return battle_calc_pump(BC_RESIST_DAMAGE, damage, resist_modifier);
-}
 
 
 /* ======================================================================
@@ -1018,9 +1004,6 @@ static StepResult bc_miss_calc_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_miss_calc(uint16_t miss_message_type) {
-    return battle_calc_pump(BC_MISS_CALC, miss_message_type, 0);
-}
 
 
 /* ======================================================================
@@ -1106,9 +1089,6 @@ static StepResult bc_smaaaash_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_smaaaash(void) {
-    return battle_calc_pump(BC_SMAAAASH, 0, 0);
-}
 
 
 /* ======================================================================
@@ -1145,9 +1125,6 @@ static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
     }
 }
 
-void battle_heal_strangeness(void) {
-    battle_calc_pump(BC_HEAL_STRANGENESS, 0, 0);
-}
 
 
 /* ======================================================================
@@ -1199,9 +1176,6 @@ static StepResult bc_weaken_shield_step(BattleCalcState *st) {
     }
 }
 
-void battle_weaken_shield(void) {
-    battle_calc_pump(BC_WEAKEN_SHIELD, 0, 0);
-}
 
 
 /* ======================================================================
@@ -1255,28 +1229,6 @@ uint16_t battle_shields_common(Battler *target, uint16_t shield_type) {
  * Standard physical attack: damage = offense - defense.
  * Applies 25% variance, floor of 1, then CALC_RESIST_DAMAGE.
  */
-void battle_level_1_attack(void) {
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    int16_t raw_damage = (int16_t)atk->offense - (int16_t)tgt->defense;
-
-    /* Only apply variance if damage > 1 (assembly: CLC; SBC #0; BRANCHLTEQS skips when <= 1)
-     * BRANCHLTEQS @APPLY_VARIANCE fires when (raw_damage - 1) <= 0, i.e., raw_damage <= 1.
-     * So variance is applied only when raw_damage > 1 (raw_damage >= 2). */
-    uint16_t damage;
-    if (raw_damage > 1) {
-        damage = battle_25pct_variance((uint16_t)raw_damage);
-    } else {
-        damage = (uint16_t)raw_damage;
-    }
-
-    /* Floor damage to 1 (assembly checks CLC; SBC #0; BRANCHGTS → if <= 0, set to 1) */
-    if ((int16_t)damage <= 0)
-        damage = 1;
-
-    battle_calc_resist_damage(damage, 0xFF);
-}
 
 
 /*
@@ -1285,25 +1237,6 @@ void battle_level_1_attack(void) {
  * Doubled physical attack: damage = offense*2 - defense.
  * Applies 25% variance, floor of 1, then CALC_RESIST_DAMAGE.
  */
-void battle_level_2_attack(void) {
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    int16_t raw_damage = (int16_t)(atk->offense * 2) - (int16_t)tgt->defense;
-
-    /* Only apply variance when raw_damage > 1 (assembly: BRANCHLTEQS skips when <= 1) */
-    uint16_t damage;
-    if (raw_damage > 1) {
-        damage = battle_25pct_variance((uint16_t)raw_damage);
-    } else {
-        damage = (uint16_t)raw_damage;
-    }
-
-    if ((int16_t)damage <= 0)
-        damage = 1;
-
-    battle_calc_resist_damage(damage, 0xFF);
-}
 
 
 /*
@@ -1361,9 +1294,6 @@ static StepResult bc_fail_on_npcs_step(BattleCalcState *st) {
     }
 }
 
-uint16_t battle_fail_attack_on_npcs(void) {
-    return battle_calc_pump(BC_FAIL_ON_NPCS, 0, 0);
-}
 
 
 /*
@@ -1410,34 +1340,6 @@ uint16_t battle_get_shield_targeting(uint16_t action) {
  * Triple physical attack: damage = offense*3 - defense, 25% variance.
  * Miss → SMAAAASH → dodge → damage → heal strangeness.
  */
-void battle_level_3_attack(void) {
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
-        return;
-    }
-
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    int16_t raw_damage = (int16_t)(atk->offense * 3) - (int16_t)tgt->defense;
-
-    uint16_t damage;
-    if (raw_damage > 0) {
-        damage = battle_25pct_variance((uint16_t)raw_damage);
-    } else {
-        damage = (uint16_t)raw_damage;
-    }
-
-    if ((int16_t)damage <= 0)
-        damage = 1;
-
-    battle_calc_resist_damage(damage, 0xFF);
-    battle_heal_strangeness();
-}
 
 
 /*
@@ -1445,34 +1347,6 @@ void battle_level_3_attack(void) {
  *
  * Quadruple physical attack: damage = offense*4 - defense, 25% variance.
  */
-void battle_level_4_attack(void) {
-    if (battle_miss_calc(0))
-        return;
-    if (battle_smaaaash())
-        return;
-    if (battle_determine_dodge()) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DODGE_ATTACK);
-        return;
-    }
-
-    Battler *atk = battler_from_offset(bt.current_attacker);
-    Battler *tgt = battler_from_offset(bt.current_target);
-
-    int16_t raw_damage = (int16_t)(atk->offense * 4) - (int16_t)tgt->defense;
-
-    uint16_t damage;
-    if (raw_damage > 0) {
-        damage = battle_25pct_variance((uint16_t)raw_damage);
-    } else {
-        damage = (uint16_t)raw_damage;
-    }
-
-    if ((int16_t)damage <= 0)
-        damage = 1;
-
-    battle_calc_resist_damage(damage, 0xFF);
-    battle_heal_strangeness();
-}
 
 
 /* ======================================================================

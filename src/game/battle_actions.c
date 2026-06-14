@@ -34,11 +34,6 @@
 
 #include "game_main.h"
 
-/* Blocking bridge for converted actions (defined with the dispatch table at
- * the bottom of this file): looks up the action's resumable stepper by its
- * ROM address and pumps it to completion. */
-static void btlact_pump_addr(uint32_t rom_addr);
-
 /* Dispatch-table binary search (defined with the table at the bottom);
  * used by steppers that push another action as a BATTLE_ACTION child
  * (e.g. double_bash → bash). */
@@ -63,9 +58,11 @@ static bool push_plain_text(ModeState *child, uint32_t addr) {
  * btlact_*_step() pc-machines: texts are DISPLAY_TEXT pushes via
  * battle_push_text / battle_push_text_ex (battle.c), and every resume pc
  * starts with the dt.blinking_triangle_flag clear (the blocking
- * display_in_battle_text epilogue). The blocking btlact_*() form remains as
- * a btlact_pump_addr() bridge for direct action→action C calls; table
- * dispatch prefers the stepper (see jump_temp_function_pointer).
+ * display_in_battle_text epilogue). Action→action dispatch goes through
+ * battle_action_dispatch (a STEP_PUSH of the child's stepper); the former
+ * blocking btlact_*() wrapper column + btlact_pump bridge were deleted with
+ * pump_mode at cutover, so the dispatch table's .func column is now used only
+ * for the pure, stepper-less actions (see jump_temp_function_pointer).
  * ====================================================================== */
 
 /* The level-N physical damage formula shared by the attack steppers:
@@ -169,7 +166,6 @@ static StepResult btlact_bash_step(BattleActionState *st) {
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
-void btlact_bash(void) { btlact_pump_addr(0xC2859F); }
 
 /*
  * BTLACT_SHOOT (asm/battle/actions/shoot.asm)
@@ -182,7 +178,6 @@ static StepResult btlact_shoot_step(BattleActionState *st) {
                                    MSG_BTL4_RESULT_DODGE_QUICK, false);
 }
 
-void btlact_shoot(void) { btlact_pump_addr(0xC28740); }
 
 /*
  * BTLACT_SPY (asm/battle/actions/spy.asm)
@@ -278,7 +273,6 @@ static StepResult btlact_spy_step(BattleActionState *st) {
     }
 }
 
-void btlact_spy(void) { btlact_pump_addr(0xC28770); }
 
 /*
  * BTLACT_LEVEL_1_ATTACK (wrapper — asm/battle/actions/level_1_attack.asm)
@@ -291,7 +285,6 @@ static StepResult btlact_level_1_attack_step(BattleActionState *st) {
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
-void btlact_level_1_attack(void) { btlact_pump_addr(0xC286CB); }
 
 /*
  * BTLACT_LEVEL_3_ATK / BTLACT_LEVEL_4_ATK steppers (the blocking forms are
@@ -550,10 +543,6 @@ static StepResult btlact_healing_omega_step(BattleActionState *st) {
     }
 }
 
-void btlact_healing_alpha(void) { btlact_pump_addr(0xC29AEA); }
-void btlact_healing_beta(void)  { btlact_pump_addr(0xC29B7A); }
-void btlact_healing_gamma(void) { btlact_pump_addr(0xC29C2C); }
-void btlact_healing_omega(void) { btlact_pump_addr(0xC29CB8); }
 
 /* ----------------------------------------------------------------------
  * The Shield PSI family (asm/battle/actions/shield_alpha.asm,
@@ -598,10 +587,6 @@ static StepResult btlact_psi_shield_beta_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_shield_alpha(void)     { btlact_pump_addr(0xC29D44); }
-void btlact_shield_beta(void)      { btlact_pump_addr(0xC29D81); }
-void btlact_psi_shield_alpha(void) { btlact_pump_addr(0xC29DBE); }
-void btlact_psi_shield_beta(void)  { btlact_pump_addr(0xC29DFB); }
 
 /* ======================================================================
  * HP/PP recovery battle actions
@@ -678,15 +663,6 @@ static StepResult btlact_pp_recovery_80_step(BattleActionState *st) {
                                (st->pc == 0) ? battle_25pct_variance(80) : 0);
 }
 
-void btlact_hp_recovery_10(void)    { btlact_pump_addr(0xC2A360); }
-void btlact_hp_recovery_50(void)    { btlact_pump_addr(0xC2A0BF); }
-void btlact_hp_recovery_100(void)   { btlact_pump_addr(0xC2A370); }
-void btlact_hp_recovery_200(void)   { btlact_pump_addr(0xC2A0CF); }
-void btlact_hp_recovery_300(void)   { btlact_pump_addr(0xC2A26F); }
-void btlact_hp_recovery_1d4(void)   { btlact_pump_addr(0xC2A0AE); }
-void btlact_hp_recovery_10000(void) { btlact_pump_addr(0xC2A380); }
-void btlact_pp_recovery_20(void)    { btlact_pump_addr(0xC2A0DF); }
-void btlact_pp_recovery_80(void)    { btlact_pump_addr(0xC2A0EF); }
 
 /* ======================================================================
  * Simple wrapper actions
@@ -709,7 +685,6 @@ static StepResult btlact_double_bash_step(BattleActionState *st) {
     return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
 }
 
-void btlact_double_bash(void) { btlact_pump_addr(0xC28FF9); }
 
 /*
  * BTLACT_FREEZETIME (asm/battle/actions/freeze_time.asm)
@@ -793,7 +768,6 @@ static StepResult btlact_freezetime_step(BattleActionState *st) {
     }
 }
 
-void btlact_freezetime(void) { btlact_pump_addr(0xC288EB); }
 
 /* ======================================================================
  * Status effect actions
@@ -894,10 +868,6 @@ static StepResult btlact_immobilize_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_poison(void)       { btlact_pump_addr(0xC28B2C); }
-void btlact_nauseate(void)     { btlact_pump_addr(0xC28AEB); }
-void btlact_feel_strange(void) { btlact_pump_addr(0xC28DBB); }
-void btlact_immobilize(void)   { btlact_pump_addr(0xC28CB8); }
 
 /* ======================================================================
  * Null / empty actions
@@ -1027,8 +997,6 @@ static StepResult btlact_level_2_attack_diamondize_step(BattleActionState *st) {
     return btlact_l2_status_attack_step(st, true);
 }
 
-void btlact_level_2_attack_poison(void)     { btlact_pump_addr(0xC28F97); }
-void btlact_level_2_attack_diamondize(void) { btlact_pump_addr(0xC2916E); }
 
 /* ======================================================================
  * PSI common functions
@@ -1411,10 +1379,6 @@ static StepResult btlact_psi_fire_omega_step(BattleActionState *st) {
     return btlact_psi_fire_step_common(st, FIRE_OMEGA_DAMAGE, true);
 }
 
-void btlact_psi_fire_alpha(void) { btlact_pump_addr(0xC295AB); }
-void btlact_psi_fire_beta(void)  { btlact_pump_addr(0xC295B4); }
-void btlact_psi_fire_gamma(void) { btlact_pump_addr(0xC295BD); }
-void btlact_psi_fire_omega(void) { btlact_pump_addr(0xC295C6); }
 
 static StepResult btlact_psi_freeze_alpha_step(BattleActionState *st) {
     return btlact_psi_freeze_step_common(st, FREEZE_ALPHA_DAMAGE);
@@ -1429,10 +1393,6 @@ static StepResult btlact_psi_freeze_omega_step(BattleActionState *st) {
     return btlact_psi_freeze_step_common(st, FREEZE_OMEGA_DAMAGE);
 }
 
-void btlact_psi_freeze_alpha(void) { btlact_pump_addr(0xC29647); }
-void btlact_psi_freeze_beta(void)  { btlact_pump_addr(0xC29650); }
-void btlact_psi_freeze_gamma(void) { btlact_pump_addr(0xC29659); }
-void btlact_psi_freeze_omega(void) { btlact_pump_addr(0xC29662); }
 
 static StepResult btlact_psi_rockin_alpha_step(BattleActionState *st) {
     return btlact_psi_rockin_step_common(st, ROCKIN_ALPHA_DAMAGE);
@@ -1447,10 +1407,6 @@ static StepResult btlact_psi_rockin_omega_step(BattleActionState *st) {
     return btlact_psi_rockin_step_common(st, ROCKIN_OMEGA_DAMAGE);
 }
 
-void btlact_psi_rockin_alpha(void) { btlact_pump_addr(0xC29556); }
-void btlact_psi_rockin_beta(void)  { btlact_pump_addr(0xC2955F); }
-void btlact_psi_rockin_gamma(void) { btlact_pump_addr(0xC29568); }
-void btlact_psi_rockin_omega(void) { btlact_pump_addr(0xC29571); }
 
 static StepResult btlact_psi_starstorm_alpha_step(BattleActionState *st) {
     return btlact_psi_fire_step_common(st, STARSTORM_ALPHA_DAMAGE, false);
@@ -1459,13 +1415,7 @@ static StepResult btlact_psi_starstorm_omega_step(BattleActionState *st) {
     return btlact_psi_fire_step_common(st, STARSTORM_OMEGA_DAMAGE, false);
 }
 
-void btlact_psi_starstorm_alpha(void) { btlact_pump_addr(0xC29AA6); }
-void btlact_psi_starstorm_omega(void) { btlact_pump_addr(0xC29AAF); }
 
-void btlact_psi_thunder_alpha(void) { btlact_pump_addr(0xC29871); }
-void btlact_psi_thunder_beta(void)  { btlact_pump_addr(0xC2987D); }
-void btlact_psi_thunder_gamma(void) { btlact_pump_addr(0xC29889); }
-void btlact_psi_thunder_omega(void) { btlact_pump_addr(0xC29895); }
 
 /* ======================================================================
  * Lifeup
@@ -1501,10 +1451,6 @@ static StepResult btlact_lifeup_omega_step(BattleActionState *st) {
     return btlact_lifeup_step_common(st, LIFEUP_OMEGA_HEALING);
 }
 
-void btlact_lifeup_alpha(void) { btlact_pump_addr(0xC29AC6); }
-void btlact_lifeup_beta(void)  { btlact_pump_addr(0xC29ACF); }
-void btlact_lifeup_gamma(void) { btlact_pump_addr(0xC29AD8); }
-void btlact_lifeup_omega(void) { btlact_pump_addr(0xC29AE1); }
 
 /* ======================================================================
  * Bottle rockets
@@ -1559,9 +1505,6 @@ static StepResult btlact_multi_bottle_rocket_step(BattleActionState *st) {
     return btlact_bottle_rocket_step_common(st, MULTI_BOTTLE_ROCKET_COUNT);
 }
 
-void btlact_bottle_rocket(void)       { btlact_pump_addr(0xC2A5D1); }
-void btlact_big_bottle_rocket(void)   { btlact_pump_addr(0xC2A5DA); }
-void btlact_multi_bottle_rocket(void) { btlact_pump_addr(0xC2A5E3); }
 
 /* ======================================================================
  * Item spray/bomb common functions
@@ -1625,10 +1568,6 @@ static StepResult btlact_rust_promoter_dx_step(BattleActionState *st) {
     return btlact_spray_step_common(st, 2, 400);
 }
 
-void btlact_insecticide_spray(void) { btlact_pump_addr(0xC2AA0C); }
-void btlact_xterminator_spray(void) { btlact_pump_addr(0xC2AA15); }
-void btlact_rust_promoter(void)     { btlact_pump_addr(0xC2AA6D); }
-void btlact_rust_promoter_dx(void)  { btlact_pump_addr(0xC2AA76); }
 
 /*
  * BOMB_COMMON (asm/battle/actions/bomb_common.asm)
@@ -1762,8 +1701,6 @@ static StepResult btlact_super_bomb_step(BattleActionState *st) {
     return btlact_bomb_step_common(st, 270);
 }
 
-void btlact_bomb(void)       { btlact_pump_addr(0xC2A818); }
-void btlact_super_bomb(void) { btlact_pump_addr(0xC2A821); }
 
 /*
  * BTLACT_TELEPORT_BOX (asm/battle/actions/teleport_box.asm)
@@ -1847,7 +1784,6 @@ static StepResult btlact_teleport_box_step(BattleActionState *st) {
     }
 }
 
-void btlact_teleport_box(void) { btlact_pump_addr(0xC2AB71); }
 
 /*
  * CALL_FOR_HELP_COMMON (asm/battle/call_for_help_common.asm)
@@ -2064,8 +2000,6 @@ static StepResult btlact_sow_seeds_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? call_for_help_decide(1) : 0);
 }
 
-void btlact_call_for_help(void) { btlact_pump_addr(0xC2C145); }
-void btlact_sow_seeds(void)    { btlact_pump_addr(0xC2C13C); }
 
 /*
  * BTLACT_HP_SUCKER (asm/battle/actions/hp_sucker.asm)
@@ -2143,8 +2077,6 @@ static StepResult btlact_hp_sucker_step(BattleActionState *st) {
     }
 }
 
-void btlact_hp_sucker(void)        { btlact_pump_addr(0xC2A46B); }
-void btlact_hungry_hp_sucker(void) { btlact_pump_addr(0xC2A507); }
 
 
 /*
@@ -2192,7 +2124,6 @@ static StepResult btlact_mirror_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? mirror_decide() : 0);
 }
 
-void btlact_mirror(void) { btlact_pump_addr(0xC2B0A1); }
 
 /*
  * BTLACT_RAINBOW_OF_COLOURS (asm/battle/actions/rainbow_of_colours.asm)
@@ -2551,7 +2482,6 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
     }
 }
 
-void btlact_eat_food(void) { btlact_pump_addr(0xC2B27D); }
 
 
 /* ======================================================================
@@ -2581,7 +2511,6 @@ static StepResult btlact_350_fire_damage_step(BattleActionState *st) {
     }
 }
 
-void btlact_350_fire_damage(void) { btlact_pump_addr(0xC2900B); }
 
 /*
  * BTLACT_BAG_OF_DRAGONITE (asm/battle/actions/bag_of_dragonite.asm)
@@ -2602,7 +2531,6 @@ static StepResult btlact_bag_of_dragonite_step(BattleActionState *st) {
     return STEP_RESULT_POP(0);
 }
 
-void btlact_bag_of_dragonite(void) { btlact_pump_addr(0xC2A99C); }
 
 /*
  * BTLACT_YOGURT_DISPENSER (asm/battle/actions/yogurt_dispenser.asm)
@@ -2633,7 +2561,6 @@ static StepResult btlact_yogurt_dispenser_step(BattleActionState *st) {
     }
 }
 
-void btlact_yogurt_dispenser(void) { btlact_pump_addr(0xC2A86B); }
 
 /*
  * BTLACT_SNAKE (asm/battle/actions/snake.asm)
@@ -2686,7 +2613,6 @@ static StepResult btlact_snake_step(BattleActionState *st) {
     }
 }
 
-void btlact_snake(void) { btlact_pump_addr(0xC2A89D); }
 
 /* ======================================================================
  * Additional status effect actions
@@ -2706,7 +2632,6 @@ static StepResult btlact_cold_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_cold(void) { btlact_pump_addr(0xC28B6D); }
 
 /*
  * BTLACT_INFLICT_POISON (asm/battle/actions/inflict_poison.asm)
@@ -2721,7 +2646,6 @@ static StepResult btlact_inflict_poison_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_inflict_poison(void) { btlact_pump_addr(0xC2A953); }
 
 /*
  * BTLACT_PARALYZE (asm/battle/actions/paralyze.asm)
@@ -2745,7 +2669,6 @@ static StepResult btlact_paralyze_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? paralyze_decide() : 0);
 }
 
-void btlact_paralyze(void) { btlact_pump_addr(0xC28A92); }
 
 /*
  * BTLACT_INFLICT_SOLIDIFICATION (asm/battle/actions/inflict_solidification.asm)
@@ -2768,7 +2691,6 @@ static StepResult btlact_inflict_solidification_step(BattleActionState *st) {
         st, st->pc == 0 ? inflict_solidification_decide() : 0);
 }
 
-void btlact_inflict_solidification(void) { btlact_pump_addr(0xC2A902); }
 
 /*
  * BTLACT_COUNTER_PSI (asm/battle/actions/counter_psi.asm)
@@ -2792,7 +2714,6 @@ static StepResult btlact_counter_psi_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? counter_psi_decide() : 0);
 }
 
-void btlact_counter_psi(void) { btlact_pump_addr(0xC2A3D1); }
 
 /*
  * BTLACT_DISTRACT (asm/battle/actions/distract.asm)
@@ -2819,7 +2740,6 @@ static StepResult btlact_distract_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? distract_decide() : 0);
 }
 
-void btlact_distract(void) { btlact_pump_addr(0xC28D5A); }
 
 /*
  * BTLACT_NEUTRALIZE (asm/battle/actions/neutralize.asm)
@@ -2842,7 +2762,6 @@ static StepResult btlact_neutralize_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? neutralize_decide() : 0);
 }
 
-void btlact_neutralize(void) { btlact_pump_addr(0xC29051); }
 
 
 /*
@@ -2862,7 +2781,6 @@ static StepResult btlact_heal_poison_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? heal_poison_decide() : 0);
 }
 
-void btlact_heal_poison(void) { btlact_pump_addr(0xC2A39D); }
 
 /*
  * BTLACT_SHIELD_KILLER (asm/battle/actions/shield_killer.asm)
@@ -2883,24 +2801,12 @@ static StepResult btlact_shield_killer_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? shield_killer_decide() : 0);
 }
 
-void btlact_shield_killer(void) { btlact_pump_addr(0xC2A422); }
 
 /* ======================================================================
  * Redirect wrappers (enemy reuse of player PSI)
  * ====================================================================== */
 
-void redirect_btlact_brainshock_alpha(void)  { btlact_brainshock_alpha(); }
-void redirect_btlact_hypnosis_alpha(void)    { btlact_hypnosis_alpha(); }
-void redirect_btlact_paralysis_alpha(void)   { btlact_paralysis_alpha(); }
-void redirect_btlact_offense_up_alpha(void)  { btlact_offense_up_alpha(); }
-void redirect_btlact_defense_down_alpha(void) { btlact_defense_down_alpha(); }
-void redirect_btlact_shield_alpha(void)      { btlact_shield_alpha(); }
-void redirect_btlact_shield_beta(void)       { btlact_shield_beta(); }
-void redirect_btlact_psi_shield_alpha(void)  { btlact_psi_shield_alpha(); }
-void redirect_btlact_psi_shield_beta(void)   { btlact_psi_shield_beta(); }
 /* Additional redirect copies (asm/battle/actions/ copy and redirect variants) */
-void redirect_btlact_brainshock_a_copy(void)     { btlact_brainshock_alpha(); }
-void redirect_btlact_hypnosis_a_copy(void)       { btlact_hypnosis_alpha(); }
 
 /* ======================================================================
  * Diamondize
@@ -2942,7 +2848,6 @@ static StepResult btlact_diamondize_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? diamondize_decide() : 0);
 }
 
-void btlact_diamondize(void) { btlact_pump_addr(0xC289CE); }
 
 /*
  * BTLACT_POSSESS (asm/battle/actions/possess.asm)
@@ -2997,7 +2902,6 @@ static StepResult btlact_possess_step(BattleActionState *st) {
     }
 }
 
-void btlact_possess(void) { btlact_pump_addr(0xC28BFD); }
 
 
 uint16_t find_stealable_items(void) {
@@ -3147,7 +3051,6 @@ static StepResult btlact_reduce_pp_step(BattleActionState *st) {
     return btlact_statmod_step(st, reduce_pp_decide);
 }
 
-void btlact_reduce_pp(void) { btlact_pump_addr(0xC28E42); }
 
 /*
  * BTLACT_MAGNET_A (asm/battle/actions/magnet_alpha.asm)
@@ -3198,7 +3101,6 @@ static StepResult btlact_magnet_a_step(BattleActionState *st) {
     }
 }
 
-void btlact_magnet_a(void) { btlact_pump_addr(0xC29F5E); }
 
 /*
  * BTLACT_MAGNET_O (asm/battle/actions/magnet_omega.asm)
@@ -3216,7 +3118,6 @@ static StepResult btlact_magnet_o_step(BattleActionState *st) {
     return btlact_magnet_a_step(st);
 }
 
-void btlact_magnet_o(void) { btlact_pump_addr(0xC29FE1); }
 
 /* ======================================================================
  * Physical + status combo attacks
@@ -3283,7 +3184,6 @@ static StepResult btlact_handbag_strap_step(BattleActionState *st) {
     return btlact_strap_step_common(st, HANDBAG_STRAP_BASE_DAMAGE);
 }
 
-void btlact_handbag_strap(void) { btlact_pump_addr(0xC2A5EC); }
 
 /*
  * BTLACT_MUMMY_WRAP (asm/battle/actions/mummy_wrap.asm)
@@ -3294,7 +3194,6 @@ static StepResult btlact_mummy_wrap_step(BattleActionState *st) {
     return btlact_strap_step_common(st, MUMMY_WRAP_BASE_DAMAGE);
 }
 
-void btlact_mummy_wrap(void) { btlact_pump_addr(0xC2A50E); }
 
 /* ======================================================================
  * Fly Honey (Master Belch weakener)
@@ -3325,29 +3224,15 @@ static StepResult btlact_fly_honey_step(BattleActionState *st) {
     return btlact_single_text_step(st, st->pc == 0 ? fly_honey_decide() : 0);
 }
 
-void btlact_fly_honey(void) { btlact_pump_addr(0xC2C1BD); }
 
 /* ======================================================================
  * PSI Flash
  * ====================================================================== */
 
-/*
- * FLASH_IMMUNITY_TEST (asm/battle/actions/psi_flash_immunity_test.asm)
- *
- * Check if target can be affected by PSI Flash.
- * Tests PSI shield nullification first, then flash_resist.
- * Returns 1 if target is vulnerable, 0 if immune/nullified.
- */
-uint16_t flash_immunity_test(void) {
-    if (battle_psi_shield_nullify())
-        return 0;
-    Battler *target = battler_from_offset(bt.current_target);
-    if (!battle_success_255(target->flash_resist)) {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-        return 0;
-    }
-    return 1;
-}
+/* FLASH_IMMUNITY_TEST (asm/battle/actions/psi_flash_immunity_test.asm) — the
+ * standalone blocking form (PSI shield nullify + flash_resist test) was deleted
+ * with pump_mode at cutover; its logic is inlined into the PSI Flash steppers
+ * (btlact_psi_flash_*_step), which STEP_PUSH BC_PSI_SHIELD_NULLIFY. */
 
 /*
  * BTLACT_PSI_FLASH_A (asm/battle/actions/psi_flash_alpha.asm)
@@ -3443,7 +3328,6 @@ static StepResult btlact_psi_flash_alpha_step(BattleActionState *st) {
     return btlact_psi_flash_step_common(st, -1, -1, 0);
 }
 
-void btlact_psi_flash_alpha(void) { btlact_pump_addr(0xC29987); }
 
 /*
  * BTLACT_PSI_FLASH_B (asm/battle/actions/psi_flash_beta.asm)
@@ -3454,7 +3338,6 @@ static StepResult btlact_psi_flash_beta_step(BattleActionState *st) {
     return btlact_psi_flash_step_common(st, 0, 1, 2);
 }
 
-void btlact_psi_flash_beta(void) { btlact_pump_addr(0xC299AE); }
 
 /*
  * BTLACT_PSI_FLASH_G (asm/battle/actions/psi_flash_gamma.asm)
@@ -3465,7 +3348,6 @@ static StepResult btlact_psi_flash_gamma_step(BattleActionState *st) {
     return btlact_psi_flash_step_common(st, 1, 2, 3);
 }
 
-void btlact_psi_flash_gamma(void) { btlact_pump_addr(0xC299EF); }
 
 /*
  * BTLACT_PSI_FLASH_O (asm/battle/actions/psi_flash_omega.asm)
@@ -3476,7 +3358,6 @@ static StepResult btlact_psi_flash_omega_step(BattleActionState *st) {
     return btlact_psi_flash_step_common(st, 2, 3, 4);
 }
 
-void btlact_psi_flash_omega(void) { btlact_pump_addr(0xC29A35); }
 
 
 /*
@@ -3571,7 +3452,6 @@ static StepResult btlact_crying_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_crying(void) { btlact_pump_addr(0xC28C69); }
 
 /*
  * BTLACT_CRYING2 (asm/battle/actions/crying2.asm)
@@ -3588,7 +3468,6 @@ static StepResult btlact_crying2_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_crying2(void) { btlact_pump_addr(0xC28DFC); }
 
 /*
  * BTLACT_SOLIDIFY (asm/battle/actions/solidify.asm)
@@ -3603,7 +3482,6 @@ static StepResult btlact_solidify_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_solidify(void) { btlact_pump_addr(0xC28CF1); }
 
 /*
  * BTLACT_SOLIDIFY_2 (asm/battle/actions/solidify_2.asm)
@@ -3619,7 +3497,6 @@ static StepResult btlact_solidify_2_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_solidify_2(void) { btlact_pump_addr(0xC2A82A); }
 
 /*
  * BTLACT_MUSHROOMIZE (asm/battle/actions/mushroomize.asm)
@@ -3636,7 +3513,6 @@ static StepResult btlact_mushroomize_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_mushroomize(void) { btlact_pump_addr(0xC28BBE); }
 
 /*
  * BTLACT_PARALYSIS_A (asm/battle/actions/paralysis_alpha.asm)
@@ -3652,7 +3528,6 @@ static StepResult btlact_paralysis_alpha_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_paralysis_alpha(void) { btlact_pump_addr(0xC29FFE); }
 
 /*
  * BTLACT_HYPNOSIS_A (asm/battle/actions/hypnosis_alpha.asm)
@@ -3668,7 +3543,6 @@ static StepResult btlact_hypnosis_alpha_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_hypnosis_alpha(void) { btlact_pump_addr(0xC29F06); }
 
 /*
  * BTLACT_BRAINSHOCK_A (asm/battle/actions/brainshock_alpha.asm)
@@ -3684,7 +3558,6 @@ static StepResult btlact_brainshock_alpha_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_brainshock_alpha(void) { btlact_pump_addr(0xC2A056); }
 
 
 /* ======================================================================
@@ -3718,7 +3591,6 @@ static StepResult btlact_offense_up_alpha_step(BattleActionState *st) {
     return btlact_statmod_step(st, offense_up_alpha_decide);
 }
 
-void btlact_offense_up_alpha(void) { btlact_pump_addr(0xC29E38); }
 
 /*
  * BTLACT_DEFENSE_DOWN_A (asm/battle/actions/defense_down_alpha.asm)
@@ -3746,7 +3618,6 @@ static StepResult btlact_defense_down_alpha_step(BattleActionState *st) {
     return btlact_statmod_step(st, defense_down_alpha_decide);
 }
 
-void btlact_defense_down_alpha(void) { btlact_pump_addr(0xC29E86); }
 
 /*
  * BTLACT_SPEED_UP_1D4 / GUTS / VITALITY / IQ / LUCK
@@ -3806,11 +3677,6 @@ static StepResult btlact_luck_up_1d4_step(BattleActionState *st) {
     return btlact_statmod_step(st, luck_up_1d4_decide);
 }
 
-void btlact_speed_up_1d4(void)    { btlact_pump_addr(0xC2A193); }
-void btlact_guts_up_1d4(void)     { btlact_pump_addr(0xC2A14B); }
-void btlact_vitality_up_1d4(void) { btlact_pump_addr(0xC2A1DB); }
-void btlact_iq_up_1d4(void)       { btlact_pump_addr(0xC2A0FF); }
-void btlact_luck_up_1d4(void)     { btlact_pump_addr(0xC2A227); }
 
 /*
  * BTLACT_RANDOM_STAT_UP_1D4 (asm/battle/actions/random_stat_up_1d4.asm)
@@ -3847,7 +3713,6 @@ static StepResult btlact_random_stat_up_1d4_step(BattleActionState *st) {
     return btlact_statmod_step(st, random_stat_up_1d4_decide);
 }
 
-void btlact_random_stat_up_1d4(void) { btlact_pump_addr(0xC2A27F); }
 
 /*
  * BTLACT_REDUCEOFF (asm/battle/actions/reduce_offense.asm)
@@ -3868,7 +3733,6 @@ static StepResult btlact_reduce_offense_step(BattleActionState *st) {
     return btlact_statmod_step(st, reduce_offense_decide);
 }
 
-void btlact_reduce_offense(void) { btlact_pump_addr(0xC29254); }
 
 /*
  * BTLACT_REDUCEOFFDEF (asm/battle/actions/reduce_offense_defense.asm)
@@ -3924,7 +3788,6 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
     }
 }
 
-void btlact_reduce_offense_defense(void) { btlact_pump_addr(0xC28F21); }
 
 /*
  * BTLACT_SUDDEN_GUTS_PILL (asm/battle/actions/sudden_guts_pill.asm)
@@ -3947,7 +3810,6 @@ static StepResult btlact_sudden_guts_pill_step(BattleActionState *st) {
     return btlact_statmod_step(st, sudden_guts_pill_decide);
 }
 
-void btlact_sudden_guts_pill(void) { btlact_pump_addr(0xC2AA7F); }
 
 /*
  * BTLACT_DEFENSE_SPRAY (asm/battle/actions/defense_spray.asm)
@@ -3970,8 +3832,6 @@ static StepResult btlact_defense_spray_step(BattleActionState *st) {
     return btlact_statmod_step(st, defense_spray_decide);
 }
 
-void btlact_defense_spray(void)  { btlact_pump_addr(0xC2AAC6); }
-void btlact_defense_shower(void) { btlact_pump_addr(0xC2AB0D); }
 
 /*
  * BTLACT_CUTGUTS (asm/battle/actions/cut_guts.asm)
@@ -4000,7 +3860,6 @@ static StepResult btlact_cut_guts_step(BattleActionState *st) {
     return btlact_statmod_step(st, cut_guts_decide);
 }
 
-void btlact_cut_guts(void) { btlact_pump_addr(0xC28EAE); }
 
 /* ======================================================================
  * Prayer sub-actions (called from BTLACT_PRAY dispatch)
@@ -4020,7 +3879,6 @@ static StepResult btlact_pray_subtle_step(BattleActionState *st) {
     return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_pray_subtle(void) { btlact_pump_addr(0xC2AC2A); }
 
 /*
  * BTLACT_PRAY_WARM (asm/battle/actions/pray_warm.asm)
@@ -4036,7 +3894,6 @@ static StepResult btlact_pray_warm_step(BattleActionState *st) {
     return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_pray_warm(void) { btlact_pump_addr(0xC2AC3E); }
 
 /*
  * BTLACT_PRAY_MYSTERIOUS (asm/battle/actions/pray_mysterious.asm)
@@ -4055,7 +3912,6 @@ static StepResult btlact_pray_mysterious_step(BattleActionState *st) {
     return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_pray_mysterious(void) { btlact_pump_addr(0xC2AC68); }
 
 /*
  * BTLACT_PRAY_GOLDEN (asm/battle/actions/pray_golden.asm)
@@ -4074,7 +3930,6 @@ static StepResult btlact_pray_golden_step(BattleActionState *st) {
     return btlact_single_text_step_ex(st, tail.msg, tail.has_cnum, tail.cnum);
 }
 
-void btlact_pray_golden(void) { btlact_pump_addr(0xC2AC51); }
 
 /*
  * BTLACT_PRAY_AROMA (asm/battle/actions/pray_aroma.asm)
@@ -4088,7 +3943,6 @@ static StepResult btlact_pray_aroma_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_pray_aroma(void) { btlact_pump_addr(0xC2AC99); }
 
 /*
  * BTLACT_PRAY_RAINBOW (asm/battle/actions/pray_rainbow.asm)
@@ -4111,7 +3965,6 @@ static StepResult btlact_pray_rainbow_step(BattleActionState *st) {
     return STEP_RESULT_POP(0);
 }
 
-void btlact_pray_rainbow(void) { btlact_pump_addr(0xC2AC7B); }
 
 /*
  * BTLACT_PRAY_RENDING_SOUND (asm/battle/actions/pray_rending_sound.asm)
@@ -4125,7 +3978,6 @@ static StepResult btlact_pray_rending_sound_step(BattleActionState *st) {
     return btlact_single_text_step(st, msg);
 }
 
-void btlact_pray_rending_sound(void) { btlact_pump_addr(0xC2ACDA); }
 
 /*
  * BTLACT_PRAY (asm/battle/actions/pray.asm)
@@ -4259,7 +4111,6 @@ static StepResult btlact_pray_step(BattleActionState *st) {
     }
 }
 
-void btlact_pray(void) { btlact_pump_addr(0xC2AD1B); }
 
 /*
  * APPLY_NEUTRALIZE_TO_ALL (asm/battle/apply_neutralize_to_all.asm)
@@ -4312,7 +4163,6 @@ static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
     }
 }
 
-void apply_neutralize_to_all(void) { btlact_pump_addr(0xC290C6); }
 
 /* ======================================================================
  * Equipment switching in battle
@@ -4419,7 +4269,6 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
     }
 }
 
-void btlact_switch_weapons(void) { btlact_pump_addr(0xC1DE43); }
 
 /*
  * BTLACT_SWITCH_ARMOR (asm/battle/actions/switch_armor.asm)
@@ -4502,7 +4351,6 @@ static StepResult btlact_switch_armor_step(BattleActionState *st) {
     }
 }
 
-void btlact_switch_armor(void) { btlact_pump_addr(0xC1E00F); }
 
 /* ======================================================================
  * Clumsy Robot death
@@ -4557,7 +4405,6 @@ static StepResult btlact_clumsydeath_step(BattleActionState *st) {
     }
 }
 
-void btlact_clumsydeath(void) { btlact_pump_addr(0xC29298); }
 
 
 /* ======================================================================
@@ -4658,7 +4505,6 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
     }
 }
 
-void btlact_masterbarfdeath(void) { btlact_pump_addr(0xC292EE); }
 
 
 /* ======================================================================
@@ -4907,7 +4753,6 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
     }
 }
 
-void btlact_pokey_speech(void) { btlact_pump_addr(0xC2C4C0); }
 
 /* ======================================================================
  * BTLACT_POKEY_SPEECH_2 (asm/battle/actions/pokey_speech_2.asm)
@@ -4952,7 +4797,6 @@ static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
     }
 }
 
-void btlact_pokey_speech_2(void) { btlact_pump_addr(0xC2C516); }
 
 /* ======================================================================
  * BTLACT_GIYGAS_PRAYER_1 (asm/battle/actions/giygas_prayer_1.asm)
@@ -4999,7 +4843,6 @@ static StepResult btlact_giygas_prayer_1_step(BattleActionState *st) {
     }
 }
 
-void btlact_giygas_prayer_1(void) { btlact_pump_addr(0xC2C572); }
 
 /* ======================================================================
  * BTLACT_GIYGAS_PRAYER_2..6 (asm/battle/actions/giygas_prayer_2..6.asm)
@@ -5046,11 +4889,6 @@ static StepResult btlact_giygas_prayer_6_step(BattleActionState *st) {
                                        GIYGAS_PRAYER_6_USED);
 }
 
-void btlact_giygas_prayer_2(void) { btlact_pump_addr(0xC2C5D1); }
-void btlact_giygas_prayer_3(void) { btlact_pump_addr(0xC2C5FA); }
-void btlact_giygas_prayer_4(void) { btlact_pump_addr(0xC2C623); }
-void btlact_giygas_prayer_5(void) { btlact_pump_addr(0xC2C64C); }
-void btlact_giygas_prayer_6(void) { btlact_pump_addr(0xC2C675); }
 
 /* ======================================================================
  * BTLACT_GIYGAS_PRAYER_7 (asm/battle/actions/giygas_prayer_7.asm)
@@ -5081,7 +4919,6 @@ static StepResult btlact_giygas_prayer_7_step(BattleActionState *st) {
     return STEP_RESULT_POP(0);
 }
 
-void btlact_giygas_prayer_7(void) { btlact_pump_addr(0xC2C69E); }
 
 /* ======================================================================
  * BTLACT_GIYGAS_PRAYER_8 (asm/battle/actions/giygas_prayer_8.asm)
@@ -5098,7 +4935,6 @@ static StepResult btlact_giygas_prayer_8_step(BattleActionState *st) {
     return STEP_RESULT_POP(0);
 }
 
-void btlact_giygas_prayer_8(void) { btlact_pump_addr(0xC2C6D0); }
 
 /* Music/SFX constants for Giygas prayer 9 (from include/constants/) */
 #define MUSIC_GIYGAS_DEATH    190
@@ -5322,45 +5158,44 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
     }
 }
 
-void btlact_giygas_prayer_9(void) { btlact_pump_addr(0xC2C6F0); }
 
 
 static const BattleActionEntry btlact_dispatch_table[] = {
     /* Sorted by ROM address for binary search */
-    { 0xC1DE43, btlact_switch_weapons, btlact_switch_weapons_step },
-    { 0xC1E00F, btlact_switch_armor, btlact_switch_armor_step },
-    { 0xC28523, (void(*)(void))battle_level_2_attack, btlact_level_2_attack_step },
-    { 0xC2859F, btlact_bash, btlact_bash_step },
-    { 0xC285DA, (void(*)(void))battle_level_4_attack, btlact_level_4_attack_step },
-    { 0xC28651, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },
-    { 0xC286CB, btlact_level_1_attack, btlact_level_1_attack_step },
-    { 0xC28740, btlact_shoot, btlact_shoot_step },
-    { 0xC28770, btlact_spy, btlact_spy_step },
+    { 0xC1DE43, NULL, btlact_switch_weapons_step },
+    { 0xC1E00F, NULL, btlact_switch_armor_step },
+    { 0xC28523, NULL, btlact_level_2_attack_step },
+    { 0xC2859F, NULL, btlact_bash_step },
+    { 0xC285DA, NULL, btlact_level_4_attack_step },
+    { 0xC28651, NULL, btlact_level_3_attack_step },
+    { 0xC286CB, NULL, btlact_level_1_attack_step },
+    { 0xC28740, NULL, btlact_shoot_step },
+    { 0xC28770, NULL, btlact_spy_step },
     { 0xC2889B, btlact_null, NULL },
     { 0xC2889E, btlact_steal, NULL },
-    { 0xC288EB, btlact_freezetime, btlact_freezetime_step },
-    { 0xC289CE, btlact_diamondize, btlact_diamondize_step },
-    { 0xC28A92, btlact_paralyze, btlact_paralyze_step },
-    { 0xC28AEB, btlact_nauseate, btlact_nauseate_step },
-    { 0xC28B2C, btlact_poison, btlact_poison_step },
-    { 0xC28B6D, btlact_cold, btlact_cold_step },
-    { 0xC28BBE, btlact_mushroomize, btlact_mushroomize_step },
-    { 0xC28BFD, btlact_possess, btlact_possess_step },
-    { 0xC28C69, btlact_crying, btlact_crying_step },
-    { 0xC28CB8, btlact_immobilize, btlact_immobilize_step },
-    { 0xC28CF1, btlact_solidify, btlact_solidify_step },
-    { 0xC28D3A, redirect_btlact_brainshock_alpha, btlact_brainshock_alpha_step },
-    { 0xC28D5A, btlact_distract, btlact_distract_step },
-    { 0xC28DBB, btlact_feel_strange, btlact_feel_strange_step },
-    { 0xC28DFC, btlact_crying2, btlact_crying2_step },
-    { 0xC28E3B, redirect_btlact_hypnosis_alpha, btlact_hypnosis_alpha_step },
-    { 0xC28E42, btlact_reduce_pp, btlact_reduce_pp_step },
-    { 0xC28EAE, btlact_cut_guts, btlact_cut_guts_step },
-    { 0xC28F21, btlact_reduce_offense_defense, btlact_reduce_offense_defense_step },
-    { 0xC28F97, btlact_level_2_attack_poison, btlact_level_2_attack_poison_step },
-    { 0xC28FF9, btlact_double_bash, btlact_double_bash_step },
-    { 0xC2900B, btlact_350_fire_damage, btlact_350_fire_damage_step },
-    { 0xC2902C, (void(*)(void))battle_level_3_attack, btlact_level_3_attack_step },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
+    { 0xC288EB, NULL, btlact_freezetime_step },
+    { 0xC289CE, NULL, btlact_diamondize_step },
+    { 0xC28A92, NULL, btlact_paralyze_step },
+    { 0xC28AEB, NULL, btlact_nauseate_step },
+    { 0xC28B2C, NULL, btlact_poison_step },
+    { 0xC28B6D, NULL, btlact_cold_step },
+    { 0xC28BBE, NULL, btlact_mushroomize_step },
+    { 0xC28BFD, NULL, btlact_possess_step },
+    { 0xC28C69, NULL, btlact_crying_step },
+    { 0xC28CB8, NULL, btlact_immobilize_step },
+    { 0xC28CF1, NULL, btlact_solidify_step },
+    { 0xC28D3A, NULL, btlact_brainshock_alpha_step },
+    { 0xC28D5A, NULL, btlact_distract_step },
+    { 0xC28DBB, NULL, btlact_feel_strange_step },
+    { 0xC28DFC, NULL, btlact_crying2_step },
+    { 0xC28E3B, NULL, btlact_hypnosis_alpha_step },
+    { 0xC28E42, NULL, btlact_reduce_pp_step },
+    { 0xC28EAE, NULL, btlact_cut_guts_step },
+    { 0xC28F21, NULL, btlact_reduce_offense_defense_step },
+    { 0xC28F97, NULL, btlact_level_2_attack_poison_step },
+    { 0xC28FF9, NULL, btlact_double_bash_step },
+    { 0xC2900B, NULL, btlact_350_fire_damage_step },
+    { 0xC2902C, NULL, btlact_level_3_attack_step },  /* REDIRECT_BTLACT_LEVEL_3_ATK */
     { 0xC29033, btlact_null2, NULL },
     { 0xC29036, btlact_null3, NULL },
     { 0xC29039, btlact_null4, NULL },
@@ -5371,130 +5206,130 @@ static const BattleActionEntry btlact_dispatch_table[] = {
     { 0xC29048, btlact_null9, NULL },
     { 0xC2904B, btlact_null10, NULL },
     { 0xC2904E, btlact_null11, NULL },
-    { 0xC29051, btlact_neutralize, btlact_neutralize_step },
-    { 0xC290C6, apply_neutralize_to_all, apply_neutralize_to_all_step },
-    { 0xC2916E, btlact_level_2_attack_diamondize, btlact_level_2_attack_diamondize_step },
-    { 0xC29254, btlact_reduce_offense, btlact_reduce_offense_step },
-    { 0xC29298, btlact_clumsydeath, btlact_clumsydeath_step },
+    { 0xC29051, NULL, btlact_neutralize_step },
+    { 0xC290C6, NULL, apply_neutralize_to_all_step },
+    { 0xC2916E, NULL, btlact_level_2_attack_diamondize_step },
+    { 0xC29254, NULL, btlact_reduce_offense_step },
+    { 0xC29298, NULL, btlact_clumsydeath_step },
     { 0xC292EB, btlact_enemy_extend, NULL },
-    { 0xC292EE, btlact_masterbarfdeath, btlact_masterbarfdeath_step },
-    { 0xC29556, btlact_psi_rockin_alpha, btlact_psi_rockin_alpha_step },
-    { 0xC2955F, btlact_psi_rockin_beta, btlact_psi_rockin_beta_step },
-    { 0xC29568, btlact_psi_rockin_gamma, btlact_psi_rockin_gamma_step },
-    { 0xC29571, btlact_psi_rockin_omega, btlact_psi_rockin_omega_step },
-    { 0xC295AB, btlact_psi_fire_alpha, btlact_psi_fire_alpha_step },
-    { 0xC295B4, btlact_psi_fire_beta, btlact_psi_fire_beta_step },
-    { 0xC295BD, btlact_psi_fire_gamma, btlact_psi_fire_gamma_step },
-    { 0xC295C6, btlact_psi_fire_omega, btlact_psi_fire_omega_step },
-    { 0xC29647, btlact_psi_freeze_alpha, btlact_psi_freeze_alpha_step },
-    { 0xC29650, btlact_psi_freeze_beta, btlact_psi_freeze_beta_step },
-    { 0xC29659, btlact_psi_freeze_gamma, btlact_psi_freeze_gamma_step },
-    { 0xC29662, btlact_psi_freeze_omega, btlact_psi_freeze_omega_step },
-    { 0xC29871, btlact_psi_thunder_alpha, btlact_psi_thunder_alpha_step },
-    { 0xC2987D, btlact_psi_thunder_beta, btlact_psi_thunder_beta_step },
-    { 0xC29889, btlact_psi_thunder_gamma, btlact_psi_thunder_gamma_step },
-    { 0xC29895, btlact_psi_thunder_omega, btlact_psi_thunder_omega_step },
-    { 0xC29987, btlact_psi_flash_alpha, btlact_psi_flash_alpha_step },
-    { 0xC299AE, btlact_psi_flash_beta, btlact_psi_flash_beta_step },
-    { 0xC299EF, btlact_psi_flash_gamma, btlact_psi_flash_gamma_step },
-    { 0xC29A35, btlact_psi_flash_omega, btlact_psi_flash_omega_step },
-    { 0xC29AA6, btlact_psi_starstorm_alpha, btlact_psi_starstorm_alpha_step },
-    { 0xC29AAF, btlact_psi_starstorm_omega, btlact_psi_starstorm_omega_step },
-    { 0xC29AC6, btlact_lifeup_alpha, btlact_lifeup_alpha_step },
-    { 0xC29ACF, btlact_lifeup_beta, btlact_lifeup_beta_step },
-    { 0xC29AD8, btlact_lifeup_gamma, btlact_lifeup_gamma_step },
-    { 0xC29AE1, btlact_lifeup_omega, btlact_lifeup_omega_step },
-    { 0xC29AEA, btlact_healing_alpha, btlact_healing_alpha_step },
-    { 0xC29B7A, btlact_healing_beta, btlact_healing_beta_step },
-    { 0xC29C2C, btlact_healing_gamma, btlact_healing_gamma_step },
-    { 0xC29CB8, btlact_healing_omega, btlact_healing_omega_step },
-    { 0xC29D44, btlact_shield_alpha, btlact_shield_alpha_step },
-    { 0xC29D7A, redirect_btlact_shield_alpha, btlact_shield_alpha_step },
-    { 0xC29D81, btlact_shield_beta, btlact_shield_beta_step },
-    { 0xC29DB7, redirect_btlact_shield_beta, btlact_shield_beta_step },
-    { 0xC29DBE, btlact_psi_shield_alpha, btlact_psi_shield_alpha_step },
-    { 0xC29DF4, redirect_btlact_psi_shield_alpha, btlact_psi_shield_alpha_step },
-    { 0xC29DFB, btlact_psi_shield_beta, btlact_psi_shield_beta_step },
-    { 0xC29E31, redirect_btlact_psi_shield_beta, btlact_psi_shield_beta_step },
-    { 0xC29E38, btlact_offense_up_alpha, btlact_offense_up_alpha_step },
-    { 0xC29E7F, redirect_btlact_offense_up_alpha, btlact_offense_up_alpha_step },
-    { 0xC29E86, btlact_defense_down_alpha, btlact_defense_down_alpha_step },
-    { 0xC29EFF, redirect_btlact_defense_down_alpha, btlact_defense_down_alpha_step },
-    { 0xC29F06, btlact_hypnosis_alpha, btlact_hypnosis_alpha_step },
-    { 0xC29F57, redirect_btlact_hypnosis_a_copy, btlact_hypnosis_alpha_step },
-    { 0xC29F5E, btlact_magnet_a, btlact_magnet_a_step },
-    { 0xC29FE1, btlact_magnet_o, btlact_magnet_o_step },
-    { 0xC29FFE, btlact_paralysis_alpha, btlact_paralysis_alpha_step },
-    { 0xC2A04F, redirect_btlact_paralysis_alpha, btlact_paralysis_alpha_step },
-    { 0xC2A056, btlact_brainshock_alpha, btlact_brainshock_alpha_step },
-    { 0xC2A0A7, redirect_btlact_brainshock_a_copy, btlact_brainshock_alpha_step },
-    { 0xC2A0AE, btlact_hp_recovery_1d4, btlact_hp_recovery_1d4_step },
-    { 0xC2A0BF, btlact_hp_recovery_50, btlact_hp_recovery_50_step },
-    { 0xC2A0CF, btlact_hp_recovery_200, btlact_hp_recovery_200_step },
-    { 0xC2A0DF, btlact_pp_recovery_20, btlact_pp_recovery_20_step },
-    { 0xC2A0EF, btlact_pp_recovery_80, btlact_pp_recovery_80_step },
-    { 0xC2A0FF, btlact_iq_up_1d4, btlact_iq_up_1d4_step },
-    { 0xC2A14B, btlact_guts_up_1d4, btlact_guts_up_1d4_step },
-    { 0xC2A193, btlact_speed_up_1d4, btlact_speed_up_1d4_step },
-    { 0xC2A1DB, btlact_vitality_up_1d4, btlact_vitality_up_1d4_step },
-    { 0xC2A227, btlact_luck_up_1d4, btlact_luck_up_1d4_step },
-    { 0xC2A26F, btlact_hp_recovery_300, btlact_hp_recovery_300_step },
-    { 0xC2A27F, btlact_random_stat_up_1d4, btlact_random_stat_up_1d4_step },
-    { 0xC2A360, btlact_hp_recovery_10, btlact_hp_recovery_10_step },
-    { 0xC2A370, btlact_hp_recovery_100, btlact_hp_recovery_100_step },
-    { 0xC2A380, btlact_hp_recovery_10000, btlact_hp_recovery_10000_step },
-    { 0xC2A39D, btlact_heal_poison, btlact_heal_poison_step },
-    { 0xC2A3D1, btlact_counter_psi, btlact_counter_psi_step },
-    { 0xC2A422, btlact_shield_killer, btlact_shield_killer_step },
-    { 0xC2A46B, (void(*)(void))btlact_hp_sucker, btlact_hp_sucker_step },
-    { 0xC2A507, btlact_hungry_hp_sucker, btlact_hp_sucker_step },
-    { 0xC2A50E, btlact_mummy_wrap, btlact_mummy_wrap_step },
-    { 0xC2A5D1, btlact_bottle_rocket, btlact_bottle_rocket_step },
-    { 0xC2A5DA, btlact_big_bottle_rocket, btlact_big_bottle_rocket_step },
-    { 0xC2A5E3, btlact_multi_bottle_rocket, btlact_multi_bottle_rocket_step },
-    { 0xC2A5EC, btlact_handbag_strap, btlact_handbag_strap_step },
-    { 0xC2A818, btlact_bomb, btlact_bomb_step },
-    { 0xC2A821, btlact_super_bomb, btlact_super_bomb_step },
-    { 0xC2A82A, btlact_solidify_2, btlact_solidify_2_step },
-    { 0xC2A86B, btlact_yogurt_dispenser, btlact_yogurt_dispenser_step },
-    { 0xC2A89D, btlact_snake, btlact_snake_step },
-    { 0xC2A902, btlact_inflict_solidification, btlact_inflict_solidification_step },
-    { 0xC2A953, btlact_inflict_poison, btlact_inflict_poison_step },
-    { 0xC2A99C, btlact_bag_of_dragonite, btlact_bag_of_dragonite_step },
-    { 0xC2AA0C, btlact_insecticide_spray, btlact_insecticide_spray_step },
-    { 0xC2AA15, btlact_xterminator_spray, btlact_xterminator_spray_step },
-    { 0xC2AA6D, btlact_rust_promoter, btlact_rust_promoter_step },
-    { 0xC2AA76, btlact_rust_promoter_dx, btlact_rust_promoter_dx_step },
-    { 0xC2AA7F, btlact_sudden_guts_pill, btlact_sudden_guts_pill_step },
-    { 0xC2AAC6, btlact_defense_spray, btlact_defense_spray_step },
-    { 0xC2AB0D, btlact_defense_shower, btlact_defense_spray_step },
-    { 0xC2AB71, btlact_teleport_box, btlact_teleport_box_step },
-    { 0xC2AC2A, btlact_pray_subtle, btlact_pray_subtle_step },
-    { 0xC2AC3E, btlact_pray_warm, btlact_pray_warm_step },
-    { 0xC2AC51, btlact_pray_golden, btlact_pray_golden_step },
-    { 0xC2AC68, btlact_pray_mysterious, btlact_pray_mysterious_step },
-    { 0xC2AC7B, btlact_pray_rainbow, btlact_pray_rainbow_step },
-    { 0xC2AC99, btlact_pray_aroma, btlact_pray_aroma_step },
-    { 0xC2ACDA, btlact_pray_rending_sound, btlact_pray_rending_sound_step },
-    { 0xC2AD1B, btlact_pray, btlact_pray_step },
-    { 0xC2B0A1, (void(*)(void))btlact_mirror, btlact_mirror_step },
-    { 0xC2B27D, btlact_eat_food, btlact_eat_food_step },
-    { 0xC2C13C, btlact_sow_seeds, btlact_sow_seeds_step },
-    { 0xC2C145, btlact_call_for_help, btlact_call_for_help_step },
+    { 0xC292EE, NULL, btlact_masterbarfdeath_step },
+    { 0xC29556, NULL, btlact_psi_rockin_alpha_step },
+    { 0xC2955F, NULL, btlact_psi_rockin_beta_step },
+    { 0xC29568, NULL, btlact_psi_rockin_gamma_step },
+    { 0xC29571, NULL, btlact_psi_rockin_omega_step },
+    { 0xC295AB, NULL, btlact_psi_fire_alpha_step },
+    { 0xC295B4, NULL, btlact_psi_fire_beta_step },
+    { 0xC295BD, NULL, btlact_psi_fire_gamma_step },
+    { 0xC295C6, NULL, btlact_psi_fire_omega_step },
+    { 0xC29647, NULL, btlact_psi_freeze_alpha_step },
+    { 0xC29650, NULL, btlact_psi_freeze_beta_step },
+    { 0xC29659, NULL, btlact_psi_freeze_gamma_step },
+    { 0xC29662, NULL, btlact_psi_freeze_omega_step },
+    { 0xC29871, NULL, btlact_psi_thunder_alpha_step },
+    { 0xC2987D, NULL, btlact_psi_thunder_beta_step },
+    { 0xC29889, NULL, btlact_psi_thunder_gamma_step },
+    { 0xC29895, NULL, btlact_psi_thunder_omega_step },
+    { 0xC29987, NULL, btlact_psi_flash_alpha_step },
+    { 0xC299AE, NULL, btlact_psi_flash_beta_step },
+    { 0xC299EF, NULL, btlact_psi_flash_gamma_step },
+    { 0xC29A35, NULL, btlact_psi_flash_omega_step },
+    { 0xC29AA6, NULL, btlact_psi_starstorm_alpha_step },
+    { 0xC29AAF, NULL, btlact_psi_starstorm_omega_step },
+    { 0xC29AC6, NULL, btlact_lifeup_alpha_step },
+    { 0xC29ACF, NULL, btlact_lifeup_beta_step },
+    { 0xC29AD8, NULL, btlact_lifeup_gamma_step },
+    { 0xC29AE1, NULL, btlact_lifeup_omega_step },
+    { 0xC29AEA, NULL, btlact_healing_alpha_step },
+    { 0xC29B7A, NULL, btlact_healing_beta_step },
+    { 0xC29C2C, NULL, btlact_healing_gamma_step },
+    { 0xC29CB8, NULL, btlact_healing_omega_step },
+    { 0xC29D44, NULL, btlact_shield_alpha_step },
+    { 0xC29D7A, NULL, btlact_shield_alpha_step },
+    { 0xC29D81, NULL, btlact_shield_beta_step },
+    { 0xC29DB7, NULL, btlact_shield_beta_step },
+    { 0xC29DBE, NULL, btlact_psi_shield_alpha_step },
+    { 0xC29DF4, NULL, btlact_psi_shield_alpha_step },
+    { 0xC29DFB, NULL, btlact_psi_shield_beta_step },
+    { 0xC29E31, NULL, btlact_psi_shield_beta_step },
+    { 0xC29E38, NULL, btlact_offense_up_alpha_step },
+    { 0xC29E7F, NULL, btlact_offense_up_alpha_step },
+    { 0xC29E86, NULL, btlact_defense_down_alpha_step },
+    { 0xC29EFF, NULL, btlact_defense_down_alpha_step },
+    { 0xC29F06, NULL, btlact_hypnosis_alpha_step },
+    { 0xC29F57, NULL, btlact_hypnosis_alpha_step },
+    { 0xC29F5E, NULL, btlact_magnet_a_step },
+    { 0xC29FE1, NULL, btlact_magnet_o_step },
+    { 0xC29FFE, NULL, btlact_paralysis_alpha_step },
+    { 0xC2A04F, NULL, btlact_paralysis_alpha_step },
+    { 0xC2A056, NULL, btlact_brainshock_alpha_step },
+    { 0xC2A0A7, NULL, btlact_brainshock_alpha_step },
+    { 0xC2A0AE, NULL, btlact_hp_recovery_1d4_step },
+    { 0xC2A0BF, NULL, btlact_hp_recovery_50_step },
+    { 0xC2A0CF, NULL, btlact_hp_recovery_200_step },
+    { 0xC2A0DF, NULL, btlact_pp_recovery_20_step },
+    { 0xC2A0EF, NULL, btlact_pp_recovery_80_step },
+    { 0xC2A0FF, NULL, btlact_iq_up_1d4_step },
+    { 0xC2A14B, NULL, btlact_guts_up_1d4_step },
+    { 0xC2A193, NULL, btlact_speed_up_1d4_step },
+    { 0xC2A1DB, NULL, btlact_vitality_up_1d4_step },
+    { 0xC2A227, NULL, btlact_luck_up_1d4_step },
+    { 0xC2A26F, NULL, btlact_hp_recovery_300_step },
+    { 0xC2A27F, NULL, btlact_random_stat_up_1d4_step },
+    { 0xC2A360, NULL, btlact_hp_recovery_10_step },
+    { 0xC2A370, NULL, btlact_hp_recovery_100_step },
+    { 0xC2A380, NULL, btlact_hp_recovery_10000_step },
+    { 0xC2A39D, NULL, btlact_heal_poison_step },
+    { 0xC2A3D1, NULL, btlact_counter_psi_step },
+    { 0xC2A422, NULL, btlact_shield_killer_step },
+    { 0xC2A46B, NULL, btlact_hp_sucker_step },
+    { 0xC2A507, NULL, btlact_hp_sucker_step },
+    { 0xC2A50E, NULL, btlact_mummy_wrap_step },
+    { 0xC2A5D1, NULL, btlact_bottle_rocket_step },
+    { 0xC2A5DA, NULL, btlact_big_bottle_rocket_step },
+    { 0xC2A5E3, NULL, btlact_multi_bottle_rocket_step },
+    { 0xC2A5EC, NULL, btlact_handbag_strap_step },
+    { 0xC2A818, NULL, btlact_bomb_step },
+    { 0xC2A821, NULL, btlact_super_bomb_step },
+    { 0xC2A82A, NULL, btlact_solidify_2_step },
+    { 0xC2A86B, NULL, btlact_yogurt_dispenser_step },
+    { 0xC2A89D, NULL, btlact_snake_step },
+    { 0xC2A902, NULL, btlact_inflict_solidification_step },
+    { 0xC2A953, NULL, btlact_inflict_poison_step },
+    { 0xC2A99C, NULL, btlact_bag_of_dragonite_step },
+    { 0xC2AA0C, NULL, btlact_insecticide_spray_step },
+    { 0xC2AA15, NULL, btlact_xterminator_spray_step },
+    { 0xC2AA6D, NULL, btlact_rust_promoter_step },
+    { 0xC2AA76, NULL, btlact_rust_promoter_dx_step },
+    { 0xC2AA7F, NULL, btlact_sudden_guts_pill_step },
+    { 0xC2AAC6, NULL, btlact_defense_spray_step },
+    { 0xC2AB0D, NULL, btlact_defense_spray_step },
+    { 0xC2AB71, NULL, btlact_teleport_box_step },
+    { 0xC2AC2A, NULL, btlact_pray_subtle_step },
+    { 0xC2AC3E, NULL, btlact_pray_warm_step },
+    { 0xC2AC51, NULL, btlact_pray_golden_step },
+    { 0xC2AC68, NULL, btlact_pray_mysterious_step },
+    { 0xC2AC7B, NULL, btlact_pray_rainbow_step },
+    { 0xC2AC99, NULL, btlact_pray_aroma_step },
+    { 0xC2ACDA, NULL, btlact_pray_rending_sound_step },
+    { 0xC2AD1B, NULL, btlact_pray_step },
+    { 0xC2B0A1, NULL, btlact_mirror_step },
+    { 0xC2B27D, NULL, btlact_eat_food_step },
+    { 0xC2C13C, NULL, btlact_sow_seeds_step },
+    { 0xC2C145, NULL, btlact_call_for_help_step },
     { 0xC2C14E, (void(*)(void))btlact_rainbow_of_colours, NULL },
-    { 0xC2C1BD, btlact_fly_honey, btlact_fly_honey_step },
-    { 0xC2C4C0, btlact_pokey_speech, btlact_pokey_speech_step },
+    { 0xC2C1BD, NULL, btlact_fly_honey_step },
+    { 0xC2C4C0, NULL, btlact_pokey_speech_step },
     { 0xC2C513, btlact_null12, NULL },
-    { 0xC2C516, btlact_pokey_speech_2, btlact_pokey_speech_2_step },
-    { 0xC2C572, btlact_giygas_prayer_1, btlact_giygas_prayer_1_step },
-    { 0xC2C5D1, btlact_giygas_prayer_2, btlact_giygas_prayer_2_step },
-    { 0xC2C5FA, btlact_giygas_prayer_3, btlact_giygas_prayer_3_step },
-    { 0xC2C623, btlact_giygas_prayer_4, btlact_giygas_prayer_4_step },
-    { 0xC2C64C, btlact_giygas_prayer_5, btlact_giygas_prayer_5_step },
-    { 0xC2C675, btlact_giygas_prayer_6, btlact_giygas_prayer_6_step },
-    { 0xC2C69E, btlact_giygas_prayer_7, btlact_giygas_prayer_7_step },
-    { 0xC2C6D0, btlact_giygas_prayer_8, btlact_giygas_prayer_8_step },
-    { 0xC2C6F0, btlact_giygas_prayer_9, btlact_giygas_prayer_9_step },
+    { 0xC2C516, NULL, btlact_pokey_speech_2_step },
+    { 0xC2C572, NULL, btlact_giygas_prayer_1_step },
+    { 0xC2C5D1, NULL, btlact_giygas_prayer_2_step },
+    { 0xC2C5FA, NULL, btlact_giygas_prayer_3_step },
+    { 0xC2C623, NULL, btlact_giygas_prayer_4_step },
+    { 0xC2C64C, NULL, btlact_giygas_prayer_5_step },
+    { 0xC2C675, NULL, btlact_giygas_prayer_6_step },
+    { 0xC2C69E, NULL, btlact_giygas_prayer_7_step },
+    { 0xC2C6D0, NULL, btlact_giygas_prayer_8_step },
+    { 0xC2C6F0, NULL, btlact_giygas_prayer_9_step },
 };
 
 #define BTLACT_DISPATCH_COUNT (sizeof(btlact_dispatch_table) / sizeof(btlact_dispatch_table[0]))
@@ -5514,36 +5349,18 @@ static int btlact_find(uint32_t rom_addr) {
     return -1;
 }
 
-/* Blocking bridge: run a converted action's resumable stepper to completion.
- * Used by jump_temp_function_pointer (unconverted drivers / action→action
- * dispatch through the table) and by the converted actions' own btlact_*()
- * wrappers (direct C calls from other actions, e.g. healing_beta →
- * healing_alpha). Deleted at cutover with pump_mode. */
-static void btlact_pump(uint16_t table_index) {
-    ModeState init = {0};
-    init.battle_action.table_index = table_index;
-    pump_mode(GAME_MODE_BATTLE_ACTION, &init);
-}
-
-/* Bridge variant for the converted actions' blocking btlact_*() wrappers:
- * looks the action up by its own ROM address (the same constant as its table
- * row) WITHOUT touching bt.temp_function_pointer — a direct JSR in the
- * assembly does not rewrite it. */
-static void btlact_pump_addr(uint32_t rom_addr) {
-    int idx = btlact_find(rom_addr);
-    if (idx < 0 || !btlact_dispatch_table[idx].step) {
-        LOG_WARN("WARN: btlact_pump_addr($%06X): no resumable form\n", rom_addr);
-        return;
-    }
-    btlact_pump((uint16_t)idx);
-}
-
 /*
  * JUMP_TEMP_FUNCTION_POINTER — Port of asm/overworld/jump_temp_function_pointer.asm.
  * Assembly: JML (TEMP_FUNCTION_POINTER) — indirect long jump through a
  * 24-bit ROM address stored in bt.temp_function_pointer. The C port
  * dispatches through btlact_dispatch_table instead; the ROM addresses come
  * from the battle_action_table asset (loaded from the donor ROM).
+ *
+ * Only reached for stepper-less (pure, non-yielding) actions: every action
+ * with a resumable stepper is routed to a STEP_PUSH by battle_action_dispatch
+ * (its only caller), so an entry reaching here always has a non-NULL .func and
+ * a NULL .step. The former blocking pump path (btlact_pump over the resumable
+ * form) was deleted with pump_mode at cutover.
  */
 void jump_temp_function_pointer(void) {
     int idx = btlact_find(bt.temp_function_pointer);
@@ -5551,8 +5368,11 @@ void jump_temp_function_pointer(void) {
         LOG_WARN("WARN: unknown battle action ROM addr $%06X\n", bt.temp_function_pointer);
         return;
     }
-    if (btlact_dispatch_table[idx].step) {
-        btlact_pump((uint16_t)idx);  /* converted: pump the resumable form */
+    if (!btlact_dispatch_table[idx].func) {
+        /* A stepper-bearing action reached the blocking path — should be
+         * impossible (battle_action_dispatch routes those via STEP_PUSH). */
+        LOG_WARN("WARN: battle action $%06X has no blocking form\n",
+                 bt.temp_function_pointer);
         return;
     }
     btlact_dispatch_table[idx].func();

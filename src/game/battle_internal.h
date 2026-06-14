@@ -82,9 +82,13 @@ void close_all_windows_and_hide_hppp(void);
 /* ---- Dispatch table type ---- */
 typedef struct {
     uint32_t rom_addr;
-    void (*func)(void);   /* blocking form (a pump bridge once converted) */
-    /* Resumable form for GAME_MODE_BATTLE_ACTION (NULL = not yet converted:
-     * the action runs inline-blocking via `func`). See mode_stack.h. */
+    /* Blocking inline form, used ONLY for the pure (non-yielding) actions that
+     * have no stepper (step == NULL). The blocking wrappers for converted
+     * actions were deleted with pump_mode at cutover, so for those rows func is
+     * NULL; they dispatch via the resumable `step`. See jump_temp_function_pointer. */
+    void (*func)(void);
+    /* Resumable form for GAME_MODE_BATTLE_ACTION (NULL = pure action with no
+     * yield: runs inline via `func`). See mode_stack.h. */
     StepResult (*step)(BattleActionState *st);
 } BattleActionEntry;
 
@@ -136,10 +140,9 @@ void battle_recover_pp_prepare(Battler *target, uint16_t amount,
 /* ---- Functions defined in battle_calc.c ---- */
 
 /* Build a GAME_MODE_BATTLE_CALC child init (see BattleCalcKind in
- * core/mode_stack.h for each kind's arg0/arg1 and pop value). Converted
- * action steppers STEP_PUSH the mode and read the result back with
- * mode_child_result(); the blocking battle_*() forms below are pump
- * bridges over the same steppers. */
+ * core/mode_stack.h for each kind's arg0/arg1 and pop value). Action steppers
+ * STEP_PUSH the mode and read the result back with mode_child_result(); the
+ * blocking battle_*() bridge forms were deleted with pump_mode at cutover. */
 void battle_calc_make_init(ModeState *init, uint8_t kind,
                            uint16_t arg0, uint16_t arg1);
 
@@ -164,32 +167,25 @@ void battle_decrease_offense(Battler *target);
 void battle_increase_defense(Battler *target);
 void battle_decrease_defense(Battler *target);
 
-/* Shield handling */
-uint16_t battle_psi_shield_nullify(void);
-void battle_weaken_shield(void);
+/* Shield handling (battle_psi_shield_nullify / battle_weaken_shield blocking
+ * forms were deleted with pump_mode — STEP_PUSH BC_PSI_SHIELD_NULLIFY /
+ * BC_WEAKEN_SHIELD instead). */
 uint16_t battle_shields_common(Battler *target, uint16_t shield_type);
 uint16_t battle_get_shield_targeting(uint16_t action);
 
-/* Dodge/miss/smash */
+/* Dodge (battle_miss_calc / battle_smaaaash blocking forms deleted with
+ * pump_mode — STEP_PUSH BC_MISS_CALC / BC_SMAAAASH instead). */
 uint16_t battle_determine_dodge(void);
-uint16_t battle_miss_calc(uint16_t miss_message_type);
-uint16_t battle_smaaaash(void);
 
-/* Damage calculation pipeline */
+/* Damage calculation pipeline (battle_calc_damage / battle_calc_resist_damage /
+ * battle_level_[1-4]_attack blocking forms deleted with pump_mode — STEP_PUSH
+ * BC_CALC_DAMAGE / BC_RESIST_DAMAGE / the btlact_level_N_attack steppers). */
 uint16_t battle_get_action_type(uint16_t action_id);
-uint16_t battle_calc_damage(uint16_t target_offset, uint16_t damage);
-uint16_t battle_calc_resist_damage(uint16_t damage, uint16_t resist_modifier);
 
-/* Physical attack levels */
-void battle_level_1_attack(void);
-void battle_level_2_attack(void);
-void battle_level_3_attack(void);
-void battle_level_4_attack(void);
-
-/* Status/HP helpers */
-void battle_heal_strangeness(void);
+/* Status/HP helpers (battle_heal_strangeness / battle_fail_attack_on_npcs
+ * blocking forms deleted with pump_mode — STEP_PUSH BC_HEAL_STRANGENESS /
+ * BC_FAIL_ON_NPCS instead). */
 void battle_lose_hp_status(Battler *target, uint16_t amount);
-uint16_t battle_fail_attack_on_npcs(void);
 void recalc_character_miss_rate(uint16_t character_id);
 
 /* char_select_prompt mode-1 (overworld name window) prologue/epilogue,
@@ -303,7 +299,6 @@ uint16_t autohealing(uint16_t status_group, uint16_t status_id);
 uint16_t autolifeup(void);
 
 /* Flash immunity (used by battle.c) */
-uint16_t flash_immunity_test(void);
 
 /* Stealable items (used by battle.c) */
 uint16_t find_stealable_items(void);
