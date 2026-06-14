@@ -407,10 +407,27 @@ StepResult mode_step_number_select(ModeState *ms) {
 StepResult mode_step_text_delay(ModeState *ms) {
     TextDelayState *st = &ms->text_delay;
 
+    /* Resume after an actionscript park (D4b): finish the render then the tail. */
+    if (st->flush == 1) {            /* lead window frame parked */
+        st->flush = 0;
+        window_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->flush == 2) {            /* delay frame parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        st->remaining--;
+        st->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    }
+
     if (st->lead_window) {
         /* cc_pause's leading WINDOW_TICK frame, separate from the delay frames. */
         st->lead_window = 0;
-        window_tick_work();
+        if (window_tick_work_step()) {
+            st->flush = 1;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
     if (st->primed && st->cancelable && (core.pad1_pressed & PAD_TEXT_ADVANCE))
@@ -418,7 +435,10 @@ StepResult mode_step_text_delay(ModeState *ms) {
     if (st->remaining == 0)
         return STEP_RESULT_POP(0);
 
-    update_hppp_meter_work();
+    if (update_hppp_meter_work_step()) {
+        st->flush = 2;
+        return actionscript_frame_take_push();
+    }
     st->remaining--;
     st->primed = 1;
     return STEP_RESULT_CONTINUE();
@@ -437,9 +457,25 @@ StepResult mode_step_text_delay(ModeState *ms) {
 StepResult mode_step_actionscript_wait(ModeState *ms) {
     ActionscriptWaitState *st = &ms->actionscript_wait;
 
+    /* Resume after an actionscript park (D4b): finish the render then the tail. */
+    if (st->flush == 1) {            /* AS_INIT window frame parked */
+        st->flush = 0;
+        window_tick_work_flush();
+        st->phase = AS_RENDER;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->flush == 2) {            /* AS_RENDER frame parked */
+        st->flush = 0;
+        render_frame_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+
     switch ((ActionscriptWaitPhase)st->phase) {
     case AS_INIT:
-        window_tick_work();
+        if (window_tick_work_step()) {
+            st->flush = 1;
+            return actionscript_frame_take_push();
+        }
         st->phase = AS_RENDER;
         return STEP_RESULT_CONTINUE();
 
@@ -449,7 +485,10 @@ StepResult mode_step_actionscript_wait(ModeState *ms) {
             ert.actionscript_state = 0;
             return STEP_RESULT_POP(0);
         }
-        render_frame_tick_work();
+        if (render_frame_tick_work_step()) {
+            st->flush = 2;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
 }
@@ -466,12 +505,9 @@ StepResult mode_step_actionscript_wait(ModeState *ms) {
 #define TRIANGLE_TILE_SMALL 0x3C15
 #define TRIANGLE_TILE_CLEAR 0xBC11
 
-/* TP_WAIT_PROMPT's tail: one window_tick frame, then pick the wait branch.
- * Mirrors halt.asm lines 29-56 (CLEAR_INSTANT_PRINTING; WINDOW_TICK; branch). */
-static StepResult tp_window_and_decide(TextPromptState *st) {
-    clear_instant_printing();
-    window_tick_work();
-
+/* Post-window decision half of tp_window_and_decide (halt.asm 31-56): pick the
+ * wait branch. Split out so a parked window_tick frame can run it on resume. */
+static StepResult tp_decide(TextPromptState *st) {
     /* Text-speed auto-advance shortcut (halt.asm 31-39): returns WITHOUT the
      * resume-music teardown — it never set those flags. */
     if (!st->skip_text_speed && dt.blinking_triangle_flag && dt.text_speed_based_wait) {
@@ -500,6 +536,18 @@ static StepResult tp_window_and_decide(TextPromptState *st) {
     return STEP_RESULT_CONTINUE();
 }
 
+/* TP_WAIT_PROMPT's tail: one window_tick frame, then pick the wait branch.
+ * Mirrors halt.asm lines 29-56 (CLEAR_INSTANT_PRINTING; WINDOW_TICK; branch).
+ * On a parked actionscript frame, defer tp_decide to flush code 3. */
+static StepResult tp_window_and_decide(TextPromptState *st) {
+    clear_instant_printing();
+    if (window_tick_work_step()) {
+        st->flush = 3;
+        return actionscript_frame_take_push();
+    }
+    return tp_decide(st);
+}
+
 /* RESUME_MUSIC teardown (halt.asm 163-164), then pop. */
 static StepResult tp_pop_teardown(void) {
     bt.half_hppp_meter_speed = 0;
@@ -510,13 +558,51 @@ static StepResult tp_pop_teardown(void) {
 StepResult mode_step_text_prompt(ModeState *ms) {
     TextPromptState *st = &ms->text_prompt;
 
+    /* Resume after an actionscript park (D4b): finish the render, then the tail of
+     * whichever site parked (codes documented on TextPromptState.flush). */
+    switch (st->flush) {
+    case 1:  /* TP_WAIT_PROMPT drain-render parked */
+        st->flush = 0;
+        render_frame_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    case 3:  /* tp_window_and_decide window frame parked */
+        st->flush = 0;
+        window_tick_work_flush();
+        return tp_decide(st);
+    case 4:  /* TP_TEXTSPEED parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        st->remaining--;
+        st->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    case 5:  /* TP_WAIT_BUTTON parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        st->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    case 6:  /* TP_TRIANGLE parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        if (--st->tri_ticks == 0) {
+            st->tri_big = (uint8_t)!st->tri_big;
+            st->tri_ticks = st->tri_big ? 15 : 10;
+            st->tri_need_tile = 1;
+        }
+        return STEP_RESULT_CONTINUE();
+    default:
+        break;
+    }
+
     switch ((TextPromptPhase)st->phase) {
     case TP_WAIT_PROMPT:
         /* Drain dt.text_prompt_waiting_for_input (halt.asm 26-27). The frame that
          * clears it is a full render_frame_tick frame; the window_tick frame is a
          * separate frame after it. */
         if (dt.text_prompt_waiting_for_input) {
-            render_frame_tick_work();
+            if (render_frame_tick_work_step()) {
+                st->flush = 1;
+                return actionscript_frame_take_push();
+            }
             return STEP_RESULT_CONTINUE();
         }
         return tp_window_and_decide(st);
@@ -526,7 +612,10 @@ StepResult mode_step_text_prompt(ModeState *ms) {
             return STEP_RESULT_POP(0);   /* early return: no teardown */
         if (st->remaining == 0)
             return STEP_RESULT_POP(0);
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->flush = 4;
+            return actionscript_frame_take_push();
+        }
         st->remaining--;
         st->primed = 1;
         return STEP_RESULT_CONTINUE();
@@ -534,7 +623,10 @@ StepResult mode_step_text_prompt(ModeState *ms) {
     case TP_WAIT_BUTTON:
         if (st->primed && (core.pad1_pressed & PAD_TEXT_ADVANCE))
             return tp_pop_teardown();
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->flush = 5;
+            return actionscript_frame_take_push();
+        }
         st->primed = 1;
         return STEP_RESULT_CONTINUE();
 
@@ -556,7 +648,10 @@ StepResult mode_step_text_prompt(ModeState *ms) {
             return tp_pop_teardown();
         }
 
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->flush = 6;
+            return actionscript_frame_take_push();
+        }
         if (--st->tri_ticks == 0) {
             st->tri_big = (uint8_t)!st->tri_big;
             st->tri_ticks = st->tri_big ? 15 : 10;  /* big = 15 ticks, small = 10 */

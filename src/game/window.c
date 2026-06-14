@@ -2495,6 +2495,20 @@ void update_hppp_meter_work(void) {
     render_frame_tick_work();
 }
 
+/* Park-propagating split of update_hppp_meter_work() (savestate D4b): a parked
+ * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.
+ * _step() returns true iff a frame parked — the caller must push
+ * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at
+ * its resume phase; on no park the tick finishes inline and _step() returns false. */
+bool update_hppp_meter_work_step(void) {
+    update_hppp_meter_prepare();
+    return render_frame_tick_work_step();
+}
+
+void update_hppp_meter_work_flush(void) {
+    render_frame_tick_work_flush();
+}
+
 /*
  * UPDATE_HPPP_METER_TILES — Port of asm/text/update_hppp_meter_tiles.asm (325 lines).
  *

@@ -475,6 +475,13 @@ void update_hppp_meter_and_render(void);
  * the caller owns the yield. Used by mode-stack step functions. */
 void update_hppp_meter_work(void);
 
+/* Park-propagating split of update_hppp_meter_work() (savestate D4b): _step()
+ * returns true iff an actionscript frame parked — the caller must push
+ * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at
+ * its resume phase; on no park the tick finishes inline and _step() returns false. */
+bool update_hppp_meter_work_step(void);
+void update_hppp_meter_work_flush(void);
+
 /* UPDATE_HPPP_METER_TILES: Port of asm/text/update_hppp_meter_tiles.asm (325 lines).
  * Each frame, selects one party member (FRAME_COUNTER & 3), recomputes their
  * HP/PP digit tiles via fill_character_hp/pp_tile_buffer, and writes the

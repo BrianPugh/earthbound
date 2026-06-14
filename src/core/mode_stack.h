@@ -1032,6 +1032,8 @@ typedef struct {
     uint8_t  cancelable;   /* break on PAD_TEXT_ADVANCE */
     uint8_t  primed;       /* 0 on the first frame (skip the pre-work input check) */
     uint8_t  lead_window;  /* do one leading window_tick_work frame before the delay */
+    uint8_t  flush;        /* resume code after an actionscript park (D4b): 1=lead
+                            * window frame, 2=delay frame; 0=none */
 } TextDelayState;
 
 /* GAME_MODE_ACTIONSCRIPT_WAIT — port of CC 0x1F 0x61 WAIT_FOR_ACTIONSCRIPT. An
@@ -1047,6 +1049,8 @@ typedef enum {
 
 typedef struct {
     uint8_t phase;   /* ActionscriptWaitPhase */
+    uint8_t flush;   /* resume code after an actionscript park (D4b): 1=AS_INIT
+                      * window frame, 2=AS_RENDER frame; 0=none */
 } ActionscriptWaitState;
 
 /* GAME_MODE_TEXT_PROMPT — run-to-completion port of cc_halt (CC 0x03/0x13/0x14,
@@ -1077,6 +1081,10 @@ typedef struct {
     uint8_t  tri_ticks;      /* triangle: ticks left in the current sub-frame */
     uint16_t tri_pos;        /* triangle: bottom-right tilemap index */
     uint16_t remaining;      /* text-speed shortcut frames left */
+    uint8_t  flush;          /* resume code after an actionscript park (D4b):
+                              * 1=TP_WAIT_PROMPT render, 3=tp_window_and_decide
+                              * window, 4=TP_TEXTSPEED, 5=TP_WAIT_BUTTON,
+                              * 6=TP_TRIANGLE; 0=none */
 } TextPromptState;
 
 /* GAME_MODE_SELECTION_MENU — run-to-completion port of selection_menu()
