@@ -91,6 +91,7 @@ typedef enum {
     GAME_MODE_OVERWORLD,           /* overworld root mode (overworld_post + overworld_step) */
     GAME_MODE_DEBUG_GOODS,         /* debug Y-button Goods item browser/giver (debug_y_button_goods) */
     GAME_MODE_DEBUG_MENU,          /* debug Y-button parent menu (debug_y_button_menu) */
+    GAME_MODE_TELEPORT_TO,         /* script/debug instant teleport sequence (CC_1F_21 / debug CAST/STAFF) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -198,6 +199,31 @@ typedef struct {
     uint16_t unknown6;         /* dest y (low 14 bits) + direction class (bits 14-15) */
     uint16_t unknown8;         /* dest x tile */
 } DoorTransitionState;
+
+/* GAME_MODE_TELEPORT_TO phases. Run-to-completion port of the TELEPORT sequence
+ * (asm/overworld/teleport.asm): clear temp flags, fade/swirl out, load the
+ * destination map + place the party, fade/swirl in, spawn deliveries. Shared by
+ * CC_1F_21 (TELEPORT_TO script command, pushed via the display_text CC channel) and
+ * the debug menu's CAST/STAFF teleport-back. Only the destination id is carried
+ * (re-resolved each step via get_teleport_dest, so no ROM pointer crosses a yield);
+ * the two screen_transition() calls → SCREEN_TRANSITION pushes (via
+ * screen_transition_prepare/_finalize), the buzz-buzz check text → DISPLAY_TEXT. The
+ * *_FIN phases run screen_transition_finalize() after the pushed transition pops.
+ * The blocking screen_transition() pump bridge was deleted in D4b. */
+typedef enum {
+    TT_BEGIN = 0,       /* save+set suppression, clear flags, door interactions, exit-transition out */
+    TT_TRANS_OUT_FIN,   /* screen_transition_finalize() after exit pop */
+    TT_AFTER_OUT,       /* load map, place party, music, enter-transition in */
+    TT_TRANS_IN_FIN,    /* screen_transition_finalize() after enter pop */
+    TT_FINALIZE,        /* stairs reset; push the buzz-buzz check text */
+    TT_BUZZ_DONE,       /* spawn deliveries, restore suppression, pop */
+} TeleportToPhase;
+
+typedef struct {
+    uint8_t phase;             /* TeleportToPhase */
+    uint8_t dest_id;           /* teleport destination index (re-resolved each step) */
+    uint8_t saved_suppression; /* ow.overworld_status_suppression to restore at the end */
+} TeleportToState;
 
 /* GAME_MODE_QUICK_CHECKTALK phases. Port of open_menu_button_checktalk(): the
  * L-button quick talk/check. Resolve the target text (talk_to → check_action →
@@ -2081,6 +2107,7 @@ union ModeState {
     TextWaitFadeState     text_wait_fade;
     ProcessInteractionState process_interaction;
     DoorTransitionState   door_transition;
+    TeleportToState       teleport_to;
     QuickChecktalkState   quick_checktalk;
     PauseMenuState        pause_menu;
     EquipMenuState        equip_menu;
@@ -2298,6 +2325,11 @@ StepResult mode_step_process_interaction(ModeState *st);
  * ModeState.door_transition (phase = DTR_BEGIN, door_ptr) before
  * pump_mode(GAME_MODE_DOOR_TRANSITION). Always pops 0. */
 StepResult mode_step_door_transition(ModeState *st);
+
+/* GAME_MODE_TELEPORT_TO step (defined in door.c). Init with
+ * ModeState.teleport_to (phase = TT_BEGIN, dest_id). STEP_PUSHed by CC_1F_21 (the
+ * display_text TELEPORT_TO command) and the debug menu's CAST/STAFF. Always pops 0. */
+StepResult mode_step_teleport_to(ModeState *st);
 
 /* GAME_MODE_QUICK_CHECKTALK step (defined in text.c). Init with
  * ModeState.quick_checktalk (phase = QCT_TEXT) before

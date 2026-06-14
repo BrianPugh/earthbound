@@ -101,11 +101,11 @@ void check_door_near_leader(uint16_t direction);
  * Port of PROCESS_DOOR_INTERACTIONS (asm/overworld/door/process_door_interactions.asm). */
 void process_door_interactions(void);
 
-/* Screen transition effect for doors and teleports.
- * Port of SCREEN_TRANSITION (asm/overworld/screen_transition.asm).
- * transition_type: index into screen transition config table (0-33).
- * mode: 1 = exit (fade out), 0 = enter (fade in). */
-void screen_transition(uint8_t transition_type, uint8_t mode);
+/* Screen transition effect for doors and teleports (port of SCREEN_TRANSITION,
+ * asm/overworld/screen_transition.asm) runs as GAME_MODE_SCREEN_TRANSITION,
+ * STEP_PUSHed by mode_step_door_transition / mode_step_teleport_to (which call the
+ * static screen_transition_prepare/_finalize halves). The blocking screen_transition()
+ * pump bridge was deleted in D4b. */
 
 /* Get the sound effect for a screen transition.
  * Port of GET_SCREEN_TRANSITION_SOUND_EFFECT.

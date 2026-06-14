@@ -672,71 +672,6 @@ StepResult mode_step_debug_goods(ModeState *mst) {
     }
 }
 
-/*
- * debug_teleport — Port of TELEPORT (asm/overworld/teleport.asm).
- *
- * Full teleport to a destination table entry. Used after CAST and CREDITS
- * to return the player to the overworld. The assembly calls this as a near
- * function (JSR TELEPORT) with the destination index in A.
- *
- * This is extracted from cc_1f_teleport_to() in display_text_cc.c which
- * implements the same logic but reads dest_id from a script stream.
- */
-static void debug_teleport(uint8_t dest_id) {
-    const TeleportDestination *dest = get_teleport_dest(dest_id);
-    if (!dest) return;
-
-    uint8_t saved_suppression = ow.overworld_status_suppression;
-    ow.overworld_status_suppression = 1;
-
-    /* Clear temp event flags 1-10 */
-    for (int i = 1; i <= 10; i++)
-        event_flag_clear((uint16_t)i);
-
-    process_door_interactions();
-
-    /* Screen transition out */
-    uint16_t sfx = get_screen_transition_sound_effect(dest->screen_transition, 1);
-    play_sfx(sfx);
-    if (ow.disabled_transitions)
-        fade_out(1, 1);
-    else
-        screen_transition(dest->screen_transition, 1);
-
-    uint16_t x_pixels = dest->x_coord * 8;
-    uint16_t y_pixels = dest->y_coord * 8;
-    uint16_t direction_param = (dest->direction & 0x7F) - 1;
-
-    load_map_at_position(x_pixels, y_pixels);
-    ow.player_has_moved_since_map_load = 0;
-    set_leader_position_and_load_party(x_pixels, y_pixels, direction_param);
-
-    if (dest->direction & 0x80)
-        fill_party_position_buffer(direction_param);
-
-    resolve_map_sector_music(x_pixels, y_pixels);
-    apply_next_map_music();
-
-    if (ow.post_teleport_callback) {
-        ow.post_teleport_callback();
-        ow.post_teleport_callback = NULL;
-        ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
-    }
-
-    flush_entity_creation_queue();
-
-    /* Screen transition in */
-    sfx = get_screen_transition_sound_effect(dest->screen_transition, 0);
-    play_sfx(sfx);
-    if (ow.disabled_transitions)
-        fade_in(1, 1);
-    else
-        screen_transition(dest->screen_transition, 0);
-
-    ow.stairs_direction = (uint16_t)-1;
-    spawn_buzz_buzz();
-    ow.overworld_status_suppression = saved_suppression;
-}
 
 /*
  * mode_step_debug_menu — run-to-completion port of DEBUG_Y_BUTTON_MENU
@@ -747,13 +682,12 @@ static void debug_teleport(uint8_t dest_id) {
  * becomes a STEP_PUSH, and the single yield is owned by the root.
  *
  * Commands that block only via wait_for_vblank/host_process_frame but never
- * pump_mode (Warp/CAST/STAFF), and the synchronous ones (Save/learn_special_psi/
- * Meter), run inline within DM_DISPATCH — host_process_frame does not re-enter the
- * mode stack, so this is safe (and matches the blocking form's behaviour). The two
- * deep pump bridges these commands can't yet avoid — enter_your_name_please
- * (naming) and debug_teleport (screen_transition, called by CAST/STAFF after the
- * cutscene) — stay inline this commit; D4b converts them with their non-debug
- * callers.
+ * pump_mode (Warp, and the cutscenes of CAST/STAFF), and the synchronous ones
+ * (Save/learn_special_psi/Meter), run inline within DM_DISPATCH — host_process_frame
+ * does not re-enter the mode stack, so this is safe (and matches the blocking form's
+ * behaviour). CAST/STAFF's teleport-back is GAME_MODE_TELEPORT_TO (STEP_PUSHed, D4b).
+ * The one deep pump bridge still inline — enter_your_name_please (naming) — stays
+ * this commit; D4b converts it with its non-debug callers.
  *
  * Menu items match DEBUG_MENU_TEXT in asm/data/debug/menu_text.asm (US):
  *  1=Flag  2=Goods  3=Save  4=Apple  5=Banana  6=TV  7=Event  8=Warp
@@ -935,12 +869,15 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
         case 17:
             /* CAST — assembly @CMD_CAST: play cast scene, then teleport to dest 1.
-             * play_cast_scene blocks via host_process_frame only (pump-free);
-             * debug_teleport pumps screen_transition (inline this commit, D4b). */
+             * play_cast_scene blocks via host_process_frame only (pump-free); the
+             * teleport-back is GAME_MODE_TELEPORT_TO (D4b: the screen_transition
+             * pump bridge is gone), STEP_PUSHed with resume DM_AFTER. */
             play_cast_scene();
-            debug_teleport(1);
+            child = (ModeState){0};
+            child.teleport_to.phase   = TT_BEGIN;
+            child.teleport_to.dest_id = 1;
             s->phase = DM_AFTER;
-            return STEP_RESULT_CONTINUE();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
         case 18:
             /* STONE — assembly @CMD_SOUND_STONE: sound stone melody (cancellable). */
             child = (ModeState){0};
@@ -949,11 +886,14 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             s->phase = DM_AFTER;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
         case 19:
-            /* STAFF (CREDITS) — assembly @CMD_CREDITS: play credits, then dest 1. */
+            /* STAFF (CREDITS) — assembly @CMD_CREDITS: play credits, then dest 1.
+             * Teleport-back is GAME_MODE_TELEPORT_TO, STEP_PUSHed (resume DM_AFTER). */
             play_credits();
-            debug_teleport(1);
+            child = (ModeState){0};
+            child.teleport_to.phase   = TT_BEGIN;
+            child.teleport_to.dest_id = 1;
             s->phase = DM_AFTER;
-            return STEP_RESULT_CONTINUE();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
         case 20:
             /* Meter (FLIPOUT) — assembly @CMD_FLIPOUT: toggle HP/PP flipout mode. */
             toggle_hppp_flipout_mode(bt.hppp_meter_flipout_mode ? 0 : 1);
@@ -1120,11 +1060,11 @@ static void overworld_boot(void) {
  * the root to its boot phase instead of unwinding. Every modal context reached from
  * the overworld (battle, menus, dialogue, fades, teleport, intro, game-over) is a
  * mode pushed onto the stack — including the debug Y-button menu
- * (GAME_MODE_DEBUG_MENU). The only blocking holdouts are the pump-bridge wrappers
- * that still drive already-converted modes for remaining inline callers, plus a few
- * deep debug pump bridges (enter_your_name_please naming, debug_teleport) still
- * called inline from the debug menu (deleted at the Phase D cutover, D4b). See
- * docs/plans/savestate-unified-loop.md.
+ * (GAME_MODE_DEBUG_MENU) and the script/debug teleport (GAME_MODE_TELEPORT_TO). The
+ * only blocking holdouts are the pump-bridge wrappers that still drive
+ * already-converted modes for remaining inline callers, plus one deep debug pump
+ * bridge (enter_your_name_please naming) still called inline from the debug menu
+ * (deleted at the Phase D cutover, D4b). See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
 
 /* GAME_MODE_OVERWORLD step — the permanent root (g_mode_stack[0]). Boot stages

@@ -147,119 +147,6 @@ static void cc_1f_change_tpt_direction(ScriptReader *r) {
 }
 
 
-/* CC_1F_21: TELEPORT_TO — 1 arg byte
- *
- * Faithful port of TELEPORT (asm/overworld/teleport.asm).
- * Handles event flag clearing, screen transitions (or simple fades when
- * ow.disabled_transitions is set), map loading, party repositioning, entity
- * queue flushing, and music resolution. */
-static void cc_1f_teleport_to(ScriptReader *r) {
-    uint8_t dest_id = script_read_byte(r);
-    const TeleportDestination *dest = get_teleport_dest(dest_id);
-    if (!dest) {
-        LOG_WARN("display_text: bad teleport dest %d\n", dest_id);
-        return;
-    }
-    /* Save and override ow.overworld_status_suppression (teleport.asm lines 12-15) */
-    uint8_t saved_suppression = ow.overworld_status_suppression;
-    ow.overworld_status_suppression = 1;
-
-    /* Clear event flags 1-10 (FLG_TEMP_0 through FLG_TEMP_9).
-     * Assembly (teleport.asm lines 25-37): SET_EVENT_FLAG(id, 0) for id 1..10.
-     * These are temporary synchronization flags used by entity scripts
-     * (e.g., attract mode scripts 115-119 use them for scene handoff). */
-    for (int i = 1; i <= 10; i++) {
-        event_flag_clear((uint16_t)i);
-    }
-
-    /* PROCESS_DOOR_INTERACTIONS (teleport.asm line 38) */
-    process_door_interactions();
-
-    /* Screen transition out (teleport.asm lines 39-60).
-     * If ow.disabled_transitions: non-blocking FADE_OUT(step=1, delay=1).
-     *   Assembly just sets fade parameters and continues — no wait.
-     * Otherwise: play transition sound + full screen transition. */
-    uint16_t sfx = get_screen_transition_sound_effect(
-        dest->screen_transition, 1);
-    play_sfx(sfx);
-    if (ow.disabled_transitions) {
-        fade_out(1, 1);
-        /* Assembly: FADE_OUT is non-blocking (just sets params, RTL).
-         * Do NOT call wait_for_fade_complete — assembly doesn't. */
-    } else {
-        screen_transition(dest->screen_transition, 1);
-    }
-
-    /* Coordinates are in 8-pixel units (ASL ASL ASL in assembly) */
-    uint16_t x_pixels = dest->x_coord * 8;
-    uint16_t y_pixels = dest->y_coord * 8;
-    uint8_t raw_direction = dest->direction;
-
-    /* Direction: assembly does AND #$007F, DEC (teleport.asm lines 80-82). */
-    uint16_t direction_param = (raw_direction & 0x7F) - 1;
-
-    /* LOAD_MAP_AT_POSITION (teleport.asm line 85) */
-    load_map_at_position(x_pixels, y_pixels);
-    ow.player_has_moved_since_map_load = 0;  /* teleport.asm line 86 */
-
-    /* SET_LEADER_POSITION_AND_LOAD_PARTY (teleport.asm line 90).
-     * Assembly passes: A=y_pixels, X=x_pixels, Y=direction_param.
-     * This handles sector attrs, character_mode, entity creation via
-     * LOAD_PARTY_AT_MAP_POSITION, surface flags, position buffer init,
-     * animation fingerprints, pajama flag, and refresh_party_entities. */
-    set_leader_position_and_load_party(x_pixels, y_pixels, direction_param);
-
-    /* If bit 7 of the direction byte is set, fill position buffer with a
-     * spread-out trail behind the leader (teleport.asm lines 91-96). */
-    if (raw_direction & 0x80) {
-        fill_party_position_buffer(direction_param);
-    }
-
-    /* Resolve music for new location (teleport.asm lines 98-101).
-     * RESOLVE_MAP_SECTOR_MUSIC + APPLY_NEXT_MAP_MUSIC. */
-    resolve_map_sector_music(x_pixels, y_pixels);
-    apply_next_map_music();
-
-    /* POST_TELEPORT_CALLBACK (teleport.asm lines 102-119).
-     * If a deferred callback was set (e.g. UNDRAW_FLYOVER_TEXT by flyover/
-     * sanctuary scripts), call it and clear it. */
-    if (ow.post_teleport_callback) {
-        ow.post_teleport_callback();
-        ow.post_teleport_callback = NULL;
-        ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
-    }
-
-    /* FLUSH_ENTITY_CREATION_QUEUE (teleport.asm line 120).
-     * Creates any entities that were deferred during map loading
-     * (e.g., via QUEUE_ENTITY_CREATION). */
-    flush_entity_creation_queue();
-
-    /* Screen transition in (teleport.asm lines 121-142).
-     * If ow.disabled_transitions: non-blocking FADE_IN(step=1, delay=1).
-     *   Assembly just sets fade parameters and continues — no wait.
-     * Otherwise: play transition sound + full screen transition. */
-    sfx = get_screen_transition_sound_effect(
-        dest->screen_transition, 0);
-    play_sfx(sfx);
-    if (ow.disabled_transitions) {
-        fade_in(1, 1);
-        /* Assembly: FADE_IN is non-blocking (just sets params, RTL).
-         * Do NOT call wait_for_fade_complete — assembly doesn't. */
-    } else {
-        screen_transition(dest->screen_transition, 0);
-    }
-
-    /* Reset stairs direction (teleport.asm line 145) */
-    ow.stairs_direction = (uint16_t)-1;
-
-    /* SPAWN_BUZZ_BUZZ (teleport.asm line 146) */
-    spawn_buzz_buzz();
-
-    /* Restore ow.overworld_status_suppression (teleport.asm lines 147-148) */
-    ow.overworld_status_suppression = saved_suppression;
-
-}
-
 
 /* CC_1F_E5: SET_PLAYER_LOCK — 1 arg byte
  * Port of CC_1F_E5 (asm/text/ccs/set_player_movement_lock.asm).
@@ -927,7 +814,20 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         set_teleport_state((uint8_t)dest, (uint8_t)style);
         break;
     }
-    case 0x21: cc_1f_teleport_to(r); break;               /* TELEPORT_TO: 1 arg */
+    case 0x21: {                                          /* TELEPORT_TO: 1 arg */
+        /* The whole teleport sequence (fade out → map load → fade in → buzz-buzz)
+         * runs as GAME_MODE_TELEPORT_TO; STEP_PUSH it (no post-work). */
+        uint8_t dest_id = script_read_byte(r);
+        if (!get_teleport_dest(dest_id)) {
+            LOG_WARN("display_text: bad teleport dest %d\n", dest_id);
+            break;
+        }
+        out_init->teleport_to.phase   = TT_BEGIN;
+        out_init->teleport_to.dest_id = dest_id;
+        *out_mode   = GAME_MODE_TELEPORT_TO;
+        *out_resume = DT_RESUME_NONE;
+        return true;
+    }
     case 0x23: {
         /* TRIGGER_BATTLE: 2 args forming a 16-bit battle_group_id.
          * Port of CC_1F_23 (asm/text/ccs/trigger_battle.asm).

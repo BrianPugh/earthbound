@@ -999,17 +999,11 @@ static void screen_transition_finalize(void) {
     ow.ladder_stairs_tile_x = 0;
 }
 
-/* Blocking wrapper: one-shot setup → pump the SCREEN_TRANSITION child → cleanup.
- * Unchanged behavior for its callers (teleport in game_main.c / display_text_cc.c).
- * GAME_MODE_DOOR_TRANSITION does not use this wrapper — it sequences the prepare /
- * push / finalize itself so the transition lives on the mode stack. */
-void screen_transition(uint8_t transition_type, uint8_t mode) {
-    ModeState init;
-    if (!screen_transition_prepare(transition_type, mode, &init))
-        return;
-    pump_mode(GAME_MODE_SCREEN_TRANSITION, &init);
-    screen_transition_finalize();
-}
+/* The blocking screen_transition() pump bridge was deleted in D4b. Its callers —
+ * door transitions (mode_step_door_transition) and the script/debug teleport
+ * sequence (mode_step_teleport_to) — sequence screen_transition_prepare / STEP_PUSH
+ * GAME_MODE_SCREEN_TRANSITION / screen_transition_finalize() themselves so the
+ * transition lives on the mode stack. */
 
 /* ---- GET_SCREEN_TRANSITION_SOUND_EFFECT ---- */
 
@@ -1227,6 +1221,141 @@ StepResult mode_step_door_transition(ModeState *ms) {
         default:
             spawn_delivery_entities();
             dr.using_door = 0;
+            return STEP_RESULT_POP(0);
+        }
+    }
+}
+
+/* ---- TELEPORT (teleport.asm) ---- */
+
+/* GAME_MODE_TELEPORT_TO step — run-to-completion port of the TELEPORT sequence used
+ * by CC_1F_21 (the display_text TELEPORT_TO command) and the debug menu's CAST/STAFF
+ * teleport-back. It mirrors mode_step_door_transition's structure: only the
+ * destination id is carried (re-resolved each step via get_teleport_dest, so no ROM
+ * pointer crosses a yield), the two screen_transition() calls are STEP_PUSHed via
+ * screen_transition_prepare/_finalize, and spawn_buzz_buzz's check text is a
+ * DISPLAY_TEXT push (the spawns run at TT_BUZZ_DONE). load_map_at_position() runs
+ * inline — the preceding transition's fade has completed so its wait returns without
+ * yielding (the disabled_transitions branch leaves it a deferred blocking helper).
+ * The for(;;) lets the no-push branches fall through with no extra yield, matching
+ * the blocking original's zero-yield gaps. */
+StepResult mode_step_teleport_to(ModeState *ms) {
+    TeleportToState *st = &ms->teleport_to;
+    const TeleportDestination *dest = get_teleport_dest(st->dest_id);
+    if (!dest) {
+        LOG_WARN("teleport: bad dest %d\n", (int)st->dest_id);
+        return STEP_RESULT_POP(0);
+    }
+
+    for (;;) {
+        switch ((TeleportToPhase)st->phase) {
+        case TT_BEGIN: {
+            /* Save and override ow.overworld_status_suppression (lines 12-15). */
+            st->saved_suppression = (uint8_t)ow.overworld_status_suppression;
+            ow.overworld_status_suppression = 1;
+
+            /* Clear temp event flags 1-10 (lines 25-37). */
+            for (uint16_t i = 1; i <= 10; i++)
+                event_flag_clear(i);
+
+            /* PROCESS_DOOR_INTERACTIONS (line 38). */
+            process_door_interactions();
+
+            /* Screen transition out (lines 39-60): play sound, then transition or
+             * (disabled_transitions) a non-blocking fade. */
+            uint16_t sfx = get_screen_transition_sound_effect(dest->screen_transition, 1);
+            play_sfx(sfx);
+            st->phase = TT_AFTER_OUT;
+            if (ow.disabled_transitions) {
+                fade_out(1, 1);
+                continue;
+            }
+            static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
+            if (screen_transition_prepare(dest->screen_transition, 1, &stx_init)) {
+                st->phase = TT_TRANS_OUT_FIN;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
+            }
+            continue;  /* invalid type: no push, no finalize (matches early return) */
+        }
+
+        case TT_TRANS_OUT_FIN:
+            screen_transition_finalize();
+            st->phase = TT_AFTER_OUT;
+            continue;
+
+        case TT_AFTER_OUT: {
+            /* Coordinates are in 8-pixel units (ASL ASL ASL). */
+            uint16_t x_pixels = dest->x_coord * 8;
+            uint16_t y_pixels = dest->y_coord * 8;
+            uint8_t  raw_direction = dest->direction;
+            /* Direction: AND #$007F, DEC (lines 80-82). */
+            uint16_t direction_param = (uint16_t)((raw_direction & 0x7F) - 1);
+
+            /* LOAD_MAP_AT_POSITION + SET_LEADER_POSITION_AND_LOAD_PARTY (lines 85-90). */
+            load_map_at_position(x_pixels, y_pixels);
+            ow.player_has_moved_since_map_load = 0;
+            set_leader_position_and_load_party(x_pixels, y_pixels, direction_param);
+
+            /* Spread-out trail behind the leader if bit 7 set (lines 91-96). */
+            if (raw_direction & 0x80)
+                fill_party_position_buffer(direction_param);
+
+            /* Resolve music for new location (lines 98-101). */
+            resolve_map_sector_music(x_pixels, y_pixels);
+            apply_next_map_music();
+
+            /* POST_TELEPORT_CALLBACK (lines 102-119). */
+            if (ow.post_teleport_callback) {
+                ow.post_teleport_callback();
+                ow.post_teleport_callback = NULL;
+                ow.post_teleport_callback_id = POST_TELEPORT_CB_NONE;
+            }
+
+            /* FLUSH_ENTITY_CREATION_QUEUE (line 120). */
+            flush_entity_creation_queue();
+
+            /* Screen transition in (lines 121-142). */
+            uint16_t sfx = get_screen_transition_sound_effect(dest->screen_transition, 0);
+            play_sfx(sfx);
+            st->phase = TT_FINALIZE;
+            if (ow.disabled_transitions) {
+                fade_in(1, 1);
+                continue;
+            }
+            static ModeState stn_init;  /* outlives this dispatch (pump copies it) */
+            if (screen_transition_prepare(dest->screen_transition, 0, &stn_init)) {
+                st->phase = TT_TRANS_IN_FIN;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stn_init);
+            }
+            continue;
+        }
+
+        case TT_TRANS_IN_FIN:
+            screen_transition_finalize();
+            st->phase = TT_FINALIZE;
+            continue;
+
+        case TT_FINALIZE: {
+            /* Reset stairs direction (line 145); SPAWN_BUZZ_BUZZ (line 146) — its
+             * check text is a DISPLAY_TEXT push, the delivery spawns run at
+             * TT_BUZZ_DONE (matches mode_step_door_transition's DTR_FINALIZE split).
+             * An unresolvable address warns + falls through, as display_text_from_addr
+             * does. Suppression is still 1 here (restored after the spawns), matching
+             * the blocking order. */
+            ow.stairs_direction = (uint16_t)-1;
+            static ModeState bb_init;  /* outlives this dispatch (pump copies it) */
+            st->phase = TT_BUZZ_DONE;
+            if (dt_make_child_init(&bb_init, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &bb_init);
+            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
+                     (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
+            continue;
+        }
+
+        case TT_BUZZ_DONE:
+        default:
+            spawn_delivery_entities();
+            ow.overworld_status_suppression = st->saved_suppression;
             return STEP_RESULT_POP(0);
         }
     }
