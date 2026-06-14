@@ -278,10 +278,9 @@ void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16
  * which auto-layouts first). */
 void print_menu_items(void);
 
-/* Run a selection menu in the focus window.
-   allow_cancel: if non-zero, B button returns 0.
-   Returns selected menu item's userdata, or 0 if cancelled. */
-uint16_t selection_menu(uint16_t allow_cancel);
+/* The blocking selection_menu() helper has been removed; callers STEP_PUSH
+ * GAME_MODE_SELECTION_MENU (mode_step_selection_menu) instead, replicating the
+ * null/empty-menu early-out (return 0, no push) inline at each push site. */
 
 /* CHAR_SELECT_PROMPT — Port of asm/text/character_select_prompt.asm.
  * Creates a window listing party member names and runs selection_menu.

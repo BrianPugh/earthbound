@@ -1609,6 +1609,28 @@ StepResult mode_step_display_text(ModeState *ms) {
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
         WindowInfo *w = get_focus_window_info();
         if (w) w->menu_count = 0;
+    } else if (st->resume == DT_RESUME_CC18_SEL) {
+        /* CC_18_08 selection menu: store the result; if it was cancelled (0)
+         * and a cancel target was supplied, jump there — the tail of the former
+         * CC_18_08. resolve_text_jump acts on st->reader (r is set up below). */
+        st->resume = DT_RESUME_NONE;
+        uint16_t result = (uint16_t)mode_child_result();
+        set_working_memory((uint32_t)result);
+        if (result == 0 && st->cc18_cancel_target != 0) {
+            resolve_text_jump(&st->reader, st->cc18_cancel_target);
+        }
+    } else if (st->resume == DT_RESUME_CC18_SEL_RESTORE) {
+        /* CC_18_09 selection menu: restore the saved text attributes, then store
+         * the result — the tail of the former CC_18_09. */
+        st->resume = DT_RESUME_NONE;
+        restore_window_text_attributes();
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_MENU_RESULT) {
+        /* STORE / ESCARGO / TELEPHONE menu: store the popped result to working
+         * memory — the former open_store_menu / select_escargo_express_item /
+         * open_telephone_menu / display_telephone_contact_text return value. */
+        st->resume = DT_RESUME_NONE;
+        set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
 
     ScriptReader *r = &st->reader;
@@ -1886,7 +1908,23 @@ StepResult mode_step_display_text(ModeState *ms) {
             return dt_push_text_prompt(1, 1);
 
         /* Tree dispatchers */
-        case 0x18: cc_18_dispatch(r); break;
+        case 0x18: {
+            /* Most CC_18 sub-ops run inline; the focus-window selection menus
+             * (sub 0x08/0x09) request a SELECTION_MENU child push, carrying the
+             * 0x08 cancel-jump target to resolve in DT_RESUME_CC18_SEL on POP. */
+            static ModeState cc18_init;  /* outlives this dispatch (pump copies it) */
+            memset(&cc18_init, 0, sizeof(cc18_init));
+            GameMode child_mode = GAME_MODE_NONE;
+            uint8_t  child_resume = DT_RESUME_NONE;
+            uint32_t cancel_target = 0;
+            if (cc_18_dispatch(r, &cc18_init, &child_mode, &child_resume,
+                               &cancel_target)) {
+                st->resume = child_resume;
+                st->cc18_cancel_target = cancel_target;
+                return STEP_RESULT_PUSH_INIT(child_mode, &cc18_init);
+            }
+            break;
+        }
         case 0x19: cc_19_dispatch(r); break;
         case 0x1A: {
             /* Most CC_1A sub-ops run inline; the overworld party-member selection

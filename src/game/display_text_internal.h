@@ -80,7 +80,14 @@ uint32_t party_selector_overworld_prepare(uint16_t allow_cancel, ModeState *out_
 /* ---- CC dispatch handlers (display_text_cc.c) ---- */
 void cc_set_event_flag(ScriptReader *r);
 void cc_clear_event_flag(ScriptReader *r);
-void cc_18_dispatch(ScriptReader *r);
+/* cc_18_dispatch: most sub-ops run inline and return false. Sub 0x08/0x09
+ * (SELECTION_MENU_*) instead fill out_init/out_mode (GAME_MODE_SELECTION_MENU to
+ * STEP_PUSH) and out_resume (DT_RESUME_CC18_SEL / DT_RESUME_CC18_SEL_RESTORE),
+ * and 0x08 also returns its cancel-jump target via *out_cancel_target. Returns
+ * true when a child push is requested. The caller (mode_step_display_text)
+ * zeroes *out_init before the call. */
+bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume, uint32_t *out_cancel_target);
 void cc_19_dispatch(ScriptReader *r);
 /* cc_1a_dispatch: most sub-ops run inline and return false. Sub 0x00/0x01
  * (PARTY_MEMBER_SELECTION_MENU) in OVERWORLD mode (mode byte == 1) instead fills
@@ -114,9 +121,9 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
 
 /* ---- Menu functions (display_text_menus.c) ---- */
 void show_character_inventory(uint16_t window_id, uint16_t char_source);
-uint16_t open_store_menu(uint16_t shop_id);
-uint16_t select_escargo_express_item(void);
-uint16_t open_telephone_menu(void);
-uint16_t display_telephone_contact_text(void);
+/* open_store_menu / select_escargo_express_item / open_telephone_menu /
+ * display_telephone_contact_text are now run-to-completion modes
+ * (GAME_MODE_STORE_MENU / _ESCARGO_MENU / _TELEPHONE_MENU; mode_step_* declared
+ * in mode_stack.h), STEP_PUSHed from the CC dispatchers. */
 
 #endif /* GAME_DISPLAY_TEXT_INTERNAL_H */

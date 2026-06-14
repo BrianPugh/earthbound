@@ -863,11 +863,14 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x90: {
         /* OPEN_TELEPHONE_MENU: 0 args.
          * Port of tree_1F.asm @OPEN_TELEPHONE_MENU → OPEN_TELEPHONE_MENU (C19441).
-         * Opens the phone directory menu and stores result in working_memory.
-         * Returns selected contact index (1-based), or 0 if cancelled/empty. */
-        uint16_t tel_result = open_telephone_menu();
-        set_working_memory((uint32_t)tel_result);
-        break;
+         * Opens the phone directory menu (no contact text); now
+         * GAME_MODE_TELEPHONE_MENU with show_text=0. STEP_PUSH it and store the
+         * selected contact index to working memory in DT_RESUME_MENU_RESULT. */
+        out_init->telephone_menu.phase     = TPH_ENTER;
+        out_init->telephone_menu.show_text = 0;
+        *out_mode   = GAME_MODE_TELEPHONE_MENU;
+        *out_resume = DT_RESUME_MENU_RESULT;
+        return true;
     }
 
     /* --- Font commands --- */
@@ -1450,7 +1453,8 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
  *
  * CC 0x18 tree: window management commands.
  * Port from asm/text/ccs/cc_18_*.asm files. */
-void cc_18_dispatch(ScriptReader *r) {
+bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume, uint32_t *out_cancel_target) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -1567,12 +1571,23 @@ void cc_18_dispatch(ScriptReader *r) {
          * via gather mechanism but textmacro declares DWORD (4 bytes in stream).
          * Stores result in working_memory. */
         uint32_t cancel_target = script_read_dword(r);
-        uint16_t result = selection_menu(0);  /* allow_cancel=0: NO cancel */
-        set_working_memory((uint32_t)result);
-        if (result == 0 && cancel_target != 0) {
-            resolve_text_jump(r, cancel_target);
+        /* selection_menu(0) → STEP_PUSH GAME_MODE_SELECTION_MENU; the result store
+         * + conditional cancel-jump run in DT_RESUME_CC18_SEL on POP. An empty/null
+         * menu returns 0 inline (and still takes the cancel jump). */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (!w || w->menu_count == 0) {
+            set_working_memory(0);
+            if (cancel_target != 0) {
+                resolve_text_jump(r, cancel_target);
+            }
+            break;
         }
-        break;
+        out_init->selection_menu.phase        = SM_SETUP;
+        out_init->selection_menu.allow_cancel = 0;
+        *out_cancel_target = cancel_target;
+        *out_mode   = GAME_MODE_SELECTION_MENU;
+        *out_resume = DT_RESUME_CC18_SEL;
+        return true;
     }
     case 0x09: {
         /* SELECTION_MENU_ALLOW_CANCEL (despite confusing label in tree_18.asm): 1 arg byte.
@@ -1584,10 +1599,20 @@ void cc_18_dispatch(ScriptReader *r) {
         uint8_t window_id = script_read_byte(r);
         save_window_text_attributes();
         set_window_focus((uint16_t)window_id);
-        uint16_t result = selection_menu(1);  /* allow_cancel=1: ALLOW cancel */
-        restore_window_text_attributes();
-        set_working_memory((uint32_t)result);
-        break;
+        /* selection_menu(1) → STEP_PUSH GAME_MODE_SELECTION_MENU; the text-attr
+         * restore + result store run in DT_RESUME_CC18_SEL_RESTORE on POP. An
+         * empty/null menu returns 0 inline (still restoring text attrs). */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (!w || w->menu_count == 0) {
+            restore_window_text_attributes();
+            set_working_memory(0);
+            break;
+        }
+        out_init->selection_menu.phase        = SM_SETUP;
+        out_init->selection_menu.allow_cancel = 1;
+        *out_mode   = GAME_MODE_SELECTION_MENU;
+        *out_resume = DT_RESUME_CC18_SEL_RESTORE;
+        return true;
     }
     case 0x0A:
         /* DISPLAY_MONEY_WINDOW: 0 args.
@@ -1613,6 +1638,7 @@ void cc_18_dispatch(ScriptReader *r) {
         FATAL("display_text: unknown CC 18 %02X\n", sub);
         break;
     }
+    return false;  /* sub-op ran inline; no child push needed */
 }
 
 
@@ -2135,17 +2161,23 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         } else {
             shop_id = shop_arg;
         }
-        uint16_t result = open_store_menu(shop_id);
-        set_working_memory((uint32_t)result);
-        break;
+        /* open_store_menu() is now GAME_MODE_STORE_MENU; STEP_PUSH it and store
+         * its result to working memory in DT_RESUME_MENU_RESULT on POP. */
+        out_init->store_menu.phase   = STM_ENTER;
+        out_init->store_menu.shop_id = shop_id;
+        *out_mode   = GAME_MODE_STORE_MENU;
+        *out_resume = DT_RESUME_MENU_RESULT;
+        return true;
     }
     case 0x07: {
         /* SELECT_ESCARGO_EXPRESS_ITEM: 0 args.
          * Port of tree_1A.asm @SELECT_ESCARGO_EXPRESS_ITEM.
-         * Calls SELECT_ESCARGO_EXPRESS_ITEM (C19A43.asm). */
-        uint16_t result = select_escargo_express_item();
-        set_working_memory((uint32_t)result);
-        break;
+         * select_escargo_express_item() is now GAME_MODE_ESCARGO_MENU; STEP_PUSH
+         * it and store its result to working memory in DT_RESUME_MENU_RESULT. */
+        out_init->escargo_menu.phase = EEM_ENTER;
+        *out_mode   = GAME_MODE_ESCARGO_MENU;
+        *out_resume = DT_RESUME_MENU_RESULT;
+        return true;
     }
     case 0x08: {
         /* SELECTION_MENU_NO_CANCEL (variant): 0 args.
@@ -2183,10 +2215,14 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x0A: {
         /* DISPLAY_TELEPHONE_CONTACT: 0 args.
          * Port of tree_1A.asm @DISPLAY_TELEPHONE_CONTACT.
-         * Calls DISPLAY_TELEPHONE_CONTACT_TEXT (C1AC00.asm). */
-        uint16_t result = display_telephone_contact_text();
-        set_working_memory((uint32_t)result);
-        break;
+         * display_telephone_contact_text() is now GAME_MODE_TELEPHONE_MENU with
+         * show_text=1 (the menu then the chosen contact's call text); STEP_PUSH
+         * it and store the selection to working memory in DT_RESUME_MENU_RESULT. */
+        out_init->telephone_menu.phase     = TPH_ENTER;
+        out_init->telephone_menu.show_text = 1;
+        *out_mode   = GAME_MODE_TELEPHONE_MENU;
+        *out_resume = DT_RESUME_MENU_RESULT;
+        return true;
     }
     case 0x0B:
         /* OPEN_TELEPORT_MENU: 0 args.

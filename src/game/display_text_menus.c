@@ -757,61 +757,84 @@ static void load_store_table(void) {
  *  11. RESET_HPPP_OPTIONS_AND_LOAD_PALETTE — cleanup
  *  12. CLOSE_FOCUS_WINDOW, RESTORE_WINDOW_TEXT_ATTRIBUTES, CLEAR_INSTANT_PRINTING
  */
-uint16_t open_store_menu(uint16_t shop_id) {
-    /* Assembly lines 14-20: display money window, enable instant printing,
-     * save text attributes, create shop window, set padding to 5 digits. */
-    display_money_window();
-    set_instant_printing();
-    save_window_text_attributes();
-    create_window(WINDOW_STORE_ITEM_LIST);
-    set_window_number_padding(5);
+StepResult mode_step_store_menu(ModeState *ms) {
+    StoreMenuState *st = &ms->store_menu;
+    uint16_t result = 0;
 
-    /* Assembly lines 21-83: loop 7 items for this shop.
-     * For each item: ADD_MENU_ITEM_NO_POSITION(name, item_id),
-     * SET_FOCUS_TEXT_CURSOR(0, counter), PRINT_MONEY_IN_WINDOW(price).
-     * Prices are right-aligned via PRINT_MONEY_IN_WINDOW. */
-    load_store_table();
-    if (store_table_data) {
-        for (int i = 0; i < STORE_ITEMS_PER_SHOP; i++) {
-            size_t table_offset = (size_t)shop_id * STORE_ITEMS_PER_SHOP + i;
-            if (table_offset >= store_table_size) break;
+    switch ((StoreMenuPhase)st->phase) {
 
-            uint8_t item_id = store_table_data[table_offset];
-            if (item_id == 0) continue;
+    case STM_ENTER: {
+        /* Assembly lines 14-20: display money window, enable instant printing,
+         * save text attributes, create shop window, set padding to 5 digits. */
+        display_money_window();
+        set_instant_printing();
+        save_window_text_attributes();
+        create_window(WINDOW_STORE_ITEM_LIST);
+        set_window_number_padding(5);
 
-            const ItemConfig *item_entry = get_item_entry(item_id);
-            if (!item_entry) continue;
+        /* Assembly lines 21-83: loop 7 items for this shop.
+         * For each item: ADD_MENU_ITEM_NO_POSITION(name, item_id),
+         * SET_FOCUS_TEXT_CURSOR(0, counter), PRINT_MONEY_IN_WINDOW(price).
+         * Prices are right-aligned via PRINT_MONEY_IN_WINDOW. */
+        load_store_table();
+        if (store_table_data) {
+            for (int i = 0; i < STORE_ITEMS_PER_SHOP; i++) {
+                size_t table_offset = (size_t)st->shop_id * STORE_ITEMS_PER_SHOP + i;
+                if (table_offset >= store_table_size) break;
 
-            /* Copy item name from config (EB encoding → ASCII) */
-            char name_buf[ITEM_NAME_LEN + 1];
-            eb_to_ascii_buf(item_entry->name, ITEM_NAME_LEN, name_buf);
+                uint8_t item_id = store_table_data[table_offset];
+                if (item_id == 0) continue;
 
-            add_menu_item_no_position(name_buf, item_id);
+                const ItemConfig *item_entry = get_item_entry(item_id);
+                if (!item_entry) continue;
 
-            /* Print right-aligned price on the same line.
-             * Assembly uses raw slot index (always increments) for Y,
-             * not item_counter which only increments for non-empty items. */
-            set_focus_text_cursor(0, (uint16_t)i);
-            uint16_t price = item_entry->cost;
-            print_money_in_window((uint32_t)price);
+                /* Copy item name from config (EB encoding → ASCII) */
+                char name_buf[ITEM_NAME_LEN + 1];
+                eb_to_ascii_buf(item_entry->name, ITEM_NAME_LEN, name_buf);
 
+                add_menu_item_no_position(name_buf, item_id);
 
+                /* Print right-aligned price on the same line.
+                 * Assembly uses raw slot index (always increments) for Y,
+                 * not item_counter which only increments for non-empty items. */
+                set_focus_text_cursor(0, (uint16_t)i);
+                uint16_t price = item_entry->cost;
+                print_money_in_window((uint32_t)price);
+            }
         }
+
+        /* Assembly lines 84-90: reset cursor, layout menu in 1 column */
+        set_focus_text_cursor(0, 0);
+        open_window_and_print_menu(1, 0);
+
+        /* Assembly lines 91-93: SET_CURSOR_MOVE_CALLBACK(SET_HPPP_WINDOW_MODE_ITEM),
+         * INITIALIZE_WINDOW_FLAVOUR_PALETTE.
+         * Cursor callback updates HPPP window display to show stat comparison
+         * when hovering over equippable items. */
+        set_cursor_move_callback(set_hppp_window_mode_item, CURSOR_CB_HPPP_MODE_ITEM);
+        initialize_window_flavour_palette();
+
+        /* Assembly line 94-95: selection_menu(1) — allow cancel. STEP_PUSH it;
+         * the cleanup runs in STM_RESULT after it pops. selection_menu() returns
+         * 0 without pumping for a null/empty menu — replicate that early-out. */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (w && w->menu_count != 0) {
+            static ModeState sel_init;
+            sel_init = (ModeState){0};
+            sel_init.selection_menu.phase        = SM_SETUP;
+            sel_init.selection_menu.allow_cancel = 1;
+            st->phase = STM_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+        }
+        /* Empty menu: result 0, fall through to the shared cleanup. */
+        break;
     }
 
-    /* Assembly lines 84-90: reset cursor, layout menu in 1 column */
-    set_focus_text_cursor(0, 0);
-    open_window_and_print_menu(1, 0);
-
-    /* Assembly lines 91-93: SET_CURSOR_MOVE_CALLBACK(SET_HPPP_WINDOW_MODE_ITEM),
-     * INITIALIZE_WINDOW_FLAVOUR_PALETTE.
-     * Cursor callback updates HPPP window display to show stat comparison
-     * when hovering over equippable items. */
-    set_cursor_move_callback(set_hppp_window_mode_item, CURSOR_CB_HPPP_MODE_ITEM);
-    initialize_window_flavour_palette();
-
-    /* Assembly line 94-95: selection_menu(1) — allow cancel */
-    uint16_t result = selection_menu(1);
+    case STM_RESULT:
+    default:
+        result = (uint16_t)mode_child_result();
+        break;
+    }
 
     /* Assembly lines 96-104: cleanup.
      * Order matches assembly: RESET → CLOSE → RESTORE → CLEAR. */
@@ -820,7 +843,7 @@ uint16_t open_store_menu(uint16_t shop_id) {
     restore_window_text_attributes();
     clear_instant_printing();
 
-    return result;
+    return STEP_RESULT_POP(result);
 }
 
 
@@ -960,46 +983,73 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
  *   7. CLEAR_WINDOW_TILEMAP(ESCARGO_EXPRESS_ITEM)
  *   8. Clear FORCE_LEFT_TEXT_ALIGNMENT, restore text attributes
  */
-uint16_t select_escargo_express_item(void) {
-    save_window_text_attributes();
-    create_window(WINDOW_ESCARGO_EXPRESS_ITEM);
+StepResult mode_step_escargo_menu(ModeState *ms) {
+    EscargoMenuState *st = &ms->escargo_menu;
+    uint16_t result = 0;
 
-    /* Build window title: STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods") */
-    load_menu_title_assets();
-    if (status_equip_text_7) {
-        char title_buf[WINDOW_TITLE_SIZE];
-        eb_to_ascii_buf(status_equip_text_7, (int)status_equip_text_7_size, title_buf);
-        set_window_title(WINDOW_ESCARGO_EXPRESS_ITEM, title_buf, -1);
+    switch ((EscargoMenuPhase)st->phase) {
+
+    case EEM_ENTER: {
+        save_window_text_attributes();
+        create_window(WINDOW_ESCARGO_EXPRESS_ITEM);
+
+        /* Build window title: STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods") */
+        load_menu_title_assets();
+        if (status_equip_text_7) {
+            char title_buf[WINDOW_TITLE_SIZE];
+            eb_to_ascii_buf(status_equip_text_7, (int)status_equip_text_7_size, title_buf);
+            set_window_title(WINDOW_ESCARGO_EXPRESS_ITEM, title_buf, -1);
+        }
+
+        /* Loop over 36 Escargo Express storage slots.
+         * Assembly uses ADD_MENU_OPTION (type=1, counted mode) — SELECTION_MENU
+         * returns the 1-based option index. C port's selection_menu returns userdata,
+         * so we assign sequential 1-based indices as userdata. */
+        int seq = 1;
+        for (int i = 0; i < 36; i++) {
+            uint8_t item_id = game_state.escargo_express_items[i];
+            if (item_id == 0) continue;
+
+            /* Look up item name from item configuration table */
+            const ItemConfig *item_entry = get_item_entry(item_id);
+            if (!item_entry) continue;
+
+            char name_buf[ITEM_NAME_LEN + 1];
+            eb_to_ascii_buf(item_entry->name, ITEM_NAME_LEN, name_buf);
+
+            add_menu_item_no_position(name_buf, (uint16_t)seq++);
+        }
+
+        open_window_and_print_menu(2, 0);
+
+        /* selection_menu(1) — STEP_PUSH; cleanup runs in EEM_RESULT after it
+         * pops. selection_menu() returns 0 without pumping for an empty menu —
+         * replicate that early-out. */
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (w && w->menu_count != 0) {
+            static ModeState sel_init;
+            sel_init = (ModeState){0};
+            sel_init.selection_menu.phase        = SM_SETUP;
+            sel_init.selection_menu.allow_cancel = 1;
+            st->phase = EEM_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+        }
+        /* Empty menu: result 0, fall through to the shared cleanup. */
+        break;
     }
 
-    /* Loop over 36 Escargo Express storage slots.
-     * Assembly uses ADD_MENU_OPTION (type=1, counted mode) — SELECTION_MENU
-     * returns the 1-based option index. C port's selection_menu returns userdata,
-     * so we assign sequential 1-based indices as userdata. */
-    int seq = 1;
-    for (int i = 0; i < 36; i++) {
-        uint8_t item_id = game_state.escargo_express_items[i];
-        if (item_id == 0) continue;
-
-        /* Look up item name from item configuration table */
-        const ItemConfig *item_entry = get_item_entry(item_id);
-        if (!item_entry) continue;
-
-        char name_buf[ITEM_NAME_LEN + 1];
-        eb_to_ascii_buf(item_entry->name, ITEM_NAME_LEN, name_buf);
-
-        add_menu_item_no_position(name_buf, (uint16_t)seq++);
+    case EEM_RESULT:
+    default:
+        result = (uint16_t)mode_child_result();
+        break;
     }
-
-    open_window_and_print_menu(2, 0);
-    uint16_t result = selection_menu(1);
 
     /* Assembly: CLEAR_WINDOW_TILEMAP(ESCARGO_EXPRESS_ITEM) */
     close_window(WINDOW_ESCARGO_EXPRESS_ITEM);
     dt.force_left_text_alignment = 0;
     restore_window_text_attributes();
 
-    return result;
+    return STEP_RESULT_POP(result);
 }
 
 
@@ -1018,95 +1068,102 @@ uint16_t select_escargo_express_item(void) {
  *   5. If any items: OPEN_WINDOW_AND_PRINT_MENU(1, 0), SELECTION_MENU(1)
  *   6. Close windows and restore text attributes
  */
-uint16_t open_telephone_menu(void) {
-    uint16_t result = 0;
+StepResult mode_step_telephone_menu(ModeState *ms) {
+    TelephoneMenuState *st = &ms->telephone_menu;
 
-    save_window_text_attributes();
-    create_window(WINDOW_EQUIP_MENU_ITEMLIST);
+    switch ((TelephoneMenuPhase)st->phase) {
 
-    /* Set window title: "Call:" from PHONE_CALL_TEXT */
-    load_menu_title_assets();
-    if (phone_call_text_data) {
-        char title_buf[WINDOW_TITLE_SIZE];
-        eb_to_ascii_buf(phone_call_text_data, (int)phone_call_text_size, title_buf);
-        /* Assembly: LDX #sizeof(char_struct::name) = 5 for max_len */
-        set_window_title(WINDOW_EQUIP_MENU_ITEMLIST, title_buf, 5);
-    }
+    case TPH_ENTER: {
+        save_window_text_attributes();
+        create_window(WINDOW_EQUIP_MENU_ITEMLIST);
 
-    /* Load and iterate telephone contacts table */
-    load_telephone_contacts_table();
-    if (telephone_contacts_data) {
+        /* Set window title: "Call:" from PHONE_CALL_TEXT */
+        load_menu_title_assets();
+        if (phone_call_text_data) {
+            char title_buf[WINDOW_TITLE_SIZE];
+            eb_to_ascii_buf(phone_call_text_data, (int)phone_call_text_size, title_buf);
+            /* Assembly: LDX #sizeof(char_struct::name) = 5 for max_len */
+            set_window_title(WINDOW_EQUIP_MENU_ITEMLIST, title_buf, 5);
+        }
+
+        /* Load and iterate telephone contacts table */
+        load_telephone_contacts_table();
         int menu_item_count = 0;
-        /* Assembly starts index at 1 (skips entry 0 sentinel), loops while first byte != 0 */
-        for (int i = 1; ; i++) {
-            size_t offset = (size_t)i * TELEPHONE_CONTACT_ENTRY_SIZE;
-            if (offset + TELEPHONE_CONTACT_ENTRY_SIZE > telephone_contacts_size)
-                break;
-            const uint8_t *entry = telephone_contacts_data + offset;
+        if (telephone_contacts_data) {
+            /* Assembly starts index at 1 (skips entry 0 sentinel), loops while first byte != 0 */
+            for (int i = 1; ; i++) {
+                size_t offset = (size_t)i * TELEPHONE_CONTACT_ENTRY_SIZE;
+                if (offset + TELEPHONE_CONTACT_ENTRY_SIZE > telephone_contacts_size)
+                    break;
+                const uint8_t *entry = telephone_contacts_data + offset;
 
-            /* First byte == 0 marks end of table */
-            if (entry[0] == 0x00)
-                break;
+                /* First byte == 0 marks end of table */
+                if (entry[0] == 0x00)
+                    break;
 
-            /* Read event_flag at offset 25 (after label[25]) */
-            uint16_t flag = read_u16_le(&entry[TELEPHONE_CONTACT_LABEL_LEN]);
-            if (!event_flag_get(flag))
-                continue;
+                /* Read event_flag at offset 25 (after label[25]) */
+                uint16_t flag = read_u16_le(&entry[TELEPHONE_CONTACT_LABEL_LEN]);
+                if (!event_flag_get(flag))
+                    continue;
 
-            /* Convert EB-encoded label to ASCII */
-            char label_buf[TELEPHONE_CONTACT_LABEL_LEN + 1];
-            eb_to_ascii_buf(entry, TELEPHONE_CONTACT_LABEL_LEN, label_buf);
+                /* Convert EB-encoded label to ASCII */
+                char label_buf[TELEPHONE_CONTACT_LABEL_LEN + 1];
+                eb_to_ascii_buf(entry, TELEPHONE_CONTACT_LABEL_LEN, label_buf);
 
-            add_menu_item_no_position(label_buf, (uint16_t)i);
-            menu_item_count++;
+                add_menu_item_no_position(label_buf, (uint16_t)i);
+                menu_item_count++;
+            }
         }
 
         if (menu_item_count > 0) {
             open_window_and_print_menu(1, 0);
-            result = selection_menu(1);
+            /* selection_menu(1) — STEP_PUSH; cleanup + optional call text run in
+             * TPH_AFTER_MENU after it pops. */
+            static ModeState sel_init;
+            sel_init = (ModeState){0};
+            sel_init.selection_menu.phase        = SM_SETUP;
+            sel_init.selection_menu.allow_cancel = 1;
+            st->phase = TPH_AFTER_MENU;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
         }
+
+        /* No contacts available: result 0, run the shared cleanup and POP. */
+        close_focus_window();
+        restore_window_text_attributes();
+        return STEP_RESULT_POP(0);
     }
 
-    close_focus_window();
-    restore_window_text_attributes();
+    case TPH_AFTER_MENU: {
+        st->selection = (uint16_t)mode_child_result();
 
-    return result;
-}
+        /* open_telephone_menu() cleanup (runs before the contact text). */
+        close_focus_window();
+        restore_window_text_attributes();
 
-
-/*
- * DISPLAY_TELEPHONE_CONTACT_TEXT — Port of asm/text/display_telephone_contact_text.asm (26 lines).
- *
- * Opens the telephone menu. If a contact is selected, looks up their
- * text script pointer from the contacts table and runs display_text.
- * Returns the selection index (0 if cancelled).
- *
- * Assembly flow:
- *   1. JSR OPEN_TELEPHONE_MENU → selection index in A
- *   2. If selection != 0:
- *      - Index into TELEPHONE_CONTACTS_TABLE[selection]
- *      - Read 4-byte text pointer at offset telephone_contact::text
- *      - JSL DISPLAY_TEXT with that pointer
- *   3. Return selection index
- */
-uint16_t display_telephone_contact_text(void) {
-    uint16_t selection = open_telephone_menu();
-
-    if (selection != 0) {
-        load_telephone_contacts_table();
-        if (telephone_contacts_data) {
-            size_t offset = (size_t)selection * TELEPHONE_CONTACT_ENTRY_SIZE;
-            if (offset + TELEPHONE_CONTACT_ENTRY_SIZE > telephone_contacts_size)
-                return selection;
-            /* text pointer is at offset 27 (label[25] + event_flag[2]) */
-            const uint8_t *entry = telephone_contacts_data + offset;
-            uint32_t text_addr = read_u32_le(&entry[27]);
-            if (text_addr != 0) {
-                display_text_from_addr(text_addr);
+        /* display_telephone_contact_text(): if a contact was chosen, look up its
+         * 4-byte text pointer (offset 27 = label[25] + event_flag[2]) and run it
+         * as a DISPLAY_TEXT child. Port of asm/text/display_telephone_contact_text.asm. */
+        if (st->show_text && st->selection != 0) {
+            load_telephone_contacts_table();
+            if (telephone_contacts_data) {
+                size_t offset = (size_t)st->selection * TELEPHONE_CONTACT_ENTRY_SIZE;
+                if (offset + TELEPHONE_CONTACT_ENTRY_SIZE <= telephone_contacts_size) {
+                    const uint8_t *entry = telephone_contacts_data + offset;
+                    uint32_t text_addr = read_u32_le(&entry[27]);
+                    static ModeState dt_init;
+                    if (text_addr != 0 && dt_make_child_init(&dt_init, text_addr)) {
+                        st->phase = TPH_AFTER_TEXT;
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+                    }
+                }
             }
         }
+        return STEP_RESULT_POP(st->selection);
     }
 
-    return selection;
+    case TPH_AFTER_TEXT:
+    default:
+        return STEP_RESULT_POP(st->selection);
+    }
 }
 

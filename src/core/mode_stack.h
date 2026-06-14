@@ -96,6 +96,9 @@ typedef enum {
     GAME_MODE_SPECIAL_EVENT,       /* CC_1F_41 special-event dispatch (dispatch_special_event) */
     GAME_MODE_ENTER_NAME,          /* M2/EB player-name registry prompt (enter_your_name_please) */
     GAME_MODE_LOAD_BATTLE_SCENE,   /* boss-transition scene (re)load (load_battle_scene) */
+    GAME_MODE_STORE_MENU,          /* shop item-purchase menu (open_store_menu) */
+    GAME_MODE_ESCARGO_MENU,        /* Escargo Express stored-goods menu (select_escargo_express_item) */
+    GAME_MODE_TELEPHONE_MENU,      /* phone directory menu + contact text (open_telephone_menu) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -466,6 +469,62 @@ typedef enum {
 typedef struct {
     uint8_t phase;  /* TeleportMenuPhase */
 } TeleportMenuState;
+
+/* GAME_MODE_STORE_MENU phases. Port of open_store_menu()
+ * (src/inventory/store/open_store_menu.asm): the shop item-purchase list.
+ * STM_ENTER builds the window (money window, store item list with prices,
+ * HPPP equip-preview cursor callback) and STEP_PUSHes SELECTION_MENU; the
+ * cleanup runs in STM_RESULT after it pops. An empty item list skips the
+ * push and pops 0 after the same cleanup. Pushed by CC 1A 0x06; result
+ * stored to working memory via DT_RESUME_MENU_RESULT.
+ * Pops the selected item id, or 0 if cancelled/empty. */
+typedef enum {
+    STM_ENTER = 0,  /* build the shop menu; push SELECTION_MENU */
+    STM_RESULT,     /* cleanup, POP the selected item id */
+} StoreMenuPhase;
+
+typedef struct {
+    uint8_t  phase;    /* StoreMenuPhase */
+    uint16_t shop_id;  /* STORE_TABLE shop index */
+} StoreMenuState;
+
+/* GAME_MODE_ESCARGO_MENU phases. Port of select_escargo_express_item()
+ * (src/inventory/select_escargo_express_item.asm): the Escargo Express
+ * "Stored Goods" item list. EEM_ENTER builds the window and STEP_PUSHes
+ * SELECTION_MENU; the cleanup runs in EEM_RESULT after it pops. An empty
+ * storage list skips the push and pops 0 after the same cleanup. Pushed by
+ * CC 1A 0x07; result stored to working memory via DT_RESUME_MENU_RESULT.
+ * Pops the 1-based selection index, or 0 if cancelled/empty. */
+typedef enum {
+    EEM_ENTER = 0,  /* build the storage menu; push SELECTION_MENU */
+    EEM_RESULT,     /* cleanup, POP the selection index */
+} EscargoMenuPhase;
+
+typedef struct {
+    uint8_t phase;  /* EscargoMenuPhase */
+} EscargoMenuState;
+
+/* GAME_MODE_TELEPHONE_MENU phases. Port of open_telephone_menu() +
+ * display_telephone_contact_text() (asm/text/menu/open_telephone_menu.asm,
+ * asm/text/display_telephone_contact_text.asm): the phone directory. TPH_ENTER
+ * builds the contact menu and STEP_PUSHes SELECTION_MENU; TPH_AFTER_MENU runs
+ * the window cleanup, and when show_text is set and a contact was chosen it
+ * STEP_PUSHes DISPLAY_TEXT (the contact's call text) before popping. An empty
+ * contact list skips the push and pops 0 after the same cleanup. Pushed by
+ * CC 1F 0x90 (show_text=0) and CC 1A 0x0A (show_text=1); result stored to
+ * working memory via DT_RESUME_MENU_RESULT.
+ * Pops the 1-based contact index, or 0 if cancelled/empty. */
+typedef enum {
+    TPH_ENTER = 0,    /* build the contact menu; push SELECTION_MENU */
+    TPH_AFTER_MENU,   /* cleanup; (optional) push the contact's call text */
+    TPH_AFTER_TEXT,   /* POP the contact index after the call text */
+} TelephoneMenuPhase;
+
+typedef struct {
+    uint8_t  phase;      /* TelephoneMenuPhase */
+    uint8_t  show_text;  /* 1 = display the chosen contact's call text */
+    uint16_t selection;  /* chosen contact index (carried across pushes) */
+} TelephoneMenuState;
 
 /* GAME_MODE_DETERMINE_TARGETING phases. Port of determine_targetting()
  * (asm/battle/determine_targetting.asm): looks up the battle action's
@@ -1906,6 +1965,9 @@ typedef enum {
     DT_RESUME_CC1F_SPECIAL_EVENT, /* CC_1F_41: store SPECIAL_EVENT result to working_memory */
     DT_RESUME_CC1A_SEL,         /* CC_1A_08/09 selection menu: store result to working_memory */
     DT_RESUME_CC1A_SEL_CLEAR,   /* CC_1A_04 selection menu: store result + clear focus menu */
+    DT_RESUME_CC18_SEL,         /* CC_18_08 selection menu: store result + cancel-jump on 0 */
+    DT_RESUME_CC18_SEL_RESTORE, /* CC_18_09 selection menu: restore text attrs + store result */
+    DT_RESUME_MENU_RESULT,      /* STORE/ESCARGO/TELEPHONE menu: store result to working_memory */
 } DisplayTextResume;
 
 typedef struct {
@@ -1916,6 +1978,7 @@ typedef struct {
     uint16_t     cc1f_aux;         /* small per-resume carry (DT_RESUME_CC1F_PHOTO: photo_id) */
     uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
     uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
+    uint32_t     cc18_cancel_target;/* DT_RESUME_CC18_SEL: CC_18_08 cancel jump target */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
 } DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */
 
@@ -2250,6 +2313,9 @@ union ModeState {
     OverworldModeState    overworld;
     DebugGoodsState       debug_goods;
     DebugMenuState        debug_menu;
+    StoreMenuState        store_menu;
+    EscargoMenuState      escargo_menu;
+    TelephoneMenuState    telephone_menu;
     uint8_t               _raw[160];
 };
 
@@ -2507,6 +2573,22 @@ StepResult mode_step_use_item(ModeState *st);
  * PSI menu's teleport case or CC 1A 0x0B. Pops the 1-based destination index,
  * or 0 if cancelled/empty. */
 StepResult mode_step_teleport_menu(ModeState *st);
+
+/* GAME_MODE_STORE_MENU step (defined in display_text_menus.c). Init with
+ * ModeState.store_menu (phase = STM_ENTER, shop_id); entered via STEP_PUSH from
+ * CC 1A 0x06. Pops the selected item id, or 0 if cancelled/empty. */
+StepResult mode_step_store_menu(ModeState *st);
+
+/* GAME_MODE_ESCARGO_MENU step (defined in display_text_menus.c). Init with
+ * ModeState.escargo_menu (phase = EEM_ENTER); entered via STEP_PUSH from CC 1A
+ * 0x07. Pops the 1-based selection index, or 0 if cancelled/empty. */
+StepResult mode_step_escargo_menu(ModeState *st);
+
+/* GAME_MODE_TELEPHONE_MENU step (defined in display_text_menus.c). Init with
+ * ModeState.telephone_menu (phase = TPH_ENTER, show_text); entered via STEP_PUSH
+ * from CC 1F 0x90 (show_text=0) or CC 1A 0x0A (show_text=1). Pops the 1-based
+ * contact index, or 0 if cancelled/empty. */
+StepResult mode_step_telephone_menu(ModeState *st);
 
 /* GAME_MODE_DETERMINE_TARGETING step (defined in battle_targeting.c). Init
  * with ModeState.targeting (phase = TGT_ENTER, action_id, char_id); entered

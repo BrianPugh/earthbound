@@ -1727,20 +1727,10 @@ StepResult mode_step_selection_menu(ModeState *ms) {
     }
 }
 
-/*
- * Run a selection menu in the focus window (blocking wrapper around
- * GAME_MODE_SELECTION_MENU). Draws cursor, handles input, returns selected
- * userdata (0 on cancel). The early null/empty-menu exit stays synchronous.
- */
-uint16_t selection_menu(uint16_t allow_cancel) {
-    WindowInfo *w = get_window(win.current_focus_window);
-    if (!w || w->menu_count == 0) return 0;
-
-    ModeState init = {0};
-    init.selection_menu.phase        = SM_SETUP;
-    init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
-    return (uint16_t)pump_mode(GAME_MODE_SELECTION_MENU, &init);
-}
+/* The blocking selection_menu() pump bridge has been deleted: every caller now
+ * STEP_PUSHes GAME_MODE_SELECTION_MENU directly (mode_step_selection_menu below).
+ * The null/empty-menu early-out (return 0 without a push) is replicated inline
+ * at each push site. */
 
 /* ---- BG2 Buffer (Text Layer Tilemap Shadow) ---- */
 
