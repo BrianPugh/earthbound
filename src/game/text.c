@@ -3135,7 +3135,10 @@ StepResult mode_step_hppp_display(ModeState *ms) {
          * pump's previous yield latched — same read-after-yield order. */
         if (!st->primed) {
             st->primed = 1;
-            window_tick_work();
+            if (window_tick_work_step()) {
+                st->phase = HD_TICK_FLUSH;
+                return actionscript_frame_take_push();
+            }
             return STEP_RESULT_CONTINUE();
         }
 
@@ -3155,12 +3158,30 @@ StepResult mode_step_hppp_display(ModeState *ms) {
             clear_instant_printing();
             hide_hppp_windows();
             close_all_windows();
-            window_tick_work();
+            if (window_tick_work_step()) {
+                st->phase = HD_CANCEL_FLUSH;
+                return actionscript_frame_take_push();
+            }
             st->phase = HD_EXIT;
             return STEP_RESULT_CONTINUE();
         }
 
-        window_tick_work();
+        if (window_tick_work_step()) {
+            st->phase = HD_TICK_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case HD_TICK_FLUSH:
+        /* Park-propagating resume of a primed/idle HD_TICK window frame. */
+        window_tick_work_flush();
+        st->phase = HD_TICK;
+        return STEP_RESULT_CONTINUE();
+
+    case HD_CANCEL_FLUSH:
+        /* Park-propagating resume of the dismiss window frame. */
+        window_tick_work_flush();
+        st->phase = HD_EXIT;
         return STEP_RESULT_CONTINUE();
 
     case HD_MENU_DONE:

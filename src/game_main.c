@@ -513,7 +513,15 @@ StepResult mode_step_debug_ymenu(ModeState *st) {
             print_number(count, 1);
         }
         clear_instant_printing();
-        window_tick_work();
+        if (window_tick_work_step()) {
+            s->phase = DY_DRAW_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        s->phase = DY_INPUT;
+        return STEP_RESULT_CONTINUE();
+
+    case DY_DRAW_FLUSH:
+        window_tick_work_flush();
         s->phase = DY_INPUT;
         return STEP_RESULT_CONTINUE();
 
@@ -599,10 +607,18 @@ StepResult mode_step_debug_goods(ModeState *mst) {
             print_text_with_word_splitting(item->name, ITEM_NAME_LEN);
 
         clear_instant_printing();
-        window_tick_work();
+        if (window_tick_work_step()) {
+            s->phase = DG_DRAW_FLUSH;
+            return actionscript_frame_take_push();
+        }
         s->phase = DG_INPUT;
         return STEP_RESULT_CONTINUE();
     }
+
+    case DG_DRAW_FLUSH:
+        window_tick_work_flush();
+        s->phase = DG_INPUT;
+        return STEP_RESULT_CONTINUE();
 
     case DG_INPUT: {
         /* d-pad navigates (held), A gives, B exits. Any nav returns to DG_DRAW

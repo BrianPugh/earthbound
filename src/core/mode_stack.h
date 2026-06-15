@@ -364,6 +364,8 @@ typedef enum {
     HD_TICK,       /* idle window frame + input: A/L → pause menu, B → dismiss */
     HD_MENU_DONE,  /* the pushed PAUSE_MENU popped (it did all cleanup) → POP */
     HD_EXIT,       /* post-dismiss-frame: enable entities → POP */
+    HD_TICK_FLUSH, /* park-propagating resume of an HD_TICK window frame (stay in HD_TICK) */
+    HD_CANCEL_FLUSH, /* park-propagating resume of the dismiss window frame (→ HD_EXIT) */
 } HpppDisplayPhase;
 
 typedef struct {
@@ -1212,6 +1214,7 @@ typedef enum {
 typedef enum {
     DY_DRAW = 0,  /* (re)draw the window via window_tick_work, then yield */
     DY_INPUT,     /* read input; FLAG: nav/toggle/cancel; GUIDE: wait for cancel */
+    DY_DRAW_FLUSH, /* park-propagating resume of DY_DRAW's window_tick frame */
 } DebugYMenuPhase;
 
 typedef struct {
@@ -1232,6 +1235,7 @@ typedef enum {
     DG_DRAW = 0,       /* (re)draw the item id + name window, then yield */
     DG_INPUT,          /* read input; nav / A (give) / B (exit) */
     DG_GIVE_RESULT,    /* the char-select SELECTION_MENU popped: give/equip or redraw */
+    DG_DRAW_FLUSH,     /* park-propagating resume of DG_DRAW's window_tick frame */
 } DebugGoodsPhase;
 
 typedef struct {
