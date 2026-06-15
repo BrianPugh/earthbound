@@ -588,6 +588,14 @@ static bool game_over_screen_begin(void) {
 /* game_over_screen_setup(): the decompress/VRAM/palette/UI setup + the fade-in
  * start (the caller waits for the fade-in to complete). */
 static void game_over_screen_setup(void) {
+    /* Force-blank before loading the game-over graphics/palette so the one
+     * transition frame the mode pump renders before fade_in (below) stays black
+     * instead of showing the new BG tiles under the previous scene's stale CGRAM.
+     * The all-party-dead path already force-blanked via GO_ENTER's fade-out (this
+     * is idempotent there); the scripted not-all-dead path did not, and would
+     * flash. fade_in then ramps brightness up from black in both paths. */
+    set_force_blank(true);
+
     /* Clear overworld state */
     ml.loaded_animated_tile_count = 0;
     ml.map_palette_animation_loaded = 0;
@@ -894,6 +902,10 @@ StepResult mode_step_game_over(ModeState *mst) {
         case GO_NC_BUZZ_DONE:
             spawn_delivery_entities();
             oam_clear();
+            /* The PALETTE_FADE child below rebuilds OAM on its first render, but
+             * the mode pump renders one transition frame before it runs; restore
+             * last frame's sprites so they don't blink invisible for that frame. */
+            oam_restore_displayed();
             enable_all_entities();
             /* animate_palette_fade_with_rendering(32) */
             prepare_palette_fade_slopes(32, 0xFFFF);
