@@ -342,6 +342,7 @@ typedef enum {
     SU_PSI,           /* PSI description browse: push SELECTION_MENU (descr cb) */
     SU_PSI_RESULT,    /* non-zero stays browsing; cancel closes PSI windows */
     SU_EXIT,          /* close STATUS_MENU window, alignment off, POP */
+    SU_CAT_HEAD_FLUSH, /* park-propagating resume of SU_CAT_HEAD's first-display frame */
 } StatusMenuPhase;
 
 typedef struct {
@@ -695,6 +696,7 @@ typedef enum {
     BTL_ENDING,           /* battle_ending: HP/PP-stable wait */
     BTL_ENDING_MIRROR,    /* mirror restore + cleanup; debug reinit; fade-out wait */
     BTL_EXIT,             /* final window/effect teardown; pop the result */
+    BTL_REINIT_FLUSH,     /* park-propagating resume of BTL_REINIT's pre-debug window_tick */
 } BattleRoutinePhase;
 
 typedef struct {
@@ -2145,6 +2147,7 @@ typedef enum {
     BD_TEXT = 0,   /* create window + push the "got off the bicycle" text */
     BD_CLOSE,      /* close focus window + one window_tick frame */
     BD_DISMOUNT,   /* dismount_bicycle, POP */
+    BD_CLOSE_FLUSH, /* park-propagating resume of BD_CLOSE's window_tick frame */
 } BicycleDismountPhase;
 
 typedef struct {
@@ -2165,6 +2168,7 @@ typedef enum {
     HA_TEXT = 0,   /* disable entities, window + battler name, push the warning */
     HA_CLOSE,      /* close focus window + one window_tick frame */
     HA_DONE,       /* enable entities, POP */
+    HA_CLOSE_FLUSH, /* park-propagating resume of HA_CLOSE's window_tick frame */
 } HpAlertPhase;
 
 typedef struct {
@@ -2211,6 +2215,8 @@ typedef enum {
     GO_NC_MAP,           /* No-Continue: initialize_map, leader/flags/entity reset, buzz text */
     GO_NC_BUZZ_DONE,     /* No-Continue: spawn deliveries, enable entities, render-fade */
     GO_NC_FINISH,        /* No-Continue: POP 0 */
+    GO_CB_CLOSE1_FLUSH,  /* park-propagating resume of GO_CB_CLOSE1's window_tick */
+    GO_CB_CLOSE2_FLUSH,  /* park-propagating resume of GO_CB_CLOSE2's window_tick */
 } GameOverPhase;
 
 typedef struct {

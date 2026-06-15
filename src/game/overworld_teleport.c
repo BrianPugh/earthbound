@@ -1055,7 +1055,15 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
     case BD_CLOSE:
         /* Assembly: CLOSE_FOCUS_WINDOW + WINDOW_TICK (one frame). */
         close_focus_window();
-        window_tick_work();
+        if (window_tick_work_step()) {
+            bs->phase = BD_CLOSE_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        bs->phase = BD_DISMOUNT;
+        return STEP_RESULT_CONTINUE();
+
+    case BD_CLOSE_FLUSH:
+        window_tick_work_flush();
         bs->phase = BD_DISMOUNT;
         return STEP_RESULT_CONTINUE();
 

@@ -149,7 +149,15 @@ StepResult mode_step_hp_alert(ModeState *st) {
 
     case HA_CLOSE:
         close_focus_window();
-        window_tick_work();
+        if (window_tick_work_step()) {
+            hs->phase = HA_CLOSE_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        hs->phase = HA_DONE;
+        return STEP_RESULT_CONTINUE();
+
+    case HA_CLOSE_FLUSH:
+        window_tick_work_flush();
         hs->phase = HA_DONE;
         return STEP_RESULT_CONTINUE();
 
@@ -780,13 +788,29 @@ StepResult mode_step_game_over(ModeState *mst) {
         case GO_CB_CLOSE1:
             /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: close_all_windows + window_tick */
             close_all_windows();
-            window_tick_work();
+            if (window_tick_work_step()) {
+                st->phase = GO_CB_CLOSE1_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = GO_CB_CLOSE2;
+            return STEP_RESULT_CONTINUE();
+
+        case GO_CB_CLOSE1_FLUSH:
+            window_tick_work_flush();
             st->phase = GO_CB_CLOSE2;
             return STEP_RESULT_CONTINUE();
 
         case GO_CB_CLOSE2:
             hide_hppp_windows();
-            window_tick_work();
+            if (window_tick_work_step()) {
+                st->phase = GO_CB_CLOSE2_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = GO_CB_DECIDE;
+            return STEP_RESULT_CONTINUE();
+
+        case GO_CB_CLOSE2_FLUSH:
+            window_tick_work_flush();
             st->phase = GO_CB_DECIDE;
             return STEP_RESULT_CONTINUE();
 

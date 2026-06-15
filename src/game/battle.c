@@ -4352,9 +4352,17 @@ StepResult mode_step_battle(ModeState *ms) {
                 break;
             }
             btl_reinit_party(st);
-            /* The blocking original's window_tick(): same work, the pump
-             * owns the yield. */
-            window_tick_work();
+            /* The blocking original's window_tick(): same work, but the parked
+             * actionscript frame propagates as a STEP_PUSH (savestate D4b). */
+            if (window_tick_work_step()) {
+                st->phase = BTL_REINIT_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = BTL_DEBUG;
+            return STEP_RESULT_CONTINUE();
+
+        case BTL_REINIT_FLUSH:
+            window_tick_work_flush();
             st->phase = BTL_DEBUG;
             return STEP_RESULT_CONTINUE();
 

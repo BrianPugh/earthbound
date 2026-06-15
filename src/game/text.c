@@ -1726,13 +1726,22 @@ StepResult mode_step_status_menu(ModeState *ms) {
                 st->first_display = 0;
                 print_menu_items();
                 dt.instant_printing = 0;
-                window_tick_work();
+                if (window_tick_work_step()) {
+                    st->phase = SU_CAT_HEAD_FLUSH;
+                    return actionscript_frame_take_push();
+                }
                 dt.instant_printing = 1;
                 st->phase = SU_CAT_BODY;
                 return STEP_RESULT_CONTINUE();
             }
             st->phase = SU_CAT_BODY;
             continue;
+
+        case SU_CAT_HEAD_FLUSH:
+            window_tick_work_flush();
+            dt.instant_printing = 1;
+            st->phase = SU_CAT_BODY;
+            return STEP_RESULT_CONTINUE();
 
         case SU_CAT_BODY:
             /* Assembly line 67: refresh the status display area (PSI list
