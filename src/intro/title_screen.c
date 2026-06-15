@@ -138,6 +138,15 @@ StepResult mode_step_title_screen(ModeState *st) {
 
     switch ((TitleScreenPhase)s->phase) {
     case TS_WARMUP:
+        /* Non-quick (post-attract) reveal: title_screen_setup left the screen
+         * force-blanked so the BG palette loader's brief full-brightness write
+         * isn't shown. By the third warm-up frame UPDATE_MAP_PALETTE_ANIMATION's
+         * fade has pulled the logo down to black and is ramping it up, so turn the
+         * screen on now — no full-brightness "EARTHBOUND" flash. (Quick mode uses
+         * the NMI brightness fade and never force-blanks here.) */
+        if (!s->quick_mode && s->frame >= 2)
+            ppu.inidisp = 0x0F;
+
         if (s->quick_mode) {
             if (fade_active()) fade_update();
         } else {
@@ -298,7 +307,14 @@ void title_screen_setup(uint16_t quick_mode) {
         /* Zero all ert.palettes */
         memset(ert.palettes, 0, sizeof(ert.palettes));
 
-        ppu.inidisp = 0x0F;
+        /* ROM sets INIDISP=$0F here, but the title entity palette loader
+         * (TITLE_SCREEN_2) writes the BG palette at FULL brightness for a frame
+         * or two before UPDATE_MAP_PALETTE_ANIMATION's fade pulls it down to
+         * black — on the SNES the NMI fade masks that, but the C port's mode
+         * pump renders those warm-up frames, flashing the EARTHBOUND logo at
+         * full brightness when returning from attract mode. Keep the screen
+         * force-blanked (0x80, set above) and turn it on in TS_WARMUP once the
+         * fade has dimmed the palette (see mode_step_title_screen). */
 
         /* Load sprite palette to upper half (colors 128-255) */
         size_t comp_size;
