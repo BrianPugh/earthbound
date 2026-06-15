@@ -746,6 +746,17 @@ static uint8_t *name_target_buffer(int id) {
 StepResult mode_step_text_input(ModeState *st) {
     TextInputState *s = &st->text_input;
 
+    /* Resume after a parked actionscript frame (D4b): the child completed the
+     * actionscript frame; run only this site's post-render tail and yield. */
+    if (s->flush) {
+        s->flush = 0;
+        render_all_priority_sprites();
+        sync_palettes_to_cgram();
+        battle_bg_update();
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    }
+
     WindowInfo *kw = get_window(WINDOW_FILE_SELECT_NAMING_KB);
     WindowInfo *nw = get_window(s->name_display_window_id);
     if (!kw || !nw) {
@@ -948,9 +959,14 @@ StepResult mode_step_text_input(ModeState *st) {
     /* Sync win.bg2_buffer to VRAM (NMI DMA equivalent) */
     upload_battle_screen_to_vram();
 
-    /* Run entity scripts for naming screen animations */
+    /* Run entity scripts for naming screen animations. A parked actionscript
+     * frame STEP_PUSHes ACTIONSCRIPT_FRAME; the post-render tail runs on its pop
+     * (the flush block at the top of this step). */
     oam_clear();
-    run_actionscript_frame();
+    if (run_actionscript_frame_step()) {
+        s->flush = 1;
+        return actionscript_frame_take_push();
+    }
     render_all_priority_sprites();
 
     /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
@@ -1009,6 +1025,17 @@ void text_input_prepare(ModeState *init, int name_target, int max_len,
 StepResult mode_step_naming_prompt(ModeState *st) {
     NamingPromptState *s = &st->naming_prompt;
 
+    /* Resume after a parked actionscript frame (D4b): the child completed the
+     * actionscript frame; run only the post-render tail and yield. */
+    if (s->flush) {
+        s->flush = 0;
+        render_all_priority_sprites();
+        sync_palettes_to_cgram();
+        battle_bg_update();
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    }
+
     if (s->primed) {
         if (platform_input_get_pad_new() & PAD_ANY_BUTTON)
             return STEP_RESULT_POP(0);
@@ -1022,7 +1049,10 @@ StepResult mode_step_naming_prompt(ModeState *st) {
     }
     upload_battle_screen_to_vram();
     oam_clear();
-    run_actionscript_frame();
+    if (run_actionscript_frame_step()) {
+        s->flush = 1;
+        return actionscript_frame_take_push();
+    }
     render_all_priority_sprites();
     sync_palettes_to_cgram();
     battle_bg_update();
@@ -1038,13 +1068,9 @@ StepResult mode_step_naming_prompt(ModeState *st) {
  * host_process_frame() yield), per the savestate run-to-completion model.
  * Used by GAME_MODE_NAMING_EVENTS (init_naming_screen_events).
  */
-static void render_frame_tick_naming_work(void) {
-    /* OAM_CLEAR — hide all sprites and reset priority queues */
-    oam_clear();
-
-    /* RUN_ACTIONSCRIPT_FRAME (entity script execution + draw list) */
-    run_actionscript_frame();
-
+/* Post-render tail shared by render_frame_tick_naming_work_step()'s no-park path
+ * and the flush resume in mode_step_naming_events. */
+static void render_frame_tick_naming_work_flush(void) {
     /* Flush queued sprites to OAM */
     render_all_priority_sprites();
 
@@ -1052,6 +1078,22 @@ static void render_frame_tick_naming_work(void) {
     upload_battle_screen_to_vram();
     sync_palettes_to_cgram();
     battle_bg_update();
+}
+
+/* Run-to-completion form of render_frame_tick_naming() (savestate D4b): a parked
+ * actionscript callroutine returns true so the caller STEP_PUSHes
+ * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and runs the tail at
+ * its flush resume. On no park it completes the frame inline and returns false. */
+static bool render_frame_tick_naming_work_step(void) {
+    /* OAM_CLEAR — hide all sprites and reset priority queues */
+    oam_clear();
+
+    /* RUN_ACTIONSCRIPT_FRAME (entity script execution + draw list) */
+    if (run_actionscript_frame_step())
+        return true;
+
+    render_frame_tick_naming_work_flush();
+    return false;
 }
 
 /*
@@ -1108,11 +1150,28 @@ static bool naming_events_reassign_scripts(uint16_t naming_index) {
 StepResult mode_step_naming_events(ModeState *st) {
     NamingEventsState *s = &st->naming_events;
 
+    /* Resume after a parked actionscript frame (D4b): the child completed the
+     * actionscript frame; run the post-render tail of whichever site parked.
+     * NE_WAIT_SCRIPTS's `done` was already decided before the push. */
+    if (s->flush == 1) {        /* NE_WAIT_PENDING render parked */
+        s->flush = 0;
+        render_frame_tick_naming_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 2) {        /* NE_WAIT_SCRIPTS render parked */
+        s->flush = 0;
+        render_frame_tick_naming_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+
     if (s->phase == NE_WAIT_PENDING) {
         /* Wait for any pending actionscript to complete (assembly lines 12-16).
          * Check-before: render+yield while it is still pending. */
         if (ert.wait_for_naming_screen_actionscript != 0) {
-            render_frame_tick_naming_work();
+            if (render_frame_tick_naming_work_step()) {
+                s->flush = 1;
+                return actionscript_frame_take_push();
+            }
             return STEP_RESULT_CONTINUE();
         }
         /* Pending cleared: reassign the walk-out scripts inline (no yield). An
@@ -1144,7 +1203,14 @@ StepResult mode_step_naming_events(ModeState *st) {
     for (int slot = 0; slot < PARTY_LEADER_ENTITY_INDEX - 1; slot++) {
         result &= entities.script_table[ENT(slot)];
     }
-    render_frame_tick_naming_work();
+    if (render_frame_tick_naming_work_step()) {
+        /* `done` is decided from `result` (computed before the render) regardless
+         * of the park, so the flush resume needs no extra state. */
+        if (result == -1)
+            s->done = 1;
+        s->flush = 2;
+        return actionscript_frame_take_push();
+    }
     if (result == -1)
         s->done = 1;
     return STEP_RESULT_CONTINUE();

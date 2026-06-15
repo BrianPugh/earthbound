@@ -1405,6 +1405,8 @@ typedef enum {
 typedef struct {
     uint8_t  phase;        /* NamingEventsPhase */
     uint8_t  done;         /* NE_WAIT_SCRIPTS: set after the final render; next step pops */
+    uint8_t  flush;        /* D4b: resume code after a parked actionscript frame
+                            * (1 = NE_WAIT_PENDING, 2 = NE_WAIT_SCRIPTS) */
     uint16_t naming_index; /* init_naming_screen_events() arg */
 } NamingEventsState;
 
@@ -1437,6 +1439,7 @@ typedef struct {
     int16_t  cur_x;                  /* keyboard cursor column (window text coords) */
     int16_t  cur_y;                  /* keyboard cursor row */
     uint16_t frame_counter;          /* cursor-blink timer */
+    uint8_t  flush;                  /* D4b: 1 = resume after a parked actionscript frame */
     uint8_t  eb_name[32];            /* the name being built (EB-encoded) */
 } TextInputState;
 
@@ -1449,6 +1452,7 @@ typedef struct {
  * `primed` reproduces the blocking loop's render-before-first-read order. */
 typedef struct {
     uint8_t  primed;         /* 0 = first frame: render without reading input */
+    uint8_t  flush;          /* D4b: 1 = resume after a parked actionscript frame */
     int16_t  name_tile_cols; /* columns of the pre-rendered name display */
 } NamingPromptState;
 
@@ -2467,7 +2471,7 @@ StepResult mode_step_battle_row_select(ModeState *st);
 StepResult mode_step_battle_enemy_select(ModeState *st);
 
 /* GAME_MODE_NAMING_EVENTS step (defined in file_select.c, where the naming-
- * entity tables and render_frame_tick_naming_work() live). Init via
+ * entity tables and render_frame_tick_naming_work_step()/_flush() live). Init via
  * ModeState.naming_events (phase = NE_WAIT_PENDING, naming_index) before
  * pump_mode(GAME_MODE_NAMING_EVENTS). Always pops 0. */
 StepResult mode_step_naming_events(ModeState *st);
