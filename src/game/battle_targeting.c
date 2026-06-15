@@ -274,30 +274,65 @@ static void set_battler_flashing(uint16_t row) {
  */
 /* The "WINDOW_TICK equivalent" battle render the targeting UIs run each frame,
  * minus the trailing wait_for_vblank() — the pump owns the single yield. Shared
- * by both targeting modes below. */
-static void targeting_render_work(void) {
+ * by both targeting modes below.
+ *
+ * Park-propagating split (savestate D4b): a parked actionscript callroutine
+ * becomes a STEP_PUSH instead of a nested pump_mode. _step() returns true iff a
+ * frame parked — the caller must STEP_PUSH GAME_MODE_ACTIONSCRIPT_FRAME
+ * (actionscript_frame_take_push) and call _flush() at its resume; on no park the
+ * render finishes inline and _step() returns false. */
+static bool targeting_render_work_step(void) {
     render_all_windows();
     upload_battle_screen_to_vram();
-    run_actionscript_frame();
+    if (run_actionscript_frame_step())
+        return true;
+    sync_palettes_to_cgram();
+    battle_bg_update();
+    return false;
+}
+
+static void targeting_render_work_flush(void) {
     sync_palettes_to_cgram();
     battle_bg_update();
 }
 
 /* select_battle_target's `update_target_display` work: recompute x_pos, flash the
- * current battler, show the target text the first time, then render one frame. */
-static void et_display_work(BattleEnemySelectState *s) {
+ * current battler, show the target text the first time, then render one frame.
+ * Returns true if the render parked (caller STEP_PUSHes + resumes at flush 1). */
+static bool et_display_work(BattleEnemySelectState *s) {
     s->x_pos = get_battler_row_x_position(s->current_row, s->current_enemy);
     enemy_flashing_on(s->current_row, s->current_enemy);
     if (!s->target_shown)
         display_battle_target_text(s->current_row, (int16_t)s->current_enemy);
     s->target_shown++;
-    targeting_render_work();
+    return targeting_render_work_step();
 }
 
 /* GAME_MODE_BATTLE_ENEMY_SELECT — run-to-completion port of select_battle_target.
  * See mode_stack.h for the phase mapping of the blocking goto-machine. */
 StepResult mode_step_battle_enemy_select(ModeState *ms) {
     BattleEnemySelectState *s = &ms->battle_enemy_select;
+
+    /* Resume after a parked actionscript frame (D4b): the child completed the
+     * render's actionscript frame; finish the render then advance per the site. */
+    if (s->flush == 1) {        /* ET_DISPLAY / refresh render parked */
+        s->flush = 0;
+        targeting_render_work_flush();
+        s->phase = ET_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 2) {        /* ET_PRIME / idle hppp frame parked */
+        s->flush = 0;
+        update_hppp_meter_work_flush();
+        s->phase = ET_INPUT;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 3) {        /* ET_INPUT change render parked */
+        s->flush = 0;
+        targeting_render_work_flush();
+        s->phase = ET_DISPLAY;
+        return STEP_RESULT_CONTINUE();
+    }
 
     switch ((BattleEnemySelectPhase)s->phase) {
     case ET_DISPLAY:
@@ -307,12 +342,18 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
             play_sfx(s->pending_sfx);
             s->pending_sfx = 0;
         }
-        et_display_work(s);
+        if (et_display_work(s)) {
+            s->flush = 1;
+            return actionscript_frame_take_push();
+        }
         s->phase = ET_PRIME;
         return STEP_RESULT_CONTINUE();
 
     case ET_PRIME:
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            s->flush = 2;
+            return actionscript_frame_take_push();
+        }
         s->phase = ET_INPUT;
         return STEP_RESULT_CONTINUE();
 
@@ -393,24 +434,35 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
         if (change) {
             /* apply_selection_common: recreate the target window + render frame
              * (yield C); ET_DISPLAY then does update_target_display's render
-             * (yield A) and plays the queued sfx in that frame. */
+             * (yield A) and plays the queued sfx in that frame. x_pos/pending_sfx
+             * do not depend on the render, so set them before the park check. */
             s->target_shown = 0;
             create_window(WINDOW_BATTLE_TARGET_TEXT);
-            targeting_render_work();
+            bool parked = targeting_render_work_step();
             s->x_pos = get_battler_row_x_position(s->current_row, s->current_enemy);
             s->pending_sfx = (uint8_t)sfx;
+            if (parked) {
+                s->flush = 3;
+                return actionscript_frame_take_push();
+            }
             s->phase = ET_DISPLAY;
             return STEP_RESULT_CONTINUE();
         }
         if (refresh) {
             /* goto update_target_display: one render frame, no change, no sfx. */
-            et_display_work(s);
+            if (et_display_work(s)) {
+                s->flush = 1;
+                return actionscript_frame_take_push();
+            }
             s->phase = ET_PRIME;
             return STEP_RESULT_CONTINUE();
         }
 
         /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            s->flush = 2;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
     }
@@ -454,10 +506,11 @@ void enemy_select_make_init(ModeState *init, uint16_t allow_cancel,
 /* select_battle_row's `display_row` work: flash the row, show its target text,
  * then render one frame. No window recreation (unlike enemy-select), so a row
  * change is a single render frame. */
-static void br_render_work(uint16_t current_row) {
+/* Returns true if the render parked (caller STEP_PUSHes + resumes at flush 1). */
+static bool br_render_work(uint16_t current_row) {
     set_battler_flashing(current_row);
     display_battle_target_text(current_row, -1);  /* -1 = row text */
-    targeting_render_work();
+    return targeting_render_work_step();
 }
 
 /* GAME_MODE_BATTLE_ROW_SELECT — run-to-completion port of select_battle_row.
@@ -465,14 +518,34 @@ static void br_render_work(uint16_t current_row) {
 StepResult mode_step_battle_row_select(ModeState *ms) {
     BattleRowSelectState *s = &ms->battle_row_select;
 
+    /* Resume after a parked actionscript frame (D4b): finish the render, advance. */
+    if (s->flush == 1) {        /* BR_RENDER / change render parked */
+        s->flush = 0;
+        targeting_render_work_flush();
+        s->phase = BR_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 2) {        /* BR_PRIME / idle hppp frame parked */
+        s->flush = 0;
+        update_hppp_meter_work_flush();
+        s->phase = BR_INPUT;
+        return STEP_RESULT_CONTINUE();
+    }
+
     switch ((BattleRowSelectPhase)s->phase) {
     case BR_RENDER:
-        br_render_work(s->current_row);
+        if (br_render_work(s->current_row)) {
+            s->flush = 1;
+            return actionscript_frame_take_push();
+        }
         s->phase = BR_PRIME;
         return STEP_RESULT_CONTINUE();
 
     case BR_PRIME:
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            s->flush = 2;
+            return actionscript_frame_take_push();
+        }
         s->phase = BR_INPUT;
         return STEP_RESULT_CONTINUE();
 
@@ -517,14 +590,20 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
                  * then BR_PRIME's update_hppp (yield B) before the next input. */
                 play_sfx(sfx);
                 s->current_row = target_row;
-                br_render_work(s->current_row);
+                if (br_render_work(s->current_row)) {
+                    s->flush = 1;
+                    return actionscript_frame_take_push();
+                }
                 s->phase = BR_PRIME;
                 return STEP_RESULT_CONTINUE();
             }
         }
 
         /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            s->flush = 2;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
     }

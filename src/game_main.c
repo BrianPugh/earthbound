@@ -1006,7 +1006,36 @@ static void boot_begin(void) {
  * has no WAIT between init and @LOOP_BEGIN (see the fade_in note below). The caller
  * (OWP_BOOT_AWAIT) runs this and the first OWP_RENDER in the same step (its
  * `continue` into OWP_RENDER does not yield). */
-static void overworld_boot(void) {
+/* The post-boot-frame tail (main.asm lines 15-23): fade-in + first palette sync +
+ * BG2 tilemap init. Run inline by overworld_boot_step() on the no-park path, or at
+ * OWP_BOOT_FLUSH if the boot actionscript frame parked. */
+static void overworld_boot_flush(void) {
+    /* Assembly main.asm lines 15-18: FADE_IN(1,1) then UPDATE_SCREEN.
+     * FADE_IN is non-blocking (just sets fade parameters).
+     * UPDATE_SCREEN syncs ert.palettes and builds entity draw list.
+     *
+     * IMPORTANT: The assembly has NO WAIT_UNTIL_NEXT_FRAME between here
+     * and @LOOP_BEGIN (line 24). All pre-loop code (lines 14-22) runs
+     * within a single frame. The first vblank occurs inside the main
+     * loop at line 29. Inserting an extra wait_for_vblank() here would
+     * consume one fade delay tick without advancing entity scripts,
+     * causing the screen to become visible one script frame too early
+     * (e.g., Ness flashing on screen before the intro script hides him). */
+    fade_in(1, 1);
+    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+    sync_palettes_to_cgram();
+
+    /* Assembly: JSL INIT_USED_BG2_TILE_MAP (main.asm line 23, US only). */
+    init_used_bg2_tile_map();
+}
+
+/* Run-to-completion form of overworld_boot (savestate D4b): the boot actionscript
+ * frame becomes a STEP_PUSH on the (rare) park instead of a nested pump_mode.
+ * Returns true iff the boot frame parked — the caller STEP_PUSHes
+ * GAME_MODE_ACTIONSCRIPT_FRAME and runs overworld_boot_flush() at OWP_BOOT_FLUSH.
+ * On no park (the normal case) it completes the frame + tail inline and returns
+ * false, so OWP_BOOT_AWAIT flows into OWP_RENDER with no yield (no Ness-flash). */
+static bool overworld_boot_step(void) {
     /* Sprite data lives in ROM on the SNES (always available). In the C port
      * it must be loaded from extracted asset files. The naming screen (new game)
      * and attract mode load it for their own use, but when loading an existing
@@ -1027,25 +1056,11 @@ static void overworld_boot(void) {
      * INITIALIZE_PARTY_MEMBER_ENTITY (sets up sprite, but animation_frame
      * stays -1 = hidden until SET_ANIMATION opcode runs later). */
     oam_clear();
-    run_actionscript_frame();
+    if (run_actionscript_frame_step())
+        return true;
 
-    /* Assembly main.asm lines 15-18: FADE_IN(1,1) then UPDATE_SCREEN.
-     * FADE_IN is non-blocking (just sets fade parameters).
-     * UPDATE_SCREEN syncs ert.palettes and builds entity draw list.
-     *
-     * IMPORTANT: The assembly has NO WAIT_UNTIL_NEXT_FRAME between here
-     * and @LOOP_BEGIN (line 24). All pre-loop code (lines 14-22) runs
-     * within a single frame. The first vblank occurs inside the main
-     * loop at line 29. Inserting an extra wait_for_vblank() here would
-     * consume one fade delay tick without advancing entity scripts,
-     * causing the screen to become visible one script frame too early
-     * (e.g., Ness flashing on screen before the intro script hides him). */
-    fade_in(1, 1);
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-    sync_palettes_to_cgram();
-
-    /* Assembly: JSL INIT_USED_BG2_TILE_MAP (main.asm line 23, US only). */
-    init_used_bg2_tile_map();
+    overworld_boot_flush();
+    return false;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1096,11 +1111,21 @@ StepResult mode_step_overworld(ModeState *mst) {
             continue;
 
         case OWP_BOOT_AWAIT:
-            /* Boot stage 3: the intro has finished (or was skipped). overworld_boot()
+            /* Boot stage 3: the intro has finished (or was skipped). overworld_boot
              * and the first render run in THIS step (the `continue` into OWP_RENDER
              * does not yield) — the assembly has no WAIT between init and the first
-             * loop iteration, and a yield here flashes Ness a script frame early. */
-            overworld_boot();
+             * loop iteration, and a yield here flashes Ness a script frame early.
+             * If the (rare) boot actionscript frame parks for a child modal, the
+             * STEP_PUSH yield is unavoidable; resume at OWP_BOOT_FLUSH on its pop. */
+            st->phase = OWP_RENDER;
+            if (overworld_boot_step()) {
+                st->phase = OWP_BOOT_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            continue;
+
+        case OWP_BOOT_FLUSH:
+            overworld_boot_flush();
             st->phase = OWP_RENDER;
             continue;
 

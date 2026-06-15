@@ -1341,6 +1341,8 @@ typedef enum {
 typedef struct {
     uint8_t  phase;        /* BattleRowSelectPhase */
     uint8_t  allow_cancel; /* select_battle_row() arg */
+    uint8_t  flush;        /* D4b: resume code after a parked actionscript frame
+                            * (1 = targeting render -> BR_PRIME, 2 = hppp -> BR_INPUT) */
     uint16_t current_row;  /* 0=front, 1=back */
 } BattleRowSelectState;
 
@@ -1373,6 +1375,9 @@ typedef struct {
     uint8_t  phase;         /* BattleEnemySelectPhase */
     uint8_t  allow_cancel;  /* select_battle_target() arg */
     uint8_t  pending_sfx;   /* sfx to play at the top of ET_DISPLAY after a change (0 = none) */
+    uint8_t  flush;         /* D4b: resume code after a parked actionscript frame
+                             * (1 = targeting -> ET_PRIME, 2 = hppp -> ET_INPUT,
+                             *  3 = targeting -> ET_DISPLAY) */
     uint16_t action_param;  /* select_battle_target() arg (targetability check) */
     uint16_t current_enemy; /* index within the current row */
     uint16_t current_row;   /* 0=front, 1=back */
@@ -2263,6 +2268,9 @@ typedef enum {
                              * -> OWP_RENDER in the same step (no yield = no Ness-flash). */
     OWP_RENDER_FLUSH,       /* resume after a parked actionscript frame's child popped:
                              * update_screen + update_swirl_effect -> OWP_POST_TOP. */
+    OWP_BOOT_FLUSH,         /* resume after the boot actionscript frame parked (rare —
+                             * EVENT_001/002 run no modal): overworld_boot_flush() ->
+                             * OWP_RENDER in the same step. */
 } OverworldPhase;
 
 typedef struct {
