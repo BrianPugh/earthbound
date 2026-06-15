@@ -66,8 +66,19 @@ static StepResult mode_step_fade_wait(ModeState *st) {
          * HP/PP meters animating). window_tick() yielded internally via
          * render_frame_tick; window_tick_work() does the same work without the
          * yield, which the pump now owns. Work-then-yield matches the original
-         * ordering exactly (no phase shift). */
-        window_tick_work();
+         * ordering exactly (no phase shift). A parked callroutine propagates as
+         * a STEP_PUSH (savestate D4b); the post-render flush runs on resume via
+         * asf_flush (shared with FADE_TICK_OVERWORLD_RENDER — a given FADE_WAIT
+         * instance only ever uses one tick_kind). */
+        if (st->fade_wait.asf_flush) {
+            st->fade_wait.asf_flush = 0;
+            window_tick_work_flush();
+            break;
+        }
+        if (window_tick_work_step()) {
+            st->fade_wait.asf_flush = 1;
+            return actionscript_frame_take_push();
+        }
         break;
     case FADE_TICK_SCREEN_ONLY:
         /* Body of the former while(fade_active()) loop in
@@ -90,10 +101,22 @@ static StepResult mode_step_fade_wait(ModeState *st) {
  * FADE_WAIT); window_tick_work() does window_tick()'s work without the yield,
  * which the pump owns — work-then-yield matches the original ordering exactly. */
 static StepResult mode_step_entity_fade_wait(ModeState *st) {
-    (void)st;
+    /* Park-propagating resume (savestate D4b): a callroutine parked the window
+     * frame — another entity's action script ran a nested modal while this
+     * entity faded out (entities are NOT disabled here, so this genuinely
+     * happens). Finish that frame's render, then CONTINUE to re-test the exit.
+     * Reuses fade_wait.asf_flush (the mode is pushed with zeroed state). */
+    if (st->fade_wait.asf_flush) {
+        st->fade_wait.asf_flush = 0;
+        window_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
     if (ow.entity_fade_entity == -1)
         return STEP_RESULT_POP(0);
-    window_tick_work();
+    if (window_tick_work_step()) {
+        st->fade_wait.asf_flush = 1;
+        return actionscript_frame_take_push();
+    }
     return STEP_RESULT_CONTINUE();
 }
 
