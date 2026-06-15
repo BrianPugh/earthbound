@@ -354,6 +354,15 @@ void title_screen_setup(uint16_t quick_mode) {
          * @CHECK_ACTIONSCRIPT wait and the closing fade-out — now run as
          * GAME_MODE_TITLE_SCREEN (TS_WARMUP body re-derives `fade` from
          * ert.buffer each frame; slopes/target were set up above). */
+
+        /* Push the just-zeroed palette to CGRAM now (the SNES NMI uploads the
+         * PALETTES mirror every vblank). Without this, the single host frame that
+         * renders between this setup and TS_WARMUP's first render (the push-yield)
+         * shows the title BG tiles under the PREVIOUS scene's stale CGRAM — e.g.
+         * the bright "EARTHBOUND" glow flashes for a frame when returning from
+         * attract mode. inidisp is already $0F (screen on), so the palette must be
+         * black here for the transition frame to stay dark. */
+        sync_palettes_to_cgram();
     } else {
         /* Quick mode (asm @QUICK_MODE): NMI-driven brightness fade runs
          * concurrently with a 60-frame RENDER_FRAME_TICK warm-up loop.
