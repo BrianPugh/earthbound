@@ -13,6 +13,7 @@
 #include "core/mode_stack.h"
 #include "game/game_state.h"
 #include "game/display_text_internal.h"
+#include "game/overworld.h"   /* oam_restore_displayed */
 #include <string.h>
 #include <stdio.h>
 
@@ -477,6 +478,10 @@ bool run_actionscript_frame_step(void) {
 
     if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
         as_state_from_request(&g_asf_pending);
+        /* The caller already oam_clear()ed (blanking sprites) and the child won't
+         * rebuild OAM until next frame; restore last frame's sprites so the single
+         * push-yield transition frame doesn't flash all sprites invisible. */
+        oam_restore_displayed();
         return true;   /* frame parked; caller STEP_PUSHes ACTIONSCRIPT_FRAME */
     }
 
@@ -500,7 +505,10 @@ void run_actionscript_frame(void) {
     if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
         /* Blocking render-helper context: drive the parked frame's child modal to
          * completion via the local pump (the original behaviour). See the header
-         * comment — the render-helper layer legitimately runs cutscene callroutines. */
+         * comment — the render-helper layer legitimately runs cutscene callroutines.
+         * Restore last frame's sprites first (the caller oam_clear()ed) so the
+         * pump's transition frame doesn't flash all sprites invisible. */
+        oam_restore_displayed();
         ModeState init = {0};
         as_state_from_request(&init.actionscript_frame);
         pump_mode(GAME_MODE_ACTIONSCRIPT_FRAME, &init);

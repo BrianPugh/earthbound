@@ -1337,6 +1337,17 @@ void flush_entity_creation_queue(void) {
 }
 
 /* ---- OAM_CLEAR (port of asm/system/oam.asm) ---- */
+/* Backup of the displayed OAM Y positions, taken by oam_clear() before it blanks
+ * them. oam_restore_displayed() puts them back so a PARKED actionscript frame can
+ * keep showing the last rendered sprites for the single modal-transition frame
+ * (the push-yield) instead of a 1-frame all-sprites-invisible flash. The child
+ * GAME_MODE_ACTIONSCRIPT_FRAME rebuilds OAM (render_all_priority_sprites) when it
+ * completes, so only that transition frame is affected. oam_clear() touches only
+ * .y / oam_full_y (x/tile/attr/oam_hi/oam_full_x already retain the last frame),
+ * so restoring these two un-hides exactly the previous frame's sprites. */
+static uint8_t g_oam_y_backup[128];
+static int16_t g_oam_full_y_backup[128];
+
 void oam_clear(void) {
     /* Clear priority queue offsets (assembly lines 9-12 of oam_clear.asm) */
     for (int i = 0; i < 4; i++)
@@ -1344,10 +1355,23 @@ void oam_clear(void) {
     ert.oam_write_index = 0;
 
     /* Park sprites off-screen. EB_VIEWPORT_HEIGHT (240) is used instead of
-     * SNES_HEIGHT (224) so sprites are hidden in both 224px and 240px modes. */
+     * SNES_HEIGHT (224) so sprites are hidden in both 224px and 240px modes.
+     * Back up the displayed Y first (see oam_restore_displayed). */
     for (int i = 0; i < 128; i++) {
+        g_oam_y_backup[i] = ppu.oam[i].y;
+        g_oam_full_y_backup[i] = ppu.oam_full_y[i];
         ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
         ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
+    }
+}
+
+/* Restore the OAM Y positions blanked by the most recent oam_clear() — used when
+ * an actionscript frame parks, so the modal-transition frame shows the last
+ * rendered sprites instead of a blank flash. */
+void oam_restore_displayed(void) {
+    for (int i = 0; i < 128; i++) {
+        ppu.oam[i].y = g_oam_y_backup[i];
+        ppu.oam_full_y[i] = g_oam_full_y_backup[i];
     }
 }
 

@@ -781,6 +781,17 @@ static void draw_title_letter(int16_t entity_offset) {
  * Supports both title screen spritemaps (bank=0) and overworld spritemaps (bank=1).
  */
 void render_all_priority_sprites(void) {
+    /* Park every slot off-screen before writing the used ones, so this is a
+     * complete OAM rebuild rather than an overlay on whatever was there. Existing
+     * callers always oam_clear() first (this is redundant for them), but it lets a
+     * parked actionscript frame restore last frame's sprites for the modal-
+     * transition render (oam_restore_displayed) without leaving ghost sprites in
+     * slots that were used last frame but not this one. */
+    for (int i = 0; i < 128; i++) {
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
+    }
+
     for (int prio = 0; prio < 4; prio++) {
         SpritePriorityQueue *q = &sprite_priority[prio];
         for (uint16_t i = 0; i < q->offset; i++) {

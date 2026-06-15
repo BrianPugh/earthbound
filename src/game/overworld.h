@@ -624,6 +624,10 @@ void calculate_velocity_components(uint16_t angle, int16_t speed,
 /* Clear all 128 OAM entries off-screen.
  * Port of OAM_CLEAR (asm/system/oam.asm). */
 void oam_clear(void);
+/* Restore the OAM Y positions blanked by the most recent oam_clear() — used when
+ * an actionscript frame parks so the modal-transition frame keeps the last
+ * rendered sprites (avoids a 1-frame all-sprites-invisible flash). */
+void oam_restore_displayed(void);
 
 /* Convert all active entity absolute positions to screen coordinates.
  * Port of UPDATE_ENTITY_SCREEN_POSITIONS (asm/overworld/entity/update_entity_screen_positions.asm).
