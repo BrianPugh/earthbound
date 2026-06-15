@@ -917,9 +917,14 @@ StepResult mode_step_teleport(ModeState *st) {
             continue;
 
         case TP_FAIL_WAIT:
-            /* RUN_TELEPORT_FAILURE_SEQUENCE's 180-frame charred-status wait. */
+            /* RUN_TELEPORT_FAILURE_SEQUENCE's 180-frame charred-status wait. A
+             * parked actionscript frame STEP_PUSHes ACTIONSCRIPT_FRAME and the
+             * post-render frame_i++ runs at TP_FAIL_WAIT_FLUSH on its pop. */
             if (ts->frame_i < 180) {
-                render_frame_tick_work();
+                if (render_frame_tick_work_step()) {
+                    ts->phase = TP_FAIL_WAIT_FLUSH;
+                    return actionscript_frame_take_push();
+                }
                 ts->frame_i++;
                 return STEP_RESULT_CONTINUE();
             }
@@ -928,6 +933,12 @@ StepResult mode_step_teleport(ModeState *st) {
             ts->frame_i = 0;
             ts->phase = TP_FAIL_SETTLE;
             continue;
+
+        case TP_FAIL_WAIT_FLUSH:
+            render_frame_tick_work_flush();
+            ts->frame_i++;
+            ts->phase = TP_FAIL_WAIT;
+            return STEP_RESULT_CONTINUE();
 
         case TP_FAIL_SETTLE:
             /* Assembly: LDA #10; JSL WAIT_FRAMES_WITH_UPDATES. */

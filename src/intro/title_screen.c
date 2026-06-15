@@ -121,11 +121,25 @@ static StepResult title_fadeout_step(TitleScreenState *s) {
 StepResult mode_step_title_screen(ModeState *st) {
     TitleScreenState *s = &st->title_screen;
 
+    /* Resume after a parked actionscript frame (D4b): finish the render, then run
+     * the exact post-render tail of whichever site parked. */
+    if (s->flush == 1) {        /* TS_WARMUP render parked */
+        s->flush = 0;
+        render_frame_tick_work_flush();
+        if (++s->frame >= 60)
+            s->phase = TS_INPUT;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 2) {        /* TS_INPUT render parked */
+        s->flush = 0;
+        render_frame_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+
     switch ((TitleScreenPhase)s->phase) {
     case TS_WARMUP:
         if (s->quick_mode) {
             if (fade_active()) fade_update();
-            render_frame_tick_work();
         } else {
             /* Sprite-palette lerp (group 8, colors 128-143) toward the saved
              * fade target, re-derived from ert.buffer each frame. */
@@ -143,7 +157,10 @@ StepResult mode_step_title_screen(ModeState *st) {
             }
             ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
             update_map_palette_animation();
-            render_frame_tick_work();
+        }
+        if (render_frame_tick_work_step()) {
+            s->flush = 1;
+            return actionscript_frame_take_push();
         }
         if (++s->frame >= 60)
             s->phase = TS_INPUT;
@@ -168,7 +185,10 @@ StepResult mode_step_title_screen(ModeState *st) {
             return title_fadeout_step(s);
         }
         /* @NO_BUTTON: run one frame. */
-        render_frame_tick_work();
+        if (render_frame_tick_work_step()) {
+            s->flush = 2;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
 
     case TS_FADEOUT:

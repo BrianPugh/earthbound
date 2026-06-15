@@ -73,6 +73,33 @@ static bool load_attract_mode_text_offsets(void) {
 StepResult mode_step_attract_mode(ModeState *st) {
   AttractState *s = &st->attract;
 
+  /* Resume after a parked actionscript frame (D4b): finish the render, then run
+   * the exact post-render tail of whichever site parked. */
+  if (s->flush == 1) {        /* AT_MAIN render parked */
+    s->flush = 0;
+    render_frame_tick_work_flush();
+    fade_update();
+    if (s->loop_frame <= 1)
+      ppu.tm = 0x13;
+    s->loop_frame++;
+    if (s->loop_frame >= 36000) {
+      close_oval_window();
+      s->phase = AT_OVAL_CLOSE;
+    }
+    return STEP_RESULT_CONTINUE();
+  }
+  if (s->flush == 2) {        /* AT_OVAL_CLOSE render parked */
+    s->flush = 0;
+    render_frame_tick_work_flush();
+    update_swirl_effect();
+    return STEP_RESULT_CONTINUE();
+  }
+  if (s->flush == 3) {        /* AT_FADEOUT render parked */
+    s->flush = 0;
+    render_frame_tick_work_flush();
+    return STEP_RESULT_CONTINUE();
+  }
+
   switch ((AttractPhase)s->phase) {
   case AT_SCRIPT: {
     /* Drive the scene by running its attract-mode bytecode script as a child
@@ -93,25 +120,28 @@ StepResult mode_step_attract_mode(ModeState *st) {
 
   case AT_MAIN: {
     /* while(actionscript_state == 0): swirl, button check, render, fade, TM. */
-    bool done = false;
     if (ert.actionscript_state != 0) {
-      done = true;
-    } else {
-      update_swirl_effect();
-      if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
-        s->button_pressed = 1;
-        done = true;
-      } else {
-        render_frame_tick_work();
-        fade_update();
-        if (s->loop_frame <= 1)
-          ppu.tm = 0x13; /* BG1 | BG2 | OBJ on the first two frames */
-        s->loop_frame++;
-        if (s->loop_frame >= 36000) /* safety timeout (no timeout in the ROM) */
-          done = true;
-      }
+      close_oval_window();
+      s->phase = AT_OVAL_CLOSE;
+      return STEP_RESULT_CONTINUE();
     }
-    if (done) {
+    update_swirl_effect();
+    if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+      s->button_pressed = 1;
+      close_oval_window();
+      s->phase = AT_OVAL_CLOSE;
+      return STEP_RESULT_CONTINUE();
+    }
+    if (render_frame_tick_work_step()) {
+      s->flush = 1;
+      return actionscript_frame_take_push();
+    }
+    /* post-render tail (also run at flush==1) */
+    fade_update();
+    if (s->loop_frame <= 1)
+      ppu.tm = 0x13; /* BG1 | BG2 | OBJ on the first two frames */
+    s->loop_frame++;
+    if (s->loop_frame >= 36000) { /* safety timeout (no timeout in the ROM) */
       close_oval_window();
       s->phase = AT_OVAL_CLOSE;
     }
@@ -125,7 +155,10 @@ StepResult mode_step_attract_mode(ModeState *st) {
       s->phase = AT_FADEOUT;
       return STEP_RESULT_CONTINUE();
     }
-    render_frame_tick_work();
+    if (render_frame_tick_work_step()) {
+      s->flush = 2;
+      return actionscript_frame_take_push();
+    }
     update_swirl_effect();
     return STEP_RESULT_CONTINUE();
 
@@ -137,7 +170,10 @@ StepResult mode_step_attract_mode(ModeState *st) {
       return STEP_RESULT_POP(s->button_pressed);
     }
     fade_update();
-    render_frame_tick_work();
+    if (render_frame_tick_work_step()) {
+      s->flush = 3;
+      return actionscript_frame_take_push();
+    }
     return STEP_RESULT_CONTINUE();
   }
   return STEP_RESULT_POP(s->button_pressed);

@@ -6179,10 +6179,19 @@ StepResult mode_step_battle_scripted(ModeState *state) {
             /* Post-battle cleanup — render_and_disable_entities() split at
              * its render_frame_tick yield: the work half here, the entity
              * disable after the yield in BS_FINISH (work-then-yield matches
-             * the blocking helper exactly). */
+             * the blocking helper exactly). A parked actionscript frame
+             * STEP_PUSHes ACTIONSCRIPT_FRAME and resumes at BS_CLEANUP_FLUSH. */
             update_party();
             refresh_party_entities();
-            render_frame_tick_work();
+            if (render_frame_tick_work_step()) {
+                st->phase = BS_CLEANUP_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = BS_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case BS_CLEANUP_FLUSH:
+            render_frame_tick_work_flush();
             st->phase = BS_FINISH;
             return STEP_RESULT_CONTINUE();
 

@@ -799,6 +799,7 @@ typedef enum {
     BS_CLEANUP,       /* render_and_disable front half: party + render work */
     BS_FINISH,        /* entity disable + intangibility frames; pop the result */
     BS_TELEPORT_DEFEATED, /* after a post-battle PSI teleport with the party defeated: pop 1 */
+    BS_CLEANUP_FLUSH, /* D4b: resume after a parked actionscript frame popped (BS_CLEANUP) */
 } BattleScriptedPhase;
 
 typedef struct {
@@ -1747,6 +1748,8 @@ typedef struct {
     uint8_t  result;          /* 0 = time-out (attract), 1 = button pressed */
     uint8_t  fade_b;          /* TS_FADEOUT: current brightness (0x0F..1) */
     uint8_t  fade_delay_left; /* TS_FADEOUT: frames left at the current brightness */
+    uint8_t  flush;           /* D4b: resume code after a parked actionscript frame
+                               * (1 = TS_WARMUP render, 2 = TS_INPUT render) */
     uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
 } TitleScreenState;
 
@@ -1785,6 +1788,8 @@ typedef enum {
 typedef struct {
     uint8_t  phase;          /* AttractPhase */
     uint8_t  button_pressed; /* result: a button ended the scene */
+    uint8_t  flush;          /* D4b: resume code after a parked actionscript frame
+                              * (1 = AT_MAIN, 2 = AT_OVAL_CLOSE, 3 = AT_FADEOUT) */
     uint16_t loop_frame;     /* AT_MAIN: frame counter (TM override + timeout) */
     uint16_t scene_index;    /* AT_SCRIPT: which attract scene script to run */
 } AttractState;
@@ -2110,6 +2115,7 @@ typedef enum {
     TP_CLEANUP,      /* restore callbacks, reset entities, clear state, POP */
     TP_LOOP_FLUSH,        /* resume after a parked actionscript frame popped (TP_LOOP) */
     TP_FAIL_SETTLE_FLUSH, /* resume after a parked actionscript frame popped (TP_FAIL_SETTLE) */
+    TP_FAIL_WAIT_FLUSH,   /* resume after a parked actionscript frame popped (TP_FAIL_WAIT) */
 } TeleportPhase;
 
 typedef struct {
