@@ -33,4 +33,33 @@ bool wait_frames_or_button(uint16_t count, uint16_t button_mask);
  * Toggled by AUX_FAST_FORWARD; used by timer and audio backends. */
 bool game_is_fast_forward(void);
 
+/* ── Capture-safety gate (savestate-anywhere; docs/plans/savestate-unified-loop.md,
+ * "recommended build order" item #1) ─────────────────────────────────────────────
+ * A snapshot is restorable only when taken at a root-loop boundary, where all logical
+ * state lives in the serialized structures (mode stack + RAM) and no game logic is
+ * suspended mid-C-stack inside a pump_mode or a blocking helper. So a capture request
+ * does NOT snapshot immediately: it sets a pending flag, host_process_frame() then
+ * free-runs (skips render + vblank pacing but keeps the per-frame logic running) so
+ * any finite blocking helper unwinds to the root in CPU time, and host_root_boundary()
+ * — called only from the outermost loop — performs the actual capture. An indefinite
+ * input-wait (e.g. display_text at a "▼" prompt) never unwinds; the unwind is capped
+ * and a capture failure is logged rather than writing a torn snapshot. This is the
+ * `g_shutdown_requested` mechanism the embedded power-off handler will reuse. */
+typedef enum {
+    SHUTDOWN_CAPTURE_NONE = 0,    /* no capture pending */
+    SHUTDOWN_CAPTURE_DEBUG_DUMP,  /* F4: numbered debug/state_NNN.bin (platform hook) */
+    SHUTDOWN_CAPTURE_SAVESTATE,   /* F6 / power-off: savestate.bin */
+} ShutdownCapture;
+
+/* Request a torn-safe capture at the next root-loop boundary. Idempotent: a request
+ * made while one is already pending is ignored (the original kind + unwind budget are
+ * kept). The embedded power-off handler calls this with SHUTDOWN_CAPTURE_SAVESTATE. */
+void host_request_capture(ShutdownCapture kind);
+
+/* Perform a pending capture if one was requested, then clear the request. MUST be
+ * called ONLY from the outermost host loop (the root boundary) — never from the
+ * nested host_process_frame() inside pump_mode or a blocking helper, or the snapshot
+ * would be torn. A no-op when nothing is pending. */
+void host_root_boundary(void);
+
 #endif /* GAME_MAIN_H */

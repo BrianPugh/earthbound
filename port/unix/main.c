@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
     while (!platform_input_quit_requested()) {
         game_loop_step();
         host_process_frame();
+        host_root_boundary(); /* root boundary: perform any pending torn-safe capture */
     }
 
 #ifdef ENABLE_VERIFY

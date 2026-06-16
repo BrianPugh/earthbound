@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "core/mode_stack.h"
 #include "core/memory.h"
+#include "core/state_dump.h"
 #include "core/math.h"
 #include "core/decomp.h"
 #include "data/assets.h"
@@ -51,6 +52,26 @@ static bool show_fps = false;
 static bool fast_forward_active = false;
 static bool debug_menu_requested = false;
 static uint16_t aux_prev = 0;
+
+/* Capture-safety gate — see host_request_capture()/host_root_boundary() in
+ * game_main.h. g_shutdown_requested holds the pending capture kind (NONE when idle);
+ * while set, host_process_frame() free-runs and counts unwind frames. */
+static ShutdownCapture g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+static int g_capture_unwind_frames = 0;
+
+/* Free-run unwind safety valve: while a capture is pending, host_process_frame()
+ * skips render + pacing and runs the per-frame logic at CPU speed, so finite blocking
+ * helpers unwind to the root boundary in a handful of frames. If the game is stuck in
+ * an indefinite input-wait (an unconverted blocking surface, e.g. display_text at a
+ * "▼" prompt) it never reaches the boundary; after this many free-run frames we
+ * abandon the request rather than write a torn snapshot. Free-run is CPU-bound, so
+ * this is reached in well under a second. Tunable: large enough to cover every normal
+ * finite blocker (fades, teleport, battle actions); long finite sequences such as the
+ * end credits intentionally exceed it (no one needs to resume into the credits). */
+#define CAPTURE_UNWIND_FRAME_CAP 600
+
+/* Desktop savestate path for an F6 / power-off capture. */
+#define EB_SAVESTATE_PATH "savestate.bin"
 
 /* Dynamic frame-skipping state.
  * When the system falls behind real-time, skip PPU rendering (but keep
@@ -261,6 +282,22 @@ void host_process_frame(void) {
 
     t0 = platform_timer_ticks();
 
+    /* Capture-safety free-run: while a snapshot is pending, this frame is a pure
+     * unwind step — keep the per-frame logic (fade/timers/RNG/tasks) so blocking
+     * helpers progress, but skip render + vblank pacing (set below) so they unwind
+     * at CPU speed back to the root boundary, where host_root_boundary() captures.
+     * Bail (abandon the request) past the unwind budget — an indefinite input-wait
+     * that will never reach the boundary; abandoning beats writing a torn snapshot. */
+    bool capture_unwinding = (g_shutdown_requested != SHUTDOWN_CAPTURE_NONE);
+    if (capture_unwinding && ++g_capture_unwind_frames > CAPTURE_UNWIND_FRAME_CAP) {
+        LOG_WARN("savestate: capture abandoned — game did not reach a root boundary "
+                 "within %d unwind frames (stuck in an indefinite input-wait?)\n",
+                 CAPTURE_UNWIND_FRAME_CAP);
+        g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+        g_capture_unwind_frames = 0;
+        capture_unwinding = false;
+    }
+
     /* Reset per-frame fade guard so fade_update runs exactly once this frame,
      * matching the assembly NMI handler which updates fade once per vblank. */
     fade_new_frame();
@@ -332,6 +369,10 @@ void host_process_frame(void) {
     if (debug_dump || vram_dump)
         do_render = true;
 
+    /* Capture-safety: never render during a free-run unwind. */
+    if (capture_unwinding)
+        do_render = false;
+
     if (do_render) {
         /* Render the PPU state via the platform's render path.
          * Single-core platforms do begin/render/end sequentially.
@@ -395,8 +436,13 @@ void host_process_frame(void) {
         fast_forward_active = !fast_forward_active;
         platform_video_set_vsync(!fast_forward_active);
     }
+    /* F4 (debug dump) / F6 (savestate): request a capture rather than snapshotting
+     * here — this host_process_frame() may be a nested yield inside pump_mode or a
+     * blocking helper (torn). host_root_boundary() captures at the root loop. */
     if (aux_new & AUX_STATE_DUMP)
-        platform_debug_dump_state();
+        host_request_capture(SHUTDOWN_CAPTURE_DEBUG_DUMP);
+    if (aux_new & AUX_SAVESTATE)
+        host_request_capture(SHUTDOWN_CAPTURE_SAVESTATE);
     if (aux_new & AUX_DEBUG_TOGGLE) {
         ow.debug_flag = 1;
         debug_menu_requested = true;
@@ -442,8 +488,9 @@ void host_process_frame(void) {
             if ((int64_t)(now - frame_deadline) > (int64_t)(MAX_FRAME_SKIP * frame_period))
                 frame_deadline = now;
 
-            /* Sleep if ahead of schedule */
-            if (!platform_headless)
+            /* Sleep if ahead of schedule (skipped during a capture free-run so
+             * finite blockers unwind at CPU speed, not wall-clock frames). */
+            if (!platform_headless && !capture_unwinding)
                 platform_timer_sleep_until(frame_deadline);
 
             /* Update FPS IIR filter — only on rendered frames so the
@@ -455,6 +502,37 @@ void host_process_frame(void) {
          * rendered ones) so that platform_timer_frame_end() computes its
          * sleep deadline from the current frame, not a stale one. */
         platform_timer_frame_start();
+    }
+}
+
+/* Request a torn-safe capture at the next root-loop boundary. See game_main.h. */
+void host_request_capture(ShutdownCapture kind) {
+    if (kind == SHUTDOWN_CAPTURE_NONE)
+        return;
+    if (g_shutdown_requested != SHUTDOWN_CAPTURE_NONE)
+        return; /* already pending — keep the original kind + unwind budget */
+    g_shutdown_requested = kind;
+    g_capture_unwind_frames = 0;
+}
+
+/* Perform a pending capture, if any. MUST be called only from the outermost host
+ * loop (the root boundary) — never from a nested host_process_frame(). See game_main.h. */
+void host_root_boundary(void) {
+    if (g_shutdown_requested == SHUTDOWN_CAPTURE_NONE)
+        return;
+
+    ShutdownCapture kind = g_shutdown_requested;
+    g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+    g_capture_unwind_frames = 0;
+
+    if (kind == SHUTDOWN_CAPTURE_DEBUG_DUMP) {
+        /* F4: numbered debug/state_NNN.bin via the platform hook. */
+        platform_debug_dump_state();
+    } else { /* SHUTDOWN_CAPTURE_SAVESTATE — F6 / power-off */
+        if (state_dump_save(EB_SAVESTATE_PATH))
+            LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
+        else
+            LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
     }
 }
 
@@ -1366,6 +1444,7 @@ void game_loop_step(void) {
 void game_logic_entry(void) {
     game_loop_step();
     host_process_frame();
+    host_root_boundary(); /* root boundary: perform any pending torn-safe capture */
 }
 
 bool game_is_fast_forward(void) {

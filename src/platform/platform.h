@@ -89,6 +89,7 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb);
 #define AUX_STATE_DUMP   (1 << 3)   /* F4: dump game state */
 #define AUX_FAST_FORWARD (1 << 4)   /* Tab: toggle 4x speed */
 #define AUX_DEBUG_TOGGLE (1 << 5)   /* `: toggle debug mode */
+#define AUX_SAVESTATE    (1 << 6)   /* F6: request a torn-safe savestate capture */
 
 bool platform_input_init(void);
 void platform_input_shutdown(void);
