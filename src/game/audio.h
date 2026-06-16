@@ -40,6 +40,10 @@ void write_apu_port2(uint8_t value);
 /* Get currently playing track */
 uint16_t get_current_music(void);
 
+/* Re-sync the audio engine after a savestate load: restart the music named by the
+ * restored audio_state (the live APU is still playing the pre-load track). */
+void audio_resync_after_load(void);
+
 /* Invalidate the music track cache so the next change_music() call
    will take effect even if the same track ID is requested.
    Port of `STA CURRENT_MUSIC_TRACK` with #$FFFF in assembly. */
@@ -70,6 +74,7 @@ static inline void write_apu_port1(uint8_t value) { (void)value; }
 static inline void write_apu_port2(uint8_t value) { (void)value; }
 static inline uint16_t get_current_music(void) { return 0; }
 static inline void audio_invalidate_music_cache(void) {}
+static inline void audio_resync_after_load(void) {}
 static inline void audio_process_sfx_queue(void) {}
 static inline void audio_generate_samples(int16_t *buffer, int samples) { (void)buffer; (void)samples; }
 static inline void audio_lock(void) {}

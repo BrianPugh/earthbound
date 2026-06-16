@@ -40,12 +40,14 @@ bool state_dump_roundtrip_test(void) {
 #include "game/position_buffer.h"
 #include "snes/ppu.h"
 #include "entity/entity.h"
+#include "entity/sprite.h"
+#include "game/battle_bg.h"
 
 /* Container format: "EBSD" magic + version u16 + frame u16, then a series of
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 1
+#define STATE_DUMP_VERSION 2
 
 /* Section IDs */
 enum {
@@ -70,6 +72,12 @@ enum {
     SECTION_AUDIO            = 0x0013,
     SECTION_PSI_ANIMATION    = 0x0014,
     SECTION_MODE_STACK       = 0x0015,
+    /* Loose WRAM-equivalent globals that live outside the big module structs. */
+    SECTION_SPRITE_VRAM_TABLE    = 0x0016,
+    SECTION_OVERWORLD_SPRITEMAPS = 0x0017,
+    SECTION_LOADED_BG_DATA_1     = 0x0018,
+    SECTION_LOADED_BG_DATA_2     = 0x0019,
+    SECTION_CURRENT_SAVE_SLOT    = 0x001A,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -81,7 +89,7 @@ typedef struct {
     uint32_t size;
 } StateSection;
 
-#define MAX_SECTIONS 21
+#define MAX_SECTIONS 26
 
 /* Populate `t` with every serialized section in write order; return the count.
  * AUDIO is conditional, so the count is computed here rather than fixed. */
@@ -118,6 +126,17 @@ static int build_section_table(StateSection *t) {
 #endif
     ADD(SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state));
     ADD(SECTION_MODE_STACK,       &g_mode_stack,        sizeof(g_mode_stack));
+
+    /* Loose globals outside the module structs that are nevertheless live game
+     * state. Without these, a load leaves stale runtime bookkeeping: the sprite
+     * VRAM-slot allocation map and overworld spritemap buffer (entities store
+     * offsets into it) → sprite artifacts; the battle BG layer config → battle BG
+     * artifacts; the active save slot. */
+    ADD(SECTION_SPRITE_VRAM_TABLE,    sprite_vram_table,      sizeof(sprite_vram_table));
+    ADD(SECTION_OVERWORLD_SPRITEMAPS, overworld_spritemaps,   sizeof(overworld_spritemaps));
+    ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1));
+    ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2));
+    ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot));
 
 #undef ADD
     return n;

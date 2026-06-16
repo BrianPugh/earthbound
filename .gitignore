@@ -9,6 +9,8 @@ src/packed_assets/
 *DS_Store
 debug/
 src/debug/
+savestate.bin
+savestate_selftest_*.bin
 *.log
 *.txt
 !**/CMakeLists.txt

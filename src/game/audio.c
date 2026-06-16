@@ -265,6 +265,30 @@ void stop_music(void) {
     audio_unlock();
 }
 
+void audio_resync_after_load(void) {
+    /* Called after a savestate load. The restored audio_state names the music that
+     * SHOULD be playing, but the live SPC700/DSP keeps playing the pre-load track
+     * (its ~64 KB of APU RAM is not part of the snapshot). Force change_music() to
+     * actually re-issue: clear its caches (the track id + the loaded-pack ids) so it
+     * stops the old track, re-uploads the saved track's packs, and restarts it.
+     * Not sample-seamless — the song restarts — but the correct music plays and the
+     * stale one stops. (A seamless resume would require snapshotting the full APU.) */
+    if (!apu) return;
+
+    uint16_t track = audio_state.current_music_track;
+
+    audio_state.current_music_track          = 0xFFFF;
+    audio_state.current_primary_sample_pack   = 0xFF;
+    audio_state.current_secondary_sample_pack = 0xFF;
+    audio_state.current_sequence_pack         = 0xFF;
+
+    if (track == 0 || track == 0xFFFF) {
+        stop_music();
+        return;
+    }
+    change_music(track);
+}
+
 void write_apu_port1(uint8_t value) {
     /* Port of WRITE_APU_PORT1 (asm/overworld/write_apu_port1.asm).
      * ORs value with the bit-flip state, writes to APU port 1,

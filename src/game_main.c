@@ -547,10 +547,15 @@ void host_root_boundary(void) {
         else
             LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
     } else { /* ROOT_ACTION_LOAD */
-        if (state_dump_load(EB_SAVESTATE_PATH))
+        if (state_dump_load(EB_SAVESTATE_PATH)) {
+            /* The snapshot doesn't include the live SPC700/DSP, so restart the music
+             * named by the restored audio_state — otherwise the pre-load track keeps
+             * playing over the loaded game. */
+            audio_resync_after_load();
             LOG_WARN("savestate: loaded %s\n", EB_SAVESTATE_PATH);
-        else
+        } else {
             LOG_WARN("savestate: failed to load %s\n", EB_SAVESTATE_PATH);
+        }
     }
 }
 
