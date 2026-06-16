@@ -238,6 +238,7 @@ Requires SDL2 and the extracted assets from ebtools.
 - **F2** — VRAM visualization
 - **F3** — Toggle FPS counter (shows game logic time, PPU render time, idle headroom)
 - **F6** — Save-anywhere snapshot to `savestate.bin` (binary, ~139 KiB; ~48% is the PPU VRAM mirror). The request is deferred to the next root-loop boundary (torn-safe): the game free-runs any in-flight blocking helper to completion, then captures. Format: "EBSD" header + tagged sections for each module struct (core, game_state, overworld, battle, entities, PPU, mode stack, etc.) + 0xFFFF terminator. See `src/core/state_dump.c` for section IDs and `host_root_boundary()` in `src/game_main.c` for the capture-safety gate.
+- **F7** — Restore the last `savestate.bin` (`state_dump_load`). Deferred to the same root-loop boundary as F6 (loading replaces the mode stack wholesale, so it free-runs to the root first). Currently same-binary / same-process only — the in-struct raw pointers are not yet rebased for cross-platform loads. Run the save→load→save byte-identical self-test with `port/unix/build/earthbound --selftest-savestate`.
 
 ### C Port Source Organization
 

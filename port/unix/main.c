@@ -7,6 +7,7 @@
 #include "game_main.h"
 #include "game/audio.h"
 #include "core/log.h"
+#include "core/state_dump.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
@@ -23,10 +24,16 @@ static void platform_cleanup(void) {
 
 int main(int argc, char *argv[]) {
     const char *verify_rom_path = NULL;
+    bool savestate_selftest = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
             verify_rom_path = argv[++i];
+        } else if (strcmp(argv[i], "--selftest-savestate") == 0) {
+            /* Run the savestate save->load->save round-trip self-test and exit.
+             * Implies headless so it neither opens a window nor plays the game. */
+            savestate_selftest = true;
+            platform_headless = true;
         } else if (strcmp(argv[i], "--headless") == 0) {
             platform_headless = true;
         } else if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -43,7 +50,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--headless] [--frames N] [--verbose] [--verify ROM]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
                     argv[0]);
             return 1;
         }
@@ -75,6 +82,15 @@ int main(int argc, char *argv[]) {
 
     /* Initialize game systems */
     game_init();
+
+    /* Savestate round-trip self-test: prove state_dump_load() reads back exactly
+     * what state_dump_save() wrote (byte-identical), then exit. Runs against the
+     * post-game_init boot state. */
+    if (savestate_selftest) {
+        bool ok = state_dump_roundtrip_test();
+        fprintf(stderr, "savestate round-trip self-test: %s\n", ok ? "PASS" : "FAIL");
+        exit(ok ? 0 : 1);
+    }
 
     /* Initialize audio (loads audio packs from embedded assets) */
     if (!platform_headless)

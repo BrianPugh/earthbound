@@ -507,6 +507,7 @@ EarthBound uses its own character encoding, not ASCII. Key ranges:
 | F2 | VRAM visualization |
 | F3 | Toggle FPS overlay |
 | F6 | Save-anywhere snapshot to `savestate.bin` |
+| F7 | Restore the last `savestate.bin` |
 | Tab | Toggle 4x fast-forward |
 
 ### Debug Menu

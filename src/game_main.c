@@ -53,10 +53,18 @@ static bool fast_forward_active = false;
 static bool debug_menu_requested = false;
 static uint16_t aux_prev = 0;
 
-/* Capture-safety gate — see host_request_capture()/host_root_boundary() in
- * game_main.h. g_shutdown_requested is true while a savestate capture is pending;
- * while set, host_process_frame() free-runs and counts unwind frames. */
-static bool g_shutdown_requested = false;
+/* Capture-safety gate — see host_request_capture()/host_request_load()/
+ * host_root_boundary() in game_main.h. g_pending_root_action is non-NONE while a
+ * savestate save OR load is pending; while set, host_process_frame() free-runs and
+ * counts unwind frames so the C stack returns to the root boundary (both saving and
+ * loading require it: a save must be torn-safe, and a load replaces the mode stack
+ * wholesale, which is only coherent with no nested pump frames on the C stack). */
+typedef enum {
+    ROOT_ACTION_NONE = 0,
+    ROOT_ACTION_SAVE,   /* F6 / power-off: write a savestate */
+    ROOT_ACTION_LOAD,   /* F7: restore the last savestate */
+} RootAction;
+static RootAction g_pending_root_action = ROOT_ACTION_NONE;
 static int g_capture_unwind_frames = 0;
 
 /* Free-run unwind safety valve: while a capture is pending, host_process_frame()
@@ -288,12 +296,13 @@ void host_process_frame(void) {
      * at CPU speed back to the root boundary, where host_root_boundary() captures.
      * Bail (abandon the request) past the unwind budget — an indefinite input-wait
      * that will never reach the boundary; abandoning beats writing a torn snapshot. */
-    bool capture_unwinding = g_shutdown_requested;
+    bool capture_unwinding = (g_pending_root_action != ROOT_ACTION_NONE);
     if (capture_unwinding && ++g_capture_unwind_frames > CAPTURE_UNWIND_FRAME_CAP) {
-        LOG_WARN("savestate: capture abandoned — game did not reach a root boundary "
+        LOG_WARN("savestate: %s abandoned — game did not reach a root boundary "
                  "within %d unwind frames (stuck in an indefinite input-wait?)\n",
+                 g_pending_root_action == ROOT_ACTION_LOAD ? "load" : "capture",
                  CAPTURE_UNWIND_FRAME_CAP);
-        g_shutdown_requested = false;
+        g_pending_root_action = ROOT_ACTION_NONE;
         g_capture_unwind_frames = 0;
         capture_unwinding = false;
     }
@@ -436,11 +445,14 @@ void host_process_frame(void) {
         fast_forward_active = !fast_forward_active;
         platform_video_set_vsync(!fast_forward_active);
     }
-    /* F6 (savestate): request a capture rather than snapshotting here — this
-     * host_process_frame() may be a nested yield inside pump_mode or a blocking
-     * helper (torn). host_root_boundary() captures at the root loop. */
+    /* F6 (save) / F7 (load): request the action rather than performing it here —
+     * this host_process_frame() may be a nested yield inside pump_mode or a blocking
+     * helper, where a save would be torn and a load (replacing the mode stack) would
+     * corrupt the suspended parent. host_root_boundary() services it at the root loop. */
     if (aux_new & AUX_SAVESTATE)
         host_request_capture();
+    if (aux_new & AUX_LOAD_STATE)
+        host_request_load();
     if (aux_new & AUX_DEBUG_TOGGLE) {
         ow.debug_flag = 1;
         debug_menu_requested = true;
@@ -505,25 +517,41 @@ void host_process_frame(void) {
 
 /* Request a torn-safe capture at the next root-loop boundary. See game_main.h. */
 void host_request_capture(void) {
-    if (g_shutdown_requested)
-        return; /* already pending — keep the original unwind budget */
-    g_shutdown_requested = true;
+    if (g_pending_root_action != ROOT_ACTION_NONE)
+        return; /* already pending — keep the original action + unwind budget */
+    g_pending_root_action = ROOT_ACTION_SAVE;
     g_capture_unwind_frames = 0;
 }
 
-/* Perform a pending capture, if any. MUST be called only from the outermost host
+/* Request a savestate restore at the next root-loop boundary. See game_main.h. */
+void host_request_load(void) {
+    if (g_pending_root_action != ROOT_ACTION_NONE)
+        return; /* already pending — keep the original action + unwind budget */
+    g_pending_root_action = ROOT_ACTION_LOAD;
+    g_capture_unwind_frames = 0;
+}
+
+/* Perform a pending save/load, if any. MUST be called only from the outermost host
  * loop (the root boundary) — never from a nested host_process_frame(). See game_main.h. */
 void host_root_boundary(void) {
-    if (!g_shutdown_requested)
+    RootAction action = g_pending_root_action;
+    if (action == ROOT_ACTION_NONE)
         return;
 
-    g_shutdown_requested = false;
+    g_pending_root_action = ROOT_ACTION_NONE;
     g_capture_unwind_frames = 0;
 
-    if (state_dump_save(EB_SAVESTATE_PATH))
-        LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
-    else
-        LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
+    if (action == ROOT_ACTION_SAVE) {
+        if (state_dump_save(EB_SAVESTATE_PATH))
+            LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
+        else
+            LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
+    } else { /* ROOT_ACTION_LOAD */
+        if (state_dump_load(EB_SAVESTATE_PATH))
+            LOG_WARN("savestate: loaded %s\n", EB_SAVESTATE_PATH);
+        else
+            LOG_WARN("savestate: failed to load %s\n", EB_SAVESTATE_PATH);
+    }
 }
 
 /* Wait for one frame (NMI equivalent).

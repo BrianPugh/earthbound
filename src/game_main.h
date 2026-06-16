@@ -51,6 +51,12 @@ bool game_is_fast_forward(void);
  * is kept). The embedded power-off handler calls this from its shutdown ISR. */
 void host_request_capture(void);
 
+/* Request a savestate restore at the next root-loop boundary. Like the capture
+ * request, this free-runs the C stack back to the root before acting — loading
+ * replaces the mode stack wholesale, which is only coherent with no nested pump
+ * frames suspended on the C stack. Idempotent while one is already pending. */
+void host_request_load(void);
+
 /* Perform a pending capture if one was requested, then clear the request. MUST be
  * called ONLY from the outermost host loop (the root boundary) — never from the
  * nested host_process_frame() inside pump_mode or a blocking helper, or the snapshot
