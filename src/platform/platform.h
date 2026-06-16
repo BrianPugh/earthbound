@@ -86,7 +86,6 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb);
 #define AUX_DEBUG_DUMP   (1 << 0)   /* F1: dump PPU state */
 #define AUX_VRAM_DUMP    (1 << 1)   /* F2: dump VRAM as image */
 #define AUX_FPS_TOGGLE   (1 << 2)   /* F3: toggle FPS overlay */
-#define AUX_STATE_DUMP   (1 << 3)   /* F4: dump game state */
 #define AUX_FAST_FORWARD (1 << 4)   /* Tab: toggle 4x speed */
 #define AUX_DEBUG_TOGGLE (1 << 5)   /* `: toggle debug mode */
 #define AUX_SAVESTATE    (1 << 6)   /* F6: request a torn-safe savestate capture */
@@ -134,7 +133,6 @@ bool platform_save_write(const void *src, size_t offset, size_t size);
 /* Debug dumps (desktop: write files to debug/; embedded: no-op) */
 void platform_debug_dump_ppu(const pixel_t *framebuffer);
 void platform_debug_dump_vram_image(void);
-void platform_debug_dump_state(void);
 
 /*
  * Timer — frame pacing

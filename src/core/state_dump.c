@@ -2,7 +2,7 @@
 
 #ifdef EB_EMBEDDED
 
-/* No filesystem on embedded targets; F4 state dump is a debug-only feature. */
+/* No filesystem on embedded targets; the savestate backend is wired separately. */
 bool state_dump_save(const char *path) {
     (void)path;
     return false;

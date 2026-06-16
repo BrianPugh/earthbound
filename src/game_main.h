@@ -45,16 +45,11 @@ bool game_is_fast_forward(void);
  * input-wait (e.g. display_text at a "▼" prompt) never unwinds; the unwind is capped
  * and a capture failure is logged rather than writing a torn snapshot. This is the
  * `g_shutdown_requested` mechanism the embedded power-off handler will reuse. */
-typedef enum {
-    SHUTDOWN_CAPTURE_NONE = 0,    /* no capture pending */
-    SHUTDOWN_CAPTURE_DEBUG_DUMP,  /* F4: numbered debug/state_NNN.bin (platform hook) */
-    SHUTDOWN_CAPTURE_SAVESTATE,   /* F6 / power-off: savestate.bin */
-} ShutdownCapture;
 
-/* Request a torn-safe capture at the next root-loop boundary. Idempotent: a request
- * made while one is already pending is ignored (the original kind + unwind budget are
- * kept). The embedded power-off handler calls this with SHUTDOWN_CAPTURE_SAVESTATE. */
-void host_request_capture(ShutdownCapture kind);
+/* Request a torn-safe savestate capture at the next root-loop boundary. Idempotent:
+ * a request made while one is already pending is ignored (the original unwind budget
+ * is kept). The embedded power-off handler calls this from its shutdown ISR. */
+void host_request_capture(void);
 
 /* Perform a pending capture if one was requested, then clear the request. MUST be
  * called ONLY from the outermost host loop (the root boundary) — never from the

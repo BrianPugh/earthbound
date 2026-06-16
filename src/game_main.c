@@ -54,9 +54,9 @@ static bool debug_menu_requested = false;
 static uint16_t aux_prev = 0;
 
 /* Capture-safety gate — see host_request_capture()/host_root_boundary() in
- * game_main.h. g_shutdown_requested holds the pending capture kind (NONE when idle);
+ * game_main.h. g_shutdown_requested is true while a savestate capture is pending;
  * while set, host_process_frame() free-runs and counts unwind frames. */
-static ShutdownCapture g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+static bool g_shutdown_requested = false;
 static int g_capture_unwind_frames = 0;
 
 /* Free-run unwind safety valve: while a capture is pending, host_process_frame()
@@ -288,12 +288,12 @@ void host_process_frame(void) {
      * at CPU speed back to the root boundary, where host_root_boundary() captures.
      * Bail (abandon the request) past the unwind budget — an indefinite input-wait
      * that will never reach the boundary; abandoning beats writing a torn snapshot. */
-    bool capture_unwinding = (g_shutdown_requested != SHUTDOWN_CAPTURE_NONE);
+    bool capture_unwinding = g_shutdown_requested;
     if (capture_unwinding && ++g_capture_unwind_frames > CAPTURE_UNWIND_FRAME_CAP) {
         LOG_WARN("savestate: capture abandoned — game did not reach a root boundary "
                  "within %d unwind frames (stuck in an indefinite input-wait?)\n",
                  CAPTURE_UNWIND_FRAME_CAP);
-        g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+        g_shutdown_requested = false;
         g_capture_unwind_frames = 0;
         capture_unwinding = false;
     }
@@ -436,13 +436,11 @@ void host_process_frame(void) {
         fast_forward_active = !fast_forward_active;
         platform_video_set_vsync(!fast_forward_active);
     }
-    /* F4 (debug dump) / F6 (savestate): request a capture rather than snapshotting
-     * here — this host_process_frame() may be a nested yield inside pump_mode or a
-     * blocking helper (torn). host_root_boundary() captures at the root loop. */
-    if (aux_new & AUX_STATE_DUMP)
-        host_request_capture(SHUTDOWN_CAPTURE_DEBUG_DUMP);
+    /* F6 (savestate): request a capture rather than snapshotting here — this
+     * host_process_frame() may be a nested yield inside pump_mode or a blocking
+     * helper (torn). host_root_boundary() captures at the root loop. */
     if (aux_new & AUX_SAVESTATE)
-        host_request_capture(SHUTDOWN_CAPTURE_SAVESTATE);
+        host_request_capture();
     if (aux_new & AUX_DEBUG_TOGGLE) {
         ow.debug_flag = 1;
         debug_menu_requested = true;
@@ -506,34 +504,26 @@ void host_process_frame(void) {
 }
 
 /* Request a torn-safe capture at the next root-loop boundary. See game_main.h. */
-void host_request_capture(ShutdownCapture kind) {
-    if (kind == SHUTDOWN_CAPTURE_NONE)
-        return;
-    if (g_shutdown_requested != SHUTDOWN_CAPTURE_NONE)
-        return; /* already pending — keep the original kind + unwind budget */
-    g_shutdown_requested = kind;
+void host_request_capture(void) {
+    if (g_shutdown_requested)
+        return; /* already pending — keep the original unwind budget */
+    g_shutdown_requested = true;
     g_capture_unwind_frames = 0;
 }
 
 /* Perform a pending capture, if any. MUST be called only from the outermost host
  * loop (the root boundary) — never from a nested host_process_frame(). See game_main.h. */
 void host_root_boundary(void) {
-    if (g_shutdown_requested == SHUTDOWN_CAPTURE_NONE)
+    if (!g_shutdown_requested)
         return;
 
-    ShutdownCapture kind = g_shutdown_requested;
-    g_shutdown_requested = SHUTDOWN_CAPTURE_NONE;
+    g_shutdown_requested = false;
     g_capture_unwind_frames = 0;
 
-    if (kind == SHUTDOWN_CAPTURE_DEBUG_DUMP) {
-        /* F4: numbered debug/state_NNN.bin via the platform hook. */
-        platform_debug_dump_state();
-    } else { /* SHUTDOWN_CAPTURE_SAVESTATE — F6 / power-off */
-        if (state_dump_save(EB_SAVESTATE_PATH))
-            LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
-        else
-            LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
-    }
+    if (state_dump_save(EB_SAVESTATE_PATH))
+        LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
+    else
+        LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
 }
 
 /* Wait for one frame (NMI equivalent).

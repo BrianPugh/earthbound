@@ -6,7 +6,6 @@
 
 #include "snes/ppu.h"
 #include "game/window.h"
-#include "core/state_dump.h"
 
 static int debug_dump_counter = 0;
 
@@ -227,14 +226,4 @@ void platform_debug_dump_vram_image(void) {
     snprintf(path, sizeof(path), "debug/vram_2bpp_%03d.bmp", debug_dump_counter - 1);
     write_bmp(path, img2, img_w2, img_h2);
     printf("Debug: wrote %s (2bpp tiles, %dx%d)\n", path, img_w2, img_h2);
-}
-
-void platform_debug_dump_state(void) {
-    mkdir("debug", 0755);
-    char path[256];
-    snprintf(path, sizeof(path), "debug/state_%03d.bin", debug_dump_counter++);
-    if (state_dump_save(path))
-        printf("Debug: wrote %s\n", path);
-    else
-        printf("Debug: failed to write %s\n", path);
 }

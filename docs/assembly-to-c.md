@@ -506,7 +506,7 @@ EarthBound uses its own character encoding, not ASCII. Key ranges:
 | F1 | Dump PPU state and VRAM as BMP |
 | F2 | VRAM visualization |
 | F3 | Toggle FPS overlay |
-| F4 | Dump game state to binary file |
+| F6 | Save-anywhere snapshot to `savestate.bin` |
 | Tab | Toggle 4x fast-forward |
 
 ### Debug Menu
