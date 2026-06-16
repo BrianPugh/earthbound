@@ -53,7 +53,7 @@ static const uint16_t *flavour_palettes = NULL;
 uint8_t __attribute__((aligned(4))) vwf_buffer[VWF_BUFFER_SIZE];
 uint16_t vwf_x;        /* current pixel X position */
 uint16_t vwf_tile;     /* current tile index in ert.buffer */
-static uint16_t vwf_pixels_rendered; /* tracks how many pixels rendered */
+uint16_t vwf_pixels_rendered; /* tracks how many pixels rendered (savestate-captured) */
 
 /* VWF save/restore aliases into the tail of ert.buffer (BUF_VWF_SAVE).
  * Phase-exclusive with pathfinding — see buffer_layout.h for details. */
@@ -64,18 +64,9 @@ _Static_assert(VWF_BUFFER_SIZE == BUF_VWF_SAVE_SIZE,
 /* Extra pixels added between each character (US = 1, naming screen = 0) */
 uint8_t character_padding = 1;
 
-/* TEXT_RENDER_STATE: tracks current VWF tile VRAM positions.
- * Port of assembly's TEXT_RENDER_STATE BSS struct.
- * pixels_rendered: VWF_X value at last flush
- * upper_vram_position: VRAM tile ID for current upper 8x8 tile (0 = none)
- * lower_vram_position: VRAM tile ID for current lower 8x8 tile (0 = none) */
-typedef struct {
-    uint16_t pixels_rendered;
-    uint16_t upper_vram_position;
-    uint16_t lower_vram_position;
-} TextRenderState;
-
-static TextRenderState text_render_state;
+/* TextRenderState typedef is now public (text.h) so savestates can capture the
+ * in-progress typewriter render cursor. */
+TextRenderState text_render_state;
 
 /* --- Font loading --- */
 

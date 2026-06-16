@@ -42,12 +42,13 @@ bool state_dump_roundtrip_test(void) {
 #include "entity/entity.h"
 #include "entity/sprite.h"
 #include "game/battle_bg.h"
+#include "game/text.h"
 
 /* Container format: "EBSD" magic + version u16 + frame u16, then a series of
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 2
+#define STATE_DUMP_VERSION 3
 
 /* Section IDs */
 enum {
@@ -78,6 +79,15 @@ enum {
     SECTION_LOADED_BG_DATA_1     = 0x0018,
     SECTION_LOADED_BG_DATA_2     = 0x0019,
     SECTION_CURRENT_SAVE_SLOT    = 0x001A,
+    /* VWF text-render engine cursor — the in-progress (typewriter) glyph state
+     * that lives in text.c module globals, not in any captured struct. */
+    SECTION_VWF_BUFFER           = 0x001B,
+    SECTION_VWF_X                = 0x001C,
+    SECTION_VWF_TILE             = 0x001D,
+    SECTION_VWF_PIXELS_RENDERED  = 0x001E,
+    SECTION_VWF_CHAR_PADDING     = 0x001F,
+    SECTION_VWF_INDENT_NEWLINE   = 0x0020,
+    SECTION_TEXT_RENDER_STATE    = 0x0021,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -89,7 +99,7 @@ typedef struct {
     uint32_t size;
 } StateSection;
 
-#define MAX_SECTIONS 26
+#define MAX_SECTIONS 33
 
 /* Populate `t` with every serialized section in write order; return the count.
  * AUDIO is conditional, so the count is computed here rather than fixed. */
@@ -137,6 +147,18 @@ static int build_section_table(StateSection *t) {
     ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1));
     ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2));
     ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot));
+
+    /* VWF text-render engine cursor (text.c globals): without these a savestate
+     * taken mid-typewriter resumes the partial glyph run with a stale cursor →
+     * corrupt NPC dialogue. The already-rendered glyphs live in VRAM (PPU) and the
+     * window content tilemaps (WINDOW); this is the in-progress render position. */
+    ADD(SECTION_VWF_BUFFER,           vwf_buffer,             sizeof(vwf_buffer));
+    ADD(SECTION_VWF_X,                &vwf_x,                 sizeof(vwf_x));
+    ADD(SECTION_VWF_TILE,             &vwf_tile,              sizeof(vwf_tile));
+    ADD(SECTION_VWF_PIXELS_RENDERED,  &vwf_pixels_rendered,   sizeof(vwf_pixels_rendered));
+    ADD(SECTION_VWF_CHAR_PADDING,     &character_padding,     sizeof(character_padding));
+    ADD(SECTION_VWF_INDENT_NEWLINE,   &vwf_indent_new_line,   sizeof(vwf_indent_new_line));
+    ADD(SECTION_TEXT_RENDER_STATE,    &text_render_state,     sizeof(text_render_state));
 
 #undef ADD
     return n;

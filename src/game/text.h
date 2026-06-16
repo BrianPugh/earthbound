@@ -89,11 +89,25 @@ char eb_char_to_ascii(uint8_t eb_char);
 /* Convert ASCII to EarthBound internal character code */
 uint8_t ascii_to_eb_char(char ascii);
 
-/* --- VWF internal state (public for ending/cast name rendering) --- */
+/* TEXT_RENDER_STATE: tracks current VWF tile VRAM positions.
+ * Port of assembly's TEXT_RENDER_STATE BSS struct.
+ * pixels_rendered: VWF_X value at last flush
+ * upper_vram_position: VRAM tile ID for current upper 8x8 tile (0 = none)
+ * lower_vram_position: VRAM tile ID for current lower 8x8 tile (0 = none)
+ * Public so savestates can capture the in-progress (typewriter) render cursor. */
+typedef struct {
+    uint16_t pixels_rendered;
+    uint16_t upper_vram_position;
+    uint16_t lower_vram_position;
+} TextRenderState;
+
+/* --- VWF internal state (public for ending/cast name rendering + savestates) --- */
 extern uint8_t vwf_buffer[VWF_BUFFER_SIZE];
 extern uint16_t vwf_x;
 extern uint16_t vwf_tile;
+extern uint16_t vwf_pixels_rendered;
 extern uint8_t character_padding;
+extern TextRenderState text_render_state;
 
 /* Blit a single VWF glyph into the VWF buffer.
  * glyph_data: 1bpp glyph, height: pixel rows, width: pixel advance. */
