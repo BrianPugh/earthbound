@@ -277,6 +277,13 @@ void audio_resync_after_load(void) {
 
     uint16_t track = audio_state.current_music_track;
 
+    /* Drop any sound effects queued in the pre-load run. Do NOT restore/alter the
+     * bit-flippers (sfx_upper_bit_flipper / audio_effect_bit_flipper): they track the
+     * toggle parity the live, non-snapshotted SPC700 expects, so they must keep their
+     * current values — restoring save-time parity would desync the command protocol. */
+    sfx_queue_start = 0;
+    sfx_queue_end   = 0;
+
     audio_state.current_music_track          = 0xFFFF;
     audio_state.current_primary_sample_pack   = 0xFF;
     audio_state.current_secondary_sample_pack = 0xFF;

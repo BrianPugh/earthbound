@@ -189,4 +189,16 @@ void darken_bg_palettes(void);
  * target_layer is 0. */
 void restore_bg_palette_backups(void);
 
+/* ---- Savestate snapshot ----
+ * distort_30fps gates the 30fps battle-BG distortion and bg_state.active gates the
+ * simplified BG-update path; both are set at BG load and read every frame, but the
+ * BG isn't reloaded on a savestate restore — so capture them or a mid-battle reload
+ * runs the distortion at the wrong rate / freezes the simplified BG animation. */
+typedef struct {
+    uint16_t      distort_30fps;
+    BattleBGState bg_state;
+} BattleBgSaveState;
+void battle_bg_savestate_pack(void *out);   /* out: BattleBgSaveState* */
+void battle_bg_savestate_unpack(const void *in);
+
 #endif /* GAME_BATTLE_BG_H */

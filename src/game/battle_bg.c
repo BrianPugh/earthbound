@@ -26,6 +26,22 @@ LoadedBGData loaded_bg_data_layer2;
 /* Runtime state for the loaded battle background */
 static BattleBGState bg_state;
 
+/* ---- Savestate snapshot (see BattleBgSaveState in battle_bg.h) ----
+ * bg2_scanline_hoffset / bg2_distortion_active are intentionally NOT captured:
+ * generate_battlebg_frame/battle_bg_update rebuild them each frame from the captured
+ * loaded_bg_data_*, so they are derived render state. */
+void battle_bg_savestate_pack(void *out) {
+    BattleBgSaveState *s = (BattleBgSaveState *)out;
+    s->distort_30fps = distort_30fps;
+    s->bg_state      = bg_state;
+}
+
+void battle_bg_savestate_unpack(const void *in) {
+    const BattleBgSaveState *s = (const BattleBgSaveState *)in;
+    distort_30fps = s->distort_30fps;
+    bg_state      = s->bg_state;
+}
+
 /* Saved palette for cycling */
 static uint16_t bg_palette[16];
 

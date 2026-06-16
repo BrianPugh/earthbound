@@ -50,6 +50,20 @@ extern uint16_t cast_tile_offset;
 /* CREDITS_SCROLL_FRAME — per-frame IRQ callback during credits. */
 void credits_scroll_frame(void);
 
+/* ---- Savestate snapshot ----
+ * frame_callback is a host function pointer (process_overworld_tasks during normal
+ * play, credits_scroll_frame during the credits). Serialize it as a stable id rather
+ * than a raw pointer so the savestate is restart/cross-platform safe. */
+typedef enum {
+    FRAME_CALLBACK_OVERWORLD_TASKS = 0,  /* NULL or process_overworld_tasks */
+    FRAME_CALLBACK_CREDITS_SCROLL  = 1,
+} FrameCallbackId;
+typedef struct {
+    uint8_t frame_callback_id;
+} FrameCallbackSaveState;
+void frame_callback_savestate_pack(void *out);   /* out: FrameCallbackSaveState* */
+void frame_callback_savestate_unpack(const void *in);
+
 /* HANDLE_CAST_SCROLLING — tick callback for entity scripts during cast scene. */
 void handle_cast_scrolling(uint16_t current_entity_slot);
 

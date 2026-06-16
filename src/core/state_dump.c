@@ -46,12 +46,13 @@ bool state_dump_roundtrip_test(void) {
 #include "game/oval_window.h"
 #include "game/flyover.h"
 #include "game/inventory.h"
+#include "game/ending.h"
 
 /* Container format: "EBSD" magic + version u16 + frame u16, then a series of
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 4
+#define STATE_DUMP_VERSION 5
 
 /* Section IDs */
 enum {
@@ -100,6 +101,8 @@ enum {
     SECTION_OW_PALETTE_BACKUP    = 0x0026,
     SECTION_TEXT_MENUS           = 0x0027,
     SECTION_ITEM_TRANSFORM       = 0x0028,
+    SECTION_BATTLE_BG            = 0x0029,
+    SECTION_FRAME_CALLBACK       = 0x002A,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -117,7 +120,7 @@ typedef struct {
     void (*unpack)(const void *scratch); /* NULL for direct sections */
 } StateSection;
 
-#define MAX_SECTIONS 40
+#define MAX_SECTIONS 44
 
 /* Populate `t` with every serialized section in write order; return the count.
  * AUDIO is conditional, so the count is computed here rather than fixed. */
@@ -129,6 +132,8 @@ static DoorTransitionSaveState s_door_tr_ss;
 static OwPaletteBackupSaveState s_ow_pal_ss;
 static TextMenuSaveState       s_text_menu_ss;
 static ItemTransformSaveState  s_item_xform_ss;
+static BattleBgSaveState       s_battle_bg_ss;
+static FrameCallbackSaveState  s_frame_cb_ss;
 
 static int build_section_table(StateSection *t) {
     int n = 0;
@@ -219,6 +224,10 @@ static int build_section_table(StateSection *t) {
           text_menus_savestate_pack,    text_menus_savestate_unpack);
     ADDFN(SECTION_ITEM_TRANSFORM,     &s_item_xform_ss,  sizeof(s_item_xform_ss),
           item_transform_savestate_pack, item_transform_savestate_unpack);
+    ADDFN(SECTION_BATTLE_BG,          &s_battle_bg_ss,   sizeof(s_battle_bg_ss),
+          battle_bg_savestate_pack,     battle_bg_savestate_unpack);
+    ADDFN(SECTION_FRAME_CALLBACK,     &s_frame_cb_ss,    sizeof(s_frame_cb_ss),
+          frame_callback_savestate_pack, frame_callback_savestate_unpack);
 
 #undef ADD
 #undef ADDFN

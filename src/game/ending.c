@@ -83,6 +83,22 @@ static const uint8_t *credits_dma_src_ptrs[CREDITS_DMA_QUEUE_SIZE];
  * this to credits_scroll_frame, then restore it back. */
 frame_callback_fn frame_callback = NULL;  /* set to process_overworld_tasks by init_overworld */
 
+/* ---- Savestate snapshot (see FrameCallbackSaveState in ending.h) ----
+ * id 0 restores process_overworld_tasks (the normal-play default; functionally
+ * identical to the NULL early-boot value, which game_main also treats as
+ * process_overworld_tasks). */
+void frame_callback_savestate_pack(void *out) {
+    FrameCallbackSaveState *s = (FrameCallbackSaveState *)out;
+    s->frame_callback_id = (frame_callback == credits_scroll_frame)
+        ? FRAME_CALLBACK_CREDITS_SCROLL : FRAME_CALLBACK_OVERWORLD_TASKS;
+}
+
+void frame_callback_savestate_unpack(const void *in) {
+    const FrameCallbackSaveState *s = (const FrameCallbackSaveState *)in;
+    frame_callback = (s->frame_callback_id == FRAME_CALLBACK_CREDITS_SCROLL)
+        ? credits_scroll_frame : process_overworld_tasks;
+}
+
 /* =====================================================================
  *  Helper: VRAM copy (replacement for PREPARE_VRAM_COPY)
  *
