@@ -32,4 +32,23 @@ void load_background_animation(uint16_t bg1_layer, uint16_t bg2_layer);
  * and character window palette. */
 void undraw_flyover_text(void);
 
+/* ---- Savestate snapshot ----
+ * mode_step_flyover scrolls the flyover text ("War Against Giygas!" etc.) across
+ * many frames; its render cursor lives in flyover.c file-statics (the FlyoverState
+ * phase/pos is on the captured mode stack, but these render positions are not). One
+ * tagged section so a save taken mid-flyover resumes without corrupting the scroll. */
+typedef struct {
+    uint16_t flyover_vwf_x;
+    uint16_t flyover_vwf_y;
+    uint16_t flyover_tiles_per_row;
+    uint16_t flyover_tile_offset;
+    uint16_t flyover_dirty_min;
+    uint16_t flyover_dirty_max;
+    uint16_t flyover_screen_offset;
+    uint16_t flyover_pixel_offset;
+    uint16_t flyover_byte_offset;
+} FlyoverSaveState;
+void flyover_savestate_pack(void *out);   /* out: FlyoverSaveState* */
+void flyover_savestate_unpack(const void *in);
+
 #endif /* GAME_FLYOVER_H */

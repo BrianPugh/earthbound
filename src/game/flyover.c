@@ -59,6 +59,33 @@ static uint16_t flyover_screen_offset;
 static uint16_t flyover_pixel_offset;
 static uint16_t flyover_byte_offset;
 
+/* ---- Savestate snapshot (see FlyoverSaveState in flyover.h) ---- */
+void flyover_savestate_pack(void *out) {
+    FlyoverSaveState *s = (FlyoverSaveState *)out;
+    s->flyover_vwf_x        = flyover_vwf_x;
+    s->flyover_vwf_y        = flyover_vwf_y;
+    s->flyover_tiles_per_row = flyover_tiles_per_row;
+    s->flyover_tile_offset  = flyover_tile_offset;
+    s->flyover_dirty_min    = flyover_dirty_min;
+    s->flyover_dirty_max    = flyover_dirty_max;
+    s->flyover_screen_offset = flyover_screen_offset;
+    s->flyover_pixel_offset = flyover_pixel_offset;
+    s->flyover_byte_offset  = flyover_byte_offset;
+}
+
+void flyover_savestate_unpack(const void *in) {
+    const FlyoverSaveState *s = (const FlyoverSaveState *)in;
+    flyover_vwf_x        = s->flyover_vwf_x;
+    flyover_vwf_y        = s->flyover_vwf_y;
+    flyover_tiles_per_row = s->flyover_tiles_per_row;
+    flyover_tile_offset  = s->flyover_tile_offset;
+    flyover_dirty_min    = s->flyover_dirty_min;
+    flyover_dirty_max    = s->flyover_dirty_max;
+    flyover_screen_offset = s->flyover_screen_offset;
+    flyover_pixel_offset = s->flyover_pixel_offset;
+    flyover_byte_offset  = s->flyover_byte_offset;
+}
+
 /* Script asset for each flyover ID (file scope so mode_step_flyover can re-derive
  * the script pointer from the saved id). Use .bin — ebtools decodes .flyover into
  * assembly source, but the C port needs raw binary bytecodes. */

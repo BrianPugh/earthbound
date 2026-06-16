@@ -101,6 +101,24 @@ typedef struct {
     uint16_t lower_vram_position;
 } TextRenderState;
 
+/* ---- Savestate snapshot: overworld equip/PSI menu preview state ----
+ * The equipment stat-preview and the overworld PSI-caster selection live in text.c
+ * file-statics that are read across many frames while those (mode-stepped) menus are
+ * open. A save taken with the menu open must round-trip them or the preview shows the
+ * wrong character's numbers. */
+typedef struct {
+    uint8_t  compare_equipment_mode;
+    uint8_t  character_for_equip_menu;
+    uint8_t  temporary_weapon;
+    uint8_t  temporary_body_gear;
+    uint8_t  temporary_arms_gear;
+    uint8_t  temporary_other_gear;
+    uint16_t overworld_selected_psi_user;
+    uint16_t only_one_character_with_psi;
+} TextMenuSaveState;
+void text_menus_savestate_pack(void *out);   /* out: TextMenuSaveState* */
+void text_menus_savestate_unpack(const void *in);
+
 /* --- VWF internal state (public for ending/cast name rendering + savestates) --- */
 extern uint8_t vwf_buffer[VWF_BUFFER_SIZE];
 extern uint16_t vwf_x;

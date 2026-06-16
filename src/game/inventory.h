@@ -370,4 +370,19 @@ void reset_item_transformations(void);
  * Uses party_order[] and player_controlled_party_count. */
 uint16_t count_alive_party_members(void);
 
+/* ---- Timed item transformation savestate ----
+ * Timed items (ripening/rotting) decrement real-time countdowns every overworld
+ * frame in inventory.c file-statics; a save in the overworld must round-trip them or
+ * in-flight transformations are lost (the item never ripens). Defined here so the
+ * snapshot can embed the table. */
+#define ITEM_TRANSFORM_MAX_ENTRIES  4   /* max active transformation slots */
+#define LOADED_TRANSFORM_ENTRY_SIZE 4   /* sizeof(loaded_timed_item_transformation) */
+typedef struct {
+    uint8_t  loaded_transformations[ITEM_TRANSFORM_MAX_ENTRIES * LOADED_TRANSFORM_ENTRY_SIZE];
+    uint16_t item_transformations_loaded;
+    uint8_t  time_until_next_item_transformation_check;
+} ItemTransformSaveState;
+void item_transform_savestate_pack(void *out);   /* out: ItemTransformSaveState* */
+void item_transform_savestate_unpack(const void *in);
+
 #endif /* GAME_INVENTORY_H */

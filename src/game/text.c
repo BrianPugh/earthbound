@@ -1222,6 +1222,31 @@ static uint16_t overworld_selected_psi_user;
  * so character selection is skipped. */
 static uint16_t only_one_character_with_psi;
 
+/* ---- Savestate snapshot (see TextMenuSaveState in text.h) ---- */
+void text_menus_savestate_pack(void *out) {
+    TextMenuSaveState *s = (TextMenuSaveState *)out;
+    s->compare_equipment_mode     = compare_equipment_mode;
+    s->character_for_equip_menu   = character_for_equip_menu;
+    s->temporary_weapon           = temporary_weapon;
+    s->temporary_body_gear        = temporary_body_gear;
+    s->temporary_arms_gear        = temporary_arms_gear;
+    s->temporary_other_gear       = temporary_other_gear;
+    s->overworld_selected_psi_user = overworld_selected_psi_user;
+    s->only_one_character_with_psi = only_one_character_with_psi;
+}
+
+void text_menus_savestate_unpack(const void *in) {
+    const TextMenuSaveState *s = (const TextMenuSaveState *)in;
+    compare_equipment_mode     = s->compare_equipment_mode;
+    character_for_equip_menu   = s->character_for_equip_menu;
+    temporary_weapon           = s->temporary_weapon;
+    temporary_body_gear        = s->temporary_body_gear;
+    temporary_arms_gear        = s->temporary_arms_gear;
+    temporary_other_gear       = s->temporary_other_gear;
+    overworld_selected_psi_user = s->overworld_selected_psi_user;
+    only_one_character_with_psi = s->only_one_character_with_psi;
+}
+
 /* DISPLAY_PSI_ABILITY_DETAILS — Port of asm/text/menu/display_psi_ability_details.asm (54 lines).
  *
  * Called during PSI ability selection to refresh the ability list window.

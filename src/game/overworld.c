@@ -1985,13 +1985,8 @@ void initialize_overworld_state(void) {
  * callback fires.  A slot with frames_left == 0 is free.
  * ==================================================================== */
 
-#define MAX_OVERWORLD_TASKS 4
-
-typedef struct {
-    uint16_t frames_left;   /* 0 = free */
-    void (*callback)(void); /* called when timer expires */
-} OverworldTask;
-
+/* OverworldTask + MAX_OVERWORLD_TASKS are defined in overworld.h so the savestate
+ * snapshot (OverworldDeferredSaveState) can embed the queue. */
 static OverworldTask overworld_tasks[MAX_OVERWORLD_TASKS];
 
 int schedule_overworld_task(void (*callback)(void), uint16_t frames) {
@@ -2045,13 +2040,8 @@ void process_overworld_tasks(void) {
  * the demo playback system which overrides PAD_RAW each frame.
  * ==================================================================== */
 
-#define AUTO_MOVEMENT_BUFFER_SIZE 64
-
-typedef struct {
-    uint8_t  count;      /* number of frames to hold this direction */
-    uint16_t direction;  /* pad state / direction code */
-} AutoMovementEntry;
-
+/* AutoMovementEntry + AUTO_MOVEMENT_BUFFER_SIZE are defined in overworld.h so the
+ * savestate snapshot (OverworldDeferredSaveState) can embed the buffer. */
 static AutoMovementEntry auto_movement_buffer[AUTO_MOVEMENT_BUFFER_SIZE];
 static uint16_t auto_movement_index;  /* current write position */
 
@@ -2061,6 +2051,25 @@ static uint16_t auto_movement_index;  /* current write position */
 
 static const AutoMovementEntry *demo_read_ptr;
 static uint16_t demo_initial_pad_state;
+
+/* ---- Savestate snapshot (see OverworldDeferredSaveState in overworld.h) ---- */
+void overworld_deferred_savestate_pack(void *out) {
+    OverworldDeferredSaveState *s = (OverworldDeferredSaveState *)out;
+    memcpy(s->overworld_tasks, overworld_tasks, sizeof(overworld_tasks));
+    memcpy(s->auto_movement_buffer, auto_movement_buffer, sizeof(auto_movement_buffer));
+    s->auto_movement_index   = auto_movement_index;
+    s->demo_read_ptr         = demo_read_ptr;
+    s->demo_initial_pad_state = demo_initial_pad_state;
+}
+
+void overworld_deferred_savestate_unpack(const void *in) {
+    const OverworldDeferredSaveState *s = (const OverworldDeferredSaveState *)in;
+    memcpy(overworld_tasks, s->overworld_tasks, sizeof(overworld_tasks));
+    memcpy(auto_movement_buffer, s->auto_movement_buffer, sizeof(auto_movement_buffer));
+    auto_movement_index    = s->auto_movement_index;
+    demo_read_ptr          = s->demo_read_ptr;
+    demo_initial_pad_state = s->demo_initial_pad_state;
+}
 
 /* AUTO_MOVEMENT_DIRECTION_TABLE — maps quantized 8-direction index to
  * pad/direction code used by the movement system.

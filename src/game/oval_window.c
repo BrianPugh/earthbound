@@ -136,6 +136,68 @@ static int16_t loaded_oval_window_height_acceleration;
 /* Per-scanline window boundary buffer (EB_VIEWPORT_HEIGHT entries, 2 bytes each: left|right packed) */
 static uint16_t swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT];
 
+/* ---- Savestate snapshot (see OvalWindowSaveState in oval_window.h) ----
+ * swirl_window_hdma_buffer is intentionally NOT captured: it is rebuilt from the
+ * geometry above by parse_hdma_to_window_buffer/generate_oval_window_data before
+ * every use, so it is a derived render cache. */
+void oval_window_savestate_pack(void *out) {
+    OvalWindowSaveState *s = (OvalWindowSaveState *)out;
+    s->frames_until_next_swirl_update    = frames_until_next_swirl_update;
+    s->frames_until_next_swirl_frame     = frames_until_next_swirl_frame;
+    s->swirl_frames_left                 = swirl_frames_left;
+    s->swirl_hdma_table_id               = swirl_hdma_table_id;
+    s->swirl_invert_enabled              = swirl_invert_enabled;
+    s->swirl_reversed                    = swirl_reversed;
+    s->swirl_mask_settings               = swirl_mask_settings;
+    s->swirl_hdma_channel_offset         = swirl_hdma_channel_offset;
+    s->swirl_length_padding              = swirl_length_padding;
+    s->swirl_auto_restore                = swirl_auto_restore;
+    s->swirl_next_swirl                  = swirl_next_swirl;
+    s->swirl_repeat_speed                = swirl_repeat_speed;
+    s->swirl_repeats_until_speed_up      = swirl_repeats_until_speed_up;
+    s->active_oval_window                = active_oval_window;
+    s->loaded_oval_window_centre_x       = loaded_oval_window_centre_x;
+    s->loaded_oval_window_centre_y       = loaded_oval_window_centre_y;
+    s->loaded_oval_window_width          = loaded_oval_window_width;
+    s->loaded_oval_window_height         = loaded_oval_window_height;
+    s->loaded_oval_window_centre_x_add   = loaded_oval_window_centre_x_add;
+    s->loaded_oval_window_centre_y_add   = loaded_oval_window_centre_y_add;
+    s->loaded_oval_window_width_velocity = loaded_oval_window_width_velocity;
+    s->loaded_oval_window_height_velocity = loaded_oval_window_height_velocity;
+    s->loaded_oval_window_width_acceleration  = loaded_oval_window_width_acceleration;
+    s->loaded_oval_window_height_acceleration = loaded_oval_window_height_acceleration;
+    s->loaded_oval_window                = loaded_oval_window;
+}
+
+void oval_window_savestate_unpack(const void *in) {
+    const OvalWindowSaveState *s = (const OvalWindowSaveState *)in;
+    frames_until_next_swirl_update    = s->frames_until_next_swirl_update;
+    frames_until_next_swirl_frame     = s->frames_until_next_swirl_frame;
+    swirl_frames_left                 = s->swirl_frames_left;
+    swirl_hdma_table_id               = s->swirl_hdma_table_id;
+    swirl_invert_enabled              = s->swirl_invert_enabled;
+    swirl_reversed                    = s->swirl_reversed;
+    swirl_mask_settings               = s->swirl_mask_settings;
+    swirl_hdma_channel_offset         = s->swirl_hdma_channel_offset;
+    swirl_length_padding              = s->swirl_length_padding;
+    swirl_auto_restore                = s->swirl_auto_restore;
+    swirl_next_swirl                  = s->swirl_next_swirl;
+    swirl_repeat_speed                = s->swirl_repeat_speed;
+    swirl_repeats_until_speed_up      = s->swirl_repeats_until_speed_up;
+    active_oval_window                = s->active_oval_window;
+    loaded_oval_window_centre_x       = s->loaded_oval_window_centre_x;
+    loaded_oval_window_centre_y       = s->loaded_oval_window_centre_y;
+    loaded_oval_window_width          = s->loaded_oval_window_width;
+    loaded_oval_window_height         = s->loaded_oval_window_height;
+    loaded_oval_window_centre_x_add   = s->loaded_oval_window_centre_x_add;
+    loaded_oval_window_centre_y_add   = s->loaded_oval_window_centre_y_add;
+    loaded_oval_window_width_velocity = s->loaded_oval_window_width_velocity;
+    loaded_oval_window_height_velocity = s->loaded_oval_window_height_velocity;
+    loaded_oval_window_width_acceleration  = s->loaded_oval_window_width_acceleration;
+    loaded_oval_window_height_acceleration = s->loaded_oval_window_height_acceleration;
+    loaded_oval_window                = s->loaded_oval_window;
+}
+
 #define SWIRL_DATA_COUNT 126
 
 /*

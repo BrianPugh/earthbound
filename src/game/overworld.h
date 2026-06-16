@@ -841,4 +841,43 @@ void set_party_tick_callbacks(uint16_t leader_slot,
  * GAME_MODE_GAME_OVER (mode_step_game_over, overworld_palette.c), STEP_PUSHed by
  * the overworld root; the blocking spawn() bridge has been deleted. */
 
+/* ---- Deferred-task + auto-movement/demo state (defined here so the savestate
+ * snapshot below can embed them) ---- */
+#define MAX_OVERWORLD_TASKS 4
+typedef struct {
+    uint16_t frames_left;   /* 0 = free */
+    void (*callback)(void); /* called when timer expires */
+} OverworldTask;
+
+#define AUTO_MOVEMENT_BUFFER_SIZE 64
+typedef struct {
+    uint8_t  count;      /* number of frames to hold this direction */
+    uint16_t direction;  /* pad state / direction code */
+} AutoMovementEntry;
+
+/* ---- Savestate snapshots ----
+ * Escalator/stairs/forced-walk uses a deferred-callback queue + an injected
+ * auto-movement (demo) stream that play out over many frames; saving mid-ride must
+ * round-trip them or the leader never reaches its target / pad injection desyncs.
+ * (overworld_tasks holds callback fn-ptrs and demo_read_ptr is a raw cursor — valid
+ * in-process; cross-platform pointer purge is build-order item #3.) */
+typedef struct {
+    OverworldTask     overworld_tasks[MAX_OVERWORLD_TASKS];
+    AutoMovementEntry auto_movement_buffer[AUTO_MOVEMENT_BUFFER_SIZE];
+    uint16_t          auto_movement_index;
+    const AutoMovementEntry *demo_read_ptr;
+    uint16_t          demo_initial_pad_state;
+} OverworldDeferredSaveState;
+void overworld_deferred_savestate_pack(void *out);   /* out: OverworldDeferredSaveState* */
+void overworld_deferred_savestate_unpack(const void *in);
+
+/* The 1-frame palette/TM backup taken around a screen-flash (overworld_palette.c),
+ * restored next frame by a deferred task. */
+typedef struct {
+    uint16_t background_colour_backup_ow;
+    uint8_t  tm_backup_ow;
+} OwPaletteBackupSaveState;
+void ow_palette_backup_savestate_pack(void *out);   /* out: OwPaletteBackupSaveState* */
+void ow_palette_backup_savestate_unpack(const void *in);
+
 #endif /* GAME_OVERWORLD_H */

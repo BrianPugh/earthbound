@@ -43,12 +43,15 @@ bool state_dump_roundtrip_test(void) {
 #include "entity/sprite.h"
 #include "game/battle_bg.h"
 #include "game/text.h"
+#include "game/oval_window.h"
+#include "game/flyover.h"
+#include "game/inventory.h"
 
 /* Container format: "EBSD" magic + version u16 + frame u16, then a series of
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 3
+#define STATE_DUMP_VERSION 4
 
 /* Section IDs */
 enum {
@@ -88,21 +91,45 @@ enum {
     SECTION_VWF_CHAR_PADDING     = 0x001F,
     SECTION_VWF_INDENT_NEWLINE   = 0x0020,
     SECTION_TEXT_RENDER_STATE    = 0x0021,
+    /* Multi-frame animation / deferred-task / menu state that lives in per-file
+     * module statics (captured via pack/unpack snapshots, below). */
+    SECTION_OVAL_WINDOW          = 0x0022,
+    SECTION_FLYOVER              = 0x0023,
+    SECTION_OVERWORLD_DEFERRED   = 0x0024,
+    SECTION_DOOR_TRANSITION      = 0x0025,
+    SECTION_OW_PALETTE_BACKUP    = 0x0026,
+    SECTION_TEXT_MENUS           = 0x0027,
+    SECTION_ITEM_TRANSFORM       = 0x0028,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
-/* One serialized module: a tagged blob copied verbatim to/from its live global.
- * The SAME table drives both save and load, so the two can never drift. */
+/* One serialized module: a tagged blob copied to/from its live storage. The SAME
+ * table drives both save and load, so the two can never drift. Most sections point
+ * `ptr` directly at a live global. A section whose live state is scattered across
+ * file-private statics instead sets pack/unpack: `ptr` is then a static scratch
+ * buffer; save calls pack(ptr) to gather the statics into it before writing, load
+ * calls unpack(ptr) to scatter them back after reading. */
 typedef struct {
     uint16_t id;
     void    *ptr;
     uint32_t size;
+    void (*pack)(void *scratch);         /* NULL for direct sections */
+    void (*unpack)(const void *scratch); /* NULL for direct sections */
 } StateSection;
 
-#define MAX_SECTIONS 33
+#define MAX_SECTIONS 40
 
 /* Populate `t` with every serialized section in write order; return the count.
  * AUDIO is conditional, so the count is computed here rather than fixed. */
+/* Static scratch buffers for the pack/unpack (file-static-backed) sections. */
+static OvalWindowSaveState     s_oval_ss;
+static FlyoverSaveState        s_flyover_ss;
+static OverworldDeferredSaveState s_ow_deferred_ss;
+static DoorTransitionSaveState s_door_tr_ss;
+static OwPaletteBackupSaveState s_ow_pal_ss;
+static TextMenuSaveState       s_text_menu_ss;
+static ItemTransformSaveState  s_item_xform_ss;
+
 static int build_section_table(StateSection *t) {
     int n = 0;
 #define ADD(id_, ptr_, size_)                                  \
@@ -110,6 +137,17 @@ static int build_section_table(StateSection *t) {
         t[n].id = (uint16_t)(id_);                             \
         t[n].ptr = (void *)(ptr_);                             \
         t[n].size = (uint32_t)(size_);                         \
+        t[n].pack = NULL;                                      \
+        t[n].unpack = NULL;                                    \
+        n++;                                                   \
+    } while (0)
+#define ADDFN(id_, scratch_, size_, pack_, unpack_)            \
+    do {                                                       \
+        t[n].id = (uint16_t)(id_);                             \
+        t[n].ptr = (void *)(scratch_);                         \
+        t[n].size = (uint32_t)(size_);                         \
+        t[n].pack = (pack_);                                   \
+        t[n].unpack = (unpack_);                               \
         n++;                                                   \
     } while (0)
 
@@ -160,7 +198,30 @@ static int build_section_table(StateSection *t) {
     ADD(SECTION_VWF_INDENT_NEWLINE,   &vwf_indent_new_line,   sizeof(vwf_indent_new_line));
     ADD(SECTION_TEXT_RENDER_STATE,    &text_render_state,     sizeof(text_render_state));
 
+    /* Multi-frame animation / deferred-task / menu state held in per-file statics.
+     * These drive operations that span many frames (battle swirl, oval-window and
+     * flyover scrolls, escalator/stairs forced-walk, item-ripen timers, equip/PSI
+     * menu previews); a savestate taken mid-operation must round-trip them or the
+     * resumed operation corrupts. Each is gathered/scattered via a pack/unpack pair
+     * owned by the file that holds the statics. (Some still embed raw pointers —
+     * fine in-process; the cross-platform pointer purge is build-order item #3.) */
+    ADDFN(SECTION_OVAL_WINDOW,        &s_oval_ss,        sizeof(s_oval_ss),
+          oval_window_savestate_pack,   oval_window_savestate_unpack);
+    ADDFN(SECTION_FLYOVER,            &s_flyover_ss,     sizeof(s_flyover_ss),
+          flyover_savestate_pack,       flyover_savestate_unpack);
+    ADDFN(SECTION_OVERWORLD_DEFERRED, &s_ow_deferred_ss, sizeof(s_ow_deferred_ss),
+          overworld_deferred_savestate_pack, overworld_deferred_savestate_unpack);
+    ADDFN(SECTION_DOOR_TRANSITION,    &s_door_tr_ss,     sizeof(s_door_tr_ss),
+          door_transition_savestate_pack, door_transition_savestate_unpack);
+    ADDFN(SECTION_OW_PALETTE_BACKUP,  &s_ow_pal_ss,      sizeof(s_ow_pal_ss),
+          ow_palette_backup_savestate_pack, ow_palette_backup_savestate_unpack);
+    ADDFN(SECTION_TEXT_MENUS,         &s_text_menu_ss,   sizeof(s_text_menu_ss),
+          text_menus_savestate_pack,    text_menus_savestate_unpack);
+    ADDFN(SECTION_ITEM_TRANSFORM,     &s_item_xform_ss,  sizeof(s_item_xform_ss),
+          item_transform_savestate_pack, item_transform_savestate_unpack);
+
 #undef ADD
+#undef ADDFN
     return n;
 }
 
@@ -182,12 +243,16 @@ bool state_dump_save(const char *path) {
            && fwrite(&version, 2, 1, f) == 1
            && fwrite(&frame, 2, 1, f) == 1;
 
-    /* Sections — each blob written straight from its live global (no staging
-     * buffer; the largest single write is PPU ~68 KB). */
+    /* Sections — each direct blob written straight from its live global (no staging
+     * buffer; the largest single write is PPU ~68 KB); pack/unpack sections first
+     * gather their scattered statics into the scratch buffer. */
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
-    for (int i = 0; i < n && ok; i++)
+    for (int i = 0; i < n && ok; i++) {
+        if (table[i].pack)
+            table[i].pack(table[i].ptr);
         ok = write_section(f, table[i].id, table[i].ptr, table[i].size);
+    }
 
     /* Terminator */
     uint16_t term = SECTION_TERMINATOR;
@@ -246,6 +311,9 @@ bool state_dump_load(const char *path) {
                 fclose(f);
                 return false;
             }
+            /* pack/unpack section: scatter the scratch buffer back into its statics. */
+            if (sec->unpack)
+                sec->unpack(sec->ptr);
         } else if (size) {
             /* Unknown id or size mismatch: skip the payload. */
             if (fseek(f, (long)size, SEEK_CUR) != 0) {

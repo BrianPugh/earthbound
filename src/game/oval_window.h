@@ -92,4 +92,39 @@ void set_swirl_mask_settings(uint8_t value);
 /* Set swirl auto-restore flag (needed by BATTLE_SWIRL_SEQUENCE) */
 void set_swirl_auto_restore(uint8_t value);
 
+/* ---- Savestate snapshot ----
+ * The swirl / oval-window animation runs across many frames driven by file-static
+ * state in oval_window.c; a savestate taken mid-animation must round-trip it. One
+ * tagged section, gathered/scattered by the pack/unpack pair. (loaded_oval_window is
+ * a raw cursor pointer — valid in-process; cross-platform purge is build item #3.) */
+typedef struct {
+    uint8_t  frames_until_next_swirl_update;
+    uint8_t  frames_until_next_swirl_frame;
+    uint8_t  swirl_frames_left;
+    uint8_t  swirl_hdma_table_id;
+    uint8_t  swirl_invert_enabled;
+    uint8_t  swirl_reversed;
+    uint8_t  swirl_mask_settings;
+    uint8_t  swirl_hdma_channel_offset;
+    uint8_t  swirl_length_padding;
+    uint8_t  swirl_auto_restore;
+    uint8_t  swirl_next_swirl;
+    uint8_t  swirl_repeat_speed;
+    uint8_t  swirl_repeats_until_speed_up;
+    uint8_t  active_oval_window;
+    int16_t  loaded_oval_window_centre_x;
+    int16_t  loaded_oval_window_centre_y;
+    uint16_t loaded_oval_window_width;
+    uint16_t loaded_oval_window_height;
+    int16_t  loaded_oval_window_centre_x_add;
+    int16_t  loaded_oval_window_centre_y_add;
+    int16_t  loaded_oval_window_width_velocity;
+    int16_t  loaded_oval_window_height_velocity;
+    int16_t  loaded_oval_window_width_acceleration;
+    int16_t  loaded_oval_window_height_acceleration;
+    const OvalWindowData *loaded_oval_window;
+} OvalWindowSaveState;
+void oval_window_savestate_pack(void *out);   /* out: OvalWindowSaveState* */
+void oval_window_savestate_unpack(const void *in);
+
 #endif /* GAME_OVAL_WINDOW_H */

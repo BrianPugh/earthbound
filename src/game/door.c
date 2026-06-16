@@ -384,6 +384,23 @@ static const uint16_t stairs_exit_y_adj[4]            = { 8, 8, 0, 0 };
 static uint16_t stairs_new_x;
 static uint16_t stairs_new_y;
 
+/* ---- Savestate snapshot (see DoorTransitionSaveState in door.h) ---- */
+void door_transition_savestate_pack(void *out) {
+    DoorTransitionSaveState *s = (DoorTransitionSaveState *)out;
+    s->escalator_new_x = escalator_new_x;
+    s->escalator_new_y = escalator_new_y;
+    s->stairs_new_x    = stairs_new_x;
+    s->stairs_new_y    = stairs_new_y;
+}
+
+void door_transition_savestate_unpack(const void *in) {
+    const DoorTransitionSaveState *s = (const DoorTransitionSaveState *)in;
+    escalator_new_x = s->escalator_new_x;
+    escalator_new_y = s->escalator_new_y;
+    stairs_new_x    = s->stairs_new_x;
+    stairs_new_y    = s->stairs_new_y;
+}
+
 /* GET_STAIRS_MOVEMENT_DIRECTION — port of C0705F.asm.
  * Checks if the leader is facing a valid direction to enter stairs.
  * Sets ow.auto_movement_direction.

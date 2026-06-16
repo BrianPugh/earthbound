@@ -79,6 +79,19 @@ uint16_t adjust_single_colour(uint16_t colour1, uint16_t colour2) {
 static uint16_t background_colour_backup_ow;
 static uint8_t tm_backup_ow;
 
+/* ---- Savestate snapshot (see OwPaletteBackupSaveState in overworld.h) ---- */
+void ow_palette_backup_savestate_pack(void *out) {
+    OwPaletteBackupSaveState *s = (OwPaletteBackupSaveState *)out;
+    s->background_colour_backup_ow = background_colour_backup_ow;
+    s->tm_backup_ow                = tm_backup_ow;
+}
+
+void ow_palette_backup_savestate_unpack(const void *in) {
+    const OwPaletteBackupSaveState *s = (const OwPaletteBackupSaveState *)in;
+    background_colour_backup_ow = s->background_colour_backup_ow;
+    tm_backup_ow                = s->tm_backup_ow;
+}
+
 void restore_bg_palette_callback(void) {
     ert.palettes[0] = background_colour_backup_ow;
     ppu.tm = tm_backup_ow;

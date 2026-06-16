@@ -118,4 +118,17 @@ uint16_t get_screen_transition_sound_effect(uint16_t transition_id,
  * Returns NULL if door data is not loaded. */
 const uint8_t *get_door_data_entry(uint16_t door_found_offset);
 
+/* ---- Savestate snapshot ----
+ * Stepping onto an escalator/stairs stores the destination coordinates, then a
+ * deferred overworld task snaps the leader there a few frames later. Saving in that
+ * window must round-trip these or the post-ride snap lands on garbage (0,0). */
+typedef struct {
+    uint16_t escalator_new_x;
+    uint16_t escalator_new_y;
+    uint16_t stairs_new_x;
+    uint16_t stairs_new_y;
+} DoorTransitionSaveState;
+void door_transition_savestate_pack(void *out);   /* out: DoorTransitionSaveState* */
+void door_transition_savestate_unpack(const void *in);
+
 #endif /* DOOR_H */

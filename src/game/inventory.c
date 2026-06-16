@@ -340,8 +340,8 @@ void calc_resistances(uint16_t char_id) {
  * RAM state: LOADED_TIMED_ITEM_TRANSFORMATIONS (4 slots × 4 bytes). */
 
 #define ITEM_TRANSFORM_ENTRY_SIZE   5   /* sizeof(timed_item_transformation) */
-#define ITEM_TRANSFORM_MAX_ENTRIES  4   /* max active transformation slots */
-#define LOADED_TRANSFORM_ENTRY_SIZE 4   /* sizeof(loaded_timed_item_transformation) */
+/* ITEM_TRANSFORM_MAX_ENTRIES + LOADED_TRANSFORM_ENTRY_SIZE are in inventory.h so the
+ * savestate snapshot (ItemTransformSaveState) can embed the loaded-transform table. */
 
 /* ROM table field offsets (timed_item_transformation) */
 #define TIT_OFF_ITEM                0
@@ -375,6 +375,21 @@ static bool ensure_transform_table(void) {
 static uint8_t loaded_transformations[ITEM_TRANSFORM_MAX_ENTRIES * LOADED_TRANSFORM_ENTRY_SIZE];
 uint16_t item_transformations_loaded = 0;
 static uint8_t time_until_next_item_transformation_check = 0;
+
+/* ---- Savestate snapshot (see ItemTransformSaveState in inventory.h) ---- */
+void item_transform_savestate_pack(void *out) {
+    ItemTransformSaveState *s = (ItemTransformSaveState *)out;
+    memcpy(s->loaded_transformations, loaded_transformations, sizeof(loaded_transformations));
+    s->item_transformations_loaded = item_transformations_loaded;
+    s->time_until_next_item_transformation_check = time_until_next_item_transformation_check;
+}
+
+void item_transform_savestate_unpack(const void *in) {
+    const ItemTransformSaveState *s = (const ItemTransformSaveState *)in;
+    memcpy(loaded_transformations, s->loaded_transformations, sizeof(loaded_transformations));
+    item_transformations_loaded = s->item_transformations_loaded;
+    time_until_next_item_transformation_check = s->time_until_next_item_transformation_check;
+}
 
 void reset_item_transformations(void) {
     item_transformations_loaded = 0;
