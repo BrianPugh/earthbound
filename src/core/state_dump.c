@@ -121,9 +121,10 @@ enum {
 
 /* (b) ABI-stable section sizes. These hold on BOTH 32- and 64-bit because every
  * serialized struct is pointer-free OR wraps its pointers with ABI_PTR_ALIGN/PAD
- * (core/types.h) so the slot is 8 bytes/8-aligned everywhere, and no serialized
- * field is an enum (arm-none-eabi defaults to -fshort-enums → 1-byte enums; the one
- * such field, PPUState.bg_viewport_fill, is stored as uint8_t). The numbers are the
+ * (core/types.h) so the slot is 8 bytes/8-aligned everywhere, and every serialized
+ * enum field has an explicit fixed underlying type (the only one,
+ * PPUState.bg_viewport_fill, is `enum BGViewportMode : uint8_t`) so it is 1 byte even
+ * under arm-none-eabi's default -fshort-enums. The numbers are the
  * canonical (identical) sizes; the SAME _Static_asserts compile in the embedded ARM
  * build and FAIL there if any struct's layout diverges (a stray raw pointer, a
  * size_t/long field, or an enum field under -fshort-enums) — i.e. they ARE the

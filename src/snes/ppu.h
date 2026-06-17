@@ -33,7 +33,10 @@ END_PACKED_STRUCT
 /* OAM high table (32 bytes, 2 bits per sprite: x_msb + size) */
 
 /* Per-layer viewport mode (C port extension) */
-typedef enum {
+/* Explicit uint8_t underlying type (C23 / GCC+Clang extension): guarantees a 1-byte
+ * size regardless of -fshort-enums, so a serialized field of this type has the same
+ * width on every ABI (savestate cross-platform format, build item #3 part B). */
+typedef enum BGViewportMode : uint8_t {
     BG_VIEWPORT_CENTER = 0, /* render at SNES_WIDTH centered (default) */
     BG_VIEWPORT_FILL   = 1, /* render at EB_VIEWPORT_WIDTH with tilemap wrapping */
     BG_VIEWPORT_CLAMP  = 2, /* render at SNES_WIDTH centered, edge-extend borders */
@@ -103,11 +106,9 @@ typedef struct {
      * Controls how each BG layer fills the extended viewport area.
      * Has no effect when EB_VIEWPORT_WIDTH equals SNES_WIDTH.
      * 64-tile-wide tilemaps always fill regardless.
-     * Stored as uint8_t (holds a BGViewportMode) rather than the enum so this
-     * serialized field is a fixed 4 bytes on every ABI — arm-none-eabi defaults to
-     * -fshort-enums (1-byte enums), which would otherwise shrink it on the embedded
-     * targets and break the cross-platform savestate format (build item #3 part B). */
-    uint8_t bg_viewport_fill[4];
+     * BGViewportMode has an explicit uint8_t underlying type, so this serialized
+     * field is a fixed 4 bytes on every ABI (build item #3 part B). */
+    BGViewportMode bg_viewport_fill[4];
 
     /* Sprite offsets (C port extension). Added to all OAM positions
      * during rendering. Used to center SNES-coordinate sprites in
