@@ -612,7 +612,7 @@ int main(void) {
     BLOB_FIELD(PPUState, wh0_table); SEP();
     BLOB_FIELD(PPUState, wh1_table); SEP();
     FIELD(PPUState, window_hdma_active, "bool"); SEP();
-    FIELD(PPUState, bg_viewport_fill, "u32[4]"); SEP();
+    FIELD(PPUState, bg_viewport_fill, "u8[4]"); SEP();
     FIELD(PPUState, sprite_x_offset, "i16"); SEP();
     LAST_FIELD(PPUState, sprite_y_offset, "i16");
     END_SECTION();

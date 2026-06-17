@@ -281,7 +281,8 @@ typedef struct {
     /* POST_TELEPORT_CALLBACK (ram.asm $7E9D1B) — deferred callback called
      * after the next teleport completes.  Set by flyover/sanctuary scripts
      * to UNDRAW_FLYOVER_TEXT; TELEPORT calls it then clears it. */
-    void (*post_teleport_callback)(void);
+    void (*ABI_PTR_ALIGN post_teleport_callback)(void); /* ABI-stable slot (item #3B) */
+    ABI_PTR_PAD(post_teleport_callback)
     uint8_t post_teleport_callback_id; /* PostTeleportCallbackId — serializable form
                                           of the ptr above (savestate hardening, D0). */
 } OverworldState;

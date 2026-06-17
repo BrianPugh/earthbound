@@ -52,8 +52,10 @@ bool state_dump_roundtrip_test(void) {
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 6  /* v6: raw-pointer purge (build item #3) changed the
-                               * PSI/oval/overworld-deferred section layouts. */
+#define STATE_DUMP_VERSION 7  /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+                               * overworld-deferred layouts. v7: ABI hardening (item
+                               * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
+                               * the PPU section; the format is now 32/64-bit identical. */
 
 /* Section IDs */
 enum {
@@ -106,6 +108,53 @@ enum {
     SECTION_FRAME_CALLBACK       = 0x002A,
     SECTION_TERMINATOR       = 0xFFFF,
 };
+
+/* ---- Cross-platform format contract (build item #3 part B) ----
+ * The savestate must load identically on the 32-bit embedded targets (ARM ILP32)
+ * and the 64-bit desktop (LP64). That requires (a) a fixed byte order and (b) every
+ * directly-serialized struct having the SAME size + field offsets on both ABIs.
+ *
+ * (a) Endianness — all targets are little-endian; reject anything else at compile time. */
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+#  error "savestate format assumes a little-endian target"
+#endif
+
+/* (b) ABI-stable section sizes. These hold on BOTH 32- and 64-bit because every
+ * serialized struct is pointer-free OR wraps its pointers with ABI_PTR_ALIGN/PAD
+ * (core/types.h) so the slot is 8 bytes/8-aligned everywhere, and no serialized
+ * field is an enum (arm-none-eabi defaults to -fshort-enums → 1-byte enums; the one
+ * such field, PPUState.bg_viewport_fill, is stored as uint8_t). The numbers are the
+ * canonical (identical) sizes; the SAME _Static_asserts compile in the embedded ARM
+ * build and FAIL there if any struct's layout diverges (a stray raw pointer, a
+ * size_t/long field, or an enum field under -fshort-enums) — i.e. they ARE the
+ * permanent cross-ABI test. To verify out-of-tree: compile this set with
+ * `arm-none-eabi-gcc -mthumb -ffreestanding -c` and confirm it builds. */
+_Static_assert(sizeof(core)                 == 32,    "ABI: core");
+_Static_assert(sizeof(game_state)           == 473,   "ABI: game_state");
+_Static_assert(sizeof(party_characters)     == 570,   "ABI: party_characters");
+_Static_assert(sizeof(event_flags)          == 128,   "ABI: event_flags");
+_Static_assert(sizeof(ow)                   == 392,   "ABI: ow");
+_Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
+_Static_assert(sizeof(dt)                   == 152,   "ABI: dt");
+_Static_assert(sizeof(win)                  == 12952, "ABI: win");
+_Static_assert(sizeof(ml)                   == 16970, "ABI: ml");
+_Static_assert(sizeof(ppu)                  == 68510, "ABI: ppu");
+_Static_assert(sizeof(pb)                   == 2952,  "ABI: pb");
+_Static_assert(sizeof(dr)                   == 44,    "ABI: dr");
+_Static_assert(sizeof(ert)                  == 24392, "ABI: ert");
+_Static_assert(sizeof(entities)             == 3818,  "ABI: entities");
+_Static_assert(sizeof(scripts)              == 1750,  "ABI: scripts");
+_Static_assert(sizeof(SpritePriorityQueue)  == 258,   "ABI: SpritePriorityQueue");
+_Static_assert(sizeof(fade_state)           == 6,     "ABI: fade_state");
+_Static_assert(sizeof(rng_state)            == 4,     "ABI: rng_state");
+_Static_assert(sizeof(psi_animation_state)  == 88,    "ABI: psi_animation_state");
+_Static_assert(sizeof(g_mode_stack)         == 3964,  "ABI: g_mode_stack");
+_Static_assert(sizeof(overworld_spritemaps) == 900,   "ABI: overworld_spritemaps");
+_Static_assert(sizeof(loaded_bg_data_layer1)== 124,   "ABI: loaded_bg_data_layer1");
+_Static_assert(sizeof(text_render_state)    == 6,     "ABI: text_render_state");
+#ifdef ENABLE_AUDIO
+_Static_assert(sizeof(audio_state)          == 6,     "ABI: audio_state");
+#endif
 
 /* One serialized module: a tagged blob copied to/from its live storage. The SAME
  * table drives both save and load, so the two can never drift. Most sections point

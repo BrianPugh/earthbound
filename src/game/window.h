@@ -138,8 +138,10 @@ typedef struct {
     uint8_t  selected_option;       /* asm offset 47: persists across menu re-entries */
     uint8_t  menu_page_number;      /* asm offset 51: current submenu page */
     uint16_t tilemap_address;       /* asm offset 53: per-window tilemap offset */
-    void   (*cursor_move_callback)(uint16_t value); /* asm offset 55: called on cursor movement
-                                                       asm passes userdata (type 2) or index+1 (type 1) */
+    void   (*ABI_PTR_ALIGN cursor_move_callback)(uint16_t value); /* asm offset 55: called on cursor
+                                                       movement; asm passes userdata (type 2) or
+                                                       index+1 (type 1). ABI-stable slot (item #3B). */
+    ABI_PTR_PAD(cursor_move_callback)
     uint8_t  cursor_move_callback_id; /* CursorCallbackId — serializable form of the
                                          fn ptr above (savestate hardening, D0a). */
     uint8_t  title_slot;              /* asm offset 59: TITLED_WINDOWS slot index (1-5), 0=none */
@@ -149,7 +151,9 @@ typedef struct {
     MenuItem  menu_items[24];
     uint8_t   menu_count;
     uint8_t   current_option;       /* asm offset 43 */
-    uint16_t *content_tilemap;      /* pointer into shared tilemap pool (win.tilemap_pool) */
+    uint16_t *ABI_PTR_ALIGN content_tilemap; /* pointer into shared tilemap pool
+                                                (win.tilemap_pool). ABI-stable slot (item #3B). */
+    ABI_PTR_PAD(content_tilemap)
     uint16_t  content_tilemap_size; /* allocated entries in pool */
     uint16_t  content_tilemap_offset; /* index of content_tilemap within win.tilemap_pool —
                                          serializable form of the ptr above (savestate

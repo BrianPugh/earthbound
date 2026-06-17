@@ -140,4 +140,25 @@ static inline uint32_t pixel_to_rgb888(pixel_t px) {
 #define ASSERT_STRUCT_SIZE(type, size) \
     _Static_assert(sizeof(type) == (size), "sizeof(" #type ") != " #size)
 
+/* ABI-stable pointer field (savestate cross-platform format, build item #3 part B).
+ * A raw pointer member is 4 bytes on 32-bit (embedded ARM ILP32) and 8 on 64-bit
+ * (desktop LP64), which makes any savestate struct that embeds one have a different
+ * size and field offsets across ABIs. A struct serialized verbatim must be
+ * byte-identical on both. Declaring a pointer field with ABI_PTR_ALIGN (force 8-byte
+ * alignment on every ABI) followed by ABI_PTR_PAD(name) (a 4-byte tail filler on
+ * 32-bit only) makes the field occupy the SAME 8-byte, 8-aligned slot everywhere, so
+ * the enclosing struct's size + every field offset match across ABIs — with no change
+ * at the pointer's use sites. The slot's bytes are meaningless across a load anyway
+ * (the live pointer is rebound from a serializable companion; see state_dump_load).
+ * Usage:
+ *     uint16_t *ABI_PTR_ALIGN content_tilemap;
+ *     ABI_PTR_PAD(content_tilemap)
+ */
+#define ABI_PTR_ALIGN __attribute__((aligned(8)))
+#if defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ < 8
+#  define ABI_PTR_PAD(name) uint32_t name##_abi_pad;
+#else
+#  define ABI_PTR_PAD(name)
+#endif
+
 #endif /* CORE_TYPES_H */

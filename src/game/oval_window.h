@@ -27,13 +27,16 @@ typedef struct {
     uint16_t enemy_colour_change_green;         /* 52 */
     uint16_t enemy_colour_change_blue;          /* 54 */
     /* C port addition: bundled arrangement streaming state */
-    const uint8_t *arr_bundled_data;  /* pointer to .arr.bundled asset */
+    const uint8_t *ABI_PTR_ALIGN arr_bundled_data;  /* .arr.bundled asset; ABI-stable slot (#3B) */
+    ABI_PTR_PAD(arr_bundled_data)
     uint32_t arr_bundled_size;        /* total asset size (fixed-width for savestate ABI) */
     int16_t arr_current_bundle;       /* currently decompressed bundle index (-1 = none) */
     uint16_t arr_current_anim_id;     /* anim id backing arr_bundled_data — serializable form
                                          of the asset ptr, used to rebind it after a state load
                                          (savestate pointer purge, build item #3) */
-    uint8_t *arr_bundle_buf;          /* 8 KB staging buffer (points to ert.buffer during PSI) */
+    uint8_t *ABI_PTR_ALIGN arr_bundle_buf; /* 8 KB staging buffer (= ert.buffer during PSI);
+                                              ABI-stable slot (#3B) */
+    ABI_PTR_PAD(arr_bundle_buf)
 } PsiAnimationState;
 
 extern PsiAnimationState psi_animation_state;

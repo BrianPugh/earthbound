@@ -102,8 +102,12 @@ typedef struct {
     /* Per-layer viewport mode (C port extension, not real SNES hardware).
      * Controls how each BG layer fills the extended viewport area.
      * Has no effect when EB_VIEWPORT_WIDTH equals SNES_WIDTH.
-     * 64-tile-wide tilemaps always fill regardless. */
-    BGViewportMode bg_viewport_fill[4];
+     * 64-tile-wide tilemaps always fill regardless.
+     * Stored as uint8_t (holds a BGViewportMode) rather than the enum so this
+     * serialized field is a fixed 4 bytes on every ABI — arm-none-eabi defaults to
+     * -fshort-enums (1-byte enums), which would otherwise shrink it on the embedded
+     * targets and break the cross-platform savestate format (build item #3 part B). */
+    uint8_t bg_viewport_fill[4];
 
     /* Sprite offsets (C port extension). Added to all OAM positions
      * during rendering. Used to center SNES-coordinate sprites in
