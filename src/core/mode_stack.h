@@ -82,6 +82,7 @@ typedef enum {
     GAME_MODE_BATTLE_REVIVE,       /* revive a KO'd battler (battle_revive_target) */
     GAME_MODE_BATTLE_APPLY,        /* per-target action apply loop (apply_action_to_targets) */
     GAME_MODE_BATTLE_KO,           /* battler death driver (battle_ko_target) */
+    GAME_MODE_CHECK_DEAD_PLAYERS,  /* sync party HP/PP + "ally collapsed" KO text (check_dead_players) */
     GAME_MODE_ACTIONSCRIPT_FRAME,  /* finish an interrupted run_actionscript_frame() */
     GAME_MODE_PP_RECOVERY_FLASH,   /* instant-win PP recovery purple flashes (event script) */
     GAME_MODE_TELEPORT,            /* PSI teleport driver (teleport_mainloop) */
@@ -699,6 +700,14 @@ typedef enum {
     BTL_ENDING_MIRROR,    /* mirror restore + cleanup; debug reinit; fade-out wait */
     BTL_EXIT,             /* final window/effect teardown; pop the result */
     BTL_REINIT_FLUSH,     /* park-propagating resume of BTL_REINIT's pre-debug window_tick */
+    /* Resume points after a GAME_MODE_CHECK_DEAD_PLAYERS push (each former
+     * check_dead_players() site pushes the mode, then resumes its body here). */
+    BTL_MENU_BODY,        /* menu-loop iteration body (post dead-check) */
+    BTL_EXEC_BODY,        /* execute_turns body (post dead-check) */
+    BTL_TARGET_POST_BODY, /* post-action defeat checks (post dead-check) */
+    BTL_AFTER_STATUS_BODY,/* post-action recovery body (post dead-check) */
+    BTL_AFTER_TAIL_BODY,  /* re-show HP/PP windows (post dead-check) */
+    BTL_ENDING_CLEANUP,   /* post-battle cleanup + fade-out (post mirror dead-check) */
 } BattleRoutinePhase;
 
 typedef struct {
@@ -922,6 +931,20 @@ typedef struct {
     uint16_t saved_target;    /* final-attack bracket: saved bt.current_target */
     uint32_t saved_flags;     /* final-attack bracket: saved bt.battler_target_flags */
 } BattleKoState;
+
+/* GAME_MODE_CHECK_DEAD_PLAYERS — run-to-completion port of check_dead_players()
+ * (battle.c, asm/battle/check_dead_players.asm): syncs each party battler's HP/PP
+ * from its char_struct and, when one has just dropped to 0 HP, marks it unconscious
+ * and pushes the "X collapsed!" KO text as a DISPLAY_TEXT child (the blocking form
+ * waited at that ▼). `i` is the party-loop cursor; `existing` remembers whether the
+ * battle-text window was already open across the text push. Pushed at the six
+ * check_dead_players() sites in GAME_MODE_BATTLE via check_dead_players_make_init()
+ * (battle_internal.h). Always pops 0. */
+typedef struct {
+    uint8_t pc;        /* 0 = loop body, 1 = resume after a collapse's KO text */
+    uint8_t i;         /* party-battler loop cursor */
+    uint8_t existing;  /* was WINDOW::TEXT_BATTLE already open before this collapse */
+} CheckDeadPlayersState;
 
 /* GAME_MODE_LEVEL_UP phases. Port of the gain_exp() level-up loop +
  * LEVEL_UP_CHAR (asm/misc/gain_exp.asm lines 68-118 + asm/misc/
@@ -2352,6 +2375,7 @@ union ModeState {
     BattleReviveState     battle_revive;
     BattleApplyState      battle_apply;
     BattleKoState         battle_ko;
+    CheckDeadPlayersState check_dead;
     ActionscriptFrameState actionscript_frame;
     PpRecoveryFlashState  pp_recovery_flash;
     TeleportState         teleport;
@@ -2739,6 +2763,10 @@ StepResult mode_step_battle_apply(ModeState *st);
 /* GAME_MODE_BATTLE_KO step (defined in battle.c). Init via
  * battle_ko_make_init() (battle_internal.h). Always pops 0. */
 StepResult mode_step_battle_ko(ModeState *st);
+
+/* GAME_MODE_CHECK_DEAD_PLAYERS step (defined in battle.c). Init via
+ * check_dead_players_make_init() (battle_internal.h). Always pops 0. */
+StepResult mode_step_check_dead_players(ModeState *st);
 
 /* GAME_MODE_ACTIONSCRIPT_FRAME step (defined in entity/script.c). Init is built
  * by run_actionscript_frame() from a callroutine's yield request; never pushed

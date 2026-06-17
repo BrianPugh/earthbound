@@ -2232,37 +2232,71 @@ char *return_battle_target_address(void) {
 /* color_math_register_table moved to battle_ui.c */
 
 /*
- * CHECK_DEAD_PLAYERS (asm/battle/check_dead_players.asm)
+ * CHECK_DEAD_PLAYERS (asm/battle/check_dead_players.asm) — GAME_MODE_CHECK_DEAD_PLAYERS.
  *
- * Syncs HP/PP from party char_structs to battlers. If a player battler's
- * HP has dropped to 0 (from rolling HP), marks them unconscious, clears
- * all afflictions, displays KO text, and syncs afflictions back to char_struct.
+ * Syncs HP/PP from party char_structs to battlers. If a player battler's HP has
+ * dropped to 0 (from rolling HP), marks it unconscious, clears all afflictions,
+ * shows the "X collapsed!" KO text, and syncs afflictions back to char_struct.
  * Called each turn to detect deaths from rolling HP damage.
+ *
+ * Run-to-completion: the blocking original waited at the KO-text ▼ inside a
+ * pump_mode (torn for a savestate). The text is now a DISPLAY_TEXT child push so a
+ * capture there lands at a root boundary. STEP_PUSHed at the six former
+ * check_dead_players() sites in GAME_MODE_BATTLE. Always pops 0.
  */
-void check_dead_players(void) {
-    for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
-        Battler *b = &bt.battlers_table[i];
+
+/* The sync_afflictions tail: copy the battler's afflictions back to its char_struct,
+ * clamp concentration to 0/1, and refresh the party UI. Runs for every eligible
+ * battler (collapsed or not), exactly as the blocking original's shared tail did. */
+static void cdp_sync_afflictions(Battler *b) {
+    uint16_t char_row = b->row;
+    for (uint16_t j = 0; j < AFFLICTION_GROUP_COUNT; j++)
+        party_characters[char_row].afflictions[j] = b->afflictions[j];
+    if (party_characters[char_row].afflictions[STATUS_GROUP_CONCENTRATION] != 0)
+        party_characters[char_row].afflictions[STATUS_GROUP_CONCENTRATION] = 1;
+    update_party();
+}
+
+void check_dead_players_make_init(ModeState *init) {
+    memset(init, 0, sizeof(*init));
+    /* pc = 0 (loop body), i = 0 */
+}
+
+StepResult mode_step_check_dead_players(ModeState *ms) {
+    CheckDeadPlayersState *s = &ms->check_dead;
+    static ModeState child;  /* outlives the dispatch (the pump copies it) */
+
+    /* Resume after a collapse's KO text (pc 1): the battle-text epilogue + this
+     * battler's affliction-sync tail, then advance and fall into the loop. */
+    if (s->pc == 1) {
+        dt.blinking_triangle_flag = 0;
+        if (!s->existing)
+            redirect_close_focus_window();
+        cdp_sync_afflictions(&bt.battlers_table[s->i]);
+        s->i++;
+        s->pc = 0;
+    }
+
+    while (s->i < TOTAL_PARTY_COUNT) {
+        Battler *b = &bt.battlers_table[s->i];
 
         /* Skip unconscious, enemy, or NPC battlers */
-        if (b->consciousness == 0)
+        if (b->consciousness == 0 || b->ally_or_enemy != 0 || b->npc_id != 0) {
+            s->i++;
             continue;
-        if (b->ally_or_enemy != 0)
-            continue;
-        if (b->npc_id != 0)
-            continue;
+        }
 
         /* Sync HP and PP from char_struct to battler */
         uint16_t char_row = b->row;
         b->hp = party_characters[char_row].current_hp;
         b->pp = party_characters[char_row].current_pp;
 
-        /* Check if HP has reached 0 */
-        if (b->hp == 0) {
-            /* Skip if already marked unconscious */
-            if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS)
-                goto sync_afflictions;
-
-            /* Mark as unconscious and clear all afflictions */
+        /* A NEW collapse (HP just hit 0, not already unconscious): mark KO, clear
+         * afflictions, then push the "X collapsed!" text. (HP != 0, or already
+         * unconscious, falls straight through to the shared sync tail below — the
+         * blocking original's `goto sync_afflictions`.) */
+        if (b->hp == 0 &&
+            b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] != STATUS_0_UNCONSCIOUS) {
             bt.current_target = (uint16_t)((uint8_t *)b - (uint8_t *)bt.battlers_table);
             b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
             b->afflictions[STATUS_GROUP_SHIELD] = 0;
@@ -2271,31 +2305,28 @@ void check_dead_players(void) {
             b->afflictions[STATUS_GROUP_STRANGENESS] = 0;
             b->afflictions[STATUS_GROUP_TEMPORARY] = 0;
             b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
-
             fix_target_name();
 
-            /* Check if battle text window was already open */
-            WindowInfo *existing = get_window(0x0E);
+            s->existing = (get_window(0x0E) != NULL) ? 1 : 0;
             create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
-            display_in_battle_text_addr(MSG_BTL5_ALLY_COLLAPSED);
-            if (!existing) {
+            s->pc = 1;
+            if (battle_push_text(&child, MSG_BTL5_ALLY_COLLAPSED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            /* Unresolvable text (warn) — run the after-text path inline. */
+            dt.blinking_triangle_flag = 0;
+            if (!s->existing)
                 redirect_close_focus_window();
-            }
+            cdp_sync_afflictions(b);
+            s->i++;
+            s->pc = 0;
+            continue;
         }
 
-sync_afflictions:
-        /* Copy afflictions from battler back to char_struct */
-        for (uint16_t j = 0; j < AFFLICTION_GROUP_COUNT; j++) {
-            party_characters[char_row].afflictions[j] = b->afflictions[j];
-        }
-
-        /* Clamp concentration (afflictions[4]) to 0 or 1 */
-        if (party_characters[char_row].afflictions[STATUS_GROUP_CONCENTRATION] != 0) {
-            party_characters[char_row].afflictions[STATUS_GROUP_CONCENTRATION] = 1;
-        }
-
-        update_party();
+        cdp_sync_afflictions(b);
+        s->i++;
     }
+
+    return STEP_RESULT_POP(0);
 }
 
 /*
@@ -4199,26 +4230,30 @@ static void btl_victory_money_exp(void) {
 }
 
 /* battle_ending mirror restore + cleanup (assembly lines 3190-3240). */
-static void btl_ending_cleanup(void) {
-    /* Restore mirror if still active */
-    if (bt.mirror_enemy != 0) {
-        for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
-            Battler *b = &bt.battlers_table[i];
-            if (b->consciousness == 0) continue;
-            if (b->ally_or_enemy != 0) continue;
-            if (b->id != PARTY_MEMBER_POO) continue;
+/* Restore Poo's mirrored data if a mirror is still active. Returns true if a restore
+ * happened (the caller then STEP_PUSHes GAME_MODE_CHECK_DEAD_PLAYERS, which the
+ * blocking original ran inline here). */
+static bool btl_ending_mirror_restore(void) {
+    if (bt.mirror_enemy == 0)
+        return false;
+    for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0) continue;
+        if (b->ally_or_enemy != 0) continue;
+        if (b->id != PARTY_MEMBER_POO) continue;
 
-            /* Save current status before restore */
-            uint8_t saved_status0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-            bt.mirror_enemy = 0;
-            battle_copy_mirror_data(b, &bt.mirror_battler_backup);
-            b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = saved_status0;
-            check_dead_players();
-            break;
-        }
+        /* Save current status before restore */
+        uint8_t saved_status0 = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+        bt.mirror_enemy = 0;
+        battle_copy_mirror_data(b, &bt.mirror_battler_backup);
+        b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = saved_status0;
+        return true;
     }
+    return false;
+}
 
-    /* Cleanup */
+/* Post-battle cleanup tail (after the mirror restore + its dead-check). */
+static void btl_ending_post_cleanup(void) {
     battle_reset_post_battle_stats();
     game_state.auto_fight_enable = 0;
     bt.battle_mode_flag = 0;
@@ -4336,9 +4371,22 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
 
         case BTL_MENU:
-            /* Phase 5: player menu loop (lines 1177-1496) */
+            /* Phase 5: player menu loop (lines 1177-1496). Dead-check ONCE on entry,
+             * then run the skip-loop inline in BTL_MENU_BODY. The blocking original
+             * called check_dead_players() at the top of every slot iteration, but
+             * party HP is stable across the loop (menu selection doesn't execute
+             * actions), so every check after the first is a no-op — one push per
+             * menu round is equivalent and avoids per-skipped-slot frame cost. */
+            if (st->party_slot >= 6) {
+                st->phase = BTL_ENEMY_AI;
+                break;
+            }
+            check_dead_players_make_init(&child_init);
+            st->phase = BTL_MENU_BODY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+
+        case BTL_MENU_BODY:
             while (st->party_slot < 6) {
-                check_dead_players();
                 if (battle_count_chars(0) == 0) {
                     create_window(0x0E);
                     st->phase = BTL_END_CHECK;
@@ -4500,9 +4548,13 @@ StepResult mode_step_battle(ModeState *ms) {
             st->phase = BTL_TURN_CONT;
             break;
 
-        case BTL_EXEC: {
-            /* Phase 9: execute_turns (lines 2085-2926) */
-            check_dead_players();
+        case BTL_EXEC:
+            /* Phase 9: execute_turns (lines 2085-2926) — dead-check first. */
+            check_dead_players_make_init(&child_init);
+            st->phase = BTL_EXEC_BODY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+
+        case BTL_EXEC_BODY: {
             if (battle_count_chars(0) == 0) { st->phase = BTL_END_CHECK; break; }
             if (battle_count_chars(1) == 0) { st->phase = BTL_END_CHECK; break; }
 
@@ -4739,9 +4791,13 @@ StepResult mode_step_battle(ModeState *ms) {
             break;  /* ran inline (or no function): post checks, no yield */
         }
 
-        case BTL_TARGET_POST: {
-            /* ---- Post-action checks for the current target ---- */
-            check_dead_players();
+        case BTL_TARGET_POST:
+            /* ---- Post-action checks for the current target ---- dead-check first. */
+            check_dead_players_make_init(&child_init);
+            st->phase = BTL_TARGET_POST_BODY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+
+        case BTL_TARGET_POST_BODY: {
             ow.redraw_all_windows = 1;
 
             if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
@@ -4799,15 +4855,17 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
         }
 
-        case BTL_AFTER_STATUS: {
+        case BTL_AFTER_STATUS:
             dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-
             /* Clear menu indicator */
             clear_battle_menu_character_indicator_far();
+            /* Post-action status recovery — dead-check first. */
+            check_dead_players_make_init(&child_init);
+            st->phase = BTL_AFTER_STATUS_BODY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
 
-            /* Post-action status recovery */
-            check_dead_players();
+        case BTL_AFTER_STATUS_BODY: {
+            Battler *attacker = &bt.battlers_table[st->attacker];
             bt.current_target = bt.current_attacker;
             fix_target_name();
 
@@ -4868,7 +4926,12 @@ StepResult mode_step_battle(ModeState *ms) {
             for (uint16_t i = 0; i < BATTLER_COUNT; i++) {
                 bt.battlers_table[i].use_alt_spritemap = 0;
             }
-            check_dead_players();
+            /* dead-check, then re-show HP/PP windows on resume. */
+            check_dead_players_make_init(&child_init);
+            st->phase = BTL_AFTER_TAIL_BODY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+
+        case BTL_AFTER_TAIL_BODY:
             redirect_show_hppp_windows();
             st->phase = BTL_END_CHECK;
             break;
@@ -4987,8 +5050,17 @@ StepResult mode_step_battle(ModeState *ms) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
 
         case BTL_ENDING_MIRROR:
-            /* Mirror restore + post-battle cleanup */
-            btl_ending_cleanup();
+            /* Mirror restore; if it happened, dead-check (its KO text) before the
+             * cleanup tail. */
+            st->phase = BTL_ENDING_CLEANUP;
+            if (btl_ending_mirror_restore()) {
+                check_dead_players_make_init(&child_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            }
+            break;
+
+        case BTL_ENDING_CLEANUP:
+            btl_ending_post_cleanup();
 
             if (ow.battle_mode == 0) {
                 /* Debug mode: loop back to reinit */

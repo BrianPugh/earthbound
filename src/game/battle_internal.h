@@ -60,7 +60,9 @@ void build_letterbox_hdma_table(void);
 /* Battler helpers */
 void set_battler_target(uint16_t attacker_offset, uint16_t target_index);
 void set_battler_pp_from_target(uint16_t attacker_offset, uint16_t pp_cost);
-void check_dead_players(void);
+/* check_dead_players is now GAME_MODE_CHECK_DEAD_PLAYERS (mode_step_check_dead_players,
+ * battle.c); STEP_PUSH it from a battle phase via this init. */
+void check_dead_players_make_init(ModeState *init);
 uint16_t copy_enemy_name(const uint8_t *src, uint8_t *dest, uint16_t length, uint16_t dest_size);
 void consume_used_battle_item(void);
 void clear_battle_visual_effects(void);
