@@ -13,7 +13,21 @@ bool state_dump_load(const char *path) {
     return false;
 }
 
+bool state_dump_save_slots(const char *basepath) {
+    (void)basepath;
+    return false;
+}
+
+bool state_dump_load_slots(const char *basepath) {
+    (void)basepath;
+    return false;
+}
+
 bool state_dump_roundtrip_test(void) {
+    return false;
+}
+
+bool state_dump_crashsafe_test(void) {
     return false;
 }
 
@@ -48,14 +62,22 @@ bool state_dump_roundtrip_test(void) {
 #include "game/inventory.h"
 #include "game/ending.h"
 
-/* Container format: "EBSD" magic + version u16 + frame u16, then a series of
- * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
- * docs/plans/savestate-unified-loop.md. */
-#define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 7  /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+/* Container format (16-byte header, all fields little-endian — asserted below):
+ *   magic   u32  "EBSD"
+ *   version u16
+ *   frame   u16  informational (the authoritative value rides in SECTION_CORE)
+ *   seq     u32  monotonic sequence — the ping-pong layer picks the highest valid one
+ *   crc32   u32  CRC-32 of the payload that follows the header
+ * Then the payload: id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See
+ * the AUDIT in docs/plans/savestate-unified-loop.md. */
+#define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
+#define STATE_DUMP_HEADER_SIZE 16           /* magic+version+frame+seq+crc32 */
+#define STATE_DUMP_VERSION 8  /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
-                               * the PPU section; the format is now 32/64-bit identical. */
+                               * the PPU section; the format is now 32/64-bit identical.
+                               * v8: crash-safe persistence (item #4) — added seq +
+                               * payload CRC-32 to the header (validate-on-load). */
 
 /* Section IDs */
 enum {
@@ -291,53 +313,140 @@ static bool write_section(FILE *f, uint16_t id, const void *data, uint32_t size)
         && (size == 0 || fwrite(data, size, 1, f) == 1);
 }
 
-bool state_dump_save(const char *path) {
+/* Standard CRC-32 (reflected, polynomial 0xEDB88420). This step function neither
+ * seeds nor finalizes — the caller seeds with 0xFFFFFFFF and XORs the result with
+ * 0xFFFFFFFF — so the SAME routine serves both the streaming validate pass (raw file
+ * bytes) and the section-walk compute (in-memory bytes). No static table: a couple of
+ * passes over ~139 KiB at save/load time is not perf-critical, and avoiding a 1 KiB
+ * table keeps the embedded port allocation-free. */
+static uint32_t crc32_step(uint32_t crc, const void *buf, size_t len) {
+    const uint8_t *p = (const uint8_t *)buf;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= p[i];
+        for (int k = 0; k < 8; k++)
+            crc = (crc >> 1) ^ (0xEDB88420u & (uint32_t)(-(int32_t)(crc & 1u)));
+    }
+    return crc;
+}
+
+/* CRC-32 of the exact byte stream the section walk writes (id u16, size u32, data),
+ * followed by the 0xFFFF terminator. Relies on the asserted little-endian target so
+ * the in-memory bytes of id/size equal the bytes written to the file. Run AFTER each
+ * pack() has gathered its statics into the scratch buffer. */
+static uint32_t compute_payload_crc(const StateSection *table, int n) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (int i = 0; i < n; i++) {
+        uint16_t id = table[i].id;
+        uint32_t size = table[i].size;
+        crc = crc32_step(crc, &id, 2);
+        crc = crc32_step(crc, &size, 4);
+        if (size)
+            crc = crc32_step(crc, table[i].ptr, size);
+    }
+    uint16_t term = SECTION_TERMINATOR;
+    crc = crc32_step(crc, &term, 2);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+/* Read & validate the fixed header. On success fills *seq/*crc (either may be NULL)
+ * and leaves the file positioned at the payload start. */
+static bool read_header(FILE *f, uint32_t *seq_out, uint32_t *crc_out) {
+    uint32_t magic, seq, crc;
+    uint16_t version, frame;
+    if (fread(&magic, 4, 1, f) != 1
+     || fread(&version, 2, 1, f) != 1
+     || fread(&frame, 2, 1, f) != 1
+     || fread(&seq, 4, 1, f) != 1
+     || fread(&crc, 4, 1, f) != 1
+     || magic != STATE_DUMP_MAGIC
+     || version != STATE_DUMP_VERSION)
+        return false;
+    (void)frame; /* informational; the real value is restored via SECTION_CORE */
+    if (seq_out) *seq_out = seq;
+    if (crc_out) *crc_out = crc;
+    return true;
+}
+
+/* Stream the payload (file must already be positioned at the payload start) through
+ * CRC-32 and compare to `expected`. Leaves the file position at EOF. */
+static bool verify_payload_crc(FILE *f, uint32_t expected) {
+    uint32_t crc = 0xFFFFFFFFu;
+    uint8_t buf[4096];
+    size_t r;
+    while ((r = fread(buf, 1, sizeof buf, f)) > 0)
+        crc = crc32_step(crc, buf, r);
+    crc ^= 0xFFFFFFFFu;
+    return crc == expected;
+}
+
+/* Write a complete savestate to `path` tagged with sequence number `seq`. The CRC is
+ * computed in a pre-pass over the section table (no seek-back, no staging of the
+ * whole snapshot), so the embedded port can stream the same layout. */
+static bool state_dump_save_seq(const char *path, uint32_t seq) {
     FILE *f = fopen(path, "wb");
     if (!f) return false;
 
-    /* Header: magic "EBSD" + version u16 + frame_counter u16 */
+    /* Gather the pack/unpack sections' scattered statics into their scratch buffers
+     * BEFORE both the CRC pre-pass and the write, so the two see identical bytes. */
+    StateSection table[MAX_SECTIONS];
+    int n = build_section_table(table);
+    for (int i = 0; i < n; i++)
+        if (table[i].pack)
+            table[i].pack(table[i].ptr);
+
     uint32_t magic = STATE_DUMP_MAGIC;
     uint16_t version = STATE_DUMP_VERSION;
     uint16_t frame = (uint16_t)core.frame_counter;
+    uint32_t crc = compute_payload_crc(table, n);
+
     bool ok = fwrite(&magic, 4, 1, f) == 1
            && fwrite(&version, 2, 1, f) == 1
-           && fwrite(&frame, 2, 1, f) == 1;
+           && fwrite(&frame, 2, 1, f) == 1
+           && fwrite(&seq, 4, 1, f) == 1
+           && fwrite(&crc, 4, 1, f) == 1;
 
     /* Sections — each direct blob written straight from its live global (no staging
-     * buffer; the largest single write is PPU ~68 KB); pack/unpack sections first
-     * gather their scattered statics into the scratch buffer. */
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
-    for (int i = 0; i < n && ok; i++) {
-        if (table[i].pack)
-            table[i].pack(table[i].ptr);
+     * buffer; the largest single write is PPU ~68 KB). Do NOT re-pack here: the
+     * scratch buffers already hold the bytes the CRC was computed over. */
+    for (int i = 0; i < n && ok; i++)
         ok = write_section(f, table[i].id, table[i].ptr, table[i].size);
-    }
 
     /* Terminator */
     uint16_t term = SECTION_TERMINATOR;
     ok = ok && fwrite(&term, 2, 1, f) == 1;
 
-    fclose(f);
+    if (fclose(f) != 0)
+        ok = false;
     return ok;
+}
+
+bool state_dump_save(const char *path) {
+    return state_dump_save_seq(path, 0);
 }
 
 bool state_dump_load(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return false;
 
-    /* Header */
-    uint32_t magic;
-    uint16_t version, frame;
-    if (fread(&magic, 4, 1, f) != 1
-     || fread(&version, 2, 1, f) != 1
-     || fread(&frame, 2, 1, f) != 1
-     || magic != STATE_DUMP_MAGIC
-     || version != STATE_DUMP_VERSION) {
+    uint32_t crc;
+    if (!read_header(f, NULL, &crc)) {
         fclose(f);
         return false;
     }
-    (void)frame; /* informational; the real value is restored via SECTION_CORE */
+
+    /* Validate the WHOLE payload before touching any live state, so a torn/corrupt
+     * file never partially overwrites the running game (the in-place apply pass below
+     * cannot be undone). */
+    if (!verify_payload_crc(f, crc)) {
+        fclose(f);
+        return false;
+    }
+
+    /* Apply pass: rewind to the payload and read each section into its live global. */
+    if (fseek(f, STATE_DUMP_HEADER_SIZE, SEEK_SET) != 0) {
+        fclose(f);
+        return false;
+    }
 
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
@@ -397,6 +506,74 @@ bool state_dump_load(const char *path) {
     return true;
 }
 
+/* ---- Crash-safe ping-pong persistence (build-order item #4) ---- */
+
+static void slot_path(char *out, size_t cap, const char *base, int slot) {
+    snprintf(out, cap, "%s.%d", base, slot);
+}
+
+/* Read a slot's header and validate its payload CRC. Returns true (and fills *seq)
+ * iff the slot is a loadable savestate; false if missing/short/wrong-version/torn. */
+static bool slot_peek(const char *path, uint32_t *seq) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    uint32_t crc;
+    bool ok = read_header(f, seq, &crc) && verify_payload_crc(f, crc);
+    fclose(f);
+    return ok;
+}
+
+bool state_dump_save_slots(const char *basepath) {
+    char p0[512], p1[512];
+    slot_path(p0, sizeof p0, basepath, 0);
+    slot_path(p1, sizeof p1, basepath, 1);
+
+    uint32_t s0 = 0, s1 = 0;
+    bool ok0 = slot_peek(p0, &s0);
+    bool ok1 = slot_peek(p1, &s1);
+
+    /* next sequence = max(valid sequences) + 1 (>= 1). */
+    uint32_t maxseq = 0;
+    bool any = false;
+    if (ok0)                          { maxseq = s0; any = true; }
+    if (ok1 && (!any || s1 > maxseq)) { maxseq = s1; any = true; }
+    uint32_t next = any ? maxseq + 1 : 1;
+
+    /* Write to the slot that is NOT the current newest-valid one, so that slot stays
+     * intact until the new write commits (atomic via the sequence number). */
+    bool slot0_is_newest = ok0 && (!ok1 || s0 >= s1);
+    const char *target = slot0_is_newest ? p1 : p0;
+    return state_dump_save_seq(target, next);
+}
+
+bool state_dump_load_slots(const char *basepath) {
+    char p0[512], p1[512];
+    slot_path(p0, sizeof p0, basepath, 0);
+    slot_path(p1, sizeof p1, basepath, 1);
+
+    uint32_t s0 = 0, s1 = 0;
+    bool ok0 = slot_peek(p0, &s0);
+    bool ok1 = slot_peek(p1, &s1);
+
+    /* Try the valid slots newest-first; fall back to the older one if the newest
+     * fails to apply (it passed CRC at peek, so this is belt-and-suspenders). */
+    const char *first = NULL, *second = NULL;
+    if (ok0 && ok1) {
+        if (s0 >= s1) { first = p0; second = p1; }
+        else          { first = p1; second = p0; }
+    } else if (ok0) {
+        first = p0;
+    } else if (ok1) {
+        first = p1;
+    } else {
+        return false;
+    }
+
+    if (first && state_dump_load(first)) return true;
+    if (second && state_dump_load(second)) return true;
+    return false;
+}
+
 /* save -> load -> save idempotency check on the CURRENT live state: proves the
  * loader reads back every byte the writer wrote (no section dropped or mis-sized)
  * and that load is the exact inverse of save. The live globals are restored to
@@ -437,6 +614,66 @@ done:
     free(bb);
     remove(pa);
     remove(pb);
+    return result;
+}
+
+/* Flip one payload byte (just past the header) of `path` so its CRC no longer
+ * matches — simulates a torn write. */
+static void corrupt_payload_byte(const char *path) {
+    FILE *f = fopen(path, "r+b");
+    if (!f) return;
+    if (fseek(f, STATE_DUMP_HEADER_SIZE, SEEK_SET) == 0) {
+        int c = fgetc(f);
+        if (c != EOF) {
+            fseek(f, STATE_DUMP_HEADER_SIZE, SEEK_SET);
+            fputc(c ^ 0xFF, f);
+        }
+    }
+    fclose(f);
+}
+
+/* Crash-safety self-test for the ping-pong layer: two saves must land in different
+ * slots with increasing sequence; corrupting the newer slot must make a load fall
+ * back to the older one; corrupting both must make the load fail cleanly (never apply
+ * a torn file). Returns true on success. Desktop-only; used by `--selftest-savestate`.
+ * Loading overwrites the live globals with the (identical) snapshot just written, so
+ * it is harmless to run on the post-boot state. */
+bool state_dump_crashsafe_test(void) {
+    const char *base = "savestate_cs_test";
+    char p0[512], p1[512];
+    slot_path(p0, sizeof p0, base, 0);
+    slot_path(p1, sizeof p1, base, 1);
+    remove(p0);
+    remove(p1);
+    bool result = false;
+
+    /* Two saves → two distinct slots with increasing sequence. */
+    if (!state_dump_save_slots(base)) goto done;
+    if (!state_dump_save_slots(base)) goto done;
+
+    uint32_t s0 = 0, s1 = 0;
+    if (!slot_peek(p0, &s0) || !slot_peek(p1, &s1) || s0 == s1) goto done;
+
+    const char *newer = (s0 > s1) ? p0 : p1;
+    const char *older = (s0 > s1) ? p1 : p0;
+
+    /* Corrupt the newer slot: it must no longer validate, and a load must fall back
+     * to the older (still-valid) slot. */
+    corrupt_payload_byte(newer);
+    {
+        uint32_t dummy;
+        if (slot_peek(newer, &dummy)) goto done; /* corruption must invalidate it */
+    }
+    if (!state_dump_load_slots(base)) goto done; /* must succeed via the older slot */
+
+    /* Corrupt the older slot too: with no valid slot, the load must fail cleanly. */
+    corrupt_payload_byte(older);
+    if (state_dump_load_slots(base)) goto done;
+
+    result = true;
+done:
+    remove(p0);
+    remove(p1);
     return result;
 }
 

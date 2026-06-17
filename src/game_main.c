@@ -542,12 +542,14 @@ void host_root_boundary(void) {
     g_capture_unwind_frames = 0;
 
     if (action == ROOT_ACTION_SAVE) {
-        if (state_dump_save(EB_SAVESTATE_PATH))
-            LOG_WARN("savestate: wrote %s\n", EB_SAVESTATE_PATH);
+        /* Crash-safe ping-pong write: alternates between EB_SAVESTATE_PATH ".0"/".1"
+         * so a power-loss mid-write leaves the prior slot intact. */
+        if (state_dump_save_slots(EB_SAVESTATE_PATH))
+            LOG_WARN("savestate: wrote %s.[01]\n", EB_SAVESTATE_PATH);
         else
             LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
     } else { /* ROOT_ACTION_LOAD */
-        if (state_dump_load(EB_SAVESTATE_PATH)) {
+        if (state_dump_load_slots(EB_SAVESTATE_PATH)) {
             /* The snapshot doesn't include the live SPC700/DSP, so restart the music
              * named by the restored audio_state — otherwise the pre-load track keeps
              * playing over the loaded game. */

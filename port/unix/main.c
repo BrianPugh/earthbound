@@ -89,7 +89,9 @@ int main(int argc, char *argv[]) {
     if (savestate_selftest) {
         bool ok = state_dump_roundtrip_test();
         fprintf(stderr, "savestate round-trip self-test: %s\n", ok ? "PASS" : "FAIL");
-        exit(ok ? 0 : 1);
+        bool ok_cs = state_dump_crashsafe_test();
+        fprintf(stderr, "savestate crash-safe self-test: %s\n", ok_cs ? "PASS" : "FAIL");
+        exit((ok && ok_cs) ? 0 : 1);
     }
 
     /* Initialize audio (loads audio packs from embedded assets) */
