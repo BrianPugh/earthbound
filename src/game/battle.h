@@ -564,15 +564,9 @@ void battle_reduce_hp(Battler *target, uint16_t damage);
 /* REDUCE_PP: Subtract cost from pp_target, floor at 0, apply via SET_PP. */
 void battle_reduce_pp(Battler *target, uint16_t cost);
 
-/* RECOVER_HP: Add heal_amount to hp_target, cap at hp_max, apply via SET_HP.
- * Blocks if target is unconscious or has CANT_CONCENTRATE affliction (group 0 == 1).
- * Displays appropriate battle message. */
-void battle_recover_hp(Battler *target, uint16_t heal_amount);
-
-/* RECOVER_PP: Add amount to pp_target, cap at pp_max, apply via SET_PP.
- * Blocks if target is unconscious or has CANT_CONCENTRATE affliction.
- * Displays PP recovery battle message. */
-void battle_recover_pp(Battler *target, uint16_t amount);
+/* RECOVER_HP / RECOVER_PP: the blocking forms were dead bridges (item #6); live
+ * callers use battle_recover_hp_prepare() / battle_recover_pp_prepare()
+ * (battle_internal.h) + a battle_push_text STEP_PUSH for the tail text. */
 
 /* ---- Status effects ---- */
 
@@ -809,10 +803,8 @@ void enemy_flashing_off(void);
 
 /* ---- Battle action handlers ---- */
 
-/* PSI Flash sub-effects (called from PSI Flash handler, not via action dispatch) */
-void flash_inflict_crying(void);
-void flash_inflict_paralysis(void);
-void flash_inflict_feeling_strange(void);
+/* (The blocking PSI Flash sub-effect forms were dead bridges and were deleted —
+ * item #6; the live logic is in the battle_actions.c steppers.) */
 
 /* Null/empty actions (pure, stepper-less: their blocking form is the .func column) */
 void btlact_null(void);
@@ -882,12 +874,11 @@ void battle_init_player_stats(uint16_t character, Battler *target);
 
 /* ---- External dependencies (implemented elsewhere) ---- */
 
-/* Battle text display — port of asm/text/display_in_battle_text.asm */
-void display_in_battle_text(const uint8_t *text, size_t size);
-
-/* SNES address variants — resolve MSG_BTL_* address, then display with battle wrappers.
- * Use these with #define constants from data/battle_text_data.h. */
-void display_text_wait_addr(uint32_t addr, uint32_t param);
+/* Battle text display — port of asm/text/display_in_battle_text.asm. The non-_addr
+ * and display_text_wait_addr forms were dead bridges and were deleted (item #6).
+ * display_in_battle_text_addr remains for check_dead_players' "ally collapsed" text
+ * (its own STEP_PUSH conversion is the next slice); resolve MSG_BTL_* addresses from
+ * data/battle_text_data.h. */
 void display_in_battle_text_addr(uint32_t addr);
 extern void swap_attacker_with_target(void);
 extern void set_current_item(uint8_t item);

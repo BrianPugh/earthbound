@@ -41,10 +41,6 @@ extern const uint8_t *npc_ai_table;
 
 /* ---- Functions defined in battle.c, called by battle_actions.c ---- */
 
-/* Battle flow helpers (display_in_battle_text_addr et al. are in battle.h) */
-void display_text_with_prompt(const uint8_t *text, size_t size);
-void display_text_with_prompt_addr(uint32_t addr);
-
 /* Battle scene/setup. load_battle_scene() is now GAME_MODE_LOAD_BATTLE_SCENE
  * (mode_step_load_battle_scene, battle_ui.c) — STEP_PUSHed by the Giygas
  * cutscene battle-action steppers; the blocking form is gone. */

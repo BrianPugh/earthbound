@@ -87,41 +87,12 @@ extern const uint8_t *consolation_item_table;
 
 /* clear_hppp_window_header() is implemented in window.c */
 
-/*
- * DISPLAY_IN_BATTLE_TEXT (asm/text/display_in_battle_text.asm)
- *
- * Displays battle text without CNUM parameter.
- * Same auto-fight cancel and blinking prompt logic as display_text_wait.
- */
-void display_in_battle_text(const uint8_t *text, size_t size) {
-    /* Auto-fight cancel: if enabled and B pressed, disable auto-fight */
-    if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
-        game_state.auto_fight_enable = 0;
-        clear_hppp_window_header();
-    }
-
-    if (bt.battle_mode_flag) {
-        dt.blinking_triangle_flag = 2;
-    }
-
-    display_text(text, size);
-    dt.blinking_triangle_flag = 0;
-}
-
-/* SNES address variants — resolve text address then display with battle wrappers. */
-void display_text_wait_addr(uint32_t addr, uint32_t param) {
-    if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
-        game_state.auto_fight_enable = 0;
-        clear_hppp_window_header();
-    }
-    set_cnum(param);
-    if (bt.battle_mode_flag) {
-        dt.blinking_triangle_flag = 2;
-    }
-    display_text_from_addr(addr);
-    dt.blinking_triangle_flag = 0;
-}
-
+/* DISPLAY_IN_BATTLE_TEXT (asm/text/display_in_battle_text.asm): the blocking
+ * text-with-▼-wait battle surface. The text/with-prompt and display_text_wait_addr
+ * variants were dead bridges (their callers run the prepare+battle_push_text
+ * STEP_PUSH path) and were deleted (item #6). The remaining live caller is
+ * check_dead_players' "ally collapsed" message, which still uses the blocking
+ * display_in_battle_text_addr (its own STEP_PUSH conversion is the next slice). */
 void display_in_battle_text_addr(uint32_t addr) {
     if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
         game_state.auto_fight_enable = 0;
@@ -1321,16 +1292,8 @@ void battle_recover_hp_prepare(Battler *target, uint16_t heal_amount,
     }
 }
 
-void battle_recover_hp(Battler *target, uint16_t heal_amount) {
-    BattleTailText tail;
-    battle_recover_hp_prepare(target, heal_amount, &tail);
-    if (tail.msg == 0)
-        return;
-    if (tail.has_cnum)
-        display_text_wait_addr(tail.msg, tail.cnum);
-    else
-        display_in_battle_text_addr(tail.msg);
-}
+/* The blocking battle_recover_hp() wrapper was a dead bridge (item #6): every live
+ * caller runs battle_recover_hp_prepare() + a battle_push_text STEP_PUSH instead. */
 
 /*
  * RECOVER_PP (asm/battle/recover_pp.asm)
@@ -1370,13 +1333,8 @@ void battle_recover_pp_prepare(Battler *target, uint16_t amount,
     out->has_cnum = true;
 }
 
-void battle_recover_pp(Battler *target, uint16_t amount) {
-    BattleTailText tail;
-    battle_recover_pp_prepare(target, amount, &tail);
-    if (tail.msg == 0)
-        return;
-    display_text_wait_addr(tail.msg, tail.cnum);
-}
+/* The blocking battle_recover_pp() wrapper was a dead bridge (item #6): every live
+ * caller runs battle_recover_pp_prepare() + a battle_push_text STEP_PUSH instead. */
 
 /* ======================================================================
  * Status effects
@@ -2212,57 +2170,10 @@ char *return_battle_target_address(void) {
  * hurt_prayer_steps() battle-action stepper (battle_actions.c); the blocking
  * version was deleted (D4b). */
 
-/* ======================================================================
- * PSI Flash sub-effects
- * ====================================================================== */
-
-/*
- * FLASH_INFLICT_CRYING (asm/battle/actions/psi_flash_crying.asm)
- *
- * Direct crying infliction from PSI Flash (no NPC or resist check).
- */
-void flash_inflict_crying(void) {
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_2_CRYING, STATUS_2_CRYING);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_CRYING);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
-}
-
-/*
- * FLASH_INFLICT_PARALYSIS (asm/battle/actions/psi_flash_paralysis.asm)
- *
- * Direct paralysis infliction from PSI Flash (no NPC or resist check).
- */
-void flash_inflict_paralysis(void) {
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_PERSISTENT_EASYHEAL, STATUS_0_PARALYZED);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_NUMB);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
-}
-
-/*
- * FLASH_INFLICT_FEELING_STRANGE (asm/battle/actions/psi_flash_feeling_strange.asm)
- *
- * Direct "feeling strange" infliction from PSI Flash (no NPC or resist check).
- */
-void flash_inflict_feeling_strange(void) {
-    uint16_t result = battle_inflict_status(
-        battler_from_offset(bt.current_target),
-        STATUS_GROUP_STRANGENESS, STATUS_3_STRANGE);
-    if (result != 0) {
-        display_in_battle_text_addr(MSG_BTL5_STATUS_STRANGE);
-    } else {
-        display_in_battle_text_addr(MSG_BTL4_RESULT_DID_NOT_WORK);
-    }
-}
+/* The blocking PSI Flash sub-effect forms (flash_inflict_crying / _paralysis /
+ * _feeling_strange, ports of asm/battle/actions/psi_flash_*.asm) were dead bridges
+ * (item #6): the live PSI Flash logic runs in the resumable battle-action steppers
+ * (battle_actions.c), which STEP_PUSH their status text. Deleted here. */
 
 /* ======================================================================
  * Battle entry points
@@ -3095,24 +3006,9 @@ void consume_used_battle_item(void) {
     remove_item_from_inventory(char_id, item_slot);
 }
 
-/*
- * DISPLAY_TEXT_WITH_PROMPT (asm/text/display_text_with_prompt.asm)
- *
- * Enables the blinking triangle prompt, displays text via DISPLAY_TEXT,
- * then clears the prompt. The triangle signals the player to press a button
- * to advance the text.
- */
-void display_text_with_prompt(const uint8_t *text, size_t size) {
-    dt.blinking_triangle_flag = 1;
-    display_in_battle_text(text, size);
-    dt.blinking_triangle_flag = 0;
-}
-
-void display_text_with_prompt_addr(uint32_t addr) {
-    dt.blinking_triangle_flag = 1;
-    display_in_battle_text_addr(addr);
-    dt.blinking_triangle_flag = 0;
-}
+/* DISPLAY_TEXT_WITH_PROMPT (asm/text/display_text_with_prompt.asm) and its _addr
+ * variant were dead bridges (item #6): callers that want the ▼-prompt text run the
+ * battle_push_text STEP_PUSH path (prompt=true) instead. Deleted here. */
 
 /*
  * SET_BATTLER_PP_FROM_TARGET (asm/battle/set_battler_pp_from_target.asm)
