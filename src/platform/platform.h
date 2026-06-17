@@ -131,6 +131,31 @@ bool platform_save_init(void);
 size_t platform_save_read(void *dst, size_t offset, size_t size);
 bool platform_save_write(const void *src, size_t offset, size_t size);
 
+/*
+ * Savestate storage — large suspend/resume snapshots (build-order item #5).
+ *
+ * Distinct from platform_save_* (the 7680-byte battery SRAM). A savestate is the
+ * full run-to-completion snapshot (~139 KiB) used for power-off suspend/resume.
+ * Two ping-pong SLOTS provide crash-safety: a write targets the inactive slot and
+ * is durable only after _commit(), so a power loss mid-write leaves the prior slot
+ * intact. The embedded firmware power-off handler requests a capture
+ * (host_request_capture) and holds the power rail until the root boundary's
+ * state_dump_save_slots() — which calls _begin/_write/_commit — returns. On desktop
+ * the slots are two files; on embedded they are two flash regions.
+ *
+ * Offset/slot-addressed, caller-owned buffers, no malloc (same contract as
+ * platform_save_*):
+ *   _begin(slot)              start a fresh, truncating write to `slot`
+ *   _write(slot,off,src,size) write `size` bytes at `off` within the slot
+ *   _commit(slot)             flush the slot durably (fsync / flash commit)
+ *   _read(slot,off,dst,size)  random read; returns bytes actually read (0 = absent)
+ */
+#define SAVESTATE_SLOTS 2
+bool   platform_savestate_begin(int slot);
+bool   platform_savestate_write(int slot, size_t offset, const void *src, size_t size);
+bool   platform_savestate_commit(int slot);
+size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size);
+
 /* Debug dumps (desktop: write files to debug/; embedded: no-op) */
 void platform_debug_dump_ppu(const pixel_t *framebuffer);
 void platform_debug_dump_vram_image(void);

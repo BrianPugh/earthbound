@@ -3,28 +3,23 @@
 
 #include <stdbool.h>
 
-/* Dump all module state to a binary file.
- * Format: "EBSD" header + tagged sections + 0xFFFF terminator.
- * Returns true on success. */
-bool state_dump_save(const char *path);
-
-/* Restore all module state from a file written by state_dump_save(). Each tagged
- * section is read straight back into its live global; unknown/mis-sized sections
- * are skipped. MUST be called at a root-loop boundary (host_root_boundary) — never
- * mid-pump — since it replaces the mode stack wholesale. Returns true on success
- * (a missing/short/wrong-magic file returns false and leaves earlier sections that
- * were already read in place; full validate-on-load is a later build-order item). */
-bool state_dump_load(const char *path);
-
-/* Crash-safe ping-pong persistence (build-order item #4). Writes alternate between
- * two slots ("<basepath>.0" / "<basepath>.1"), each tagged with a monotonically
- * increasing sequence number and a CRC-32 over its payload. A load picks the valid
- * slot with the highest sequence and falls back to the other if the newest one is
- * torn (CRC mismatch). This makes a power-loss mid-write non-destructive: the prior
- * slot stays intact until the new write fully commits. Returns true on success;
- * load_slots returns false only when NEITHER slot is valid. */
-bool state_dump_save_slots(const char *basepath);
-bool state_dump_load_slots(const char *basepath);
+/* Crash-safe ping-pong savestate persistence (build-order items #4 + #5).
+ *
+ * Storage goes through the port's platform_savestate_* slot backend (file-backed on
+ * desktop, flash on embedded). Two ping-pong SLOTS each carry a monotonically
+ * increasing sequence number and a CRC-32 over their payload:
+ *   - save_slots() serializes the live state to the slot that is NOT the current
+ *     newest-valid one, so a power-loss mid-write leaves the prior slot intact (the
+ *     commit is atomic via the sequence number).
+ *   - load_slots() validates (CRC) the newest slot and applies it, falling back to
+ *     the older slot if the newest is torn. It validates BEFORE touching any live
+ *     state, so a corrupt slot never partially overwrites the running game.
+ *
+ * Both MUST be called at a root-loop boundary (host_root_boundary) — never mid-pump —
+ * since load replaces the mode stack wholesale. load_slots() returns false only when
+ * NEITHER slot is valid. */
+bool state_dump_save_slots(void);
+bool state_dump_load_slots(void);
 
 /* save -> load -> save idempotency self-test on the current live state: returns
  * true iff the loader reads back exactly what the writer wrote (byte-identical).

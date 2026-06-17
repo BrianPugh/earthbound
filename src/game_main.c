@@ -78,9 +78,6 @@ static int g_capture_unwind_frames = 0;
  * end credits intentionally exceed it (no one needs to resume into the credits). */
 #define CAPTURE_UNWIND_FRAME_CAP 600
 
-/* Desktop savestate path for an F6 / power-off capture. */
-#define EB_SAVESTATE_PATH "savestate.bin"
-
 /* Dynamic frame-skipping state.
  * When the system falls behind real-time, skip PPU rendering (but keep
  * running game logic + audio) to catch up. Max 2 consecutive skips
@@ -542,21 +539,21 @@ void host_root_boundary(void) {
     g_capture_unwind_frames = 0;
 
     if (action == ROOT_ACTION_SAVE) {
-        /* Crash-safe ping-pong write: alternates between EB_SAVESTATE_PATH ".0"/".1"
-         * so a power-loss mid-write leaves the prior slot intact. */
-        if (state_dump_save_slots(EB_SAVESTATE_PATH))
-            LOG_WARN("savestate: wrote %s.[01]\n", EB_SAVESTATE_PATH);
+        /* Crash-safe ping-pong write through the platform_savestate_* slot backend:
+         * a power-loss mid-write leaves the prior slot intact. */
+        if (state_dump_save_slots())
+            LOG_WARN("savestate: wrote slot\n");
         else
-            LOG_WARN("savestate: failed to write %s\n", EB_SAVESTATE_PATH);
+            LOG_WARN("savestate: failed to write slot\n");
     } else { /* ROOT_ACTION_LOAD */
-        if (state_dump_load_slots(EB_SAVESTATE_PATH)) {
+        if (state_dump_load_slots()) {
             /* The snapshot doesn't include the live SPC700/DSP, so restart the music
              * named by the restored audio_state — otherwise the pre-load track keeps
              * playing over the loaded game. */
             audio_resync_after_load();
-            LOG_WARN("savestate: loaded %s\n", EB_SAVESTATE_PATH);
+            LOG_WARN("savestate: loaded slot\n");
         } else {
-            LOG_WARN("savestate: failed to load %s\n", EB_SAVESTATE_PATH);
+            LOG_WARN("savestate: failed to load slot\n");
         }
     }
 }

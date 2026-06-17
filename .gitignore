@@ -10,7 +10,7 @@ src/packed_assets/
 debug/
 src/debug/
 savestate.bin
-savestate_selftest_*.bin
+savestate.bin.*
 *.log
 *.txt
 !**/CMakeLists.txt
