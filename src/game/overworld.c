@@ -36,6 +36,7 @@
 #include "game/audio.h"
 #include "game/display_text.h"
 #include "game/door.h"
+#include "game/flyover.h"
 #include "game/window.h"
 #include "game/inventory.h"
 #include "core/memory.h"
@@ -2053,22 +2054,59 @@ static const AutoMovementEntry *demo_read_ptr;
 static uint16_t demo_initial_pad_state;
 
 /* ---- Savestate snapshot (see OverworldDeferredSaveState in overworld.h) ---- */
+
+/* Chain the per-file overworld-task callback resolvers (savestate pointer purge,
+ * build item #3). restore_bg_palette_callback (overworld_palette.c) is exported, so
+ * resolve it here directly; door.c / battle_actions.c own the rest. */
+static uint8_t ow_task_cb_id(void (*fn)(void)) {
+    if (fn == NULL) return OW_TASK_CB_NONE;
+    if (fn == restore_bg_palette_callback) return OW_TASK_CB_RESTORE_BG_PALETTE;
+    uint8_t id;
+    if ((id = door_overworld_task_id(fn)) != OW_TASK_CB_NONE) return id;
+    if ((id = battle_actions_overworld_task_id(fn)) != OW_TASK_CB_NONE) return id;
+    return OW_TASK_CB_NONE;
+}
+
+static void (*ow_task_cb_fn(uint8_t id))(void) {
+    if (id == OW_TASK_CB_NONE) return NULL;
+    if (id == OW_TASK_CB_RESTORE_BG_PALETTE) return restore_bg_palette_callback;
+    void (*fn)(void);
+    if ((fn = door_overworld_task_fn(id)) != NULL) return fn;
+    if ((fn = battle_actions_overworld_task_fn(id)) != NULL) return fn;
+    return NULL;
+}
+
 void overworld_deferred_savestate_pack(void *out) {
     OverworldDeferredSaveState *s = (OverworldDeferredSaveState *)out;
-    memcpy(s->overworld_tasks, overworld_tasks, sizeof(overworld_tasks));
+    for (int i = 0; i < MAX_OVERWORLD_TASKS; i++) {
+        s->task_frames_left[i] = overworld_tasks[i].frames_left;
+        s->task_callback_id[i] = ow_task_cb_id(overworld_tasks[i].callback);
+    }
     memcpy(s->auto_movement_buffer, auto_movement_buffer, sizeof(auto_movement_buffer));
     s->auto_movement_index   = auto_movement_index;
-    s->demo_read_ptr         = demo_read_ptr;
+    s->demo_read_index       = demo_read_ptr
+        ? (uint16_t)(demo_read_ptr - auto_movement_buffer) : 0xFFFF;
     s->demo_initial_pad_state = demo_initial_pad_state;
 }
 
 void overworld_deferred_savestate_unpack(const void *in) {
     const OverworldDeferredSaveState *s = (const OverworldDeferredSaveState *)in;
-    memcpy(overworld_tasks, s->overworld_tasks, sizeof(overworld_tasks));
+    for (int i = 0; i < MAX_OVERWORLD_TASKS; i++) {
+        overworld_tasks[i].frames_left = s->task_frames_left[i];
+        overworld_tasks[i].callback    = ow_task_cb_fn(s->task_callback_id[i]);
+    }
     memcpy(auto_movement_buffer, s->auto_movement_buffer, sizeof(auto_movement_buffer));
     auto_movement_index    = s->auto_movement_index;
-    demo_read_ptr          = s->demo_read_ptr;
+    demo_read_ptr          = (s->demo_read_index == 0xFFFF)
+        ? NULL : &auto_movement_buffer[s->demo_read_index];
     demo_initial_pad_state = s->demo_initial_pad_state;
+}
+
+/* Rebuild ow.post_teleport_callback from its serialized id (build item #3). */
+void overworld_savestate_rebind(void) {
+    ow.post_teleport_callback =
+        (ow.post_teleport_callback_id == POST_TELEPORT_CB_UNDRAW_FLYOVER_TEXT)
+            ? undraw_flyover_text : NULL;
 }
 
 /* AUTO_MOVEMENT_DIRECTION_TABLE — maps quantized 8-direction index to

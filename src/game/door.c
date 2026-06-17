@@ -1389,3 +1389,24 @@ StepResult mode_step_teleport_to(ModeState *ms) {
     }
 }
 
+/* door.c-owned half of the overworld-task callback id resolver (savestate pointer
+ * purge, build item #3). The escalator/stairs deferred-task callbacks are static to
+ * this file; map them to/from their stable ids. */
+uint8_t door_overworld_task_id(void (*fn)(void)) {
+    if (fn == start_escalator_movement_callback)  return OW_TASK_CB_START_ESCALATOR;
+    if (fn == finish_escalator_movement_callback) return OW_TASK_CB_FINISH_ESCALATOR;
+    if (fn == handle_stairs_enter_callback)       return OW_TASK_CB_STAIRS_ENTER;
+    if (fn == handle_stairs_leave_callback)       return OW_TASK_CB_STAIRS_LEAVE;
+    return OW_TASK_CB_NONE;
+}
+
+void (*door_overworld_task_fn(uint8_t id))(void) {
+    switch (id) {
+    case OW_TASK_CB_START_ESCALATOR:  return start_escalator_movement_callback;
+    case OW_TASK_CB_FINISH_ESCALATOR: return finish_escalator_movement_callback;
+    case OW_TASK_CB_STAIRS_ENTER:     return handle_stairs_enter_callback;
+    case OW_TASK_CB_STAIRS_LEAVE:     return handle_stairs_leave_callback;
+    default: return NULL;
+    }
+}
+

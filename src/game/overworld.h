@@ -90,6 +90,10 @@ typedef enum {
     POST_TELEPORT_CB_UNDRAW_FLYOVER_TEXT = 1,
 } PostTeleportCallbackId;
 
+/* Rebuild ow.post_teleport_callback (a raw fn ptr) from post_teleport_callback_id
+ * after a savestate load (savestate pointer purge, build item #3). */
+void overworld_savestate_rebind(void);
+
 /* ---- OverworldState: all overworld module globals ---- */
 typedef struct {
     /* Entity spawn control */
@@ -849,6 +853,28 @@ typedef struct {
     void (*callback)(void); /* called when timer expires */
 } OverworldTask;
 
+/* Serializable id for an OverworldTask callback (savestate pointer purge, build
+ * item #3). The deferred-task queue stores raw fn ptrs; the savestate maps each to
+ * one of these stable ids and back. Each owning file resolves the ids for its own
+ * (often static) callbacks via the prototypes below; ow_task_cb_id/_fn (overworld.c)
+ * chain them. */
+typedef enum {
+    OW_TASK_CB_NONE = 0,
+    OW_TASK_CB_START_ESCALATOR,    /* start_escalator_movement_callback  (door.c) */
+    OW_TASK_CB_FINISH_ESCALATOR,   /* finish_escalator_movement_callback (door.c) */
+    OW_TASK_CB_STAIRS_ENTER,       /* handle_stairs_enter_callback        (door.c) */
+    OW_TASK_CB_STAIRS_LEAVE,       /* handle_stairs_leave_callback        (door.c) */
+    OW_TASK_CB_INIT_PARTY_ANIMS,   /* initialize_party_member_animations  (battle_actions.c) */
+    OW_TASK_CB_RESTORE_BG_PALETTE, /* restore_bg_palette_callback         (overworld_palette.c) */
+} OverworldTaskCbId;
+
+/* Per-file overworld-task callback id resolvers (bidirectional). Each returns
+ * OW_TASK_CB_NONE / NULL for callbacks it does not own. */
+uint8_t door_overworld_task_id(void (*fn)(void));
+void  (*door_overworld_task_fn(uint8_t id))(void);
+uint8_t battle_actions_overworld_task_id(void (*fn)(void));
+void  (*battle_actions_overworld_task_fn(uint8_t id))(void);
+
 #define AUTO_MOVEMENT_BUFFER_SIZE 64
 typedef struct {
     uint8_t  count;      /* number of frames to hold this direction */
@@ -859,13 +885,14 @@ typedef struct {
  * Escalator/stairs/forced-walk uses a deferred-callback queue + an injected
  * auto-movement (demo) stream that play out over many frames; saving mid-ride must
  * round-trip them or the leader never reaches its target / pad injection desyncs.
- * (overworld_tasks holds callback fn-ptrs and demo_read_ptr is a raw cursor — valid
- * in-process; cross-platform pointer purge is build-order item #3.) */
+ * The task fn-ptrs and demo cursor are serialized as stable ids / an index so the
+ * snapshot is cross-process/cross-platform safe (build item #3). */
 typedef struct {
-    OverworldTask     overworld_tasks[MAX_OVERWORLD_TASKS];
+    uint16_t          task_frames_left[MAX_OVERWORLD_TASKS];
+    uint8_t           task_callback_id[MAX_OVERWORLD_TASKS]; /* OverworldTaskCbId */
     AutoMovementEntry auto_movement_buffer[AUTO_MOVEMENT_BUFFER_SIZE];
     uint16_t          auto_movement_index;
-    const AutoMovementEntry *demo_read_ptr;
+    uint16_t          demo_read_index;  /* index into auto_movement_buffer; 0xFFFF = NULL */
     uint16_t          demo_initial_pad_state;
 } OverworldDeferredSaveState;
 void overworld_deferred_savestate_pack(void *out);   /* out: OverworldDeferredSaveState* */

@@ -28,12 +28,19 @@ typedef struct {
     uint16_t enemy_colour_change_blue;          /* 54 */
     /* C port addition: bundled arrangement streaming state */
     const uint8_t *arr_bundled_data;  /* pointer to .arr.bundled asset */
-    size_t arr_bundled_size;          /* total asset size */
+    uint32_t arr_bundled_size;        /* total asset size (fixed-width for savestate ABI) */
     int16_t arr_current_bundle;       /* currently decompressed bundle index (-1 = none) */
+    uint16_t arr_current_anim_id;     /* anim id backing arr_bundled_data — serializable form
+                                         of the asset ptr, used to rebind it after a state load
+                                         (savestate pointer purge, build item #3) */
     uint8_t *arr_bundle_buf;          /* 8 KB staging buffer (points to ert.buffer during PSI) */
 } PsiAnimationState;
 
 extern PsiAnimationState psi_animation_state;
+
+/* Rebuild psi_animation_state's runtime pointers after a savestate load (defined in
+ * battle_psi.c). Declared here because the struct lives in this header. */
+void psi_animation_savestate_rebind(void);
 
 /* Oval window animation frame data (matches oval_window struct from structs.asm) */
 typedef struct {
@@ -122,7 +129,11 @@ typedef struct {
     int16_t  loaded_oval_window_height_velocity;
     int16_t  loaded_oval_window_width_acceleration;
     int16_t  loaded_oval_window_height_acceleration;
-    const OvalWindowData *loaded_oval_window;
+    /* loaded_oval_window is a raw cursor into one of the static animation-frame
+     * tables; serialize it as (sequence id, frame index) so the snapshot is
+     * cross-process/cross-platform safe (build item #3). seq 0 = NULL (inactive). */
+    uint8_t  loaded_oval_window_seq;
+    uint16_t loaded_oval_window_index;
 } OvalWindowSaveState;
 void oval_window_savestate_pack(void *out);   /* out: OvalWindowSaveState* */
 void oval_window_savestate_unpack(const void *in);

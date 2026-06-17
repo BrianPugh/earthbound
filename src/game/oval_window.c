@@ -136,6 +136,18 @@ static int16_t loaded_oval_window_height_acceleration;
 /* Per-scanline window boundary buffer (EB_VIEWPORT_HEIGHT entries, 2 bytes each: left|right packed) */
 static uint16_t swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT];
 
+/* Sequence table for serializing the loaded_oval_window cursor as (seq id, frame
+ * index) — savestate pointer purge, build item #3. Order defines the seq ids (1..N;
+ * 0 = NULL/inactive). */
+static const struct { const OvalWindowData *base; uint16_t len; } oval_seq_table[] = {
+    { oval_standard_open,  (uint16_t)(sizeof(oval_standard_open)  / sizeof(oval_standard_open[0]))  },
+    { oval_variant_open,   (uint16_t)(sizeof(oval_variant_open)   / sizeof(oval_variant_open[0]))   },
+    { oval_standard_close, (uint16_t)(sizeof(oval_standard_close) / sizeof(oval_standard_close[0])) },
+    { oval_variant_close,  (uint16_t)(sizeof(oval_variant_close)  / sizeof(oval_variant_close[0]))  },
+    { oval_battle,         (uint16_t)(sizeof(oval_battle)         / sizeof(oval_battle[0]))         },
+};
+#define OVAL_SEQ_COUNT (sizeof(oval_seq_table) / sizeof(oval_seq_table[0]))
+
 /* ---- Savestate snapshot (see OvalWindowSaveState in oval_window.h) ----
  * swirl_window_hdma_buffer is intentionally NOT captured: it is rebuilt from the
  * geometry above by parse_hdma_to_window_buffer/generate_oval_window_data before
@@ -166,7 +178,17 @@ void oval_window_savestate_pack(void *out) {
     s->loaded_oval_window_height_velocity = loaded_oval_window_height_velocity;
     s->loaded_oval_window_width_acceleration  = loaded_oval_window_width_acceleration;
     s->loaded_oval_window_height_acceleration = loaded_oval_window_height_acceleration;
-    s->loaded_oval_window                = loaded_oval_window;
+    /* Serialize the loaded_oval_window cursor as (sequence id, frame index). */
+    s->loaded_oval_window_seq = 0;
+    s->loaded_oval_window_index = 0;
+    for (size_t i = 0; i < OVAL_SEQ_COUNT; i++) {
+        const OvalWindowData *base = oval_seq_table[i].base;
+        if (loaded_oval_window >= base && loaded_oval_window < base + oval_seq_table[i].len) {
+            s->loaded_oval_window_seq = (uint8_t)(i + 1);
+            s->loaded_oval_window_index = (uint16_t)(loaded_oval_window - base);
+            break;
+        }
+    }
 }
 
 void oval_window_savestate_unpack(const void *in) {
@@ -195,7 +217,13 @@ void oval_window_savestate_unpack(const void *in) {
     loaded_oval_window_height_velocity = s->loaded_oval_window_height_velocity;
     loaded_oval_window_width_acceleration  = s->loaded_oval_window_width_acceleration;
     loaded_oval_window_height_acceleration = s->loaded_oval_window_height_acceleration;
-    loaded_oval_window                = s->loaded_oval_window;
+    /* Rebuild the loaded_oval_window cursor from (sequence id, frame index). */
+    if (s->loaded_oval_window_seq == 0 || s->loaded_oval_window_seq > OVAL_SEQ_COUNT) {
+        loaded_oval_window = NULL;
+    } else {
+        loaded_oval_window = oval_seq_table[s->loaded_oval_window_seq - 1].base
+                           + s->loaded_oval_window_index;
+    }
 }
 
 #define SWIRL_DATA_COUNT 126

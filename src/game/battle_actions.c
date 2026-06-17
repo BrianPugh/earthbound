@@ -2176,6 +2176,18 @@ static void initialize_party_member_animations(void) {
     }
 }
 
+/* battle_actions.c-owned half of the overworld-task callback id resolver (savestate
+ * pointer purge, build item #3). initialize_party_member_animations is static here
+ * and can be queued as a deferred overworld task (schedule_party_animation_reset). */
+uint8_t battle_actions_overworld_task_id(void (*fn)(void)) {
+    return (fn == initialize_party_member_animations) ? OW_TASK_CB_INIT_PARTY_ANIMS
+                                                      : OW_TASK_CB_NONE;
+}
+
+void (*battle_actions_overworld_task_fn(uint8_t id))(void) {
+    return (id == OW_TASK_CB_INIT_PARTY_ANIMS) ? initialize_party_member_animations : NULL;
+}
+
 /*
  * SCHEDULE_PARTY_ANIMATION_RESET
  * (asm/overworld/party/schedule_party_animation_reset.asm)

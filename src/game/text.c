@@ -1194,6 +1194,27 @@ static void (*equip_preview_callbacks[4])(uint16_t) = {
     preview_other_equip_stats,
 };
 
+/* text.c-owned half of the cursor-callback id resolver (savestate pointer purge,
+ * build item #3). Maps a serialized CursorCallbackId back to the function pointer
+ * for the callbacks defined in this file; returns NULL for ids owned elsewhere so
+ * window_resolve_cursor_callback() can chain the per-file resolvers. */
+void (*text_cursor_callback_from_id(uint8_t id))(uint16_t) {
+    switch (id) {
+    case CURSOR_CB_CS_EQUIPMENT:    return show_equipment_and_stats_callback;
+    case CURSOR_CB_CS_PSI_LIST:     return display_character_psi_list;
+    case CURSOR_CB_CS_STATUS:       return display_status_window;
+    case CURSOR_CB_CS_WEAPON_NAME:  return get_weapon_item_name_callback;
+    case CURSOR_CB_CS_BODY_NAME:    return get_body_item_name_callback;
+    case CURSOR_CB_PSI_DESCRIPTION: return display_psi_description;
+    case CURSOR_CB_EQUIP_PREVIEW_WEAPON:
+    case CURSOR_CB_EQUIP_PREVIEW_BODY:
+    case CURSOR_CB_EQUIP_PREVIEW_ARMS:
+    case CURSOR_CB_EQUIP_PREVIEW_OTHER:
+        return equip_preview_callbacks[id - CURSOR_CB_EQUIP_PREVIEW_WEAPON];
+    default: return NULL;
+    }
+}
+
 /* EQUIPMENT_CHANGE_MENU (src/inventory/equipment/equipment_change_menu.asm,
  * 252 lines) is folded into GAME_MODE_EQUIP_MENU (mode_step_equip_menu, with
  * the pause-menu machinery further down this file) as the EQ_SLOT /

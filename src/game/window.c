@@ -2877,6 +2877,44 @@ void clear_cursor_move_callback(void) {
     }
 }
 
+/* ------------------------------------------------------------------------- *
+ * Savestate pointer purge (build item #3)
+ *
+ * WindowInfo carries two raw pointers — content_tilemap (into win.tilemap_pool)
+ * and cursor_move_callback (a function pointer) — that are meaningless after a
+ * cross-process / cross-platform load (absolute addresses shift). Each is mirrored
+ * by a serializable field (content_tilemap_offset / cursor_move_callback_id) that
+ * is kept in sync at every mutation site; window_savestate_rebind() rebuilds the
+ * pointers from those fields after state_dump_load(). Because the mirrors are exact
+ * (offset/id determine the pointer deterministically) the same-process round-trip
+ * stays byte-identical.
+ * ------------------------------------------------------------------------- */
+
+/* Map a serialized CursorCallbackId back to its function pointer by chaining the
+ * per-owning-file resolvers (text.c, battle_psi.c, file_select.c) plus the two
+ * callbacks defined in this file. Returns NULL for CURSOR_CB_NONE / unknown ids. */
+void (*window_resolve_cursor_callback(uint8_t id))(uint16_t) {
+    if (id == CURSOR_CB_NONE) return NULL;
+    if (id == CURSOR_CB_HPPP_MODE_ITEM) return set_hppp_window_mode_item;
+    void (*fn)(uint16_t);
+    if ((fn = text_cursor_callback_from_id(id)) != NULL) return fn;
+    if ((fn = battle_psi_cursor_callback_from_id(id)) != NULL) return fn;
+    if ((fn = file_select_cursor_callback_from_id(id)) != NULL) return fn;
+    return NULL;
+}
+
+void window_savestate_rebind(void) {
+    for (int i = 0; i < MAX_WINDOWS; i++) {
+        WindowInfo *w = &win.windows[i];
+        /* content_tilemap == NULL iff size == 0 (see tilemap_pool_free); a live
+         * allocation is always &tilemap_pool[offset]. */
+        w->content_tilemap = (w->content_tilemap_size > 0)
+            ? &win.tilemap_pool[w->content_tilemap_offset]
+            : NULL;
+        w->cursor_move_callback = window_resolve_cursor_callback(w->cursor_move_callback_id);
+    }
+}
+
 /*
  * CLEAR_WINDOW_TILEMAP — Port of asm/text/clear_window_tilemap.asm.
  *

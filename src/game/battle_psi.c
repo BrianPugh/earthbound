@@ -766,9 +766,10 @@ void show_psi_animation(uint16_t anim_id) {
      * which is free during battle (verified by concurrency analysis). */
     {
         psi_animation_state.arr_bundled_data = ASSET_DATA(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
-        psi_animation_state.arr_bundled_size = ASSET_SIZE(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
+        psi_animation_state.arr_bundled_size = (uint32_t)ASSET_SIZE(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
         psi_animation_state.arr_bundle_buf = ert.buffer;
         psi_animation_state.arr_current_bundle = -1; /* none decompressed yet */
+        psi_animation_state.arr_current_anim_id = anim_id; /* serializable backing for rebind */
     }
 
     /* Initialize animation state from CFG entry */
@@ -857,6 +858,40 @@ void show_psi_animation(uint16_t anim_id) {
     } else {
         ppu.bg_hofs[0] = (uint16_t)bt.psi_animation_x_offset;
         ppu.bg_vofs[0] = (uint16_t)bt.psi_animation_y_offset;
+    }
+}
+
+/* battle_psi.c-owned half of the cursor-callback id resolver (savestate pointer
+ * purge, build item #3). See window_resolve_cursor_callback(). */
+void (*battle_psi_cursor_callback_from_id(uint8_t id))(uint16_t) {
+    switch (id) {
+    case CURSOR_CB_PSI_LIST_GEN:   return generate_battle_psi_list_callback;
+    case CURSOR_CB_PSI_TARGET_COST: return display_psi_target_and_cost;
+    default: return NULL;
+    }
+}
+
+/* psi_animation_state holds two runtime-only pointers (the bundled-arrangement
+ * asset and the staging buffer in ert.buffer) that are meaningless after a
+ * cross-process/cross-platform load (absolute addresses shift with ASLR / a
+ * different binary). Rebuild them from the serialized anim id + ert.buffer
+ * (savestate pointer purge, build item #3). Called after a state load.
+ *
+ * Game logic only ever sets arr_bundled_data/arr_bundle_buf non-NULL (at
+ * show_psi_animation) and never NULLs them again, so a saved NULL means "no PSI
+ * animation has ever played" — and NULL is bit-identical on every platform. Gating
+ * the rebind on "was non-NULL" therefore keeps the same-process round-trip
+ * byte-identical (the rebound value equals the saved one) while still repairing the
+ * stale absolute pointers on a cross-process/cross-platform load. */
+void psi_animation_savestate_rebind(void) {
+    if (psi_animation_state.arr_bundle_buf != NULL)
+        psi_animation_state.arr_bundle_buf = ert.buffer;
+    if (psi_animation_state.arr_bundled_data != NULL
+        && psi_animation_state.arr_current_anim_id < PSI_ANIM_COUNT) {
+        uint16_t anim_id = psi_animation_state.arr_current_anim_id;
+        psi_animation_state.arr_bundled_data = ASSET_DATA(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
+        psi_animation_state.arr_bundled_size =
+            (uint32_t)ASSET_SIZE(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
     }
 }
 

@@ -303,6 +303,17 @@ void print_menu_items(void);
  * text.c, where the callbacks (mostly static there) are visible. */
 union ModeState;  /* forward decl (defined in core/mode_stack.h) */
 uint8_t  cs_onchange_id(void (*fn)(uint16_t));
+
+/* Cursor-callback id resolvers (savestate pointer purge, build item #3). Each
+ * owning file maps the CursorCallbackId values for its (often static) callbacks
+ * back to the function pointer; window_resolve_cursor_callback() chains them, and
+ * window_savestate_rebind() rebuilds every window's content_tilemap + fn ptr from
+ * the serialized offset/id after a state load. */
+void (*text_cursor_callback_from_id(uint8_t id))(uint16_t);
+void (*battle_psi_cursor_callback_from_id(uint8_t id))(uint16_t);
+void (*file_select_cursor_callback_from_id(uint8_t id))(uint16_t);
+void (*window_resolve_cursor_callback(uint8_t id))(uint16_t);
+void window_savestate_rebind(void);
 uint8_t  cs_checkvalid_id(uint16_t (*fn)(uint16_t));
 /* Invoke an on_change callback by ID. Most callbacks do all their work inline and
  * return false. CS_ONCHANGE_PARTY_SELECT_SCRIPT (per-member text script) instead

@@ -52,7 +52,8 @@ bool state_dump_roundtrip_test(void) {
  * id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC   0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_VERSION 5
+#define STATE_DUMP_VERSION 6  /* v6: raw-pointer purge (build item #3) changed the
+                               * PSI/oval/overworld-deferred section layouts. */
 
 /* Section IDs */
 enum {
@@ -333,6 +334,16 @@ bool state_dump_load(const char *path) {
     }
 
     fclose(f);
+
+    /* Rebuild the raw pointers in the directly-serialized sections from their
+     * serializable companions (offsets / ids) — savestate pointer purge, build
+     * item #3. The pack/unpack sections rebuild their own pointers inside unpack().
+     * Without this, content_tilemap / cursor_move_callback / post_teleport_callback /
+     * the PSI streaming pointers hold stale addresses after a cross-process load. */
+    window_savestate_rebind();
+    overworld_savestate_rebind();
+    psi_animation_savestate_rebind();
+
     return true;
 }
 

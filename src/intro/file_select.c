@@ -443,6 +443,13 @@ static void preview_flavour_callback(uint16_t value) {
     game_state.text_flavour = orig;
 }
 
+/* file_select.c-owned half of the cursor-callback id resolver (savestate pointer
+ * purge, build item #3). See window_resolve_cursor_callback(). */
+void (*file_select_cursor_callback_from_id(uint8_t id))(uint16_t) {
+    if (id == CURSOR_CB_FLAVOUR_PREVIEW) return preview_flavour_callback;
+    return NULL;
+}
+
 /*
  * Window flavour selection menu.
  */
