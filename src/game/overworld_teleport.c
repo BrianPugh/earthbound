@@ -758,20 +758,30 @@ static bool init_teleport_departure_run(void) {
     /* Play TELEPORT_IN music */
     change_music(135);  /* MUSIC::TELEPORT_IN */
 
-    /* Wait 30 frames */
+    /* Wait 30 frames (asm lines 72-79: WAIT_UNTIL_NEXT_FRAME ×30 — a BARE wait,
+     * no RUN_ACTIONSCRIPT_FRAME, so the decelerate tick does not run and speed
+     * stays 8.0 until the animate loop below). Use wait_for_vblank() (the
+     * WAIT_UNTIL_NEXT_FRAME equivalent), NOT render_frame_tick() — the latter also
+     * runs oam_clear/run_actionscript_frame/update_screen, which would advance the
+     * decelerate tick 30× during the wait. */
     for (int i = 0; i < 30; i++) {
-        render_frame_tick();
+        wait_for_vblank();
     }
 
     /* Fade in */
     fade_in(1, 4);
 
-    /* Animate until speed reaches 0 */
+    /* Animate until speed reaches 0 (asm lines 84-91: OAM_CLEAR;
+     * RUN_ACTIONSCRIPT_FRAME; UPDATE_SCREEN; WAIT_UNTIL_NEXT_FRAME — exactly ONE
+     * render per frame). The trailing wait is wait_for_vblank(), NOT
+     * render_frame_tick(): the oam_clear/run/update are already done explicitly
+     * above it, so render_frame_tick() would render a SECOND time per frame and
+     * tick the decelerate twice → the departure animates ~2× too fast. */
     while ((ow.psi_teleport_speed >> 16) != 0) {
         oam_clear();
         run_actionscript_frame();
         update_screen();
-        render_frame_tick();
+        wait_for_vblank();
     }
 
     center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
