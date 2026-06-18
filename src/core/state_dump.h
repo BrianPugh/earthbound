@@ -27,6 +27,16 @@ bool state_dump_load_slots(void);
  * embedded. */
 bool state_dump_roundtrip_test(void);
 
+/* Stronger round-trip self-test: like state_dump_roundtrip_test(), but SCRIBBLES
+ * every directly-serialized section's live global with a sentinel between the save
+ * and the load. A load that fully reconstructs state from the file (rather than
+ * silently leaning on a global it never overwrites) must still re-save byte-identical.
+ * Catches a section that is written but not restored on load — the failure the plain
+ * round-trip masks, since there the unchanged globals reproduce the reference anyway.
+ * Approximates a cross-process (cold-boot) load in one process. Desktop-only; always
+ * false on embedded. */
+bool state_dump_perturb_test(void);
+
 /* Crash-safety self-test: writes two ping-pong slots, corrupts the newer one and
  * confirms a load falls back to the older slot, then corrupts both and confirms the
  * load fails cleanly. Returns true on success. Desktop-only; always false on

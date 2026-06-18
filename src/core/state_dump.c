@@ -18,6 +18,10 @@ bool state_dump_roundtrip_test(void) {
     return false;
 }
 
+bool state_dump_perturb_test(void) {
+    return false;
+}
+
 bool state_dump_crashsafe_test(void) {
     return false;
 }
@@ -588,6 +592,31 @@ bool state_dump_roundtrip_test(void) {
     if (!write_slot(0, fixed_seq)) return false;
     if (!read_slot(0))             return false;
     if (!write_slot(1, fixed_seq)) return false;
+    return slots_byte_equal(0, 1);
+}
+
+/* Like the round-trip test, but scribbles every direct section's live storage with a
+ * sentinel between the reference save and the load, so the load must reconstruct that
+ * state purely from the file. If it does, the re-save byte-matches the reference; a
+ * section that is written but never restored on load instead retains the sentinel and
+ * the comparison fails. (The plain round-trip can't see that hole — there the
+ * untouched globals reproduce the reference regardless.) Only the direct sections are
+ * perturbed; the pack/unpack sections gather from file-private statics this test can't
+ * reach, but read_slot() still scatters them back via unpack(). No game code runs
+ * between the scribble and the load, so garbage globals (including pointer fields,
+ * rebuilt by the rebind step) cannot misbehave. */
+bool state_dump_perturb_test(void) {
+    const uint32_t fixed_seq = 1;
+    if (!write_slot(0, fixed_seq)) return false;   /* reference image */
+
+    StateSection table[MAX_SECTIONS];
+    int n = build_section_table(table);
+    for (int i = 0; i < n; i++)
+        if (!table[i].pack && table[i].size)       /* direct sections only */
+            memset(table[i].ptr, 0xA5, table[i].size);
+
+    if (!read_slot(0))             return false;   /* must restore from the file */
+    if (!write_slot(1, fixed_seq)) return false;   /* re-save the restored state */
     return slots_byte_equal(0, 1);
 }
 
