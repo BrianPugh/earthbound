@@ -63,4 +63,25 @@ void host_request_load(void);
  * would be torn. A no-op when nothing is pending. */
 void host_root_boundary(void);
 
+/* Outcome of the most recent host_request_capture()/host_request_load(), so the
+ * embedded firmware power-off handler — which calls host_request_capture() from its
+ * ISR but drives frames through the port main loop (it does NOT call host_root_boundary
+ * itself) — can implement the rail-hold handshake by polling:
+ *
+ *     host_request_capture();
+ *     do { game_logic_entry(); } while (host_capture_status() == HOST_CAPTURE_PENDING);
+ *     if (host_capture_status() == HOST_CAPTURE_COMMITTED) firmware_release_power_rail();
+ *     else firmware_handle_capture_failure();   // torn-safe: prior slot still valid
+ *
+ * The status is sticky after it resolves (COMMITTED/FAILED persist until the next
+ * request), so a poll that observes the transition out of PENDING reads the result. */
+typedef enum {
+    HOST_CAPTURE_IDLE = 0,    /* no save/load requested since boot */
+    HOST_CAPTURE_PENDING,     /* requested; free-running the C stack to a root boundary */
+    HOST_CAPTURE_COMMITTED,   /* save written + committed durably, or load applied */
+    HOST_CAPTURE_FAILED,      /* abandoned at the unwind cap, or the slot I/O failed */
+} HostCaptureStatus;
+
+HostCaptureStatus host_capture_status(void);
+
 #endif /* GAME_MAIN_H */

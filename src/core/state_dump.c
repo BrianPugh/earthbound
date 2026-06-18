@@ -1,32 +1,12 @@
 #include "core/state_dump.h"
 
-#ifdef EB_EMBEDDED
-
-/* Embedded targets reach storage through the firmware's platform_savestate_* hooks;
- * the shared serialization core (the #else branch) is not yet wired into the embedded
- * build, so the slot entry points stub out for now. (Flipping the core on is the
- * remaining item-#5 step — it needs an arm-none-eabi build to verify.) */
-bool state_dump_save_slots(void) {
-    return false;
-}
-
-bool state_dump_load_slots(void) {
-    return false;
-}
-
-bool state_dump_roundtrip_test(void) {
-    return false;
-}
-
-bool state_dump_perturb_test(void) {
-    return false;
-}
-
-bool state_dump_crashsafe_test(void) {
-    return false;
-}
-
-#else
+/* The savestate serialization core is compiled for EVERY target (build-order item #5:
+ * expose the porting-layer machinery). Storage is reached ONLY through the
+ * platform_savestate_* slot hooks (platform.h): desktop = files
+ * (port/unix/platform/sdl2_savestate.c); embedded = firmware flash regions
+ * (target-specific, wired in a later session). Until an embedded target provides a real
+ * backend, src/platform/savestate_backend_stub.c supplies no-op hooks so the build links
+ * and a capture fails safe (returns false) instead of tearing. */
 
 #include <stdint.h>
 #include <string.h>
@@ -661,5 +641,3 @@ bool state_dump_crashsafe_test(void) {
 
     return true;
 }
-
-#endif /* EB_EMBEDDED */

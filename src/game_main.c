@@ -67,6 +67,10 @@ typedef enum {
 static RootAction g_pending_root_action = ROOT_ACTION_NONE;
 static int g_capture_unwind_frames = 0;
 
+/* Sticky outcome of the last save/load request, polled by the firmware power-off
+ * handshake via host_capture_status() (game_main.h). */
+static HostCaptureStatus g_capture_status = HOST_CAPTURE_IDLE;
+
 /* Free-run unwind safety valve: while a capture is pending, host_process_frame()
  * skips render + pacing and runs the per-frame logic at CPU speed, so finite blocking
  * helpers unwind to the root boundary in a handful of frames. If the game is stuck in
@@ -302,6 +306,7 @@ void host_process_frame(void) {
         g_pending_root_action = ROOT_ACTION_NONE;
         g_capture_unwind_frames = 0;
         capture_unwinding = false;
+        g_capture_status = HOST_CAPTURE_FAILED;  /* never reached the boundary → fail safe */
     }
 
     /* Reset per-frame fade guard so fade_update runs exactly once this frame,
@@ -518,6 +523,7 @@ void host_request_capture(void) {
         return; /* already pending — keep the original action + unwind budget */
     g_pending_root_action = ROOT_ACTION_SAVE;
     g_capture_unwind_frames = 0;
+    g_capture_status = HOST_CAPTURE_PENDING;
 }
 
 /* Request a savestate restore at the next root-loop boundary. See game_main.h. */
@@ -526,6 +532,12 @@ void host_request_load(void) {
         return; /* already pending — keep the original action + unwind budget */
     g_pending_root_action = ROOT_ACTION_LOAD;
     g_capture_unwind_frames = 0;
+    g_capture_status = HOST_CAPTURE_PENDING;
+}
+
+/* Outcome of the last save/load request (firmware rail-hold handshake). See game_main.h. */
+HostCaptureStatus host_capture_status(void) {
+    return g_capture_status;
 }
 
 /* Perform a pending save/load, if any. MUST be called only from the outermost host
@@ -540,19 +552,25 @@ void host_root_boundary(void) {
 
     if (action == ROOT_ACTION_SAVE) {
         /* Crash-safe ping-pong write through the platform_savestate_* slot backend:
-         * a power-loss mid-write leaves the prior slot intact. */
-        if (state_dump_save_slots())
+         * a power-loss mid-write leaves the prior slot intact. COMMITTED is the
+         * firmware's rail-hold release signal (the write is durably flushed). */
+        if (state_dump_save_slots()) {
+            g_capture_status = HOST_CAPTURE_COMMITTED;
             LOG_WARN("savestate: wrote slot\n");
-        else
+        } else {
+            g_capture_status = HOST_CAPTURE_FAILED;
             LOG_WARN("savestate: failed to write slot\n");
+        }
     } else { /* ROOT_ACTION_LOAD */
         if (state_dump_load_slots()) {
             /* The snapshot doesn't include the live SPC700/DSP, so restart the music
              * named by the restored audio_state — otherwise the pre-load track keeps
              * playing over the loaded game. */
             audio_resync_after_load();
+            g_capture_status = HOST_CAPTURE_COMMITTED;
             LOG_WARN("savestate: loaded slot\n");
         } else {
+            g_capture_status = HOST_CAPTURE_FAILED;
             LOG_WARN("savestate: failed to load slot\n");
         }
     }
