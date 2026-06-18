@@ -645,9 +645,9 @@ void update_entity_screen_positions(void);
  * which are not needed in the C port. */
 void update_screen(void);
 
-/* Run the full render loop for N frames.
- * Port of WAIT_FRAMES_WITH_UPDATES (asm/overworld/wait_frames_with_updates.asm). */
-void wait_frames_with_updates(uint16_t count);
+/* WAIT_FRAMES_WITH_UPDATES (asm/overworld/wait_frames_with_updates.asm) — "render N
+ * frames" is now the run-to-completion GAME_MODE_WAIT_FRAMES (mode_step_wait_frames,
+ * overworld.c); STEP_PUSH it with ModeState.wait_frames.remaining = N. */
 
 /* RUN_FRAMES_UNTIL_FADE_DONE (asm/system/palette/run_frames_until_fade_done.asm) is
  * GAME_MODE_FADE_WAIT's FADE_TICK_OVERWORLD_RENDER tick; the blocking

@@ -100,6 +100,7 @@ typedef enum {
     GAME_MODE_STORE_MENU,          /* shop item-purchase menu (open_store_menu) */
     GAME_MODE_ESCARGO_MENU,        /* Escargo Express stored-goods menu (select_escargo_express_item) */
     GAME_MODE_TELEPHONE_MENU,      /* phone directory menu + contact text (open_telephone_menu) */
+    GAME_MODE_WAIT_FRAMES,         /* render N frames (mode form of wait_frames_with_updates) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -199,6 +200,7 @@ typedef enum {
     DTR_TRANS_IN_FIN,    /* screen_transition_finalize() after enter pop */
     DTR_FINALIZE,        /* finalize; push the buzz-buzz check text */
     DTR_BUZZ_DONE,       /* spawn delivery entities, clear using_door, pop */
+    DTR_EXIT_PREPARE,    /* after the 2-frame exit pre-wait pops: prepare + push exit transition */
 } DoorTransitionPhase;
 
 typedef struct {
@@ -228,6 +230,7 @@ typedef enum {
     TT_TRANS_IN_FIN,    /* screen_transition_finalize() after enter pop */
     TT_FINALIZE,        /* stairs reset; push the buzz-buzz check text */
     TT_BUZZ_DONE,       /* spawn deliveries, restore suppression, pop */
+    TT_EXIT_PREPARE,    /* after the 2-frame exit pre-wait pops: prepare + push exit transition */
 } TeleportToPhase;
 
 typedef struct {
@@ -235,6 +238,22 @@ typedef struct {
     uint8_t dest_id;           /* teleport destination index (re-resolved each step) */
     uint8_t saved_suppression; /* ow.overworld_status_suppression to restore at the end */
 } TeleportToState;
+
+/* GAME_MODE_WAIT_FRAMES — run-to-completion form of wait_frames_with_updates()
+ * (asm WAIT_FRAMES_WITH_UPDATES / C0DD2C): render `remaining` frames (each
+ * oam_clear -> run_actionscript_frame -> update_screen -> yield), then POP. A parked
+ * callroutine becomes a STEP_PUSH of GAME_MODE_ACTIONSCRIPT_FRAME (the WF_FLUSH
+ * resume finishes that frame), matching the original's blocking pump. Init with
+ * ModeState.wait_frames (phase = WF_FRAME, remaining = N) before the STEP_PUSH. */
+typedef enum {
+    WF_FRAME = 0,  /* render one frame; on a park, push ACTIONSCRIPT_FRAME and resume at WF_FLUSH */
+    WF_FLUSH,      /* resume after the (possibly parked) frame: update_screen, count down, yield */
+} WaitFramesPhase;
+
+typedef struct {
+    uint8_t  phase;     /* WaitFramesPhase */
+    uint16_t remaining; /* frames left to render */
+} WaitFramesState;
 
 /* GAME_MODE_QUICK_CHECKTALK phases. Port of open_menu_button_checktalk(): the
  * L-button quick talk/check. Resolve the target text (talk_to → check_action →
@@ -2336,6 +2355,7 @@ union ModeState {
     TextInputState        text_input;
     NamingPromptState     naming_prompt;
     ScreenTransitionState screen_transition;
+    WaitFramesState       wait_frames;
     PaletteFadeState      palette_fade;
     MapPaletteFadeState   map_palette_fade;
     MosaicFadeState       mosaic_fade;
@@ -2533,6 +2553,11 @@ StepResult mode_step_naming_prompt(ModeState *st);
  * ModeState.screen_transition (phase = ST_EXIT_BODY or ST_ENTER_BODY) before
  * pump_mode(GAME_MODE_SCREEN_TRANSITION). Always pops 0. */
 StepResult mode_step_screen_transition(ModeState *st);
+
+/* GAME_MODE_WAIT_FRAMES step (defined in overworld.c). Init via
+ * ModeState.wait_frames (phase = WF_FRAME, remaining = N) before the STEP_PUSH;
+ * renders N frames (run-to-completion form of wait_frames_with_updates) then POPs 0. */
+StepResult mode_step_wait_frames(ModeState *st);
 
 /* GAME_MODE_PALETTE_FADE step (defined in overworld_palette.c). Init via
  * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_

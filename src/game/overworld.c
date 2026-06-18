@@ -1408,19 +1408,38 @@ void update_screen(void) {
     sync_palettes_to_cgram();
 }
 
-/* ---- WAIT_FRAMES_WITH_UPDATES (port of C0DD2C) ----
+/* ---- GAME_MODE_WAIT_FRAMES step (run-to-completion port of C0DD2C
+ * WAIT_FRAMES_WITH_UPDATES) ----
  *
- * Runs the full render loop (OAM_CLEAR → RUN_ACTIONSCRIPT_FRAME →
- * UPDATE_SCREEN → WAIT_UNTIL_NEXT_FRAME) for the specified number of frames.
- * Used by SCREEN_TRANSITION and TELEPORT_MAINLOOP for animation delays. */
-void wait_frames_with_updates(uint16_t count) {
-    while (count) {
-        if (platform_input_quit_requested()) return;
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
-        wait_for_vblank();
-        count--;
+ * Renders `remaining` frames — each OAM_CLEAR → RUN_ACTIONSCRIPT_FRAME →
+ * UPDATE_SCREEN → (yield) — then POPs. The blocking original pumped any parked
+ * callroutine to completion; here a park becomes a STEP_PUSH of
+ * GAME_MODE_ACTIONSCRIPT_FRAME and WF_FLUSH finishes that frame on resume, so the
+ * whole wait lives on the serializable mode stack (save-anywhere). The original's
+ * platform_input_quit_requested() escape hatch is dropped — quit is handled at the
+ * root loop. Used by the door/teleport exit transition's 2-frame entity-disable
+ * settle (the sole caller of the former blocking helper). */
+StepResult mode_step_wait_frames(ModeState *ms) {
+    WaitFramesState *s = &ms->wait_frames;
+
+    for (;;) {
+        switch ((WaitFramesPhase)s->phase) {
+        case WF_FRAME:
+            if (s->remaining == 0)
+                return STEP_RESULT_POP(0);
+            oam_clear();
+            s->phase = WF_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;   /* no park: finish the frame in WF_FLUSH this step */
+
+        case WF_FLUSH:
+            update_screen();
+            s->remaining--;
+            s->phase = WF_FRAME;
+            return STEP_RESULT_CONTINUE();   /* the frame's yield */
+        }
+        return STEP_RESULT_POP(0);   /* unreachable */
     }
 }
 

@@ -949,9 +949,11 @@ static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
     if (mode == 1) {
         /* ====== EXIT TRANSITION (fade out) ====== */
 
-        /* Assembly line 50: disable all entities, wait 2 frames */
-        disable_all_entities();
-        wait_frames_with_updates(2);
+        /* Assembly line 50: disable all entities, wait 2 frames. The
+         * disable_all_entities() + 2-frame settle now run as the caller's
+         * GAME_MODE_WAIT_FRAMES pre-wait (pushed before this prepare), so the wait
+         * lives on the mode stack; prepare() resumes here with the swirl/palette
+         * setup, preserving the original order (disable → wait → swirl → palette). */
 
         /* Assembly lines 53-70: init primary swirl animation if set */
         if (animation_id != 0) {
@@ -1160,11 +1162,30 @@ StepResult mode_step_door_transition(ModeState *ms) {
                 fade_out(1, 1);
                 continue;
             }
+            /* Non-disabled exit: disable entities and settle 2 frames before the
+             * transition (the screen_transition exit's leading
+             * disable_all_entities + wait_frames_with_updates(2)). The 2-frame
+             * render runs as GAME_MODE_WAIT_FRAMES; the transition setup + push
+             * happen at DTR_EXIT_PREPARE on its pop. The validity check matches
+             * screen_transition_prepare()'s early return, which originally ran
+             * BEFORE the disable — an invalid type must not strand entities
+             * disabled (no transition would re-enable them). */
+            if (st->transition_type >= SCREEN_TRANSITION_CONFIG_COUNT)
+                continue;  /* invalid type: no disable, no wait (phase = DTR_AFTER_OUT) */
+            disable_all_entities();
+            static ModeState wf_init;  /* outlives this dispatch (pump copies it) */
+            wf_init.wait_frames = (WaitFramesState){ .phase = WF_FRAME, .remaining = 2 };
+            st->phase = DTR_EXIT_PREPARE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &wf_init);
+        }
+
+        case DTR_EXIT_PREPARE: {
             static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
             if (screen_transition_prepare(st->transition_type, 1, &stx_init)) {
                 st->phase = DTR_TRANS_OUT_FIN;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
             }
+            st->phase = DTR_AFTER_OUT;
             continue;  /* invalid type: no push, no finalize (matches early return) */
         }
 
@@ -1298,11 +1319,28 @@ StepResult mode_step_teleport_to(ModeState *ms) {
                 fade_out(1, 1);
                 continue;
             }
+            /* Non-disabled exit: disable entities + 2-frame settle (the screen
+             * transition exit's leading disable_all_entities + wait_frames_with_
+             * updates(2)) as GAME_MODE_WAIT_FRAMES; the transition setup + push
+             * happen at TT_EXIT_PREPARE on its pop. Validity is checked first
+             * (screen_transition_prepare()'s early return originally ran before the
+             * disable) so an invalid type never strands entities disabled. */
+            if (dest->screen_transition >= SCREEN_TRANSITION_CONFIG_COUNT)
+                continue;  /* invalid type: no disable, no wait (phase = TT_AFTER_OUT) */
+            disable_all_entities();
+            static ModeState wf_init;  /* outlives this dispatch (pump copies it) */
+            wf_init.wait_frames = (WaitFramesState){ .phase = WF_FRAME, .remaining = 2 };
+            st->phase = TT_EXIT_PREPARE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &wf_init);
+        }
+
+        case TT_EXIT_PREPARE: {
             static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
             if (screen_transition_prepare(dest->screen_transition, 1, &stx_init)) {
                 st->phase = TT_TRANS_OUT_FIN;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
             }
+            st->phase = TT_AFTER_OUT;
             continue;  /* invalid type: no push, no finalize (matches early return) */
         }
 
