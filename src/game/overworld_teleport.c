@@ -718,75 +718,17 @@ static void load_teleport_destination(void) {
 
 /* ---- INIT_TELEPORT_DEPARTURE (port of asm/overworld/teleport/init_teleport_departure.asm) ----
  *
- * For INSTANT style: center screen, fade in, then return true to signal a pending
- *   fade-wait — the former trailing run_frames_until_fade_done() is now a STEP_PUSH
- *   of GAME_MODE_FADE_WAIT by mode_step_teleport (TP_ARRIVE_DEST).
- * For other styles: updates party graphics, sets speed/direction, plays TELEPORT_IN
- *   music, waits 30 frames, fades in, animates — all inline via render_frame_tick
- *   (deferred sequential N-frame helpers, not pump_mode); returns false (no push). */
-static bool init_teleport_departure_run(void) {
-    if (ow.psi_teleport_style == TELEPORT_STYLE_INSTANT) {
-        center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
-        fade_in(1, 1);
-        return true;  /* fade-wait pending → STEP_PUSH FADE_WAIT */
-    }
-
-    /* Non-INSTANT: update all party member graphics */
-    for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-        int char_slot = i + PARTY_LEADER_ENTITY_INDEX;
-        party_characters[i].previous_walking_style = (uint16_t)-1;
-
-        uint8_t char_id = game_state.party_order[i];
-        if (char_id == 0) continue;
-        update_party_entity_graphics((uint16_t)(char_id - 1), 0,
-                                     char_slot, 0);
-    }
-
-    /* Set speed = 0x00080000 (8.0 in 16.16 fixed-point), direction = LEFT (6), state = 3 */
-    ow.psi_teleport_speed = 0x00080000;
-    ow.psi_teleport_speed_int = 8;
-    game_state.leader_direction = 6;
-    ow.psi_teleport_state = 3;
-
-    /* Set DECELERATE_TICK callback for leader, UPDATE_PARTY_ENTITY_FROM_BUFFER
-     * for followers (assembly lines 62-65) */
-    set_party_tick_callbacks(INIT_ENTITY_SLOT,
-                             0xC0E776,  /* PSI_TELEPORT_DECELERATE_TICK */
-                             0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
-    setup_teleport_entity_flags();
-
-    /* Play TELEPORT_IN music */
-    change_music(135);  /* MUSIC::TELEPORT_IN */
-
-    /* Wait 30 frames (asm lines 72-79: WAIT_UNTIL_NEXT_FRAME ×30 — a BARE wait,
-     * no RUN_ACTIONSCRIPT_FRAME, so the decelerate tick does not run and speed
-     * stays 8.0 until the animate loop below). Use wait_for_vblank() (the
-     * WAIT_UNTIL_NEXT_FRAME equivalent), NOT render_frame_tick() — the latter also
-     * runs oam_clear/run_actionscript_frame/update_screen, which would advance the
-     * decelerate tick 30× during the wait. */
-    for (int i = 0; i < 30; i++) {
-        wait_for_vblank();
-    }
-
-    /* Fade in */
-    fade_in(1, 4);
-
-    /* Animate until speed reaches 0 (asm lines 84-91: OAM_CLEAR;
-     * RUN_ACTIONSCRIPT_FRAME; UPDATE_SCREEN; WAIT_UNTIL_NEXT_FRAME — exactly ONE
-     * render per frame). The trailing wait is wait_for_vblank(), NOT
-     * render_frame_tick(): the oam_clear/run/update are already done explicitly
-     * above it, so render_frame_tick() would render a SECOND time per frame and
-     * tick the decelerate twice → the departure animates ~2× too fast. */
-    while ((ow.psi_teleport_speed >> 16) != 0) {
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
-        wait_for_vblank();
-    }
-
-    center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
-    return false;  /* non-INSTANT ran its animation inline; no fade-wait to push */
-}
+ * Run-to-completion (savestate D4b): the former blocking init_teleport_departure_run()
+ * is now driven by mode_step_teleport's TP_ARRIVE_DEST + TP_DEPART_SETUP/_WAIT/_ANIM
+ * phases below, so the ~3 s non-INSTANT departure animation no longer holds the C-stack
+ * (it was the last blocking run_actionscript_frame() caller in this file).
+ *   - INSTANT style: TP_ARRIVE_DEST centers the screen, fades in, and STEP_PUSHes
+ *     GAME_MODE_FADE_WAIT (the former trailing run_frames_until_fade_done()).
+ *   - Other styles: TP_DEPART_SETUP does the synchronous party-graphics/speed/callback/
+ *     music setup, TP_DEPART_WAIT runs the 30-frame BARE wait (no script advance, so the
+ *     decelerate tick stays frozen and speed stays 8.0), then TP_DEPART_ANIM animates one
+ *     frame per yield (oam_clear → run_actionscript_frame_step → update_screen) until
+ *     ow.psi_teleport_speed reaches 0, exactly ONE render per frame (matching asm 84-91). */
 
 /* ---- TELEPORT_MAINLOOP (port of asm/misc/teleport_mainloop.asm) ----
  *
@@ -905,18 +847,86 @@ StepResult mode_step_teleport(ModeState *st) {
         }
 
         case TP_ARRIVE_DEST: {
-            /* Load the destination map, then run the departure. INSTANT departure
-             * (center + fade in) pushes the fade-wait; non-INSTANT runs its full
-             * animation inline (render_frame_tick loops) and falls through. */
+            /* Load the destination map, then run the departure
+             * (init_teleport_departure.asm). INSTANT centers + fades in and STEP_PUSHes
+             * the fade-wait (resume at TP_ARRIVE_DONE); non-INSTANT runs the departure
+             * animation run-to-completion across TP_DEPART_SETUP/_WAIT/_ANIM. */
             load_teleport_destination();
-            ts->phase = TP_ARRIVE_DONE;
-            if (init_teleport_departure_run()) {
+            if (ow.psi_teleport_style == TELEPORT_STYLE_INSTANT) {
+                center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
+                fade_in(1, 1);
+                ts->phase = TP_ARRIVE_DONE;
                 static ModeState fw_init;  /* outlives this dispatch (pump copies it) */
                 fw_init.fade_wait = (FadeWaitState){ .tick_kind = FADE_TICK_OVERWORLD_RENDER };
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &fw_init);
             }
+            ts->phase = TP_DEPART_SETUP;
             continue;
         }
+
+        case TP_DEPART_SETUP: {
+            /* Non-INSTANT departure setup (init_teleport_departure.asm lines 50-71):
+             * synchronous, no yield — falls straight to the 30-frame wait. */
+            for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                int char_slot = i + PARTY_LEADER_ENTITY_INDEX;
+                party_characters[i].previous_walking_style = (uint16_t)-1;
+
+                uint8_t char_id = game_state.party_order[i];
+                if (char_id == 0) continue;
+                update_party_entity_graphics((uint16_t)(char_id - 1), 0, char_slot, 0);
+            }
+
+            /* speed = 0x00080000 (8.0 in 16.16 fixed-point), direction = LEFT (6), state = 3 */
+            ow.psi_teleport_speed = 0x00080000;
+            ow.psi_teleport_speed_int = 8;
+            game_state.leader_direction = 6;
+            ow.psi_teleport_state = 3;
+
+            /* DECELERATE_TICK for leader, UPDATE_PARTY_ENTITY_FROM_BUFFER for followers. */
+            set_party_tick_callbacks(INIT_ENTITY_SLOT,
+                                     0xC0E776,  /* PSI_TELEPORT_DECELERATE_TICK */
+                                     0xC0E3C1); /* UPDATE_PARTY_ENTITY_FROM_BUFFER */
+            setup_teleport_entity_flags();
+            change_music(135);  /* MUSIC::TELEPORT_IN */
+
+            ts->frame_i = 0;
+            ts->phase = TP_DEPART_WAIT;
+            continue;
+        }
+
+        case TP_DEPART_WAIT:
+            /* 30-frame BARE wait (asm 72-79: WAIT_UNTIL_NEXT_FRAME ×30, no
+             * RUN_ACTIONSCRIPT_FRAME). Each yield is a pure STEP_CONTINUE (no
+             * oam_clear/run/update, like TP_BEGIN), so the decelerate tick never runs
+             * and speed stays 8.0 until the animate loop. */
+            if (ts->frame_i < 30) {
+                ts->frame_i++;
+                return STEP_RESULT_CONTINUE();
+            }
+            fade_in(1, 4);
+            ts->phase = TP_DEPART_ANIM;
+            continue;
+
+        case TP_DEPART_ANIM:
+            /* Animate until speed reaches 0 (asm 84-91: OAM_CLEAR; RUN_ACTIONSCRIPT_FRAME;
+             * UPDATE_SCREEN; WAIT_UNTIL_NEXT_FRAME — exactly ONE render per frame). A
+             * parked actionscript frame STEP_PUSHes ACTIONSCRIPT_FRAME and the post-render
+             * update_screen runs at TP_DEPART_ANIM_FLUSH on its pop. */
+            if ((ow.psi_teleport_speed >> 16) == 0) {
+                center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
+                ts->phase = TP_ARRIVE_DONE;
+                continue;
+            }
+            oam_clear();
+            ts->phase = TP_DEPART_ANIM_FLUSH;
+            if (run_actionscript_frame_step())
+                return actionscript_frame_take_push();
+            continue;
+
+        case TP_DEPART_ANIM_FLUSH:
+            update_screen();
+            ts->phase = TP_DEPART_ANIM;
+            return STEP_RESULT_CONTINUE();
 
         case TP_ARRIVE_DONE:
             /* STAR_MASTER queues the "learned Teleport" text (not displayed inline). */
