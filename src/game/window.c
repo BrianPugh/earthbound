@@ -1734,12 +1734,20 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
  */
 StepResult mode_step_selection_menu(ModeState *ms) {
     SelectionMenuState *st = &ms->selection_menu;
+
+    /* Resuming after a deferred cursor-callback text push: the pushed DISPLAY_TEXT
+     * left focus on its own (menu-less) window, so restore focus to the menu window
+     * BEFORE deriving w — otherwise the early-out below would POP and close the menu. */
+    if (st->phase == SM_SETUP_RESUME || st->phase == SM_MOVE_RESUME)
+        set_window_focus(st->menu_window);
+
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0)
         return STEP_RESULT_POP(0);
 
     switch ((SelectionMenuPhase)st->phase) {
     case SM_SETUP:
+        st->menu_window = (uint8_t)win.current_focus_window;  /* for SM_*_RESUME */
         if (sm_setup_pre(w)) {
             /* The initial cursor callback requested yielding text: push it and
              * finish setup at SM_SETUP_RESUME when it pops. */

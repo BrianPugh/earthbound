@@ -1178,6 +1178,9 @@ typedef struct {
     uint8_t  primed;        /* SM_MAIN: 1 = read input this frame, 0 = render only */
     uint8_t  redraw_cursor; /* toggle + rewrite the cursor tiles this frame */
     uint8_t  cursor_frame;  /* blink sub-frame (0/1) */
+    uint8_t  menu_window;   /* focus window id captured at SM_SETUP; used to restore
+                             * focus on SM_*_RESUME before the menu-less-window early-out
+                             * (a deferred cursor-callback text push moves focus away) */
     uint16_t frame_counter; /* frames since last cursor toggle */
 } SelectionMenuState;
 
