@@ -874,12 +874,10 @@ void battle_init_player_stats(uint16_t character, Battler *target);
 
 /* ---- External dependencies (implemented elsewhere) ---- */
 
-/* Battle text display — port of asm/text/display_in_battle_text.asm. The non-_addr
- * and display_text_wait_addr forms were dead bridges and were deleted (item #6).
- * display_in_battle_text_addr remains for check_dead_players' "ally collapsed" text
- * (its own STEP_PUSH conversion is the next slice); resolve MSG_BTL_* addresses from
- * data/battle_text_data.h. */
-void display_in_battle_text_addr(uint32_t addr);
+/* Battle text display — port of asm/text/display_in_battle_text.asm. All of its
+ * blocking forms (non-_addr, with-prompt, display_text_wait_addr, _addr) are now
+ * deleted: every battle-text caller uses the prepare + battle_push_text STEP_PUSH
+ * path (resolve MSG_BTL_* addresses from data/battle_text_data.h). */
 extern void swap_attacker_with_target(void);
 extern void set_current_item(uint8_t item);
 extern void reset_hppp_rolling(void);

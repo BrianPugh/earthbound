@@ -88,22 +88,12 @@ extern const uint8_t *consolation_item_table;
 /* clear_hppp_window_header() is implemented in window.c */
 
 /* DISPLAY_IN_BATTLE_TEXT (asm/text/display_in_battle_text.asm): the blocking
- * text-with-▼-wait battle surface. The text/with-prompt and display_text_wait_addr
- * variants were dead bridges (their callers run the prepare+battle_push_text
- * STEP_PUSH path) and were deleted (item #6). The remaining live caller is
- * check_dead_players' "ally collapsed" message, which still uses the blocking
- * display_in_battle_text_addr (its own STEP_PUSH conversion is the next slice). */
-void display_in_battle_text_addr(uint32_t addr) {
-    if (game_state.auto_fight_enable && (core.pad1_held & PAD_B)) {
-        game_state.auto_fight_enable = 0;
-        clear_hppp_window_header();
-    }
-    if (bt.battle_mode_flag) {
-        dt.blinking_triangle_flag = 2;
-    }
-    display_text_from_addr(addr);
-    dt.blinking_triangle_flag = 0;
-}
+ * text-with-▼-wait battle surface. All of its forms — non-_addr, with-prompt,
+ * display_text_wait_addr, and _addr — are now dead: every battle-text caller runs
+ * the prepare + battle_push_text STEP_PUSH path (check_dead_players' "ally
+ * collapsed" message included — see mode_step_check_dead_players). The blocking
+ * display_in_battle_text_addr() had no remaining callers and was deleted with this
+ * slice (text-leg cutover). */
 
 /*
  * FIND_NEXT_ENEMY_LETTER (asm/battle/find_next_enemy_letter.asm)
