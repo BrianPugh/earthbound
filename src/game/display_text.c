@@ -592,16 +592,11 @@ void get_psi_suffix_label(uint16_t ability_id, char *out, size_t out_size) {
     }
 }
 
-void display_text_from_addr(uint32_t addr) {
-    TextBlock *blk = NULL;
-    const uint8_t *ptr = resolve_text_addr(addr, &blk);
-    if (ptr && blk) {
-        size_t remaining = blk->size - (size_t)(ptr - blk->data);
-        display_text(ptr, remaining);
-    } else {
-        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
-    }
-}
+/* display_text_from_addr() / display_text() (the blocking pump_mode bridges) were
+ * deleted at the text-leg cutover. All callers now either run instant text via
+ * display_text_from_addr_inline() / display_text_inline(), or STEP_PUSH
+ * GAME_MODE_DISPLAY_TEXT via dt_make_child_init(). The only yield point left in the
+ * text path is the root loop's host_process_frame(). */
 
 
 static bool display_text_load_inline_strings(void) {
@@ -2028,16 +2023,6 @@ StepResult mode_step_display_text(ModeState *ms) {
             return STEP_RESULT_POP(0);
         }
     }
-}
-
-/* Run a text bytecode script to completion. Thin wrapper over the
- * GAME_MODE_DISPLAY_TEXT mode: seed a ModeState and pump it (the migration bridge
- * yield) until it pops. All ~50 callers keep working unchanged. */
-void display_text(const uint8_t *script, size_t script_size) {
-    if (!script || script_size == 0) return;
-    ModeState init;
-    dt_setup_init(&init, script, script_size);
-    pump_mode(GAME_MODE_DISPLAY_TEXT, &init);
 }
 
 /* No-yield runner for instant-print text. Drives GAME_MODE_DISPLAY_TEXT to

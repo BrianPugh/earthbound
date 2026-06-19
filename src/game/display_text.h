@@ -40,13 +40,6 @@ typedef struct {
     int32_t  prefix_off;   /* dictionary substitution offset; -1 = none */
 } ScriptReader;
 
-/* Run a text bytecode script to completion.
- * Blocks until the script hits END_BLOCK (0x02) or returns.
- * For attract mode: drives scene setup (teleport, entity spawn, pause).
- * script: pointer to binary bytecode data.
- * script_size: size of the bytecode buffer (for bounds checking). */
-void display_text(const uint8_t *script, size_t script_size);
-
 /* Load the dialogue blob and inline string table. Call once at startup.
  * Returns true on success. */
 bool display_text_init(void);
@@ -55,8 +48,11 @@ bool display_text_init(void);
 bool display_text_load_battle_text(void);
 void display_text_free_battle_text(void);
 
-/* Resolve a text address (dialogue blob offset) and display the text. */
-void display_text_from_addr(uint32_t addr);
+/* Build a GAME_MODE_DISPLAY_TEXT init from a text address, for callers that
+ * STEP_PUSH the mode (vs. running it inline). Returns false (the caller warns +
+ * no-ops) if the address can't be resolved. Defined in display_text.c. */
+union ModeState;  /* core/mode_stack.h */
+bool dt_make_child_init(union ModeState *init, uint32_t addr);
 
 /* No-yield runners for instant-print text (set_instant_printing() contexts).
  * Drive GAME_MODE_DISPLAY_TEXT to completion with NO host_process_frame() yield,

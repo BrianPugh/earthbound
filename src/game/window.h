@@ -582,6 +582,13 @@ void set_cursor_move_callback(void (*cb)(uint16_t), CursorCallbackId id);
  * Clears the cursor_move_callback for the current focus window. */
 void clear_cursor_move_callback(void);
 
+/* Called from a cursor_move_callback (e.g. display_psi_description) that needs to
+ * show yielding (typewriter) text. Instead of blocking, the callback hands the text
+ * address here; mode_step_selection_menu consumes it after the callback returns and
+ * STEP_PUSHes GAME_MODE_DISPLAY_TEXT. The request is consumed within the same
+ * mode-step (never crosses a yield). addr 0 = no request. */
+void request_cursor_move_text(uint32_t addr);
+
 /* CLEAR_WINDOW_TILEMAP: Port of asm/text/clear_window_tilemap.asm.
  * Clears the window's tilemap area, freeing tiles and filling with blank.
  * Sets redraw_all_windows=1 and calls clear_party_sprite_hide_flags(). */

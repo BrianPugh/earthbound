@@ -1168,6 +1168,8 @@ typedef enum {
     SM_SETUP = 0,  /* one-shot setup; ends with window_tick_work, then yields */
     SM_MAIN,       /* cursor blink + per-frame HP/PP render + input handling */
     SM_PAGE2,      /* second half of an overflow page-flip re-render */
+    SM_SETUP_RESUME, /* finish SM_SETUP after a deferred cursor-callback text push */
+    SM_MOVE_RESUME,  /* finish a cursor move after a deferred cursor-callback text push */
 } SelectionMenuPhase;
 
 typedef struct {
