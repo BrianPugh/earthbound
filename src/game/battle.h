@@ -973,6 +973,13 @@ void sort_battlers_into_rows(void);
  * (except the entity_fade_entity, which keeps its tick/move callbacks active). */
 void render_and_disable_entities(void);
 
+/* Park-propagating split of render_and_disable_entities() (savestate cutover).
+ * _work_step() = update_party + refresh + render work; returns true iff an
+ * actionscript frame parked. _finish() = the entity-disable tail. See the
+ * canonical STEP/FLUSH/FINISH usage in mode_step_battle_scripted (BS_CLEANUP). */
+bool render_and_disable_entities_work_step(void);
+void render_and_disable_entities_finish(void);
+
 /* INITIALIZE_BATTLE_UI_STATE (asm/battle/initialize_battle_ui_state.asm).
  * Resets all window, text, VWF, and battle UI state to initial values. */
 void initialize_battle_ui_state(void);

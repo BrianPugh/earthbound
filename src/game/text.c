@@ -2152,10 +2152,10 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             /* All-party loop head: one member per entry (assembly lines
              * 400-459). */
             if (st->exec_i >= (game_state.player_controlled_party_count & 0xFF)) {
-                /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564) */
-                render_and_disable_entities();
+                /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564):
+                 * render_and_disable_entities() split across PS_RADE*. */
                 st->action_result = 1;
-                st->phase = PS_EXIT;
+                st->phase = PS_RADE;
                 continue;
             }
 
@@ -2202,12 +2202,32 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 }
             }
 
-            /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564) */
-            render_and_disable_entities();
+            /* @AFTER_CHAR_SELECT4/5 (assembly lines 561-564):
+             * render_and_disable_entities() split across PS_RADE*. */
             st->action_result = 1;
-            st->phase = PS_EXIT;
+            st->phase = PS_RADE;
             continue;
         }
+
+        case PS_RADE:
+            /* render_and_disable_entities() — work half + the render yield
+             * (work-then-yield, matching the blocking helper's wait_for_vblank). */
+            if (render_and_disable_entities_work_step()) {
+                st->phase = PS_RADE_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = PS_RADE_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case PS_RADE_FLUSH:
+            render_frame_tick_work_flush();
+            st->phase = PS_RADE_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case PS_RADE_FINISH:
+            render_and_disable_entities_finish();
+            st->phase = PS_EXIT;
+            continue;
 
         case PS_EXIT:
         default:
@@ -2490,9 +2510,9 @@ StepResult mode_step_use_item(ModeState *ms) {
         case UI_EXEC_STEP: {
             /* All-party loop head (assembly lines 388-435). */
             if (st->exec_i >= (game_state.player_controlled_party_count & 0xFF)) {
-                /* @AFTER_ACTION (assembly line 533-534) */
-                render_and_disable_entities();
-                st->phase = UI_EXIT;
+                /* @AFTER_ACTION (assembly line 533-534):
+                 * render_and_disable_entities() split across UI_RADE*. */
+                st->phase = UI_RADE;
                 continue;
             }
 
@@ -2537,11 +2557,30 @@ StepResult mode_step_use_item(ModeState *ms) {
                     bt.battlers_table[1].afflictions[g];
             }
 
-            /* @AFTER_ACTION (assembly line 533-534) */
-            render_and_disable_entities();
-            st->phase = UI_EXIT;
+            /* @AFTER_ACTION (assembly line 533-534):
+             * render_and_disable_entities() split across UI_RADE*. */
+            st->phase = UI_RADE;
             continue;
         }
+
+        case UI_RADE:
+            /* render_and_disable_entities() — work half + the render yield. */
+            if (render_and_disable_entities_work_step()) {
+                st->phase = UI_RADE_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            st->phase = UI_RADE_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case UI_RADE_FLUSH:
+            render_frame_tick_work_flush();
+            st->phase = UI_RADE_FINISH;
+            return STEP_RESULT_CONTINUE();
+
+        case UI_RADE_FINISH:
+            render_and_disable_entities_finish();
+            st->phase = UI_EXIT;
+            continue;
 
         case UI_EXIT:
         default:

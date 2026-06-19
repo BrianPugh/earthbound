@@ -2342,7 +2342,14 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
         /* Always reload — single-slot, no caching */
         load_your_sanctuary_location(sanctuary_idx);
-        render_frame_tick();
+        /* Assembly RENDER_FRAME_TICK: flush a frame before swapping the tilemap
+         * into VRAM. This callroutine runs inside run_actionscript_frame() with
+         * ert.disable_actionscript set, so the nested actionscript frame is a
+         * guaranteed no-op (run_actionscript_frame_step() returns false) — the
+         * render work runs inline with no park and no host yield (the dropped
+         * intermediate present is imperceptible; the next root yield shows the
+         * final state). Run-to-completion: no blocking render_frame_tick(). */
+        (void)render_frame_tick_work_step();
 
         /* Copy tilemap from BUFFER slot 0 to VRAM at $3800
          * (0x780 bytes = 30 rows x 32 words = 960 tilemap entries) */

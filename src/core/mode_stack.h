@@ -423,6 +423,9 @@ typedef enum {
     PS_EXEC_STEP,       /* all-party loop head: per-member setup + action dispatch */
     PS_EXEC_STEP_DONE,  /* after one member's action: affliction copy, next member */
     PS_EXEC_DONE,       /* after a single-target action: affliction copy + render */
+    PS_RADE,            /* render_and_disable_entities split: work + yield */
+    PS_RADE_FLUSH,      /* render_and_disable_entities split: flush a parked frame */
+    PS_RADE_FINISH,     /* render_and_disable_entities split: disable tail -> PS_EXIT */
     PS_EXIT,            /* close the text window, POP the result */
 } PsiMenuPhase;
 
@@ -463,6 +466,9 @@ typedef enum {
     UI_EXEC_STEP,      /* all-party loop head: per-member setup + action dispatch */
     UI_EXEC_STEP_DONE, /* after one member's action: affliction copy, next member */
     UI_EXEC_DONE,      /* after a single-target action: affliction copy + render */
+    UI_RADE,           /* render_and_disable_entities split: work + yield */
+    UI_RADE_FLUSH,     /* render_and_disable_entities split: flush a parked frame */
+    UI_RADE_FINISH,    /* render_and_disable_entities split: disable tail -> UI_EXIT */
     UI_EXIT,           /* @CLOSE_TEXT_WINDOW: close the text window, POP 1 */
 } UseItemPhase;
 

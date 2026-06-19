@@ -5354,6 +5354,28 @@ void render_and_disable_entities(void) {
     }
 }
 
+/* ---- render_and_disable_entities, park-propagating split (savestate cutover) ----
+ *
+ * Run-to-completion form of render_and_disable_entities(). _work_step() does the
+ * update_party + refresh + render work; it returns true iff an actionscript frame
+ * parked (the caller STEP_PUSHes ACTIONSCRIPT_FRAME and runs
+ * render_frame_tick_work_flush() on resume before _finish()). _finish() is the
+ * entity-disable tail. Canonical 3-phase usage (STEP / FLUSH / FINISH) matches
+ * mode_step_battle_scripted's BS_CLEANUP/BS_CLEANUP_FLUSH/BS_FINISH. */
+bool render_and_disable_entities_work_step(void) {
+    update_party();
+    refresh_party_entities();
+    return render_frame_tick_work_step();
+}
+
+void render_and_disable_entities_finish(void) {
+    disable_all_entities();
+    if (ow.entity_fade_entity != -1) {
+        entities.tick_callback_hi[ow.entity_fade_entity] &=
+            (uint16_t)~(uint16_t)(OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED);
+    }
+}
+
 /*
  * BATTLE_SWIRL_SEQUENCE (asm/overworld/battle_swirl_sequence.asm)
  *
