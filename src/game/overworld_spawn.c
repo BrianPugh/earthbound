@@ -75,7 +75,14 @@ const DeliveryEntry *get_delivery_table(void) {
  * gated by event flags, then spawns delivery entities.
  * Called after every door transition and at overworld init. */
 void spawn_buzz_buzz(void) {
-    display_text_from_addr(MSG_EVT0_BUZZBUZZ_CHECK);
+    /* MSG_EVT0_BUZZBUZZ_CHECK is JUMP_IF_FLAG_SET -> (GENERATE_ACTIVE_SPRITE FLY,
+     * EVENT_051, $01) -> END_BLOCK: no visible text, no ▼ prompt, no delay, and
+     * GENERATE_ACTIVE_SPRITE (param $01) runs inline with a no-op fade-state init.
+     * It can never park, so the no-yield inline runner is exact here — and it
+     * avoids cascading a DISPLAY_TEXT push through the synchronous boot/load setup
+     * (initialize_overworld_state) this is called from. The door / teleport /
+     * palette paths that ARE mode-steps push it as a child instead. */
+    display_text_from_addr_inline(MSG_EVT0_BUZZBUZZ_CHECK);
     spawn_delivery_entities();
 }
 
