@@ -1465,7 +1465,7 @@ static void sm_setup(WindowInfo *w) {
     if (w->current_option < w->menu_count &&
         w->menu_items[w->current_option].script != 0) {
         set_instant_printing();
-        display_text_from_addr(w->menu_items[w->current_option].script);
+        display_text_from_addr_inline(w->menu_items[w->current_option].script);
     }
 
     /* Assembly lines 123-158: invoke cursor_move_callback for initial option */
@@ -1571,7 +1571,7 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
              * WINDOW_TICK. */
             if (w->menu_items[w->current_option].script != 0) {
                 set_instant_printing();
-                display_text_from_addr(w->menu_items[w->current_option].script);
+                display_text_from_addr_inline(w->menu_items[w->current_option].script);
             }
             clear_instant_printing();
             window_tick_work();

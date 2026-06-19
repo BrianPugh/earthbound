@@ -839,7 +839,7 @@ void display_status_window(uint16_t char_id) {
      * then FORCE_LEFT_TEXT_ALIGNMENT = 0. */
     dt.force_left_text_alignment = 1;
     if (status_window_text_data)
-        display_text(status_window_text_data, status_window_text_size);
+        display_text_inline(status_window_text_data, status_window_text_size);
     dt.force_left_text_alignment = 0;
 
     /* Assembly lines 20-26: pagination for multi-member party */
@@ -2038,4 +2038,58 @@ void display_text(const uint8_t *script, size_t script_size) {
     ModeState init;
     dt_setup_init(&init, script, script_size);
     pump_mode(GAME_MODE_DISPLAY_TEXT, &init);
+}
+
+/* No-yield runner for instant-print text. Drives GAME_MODE_DISPLAY_TEXT to
+ * completion with NO host_process_frame() yield — the keystone that lets
+ * instant-print callers (menu hover text, the status window) stop using the
+ * blocking pump_mode() bridge.
+ *
+ * Valid only when the text is instant-printed: set_instant_printing() makes the
+ * main loop `continue` past every typewriter delay (no DT_DELAY phase) and such
+ * scripts never push a yielding child (▼ prompt, delay, menu/CC), so the mode
+ * runs to POP in a single step with no frame to yield. If the contract is
+ * violated (a PUSH parks, or it never converges), we warn and force-unwind
+ * rather than hang, degrading a bug to a glitch instead of a lockup. */
+void display_text_inline(const uint8_t *script, size_t script_size) {
+    if (!script || script_size == 0) return;
+    ModeState init;
+    dt_setup_init(&init, script, script_size);
+    mode_push(GAME_MODE_DISPLAY_TEXT, &init);
+    uint8_t floor = g_mode_stack.depth;   /* pop below this => done */
+
+    /* Instant text completes in one step; the bound is a runaway-loop backstop. */
+    for (int guard = 0; guard < 100000; guard++) {
+        if (platform_input_quit_requested())
+            break;
+        uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
+        StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
+                                          &g_mode_stack.state[top]);
+        if (r.kind == STEP_PUSH) {
+            LOG_WARN("display_text_inline: instant text parked (pushed mode %d); "
+                     "forcing through without yield\n", (int)r.push_mode);
+            mode_push(r.push_mode, r.push_init);
+        } else if (r.kind == STEP_POP) {
+            mode_pop(r.pop_result);
+            if (g_mode_stack.depth < floor)
+                return;   /* completed without consuming a host yield */
+        }
+        /* STEP_CONTINUE: loop again — never host_process_frame() here. */
+    }
+    /* Guard hit or quit requested: unwind whatever is left of our sub-stack. */
+    while (g_mode_stack.depth >= floor)
+        mode_pop(0);
+}
+
+/* Resolve a text address and run it instantly (no yield). Instant-print
+ * counterpart of display_text_from_addr(); see display_text_inline(). */
+void display_text_from_addr_inline(uint32_t addr) {
+    TextBlock *blk = NULL;
+    const uint8_t *ptr = resolve_text_addr(addr, &blk);
+    if (ptr && blk) {
+        size_t remaining = blk->size - (size_t)(ptr - blk->data);
+        display_text_inline(ptr, remaining);
+    } else {
+        LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    }
 }
