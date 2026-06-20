@@ -33,11 +33,9 @@
  *   CHANGE_VWF_2BPP_TO_3_COLOUR (asm/ending/change_vwf_2bpp_to_3_colour.asm)
  */
 
-/* PLAY_CAST_SCENE (E1FBE4) — cast scene with entity wipe over battle BG. */
-void play_cast_scene(void);
-
-/* PLAY_CREDITS (E1FB03) — staff credits with photo slideshow. */
-void play_credits(void);
+/* PLAY_CAST_SCENE (E1FBE4) cast scene + PLAY_CREDITS (E1FB03) staff credits are
+ * now the EN_CAST_* / EN_CR_* phases of mode_step_ending (GAME_MODE_ENDING),
+ * declared in core/mode_stack.h. */
 
 /* Per-frame callback function pointer.
  * Defaults to process_overworld_tasks(); credits swaps to credits_scroll_frame(). */

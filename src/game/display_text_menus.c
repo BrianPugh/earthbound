@@ -594,12 +594,16 @@ StepResult mode_step_special_event(ModeState *st) {
         s->result = 0;
         s->phase = SE_RESULT;
         return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &child);
-    case 11:  /* PLAY_CAST_SCENE — blocks via host_process_frame only (pump-free). */
-        play_cast_scene();
-        return STEP_RESULT_POP(0);
-    case 12:  /* PLAY_CREDITS — blocks via host_process_frame only (pump-free). */
-        play_credits();
-        return STEP_RESULT_POP(0);
+    case 11:  /* PLAY_CAST_SCENE — run-to-completion GAME_MODE_ENDING (cast scene). */
+        child.ending.phase = EN_CAST_SETUP;
+        s->result = 0;
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
+    case 12:  /* PLAY_CREDITS — run-to-completion GAME_MODE_ENDING (staff credits). */
+        child.ending.phase = EN_CR_SETUP;
+        s->result = 0;
+        s->phase = SE_RESULT;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
     case 13:  /* TOGGLE_HPPP_FLIPOUT_MODE(1) — enable */
         toggle_hppp_flipout_mode(1);
         return STEP_RESULT_POP(0);

@@ -1006,15 +1006,13 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
         case 17:
             /* CAST — assembly @CMD_CAST: play cast scene, then teleport to dest 1.
-             * play_cast_scene blocks via host_process_frame only (pump-free); the
-             * teleport-back is GAME_MODE_TELEPORT_TO (D4b: the screen_transition
-             * pump bridge is gone), STEP_PUSHed with resume DM_AFTER. */
-            play_cast_scene();
+             * The cast scene is GAME_MODE_ENDING (run-to-completion); on its pop,
+             * DM_ENDING_TELEPORT STEP_PUSHes the GAME_MODE_TELEPORT_TO teleport-back
+             * (resume DM_AFTER). */
             child = (ModeState){0};
-            child.teleport_to.phase   = TT_BEGIN;
-            child.teleport_to.dest_id = 1;
-            s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
+            child.ending.phase = EN_CAST_SETUP;
+            s->phase = DM_ENDING_TELEPORT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
         case 18:
             /* STONE — assembly @CMD_SOUND_STONE: sound stone melody (cancellable). */
             child = (ModeState){0};
@@ -1024,13 +1022,13 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
         case 19:
             /* STAFF (CREDITS) — assembly @CMD_CREDITS: play credits, then dest 1.
-             * Teleport-back is GAME_MODE_TELEPORT_TO, STEP_PUSHed (resume DM_AFTER). */
-            play_credits();
+             * Credits are GAME_MODE_ENDING (run-to-completion); on its pop,
+             * DM_ENDING_TELEPORT STEP_PUSHes the GAME_MODE_TELEPORT_TO teleport-back
+             * (resume DM_AFTER). */
             child = (ModeState){0};
-            child.teleport_to.phase   = TT_BEGIN;
-            child.teleport_to.dest_id = 1;
-            s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
+            child.ending.phase = EN_CR_SETUP;
+            s->phase = DM_ENDING_TELEPORT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
         case 20:
             /* Meter (FLIPOUT) — assembly @CMD_FLIPOUT: toggle HP/PP flipout mode. */
             toggle_hppp_flipout_mode(bt.hppp_meter_flipout_mode ? 0 : 1);
@@ -1062,6 +1060,14 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             return STEP_RESULT_CONTINUE();
         }
     }
+
+    case DM_ENDING_TELEPORT:
+        /* CAST/STAFF ending finished — teleport back to dest 1 (resume DM_AFTER). */
+        child = (ModeState){0};
+        child.teleport_to.phase   = TT_BEGIN;
+        child.teleport_to.dest_id = 1;
+        s->phase = DM_AFTER;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
 
     case DM_AFTER:
         /* Assembly @AFTER_COMMAND: if a command set a message address, close the

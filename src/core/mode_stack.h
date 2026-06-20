@@ -101,6 +101,7 @@ typedef enum {
     GAME_MODE_ESCARGO_MENU,        /* Escargo Express stored-goods menu (select_escargo_express_item) */
     GAME_MODE_TELEPHONE_MENU,      /* phone directory menu + contact text (open_telephone_menu) */
     GAME_MODE_WAIT_FRAMES,         /* render N frames (mode form of wait_frames_with_updates) */
+    GAME_MODE_ENDING,              /* end-of-game cast scene + staff credits (play_cast_scene/play_credits) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -254,6 +255,49 @@ typedef struct {
     uint8_t  phase;     /* WaitFramesPhase */
     uint16_t remaining; /* frames left to render */
 } WaitFramesState;
+
+/* GAME_MODE_ENDING — run-to-completion port of the two blocking end-of-game
+ * sequences play_cast_scene() and play_credits() (asm/ending/). Each of their
+ * former blocking `render_frame_tick()` loops becomes a frame-yielding phase: the
+ * frame is rendered via render_frame_tick_work_step() and, on a parked callroutine,
+ * STEP_PUSHes GAME_MODE_ACTIONSCRIPT_FRAME (resumed at EN_FLUSH, which jumps back to
+ * `resume_phase`), exactly like GAME_MODE_WAIT_FRAMES. Init via ModeState.ending
+ * (phase = EN_CAST_SETUP for the cast scene, or EN_CR_SETUP for credits) before the
+ * STEP_PUSH; always POPs 0. The synchronous teardown's single
+ * force_blank_and_wait_vblank() is left as-is (a one-frame transient, not a loop). */
+typedef enum {
+    /* cast scene (play_cast_scene) */
+    EN_CAST_SETUP = 0, /* load scene, fade in, init EVENT_801 wipe */
+    EN_CAST_LOOP,      /* render until ert.actionscript_state != 0 */
+    EN_CAST_FLUSH,     /* cast loop: resume after a parked frame */
+    EN_CAST_TEARDOWN,  /* fade out, re-init party, POP */
+    /* credits (play_credits) */
+    EN_CR_SETUP,       /* load assets, init credits scene, fade in, count photos */
+    EN_CR_PHOTO_TOP,   /* per-photo: try render; skip or start fade-in */
+    EN_CR_FADEIN,      /* 64-frame photo palette fade-in */
+    EN_CR_SLIDE,       /* slide_credits_photograph frame loop */
+    EN_CR_SCROLLWAIT,  /* wait for scroll to pass next_photo_pos */
+    EN_CR_FADEOUT,     /* 64-frame photo palette fade-out */
+    EN_CR_PHOTO_TAIL,  /* clear palette, one settle frame, advance photo */
+    EN_CR_SCROLLFINAL, /* wait for scroll to reach CREDITS_LENGTH */
+    EN_CR_HOLD,        /* 2000-frame hold, then teardown + POP */
+    EN_FLUSH,          /* resume after a parked frame: render_frame_tick_work_flush, -> resume_phase */
+} EndingPhase;
+
+typedef struct {
+    uint8_t  phase;        /* EndingPhase */
+    uint8_t  resume_phase; /* EndingPhase EN_FLUSH returns to */
+    uint16_t photo_idx;    /* current photo (0..NUM_PHOTOS-1) */
+    uint16_t photo_spacing;
+    uint16_t next_photo_pos;
+    uint16_t fade_counter; /* 64-frame fade-in/out countdown */
+    uint16_t hold_counter; /* final 2000-frame hold */
+    int16_t  slide_dx, slide_dy;
+    uint16_t slide_total_frames;
+    uint16_t slide_frame;
+    int32_t  slide_accum_x, slide_accum_y;
+    uint16_t slide_start_x, slide_start_y;
+} EndingState;
 
 /* GAME_MODE_QUICK_CHECKTALK phases. Port of open_menu_button_checktalk(): the
  * L-button quick talk/check. Resolve the target text (talk_to → check_action →
@@ -1313,6 +1357,7 @@ typedef enum {
     DM_BUILD,      /* (re)build the 23-item menu window, push SELECTION_MENU */
     DM_DISPATCH,   /* the menu popped: 23-case command dispatch */
     DM_AFTER,      /* @AFTER_COMMAND: optional message text, then rebuild the menu */
+    DM_ENDING_TELEPORT, /* after CAST/STAFF ending: push TELEPORT_TO(dest 1), resume DM_AFTER */
     DM_CLEANUP,    /* close windows + hide HP/PP, push ENTITY_FADE_WAIT */
     DM_DONE,       /* re-enable entities, POP 0 */
 } DebugMenuPhase;
@@ -2376,6 +2421,7 @@ union ModeState {
     NamingPromptState     naming_prompt;
     ScreenTransitionState screen_transition;
     WaitFramesState       wait_frames;
+    EndingState           ending;
     PaletteFadeState      palette_fade;
     MapPaletteFadeState   map_palette_fade;
     MosaicFadeState       mosaic_fade;
@@ -2578,6 +2624,11 @@ StepResult mode_step_screen_transition(ModeState *st);
  * ModeState.wait_frames (phase = WF_FRAME, remaining = N) before the STEP_PUSH;
  * renders N frames (run-to-completion form of wait_frames_with_updates) then POPs 0. */
 StepResult mode_step_wait_frames(ModeState *st);
+
+/* GAME_MODE_ENDING step (defined in ending.c). Init via ModeState.ending
+ * (phase = EN_CAST_SETUP for the cast scene, EN_CR_SETUP for credits) before the
+ * STEP_PUSH; runs the end-of-game sequence to completion and POPs 0. */
+StepResult mode_step_ending(ModeState *st);
 
 /* GAME_MODE_PALETTE_FADE step (defined in overworld_palette.c). Init via
  * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_

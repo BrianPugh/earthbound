@@ -18,6 +18,7 @@
 #include "entity/entity.h"
 #include "entity/buffer_layout.h"
 #include "entity/script.h"
+#include "core/mode_stack.h"
 #include "core/decomp.h"
 #include "core/log.h"
 #include "data/assets.h"
@@ -753,51 +754,8 @@ static uint16_t try_rendering_photograph(uint16_t photo_index) {
     return 1;
 }
 
-/* =====================================================================
- *  SLIDE_CREDITS_PHOTOGRAPH (asm/ending/slide_credits_photograph.asm)
- *
- *  Animates a sliding photo by computing velocity from direction/distance,
- *  then moving BG1/BG2 each frame.
- * ===================================================================== */
-static void slide_credits_photograph(uint16_t photo_index) {
-    if (!photographer_cfg_data) return;
-
-    const uint8_t *cfg = &photographer_cfg_data[photo_index * PHOTOGRAPHER_CFG_ENTRY_SIZE];
-
-    /* Get slide direction and speed */
-    uint8_t direction = cfg[PHOTOGRAPHER_CFG_SLIDE_DIRECTION];
-    uint8_t distance = cfg[PHOTOGRAPHER_CFG_SLIDE_DISTANCE];
-
-    /* Calculate velocity components from direction (speed = 1024, distance = 256) */
-    /* Assembly: CALCULATE_VELOCITY_COMPONENTS with speed=1024 */
-    int16_t dx, dy;
-    calculate_velocity_components(direction, 1024, &dx, &dy);
-
-    /* Number of frames = distance * 256 / 256 = distance */
-    uint16_t total_frames = distance;
-
-    /* Save initial BG positions */
-    int32_t accum_x = 0;
-    int32_t accum_y = 0;
-    uint16_t start_x = ppu.bg_hofs[0];
-    uint16_t start_y = ppu.bg_vofs[0];
-
-    for (uint16_t frame = 0; frame < total_frames; frame++) {
-        accum_x += dy;  /* Note: assembly swaps X/Y components */
-        accum_y += dx;
-
-        int16_t offset_x = (int16_t)(accum_x / 256);
-        int16_t offset_y = (int16_t)(accum_y / 256);
-
-        ppu.bg_hofs[0] = start_x + offset_x;
-        ppu.bg_vofs[0] = start_y + offset_y;
-        ppu.bg_hofs[1] = offset_x;
-        ppu.bg_vofs[1] = offset_y;
-
-        process_credits_dma_queue();
-        render_frame_tick();
-    }
-}
+/* SLIDE_CREDITS_PHOTOGRAPH (asm/ending/slide_credits_photograph.asm) is now the
+ * EN_CR_SLIDE phase of mode_step_ending (GAME_MODE_ENDING), below. */
 
 /* =====================================================================
  *  CREDITS_SCROLL_FRAME (asm/ending/credits_scroll_frame.asm)
@@ -1090,44 +1048,8 @@ static void load_cast_scene(void) {
     blank_screen_and_wait_vblank();
 }
 
-/* =====================================================================
- *  PLAY_CAST_SCENE (asm/ending/play_cast_scene.asm)
- * ===================================================================== */
-void play_cast_scene(void) {
-    load_cast_scene();
-    oam_clear();
-    fade_in(1, 1);
-
-    /* Init entity wipe with EVENT_801 */
-    entity_init_wipe(EVENT_SCRIPT_801);
-    ert.actionscript_state = 0;
-
-    /* Render loop: render frames until ert.actionscript_state becomes non-zero */
-    while (ert.actionscript_state == 0) {
-        render_frame_tick();
-        update_battle_screen_effects();
-    }
-
-    /* Fade out — assembly: step=1, delay=1, mosaic=0 */
-    fade_out_with_mosaic(1, 1, 0);
-
-    /* Deactivate all entities with script EVENT_801 */
-    for (int i = 0; i < MAX_ENTITIES; i++) {
-        if (entities.script_table[i] == EVENT_SCRIPT_801) {
-            deactivate_entity(i);
-        }
-    }
-
-    /* Reset entity allocation and re-init */
-    entities.alloc_min_slot = 23;
-    entities.alloc_max_slot = 24;
-    entity_init(EVENT_SCRIPT_001, 0, 0);
-    reset_party_state();
-    initialize_party();
-    force_blank_and_wait_vblank();
-    undraw_flyover_text();
-    ppu.tm = 0x17;  /* Assembly: STA TM_MIRROR (main screen, not sub-screen) */
-}
+/* PLAY_CAST_SCENE (asm/ending/play_cast_scene.asm) is now the EN_CAST_* phases of
+ * mode_step_ending (GAME_MODE_ENDING), below. */
 
 /* =====================================================================
  *  INITIALIZE_CREDITS_SCENE (asm/ending/initialize_credits_scene.asm)
@@ -1268,125 +1190,268 @@ static void initialize_credits_scene(void) {
 }
 
 /* =====================================================================
- *  PLAY_CREDITS (asm/ending/play_credits.asm)
+ *  GAME_MODE_ENDING step — run-to-completion port of play_cast_scene()
+ *  (asm/ending/play_cast_scene.asm) and play_credits()
+ *  (asm/ending/play_credits.asm), with slide_credits_photograph() folded in.
+ *
+ *  Each former blocking `render_frame_tick()` loop is a frame-yielding phase:
+ *  the frame renders via render_frame_tick_work_step() and, on a parked
+ *  callroutine, STEP_PUSHes GAME_MODE_ACTIONSCRIPT_FRAME (resumed at EN_FLUSH,
+ *  which finishes the render and jumps back to `resume_phase`), exactly like
+ *  GAME_MODE_WAIT_FRAMES. The credits path runs under frame_callback =
+ *  credits_scroll_frame and never parks; the cast path can (cutscene scripts).
+ *  See GAME_MODE_ENDING in core/mode_stack.h.
  * ===================================================================== */
-void play_credits(void) {
-    /* Load assets needed for credits */
-    photographer_cfg_data = ASSET_DATA(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
-    photographer_cfg_size = ASSET_SIZE(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
-    cast_seq_formatting_data = ASSET_DATA(ASSET_ENDING_CAST_SEQUENCE_FORMATTING_BIN);
-    staff_text_data = ASSET_DATA(ASSET_ENDING_STAFF_TEXT_BIN);
-    staff_text_size = ASSET_SIZE(ASSET_ENDING_STAFF_TEXT_BIN);
-    party_cast_tile_ids_data = ASSET_DATA(ASSET_ENDING_PARTY_CAST_TILE_IDS_BIN);
-    guardian_text_data = ASSET_DATA(ASSET_ENDING_GUARDIAN_TEXT_BIN);
+StepResult mode_step_ending(ModeState *st) {
+    EndingState *s = &st->ending;
 
-    ow.disabled_transitions = 1;
-    initialize_credits_scene();
-    oam_clear();
-    fade_in(1, 2);
+    for (;;) {
+        switch ((EndingPhase)s->phase) {
 
-    /* Count photos and calculate spacing */
-    uint16_t photo_count = count_photo_flags();
-    uint16_t photo_spacing;
-    if (photo_count > 0) {
-        photo_spacing = CREDITS_LENGTH / photo_count;
-    } else {
-        photo_spacing = CREDITS_LENGTH;
-    }
-    uint16_t next_photo_pos = photo_spacing;
+        /* ---------------- cast scene (play_cast_scene) ---------------- */
+        case EN_CAST_SETUP:
+            load_cast_scene();
+            oam_clear();
+            fade_in(1, 1);
+            entity_init_wipe(EVENT_SCRIPT_801);
+            ert.actionscript_state = 0;
+            s->phase = EN_CAST_LOOP;
+            continue;
 
-    /* Set IRQ callback to credits_scroll_frame */
-    frame_callback = credits_scroll_frame;
+        case EN_CAST_LOOP:
+            /* while (ert.actionscript_state == 0) { render_frame_tick();
+             *                                        update_battle_screen_effects(); } */
+            if (ert.actionscript_state != 0) {
+                s->phase = EN_CAST_TEARDOWN;
+                continue;
+            }
+            s->resume_phase = EN_CAST_LOOP;
+            s->phase = EN_CAST_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            update_battle_screen_effects();   /* no-park: post-render tail */
+            s->phase = EN_CAST_LOOP;
+            return STEP_RESULT_CONTINUE();     /* the frame's yield */
 
-    /* Process each photo */
-    for (int photo_idx = 0; photo_idx < NUM_PHOTOS; photo_idx++) {
-        uint16_t rendered = try_rendering_photograph(photo_idx);
-        if (!rendered) continue;
+        case EN_CAST_FLUSH:
+            render_frame_tick_work_flush();
+            update_battle_screen_effects();   /* park path: post-render tail */
+            s->phase = EN_CAST_LOOP;
+            return STEP_RESULT_CONTINUE();
 
-        /* Fade in photo over 64 frames */
-        prepare_palette_fade_slopes(64, 0xFFFF);
-        for (int f = 64; f > 0; f--) {
+        case EN_CAST_TEARDOWN:
+            fade_out_with_mosaic(1, 1, 0);
+            for (int i = 0; i < MAX_ENTITIES; i++) {
+                if (entities.script_table[i] == EVENT_SCRIPT_801)
+                    deactivate_entity(i);
+            }
+            entities.alloc_min_slot = 23;
+            entities.alloc_max_slot = 24;
+            entity_init(EVENT_SCRIPT_001, 0, 0);
+            reset_party_state();
+            initialize_party();
+            force_blank_and_wait_vblank();
+            undraw_flyover_text();
+            ppu.tm = 0x17;
+            return STEP_RESULT_POP(0);
+
+        /* ------------------- credits (play_credits) ------------------- */
+        case EN_CR_SETUP: {
+            photographer_cfg_data = ASSET_DATA(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
+            photographer_cfg_size = ASSET_SIZE(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
+            cast_seq_formatting_data = ASSET_DATA(ASSET_ENDING_CAST_SEQUENCE_FORMATTING_BIN);
+            staff_text_data = ASSET_DATA(ASSET_ENDING_STAFF_TEXT_BIN);
+            staff_text_size = ASSET_SIZE(ASSET_ENDING_STAFF_TEXT_BIN);
+            party_cast_tile_ids_data = ASSET_DATA(ASSET_ENDING_PARTY_CAST_TILE_IDS_BIN);
+            guardian_text_data = ASSET_DATA(ASSET_ENDING_GUARDIAN_TEXT_BIN);
+
+            ow.disabled_transitions = 1;
+            initialize_credits_scene();
+            oam_clear();
+            fade_in(1, 2);
+
+            uint16_t photo_count = count_photo_flags();
+            s->photo_spacing = (photo_count > 0) ? (CREDITS_LENGTH / photo_count)
+                                                 : CREDITS_LENGTH;
+            s->next_photo_pos = s->photo_spacing;
+            frame_callback = credits_scroll_frame;
+            s->photo_idx = 0;
+            s->phase = EN_CR_PHOTO_TOP;
+            continue;
+        }
+
+        case EN_CR_PHOTO_TOP:
+            if (s->photo_idx >= NUM_PHOTOS) {
+                s->phase = EN_CR_SCROLLFINAL;
+                continue;
+            }
+            if (!try_rendering_photograph(s->photo_idx)) {
+                s->photo_idx++;   /* for-loop `continue`: skip to next photo */
+                continue;
+            }
+            prepare_palette_fade_slopes(64, 0xFFFF);
+            s->fade_counter = 64;   /* fade-in counts down 64..1 */
+            s->phase = EN_CR_FADEIN;
+            continue;
+
+        case EN_CR_FADEIN:
+            if (s->fade_counter == 0) {
+                finalize_palette_fade();
+                /* slide_credits_photograph() head: compute velocity + frame count */
+                if (photographer_cfg_data) {
+                    const uint8_t *cfg =
+                        &photographer_cfg_data[s->photo_idx * PHOTOGRAPHER_CFG_ENTRY_SIZE];
+                    uint8_t direction = cfg[PHOTOGRAPHER_CFG_SLIDE_DIRECTION];
+                    uint8_t distance  = cfg[PHOTOGRAPHER_CFG_SLIDE_DISTANCE];
+                    calculate_velocity_components(direction, 1024, &s->slide_dx, &s->slide_dy);
+                    s->slide_total_frames = distance;
+                } else {
+                    s->slide_total_frames = 0;
+                }
+                s->slide_accum_x = 0;
+                s->slide_accum_y = 0;
+                s->slide_start_x = ppu.bg_hofs[0];
+                s->slide_start_y = ppu.bg_vofs[0];
+                s->slide_frame = 0;
+                s->phase = EN_CR_SLIDE;
+                continue;
+            }
             update_map_palette_animation();
             process_credits_dma_queue();
-            render_frame_tick();
-        }
-        finalize_palette_fade();
+            s->fade_counter--;
+            s->resume_phase = EN_CR_FADEIN;
+            s->phase = EN_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            s->phase = EN_CR_FADEIN;
+            return STEP_RESULT_CONTINUE();
 
-        /* Slide photo */
-        slide_credits_photograph(photo_idx);
-
-        /* Wait for scroll position to pass next_photo_pos */
-        while ((int16_t)next_photo_pos > (int16_t)ppu.bg_vofs[2]) {
+        case EN_CR_SLIDE:
+            if (s->slide_frame >= s->slide_total_frames) {
+                s->phase = EN_CR_SCROLLWAIT;
+                continue;
+            }
+            s->slide_accum_x += s->slide_dy;  /* assembly swaps X/Y components */
+            s->slide_accum_y += s->slide_dx;
+            {
+                int16_t offset_x = (int16_t)(s->slide_accum_x / 256);
+                int16_t offset_y = (int16_t)(s->slide_accum_y / 256);
+                ppu.bg_hofs[0] = s->slide_start_x + offset_x;
+                ppu.bg_vofs[0] = s->slide_start_y + offset_y;
+                ppu.bg_hofs[1] = offset_x;
+                ppu.bg_vofs[1] = offset_y;
+            }
             process_credits_dma_queue();
-            render_frame_tick();
-        }
+            s->slide_frame++;
+            s->resume_phase = EN_CR_SLIDE;
+            s->phase = EN_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            s->phase = EN_CR_SLIDE;
+            return STEP_RESULT_CONTINUE();
 
-        /* Clear OAM (BUFFER+32, 480 bytes) */
-        memset(&ert.buffer[32], 0, 480);
+        case EN_CR_SCROLLWAIT:
+            if ((int16_t)s->next_photo_pos > (int16_t)ppu.bg_vofs[2]) {
+                process_credits_dma_queue();
+                s->resume_phase = EN_CR_SCROLLWAIT;
+                s->phase = EN_FLUSH;
+                if (render_frame_tick_work_step())
+                    return actionscript_frame_take_push();
+                s->phase = EN_CR_SCROLLWAIT;
+                return STEP_RESULT_CONTINUE();
+            }
+            /* done: clear OAM, start the 64-frame fade-out */
+            memset(&ert.buffer[32], 0, 480);
+            prepare_palette_fade_slopes(64, 0xFFFF);
+            s->fade_counter = 0;   /* fade-out counts 0..63 */
+            s->phase = EN_CR_FADEOUT;
+            continue;
 
-        /* Fade out photo over 64 frames */
-        prepare_palette_fade_slopes(64, 0xFFFF);
-        for (int f = 0; f < 64; f++) {
+        case EN_CR_FADEOUT:
+            if (s->fade_counter >= 64) {
+                /* clear palette slots 1-15, queue a final settle frame, advance photo */
+                memset(&ert.palettes[1 * 16], 0, 480);
+                ert.palette_upload_mode = 24; /* PALETTE_UPLOAD_FULL */
+                process_credits_dma_queue();
+                s->next_photo_pos += s->photo_spacing;
+                s->photo_idx++;
+                s->phase = EN_CR_PHOTO_TAIL;
+                continue;
+            }
             update_map_palette_animation();
             process_credits_dma_queue();
-            render_frame_tick();
+            s->fade_counter++;
+            s->resume_phase = EN_CR_FADEOUT;
+            s->phase = EN_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            s->phase = EN_CR_FADEOUT;
+            return STEP_RESULT_CONTINUE();
+
+        case EN_CR_PHOTO_TAIL:
+            /* the single settle render after a photo fades out */
+            s->resume_phase = EN_CR_PHOTO_TOP;
+            s->phase = EN_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            s->phase = EN_CR_PHOTO_TOP;
+            return STEP_RESULT_CONTINUE();
+
+        case EN_CR_SCROLLFINAL:
+            if (ppu.bg_vofs[2] < CREDITS_LENGTH) {
+                process_credits_dma_queue();
+                s->resume_phase = EN_CR_SCROLLFINAL;
+                s->phase = EN_FLUSH;
+                if (render_frame_tick_work_step())
+                    return actionscript_frame_take_push();
+                s->phase = EN_CR_SCROLLFINAL;
+                return STEP_RESULT_CONTINUE();
+            }
+            frame_callback = process_overworld_tasks;
+            s->hold_counter = 2000;
+            s->phase = EN_CR_HOLD;
+            continue;
+
+        case EN_CR_HOLD:
+            if (s->hold_counter == 0) {
+                /* teardown (play_credits tail) */
+                fade_out_with_mosaic(1, 2, 0);
+                setup_color_math_window(0xB3, 0);
+                force_blank_and_wait_vblank();
+                overworld_setup_vram();
+                clear_map_entities();
+                entities.alloc_min_slot = 23;
+                entities.alloc_max_slot = 24;
+                entity_init(EVENT_SCRIPT_001, 0, 0);
+                reset_party_state();
+                initialize_party();
+                memset(win.bg2_buffer, 0, 1024);
+                undraw_flyover_text();
+                ppu.tm = 0x17;
+                frame_callback = process_overworld_tasks;
+                ow.disabled_transitions = 0;
+                photographer_cfg_data = NULL;
+                cast_seq_formatting_data = NULL;
+                staff_text_data = NULL;
+                staff_text_size = 0;
+                party_cast_tile_ids_data = NULL;
+                guardian_text_data = NULL;
+                return STEP_RESULT_POP(0);
+            }
+            s->hold_counter--;
+            s->resume_phase = EN_CR_HOLD;
+            s->phase = EN_FLUSH;
+            if (render_frame_tick_work_step())
+                return actionscript_frame_take_push();
+            s->phase = EN_CR_HOLD;
+            return STEP_RESULT_CONTINUE();
+
+        /* shared flush: finish a parked frame's render, return to resume_phase */
+        case EN_FLUSH:
+            render_frame_tick_work_flush();
+            s->phase = s->resume_phase;
+            return STEP_RESULT_CONTINUE();
         }
-
-        /* Clear palette slots 1-15 (assembly: LDX #480; JSL MEMSET16) */
-        memset(&ert.palettes[1 * 16], 0, 480);
-        ert.palette_upload_mode = 24; /* PALETTE_UPLOAD_FULL */
-        process_credits_dma_queue();
-        render_frame_tick();
-
-        next_photo_pos += photo_spacing;
+        return STEP_RESULT_POP(0);   /* unreachable */
     }
-
-    /* Wait for scroll to reach CREDITS_LENGTH */
-    while (ppu.bg_vofs[2] < CREDITS_LENGTH) {
-        process_credits_dma_queue();
-        render_frame_tick();
-    }
-
-    /* Reset IRQ callback to overworld tasks (assembly: SET_IRQ_CALLBACK PROCESS_OVERWORLD_TASKS) */
-    frame_callback = process_overworld_tasks;
-
-    /* Wait 2000 frames */
-    for (int f = 0; f < 2000; f++) {
-        render_frame_tick();
-    }
-
-    /* Fade out with mosaic */
-    fade_out_with_mosaic(1, 2, 0);
-
-    /* Reset color math window */
-    setup_color_math_window(0xB3, 0);
-    force_blank_and_wait_vblank();
-    overworld_setup_vram();
-    clear_map_entities();
-
-    /* Reset entity allocation */
-    entities.alloc_min_slot = 23;
-    entities.alloc_max_slot = 24;
-    entity_init(EVENT_SCRIPT_001, 0, 0);
-    reset_party_state();
-    initialize_party();
-
-    /* Clear BG2 ert.buffer */
-    memset(win.bg2_buffer, 0, 1024);
-
-    undraw_flyover_text();
-    ppu.tm = 0x17;  /* Assembly: STA TM_MIRROR (main screen, not sub-screen) */
-
-    /* Restore IRQ callback to overworld tasks */
-    frame_callback = process_overworld_tasks;
-
-    ow.disabled_transitions = 0;
-
-    /* Release loaded asset references */
-    photographer_cfg_data = NULL;
-    cast_seq_formatting_data = NULL;
-    staff_text_data = NULL;
-    staff_text_size = 0;
-    party_cast_tile_ids_data = NULL;
-    guardian_text_data = NULL;
 }
