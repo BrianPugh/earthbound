@@ -2654,8 +2654,13 @@ static void update_hppp_meter_prepare(void) {
 }
 
 void update_hppp_meter_and_render(void) {
+    /* Debug-only now: the WARP HP/PP flash in mode_step_debug_menu (an accepted
+     * inline-blocking debug loop — a savestate cannot land mid-warp). Pump-free:
+     * a no-actionscript window render plus an explicit frame wait, so it no longer
+     * routes through the blocking render_frame_tick(). */
     update_hppp_meter_prepare();
-    render_frame_tick();
+    render_frame_tick_no_actionscript();
+    wait_for_vblank();
 }
 
 /* Run-to-completion form of update_hppp_meter_and_render(): same work, but the

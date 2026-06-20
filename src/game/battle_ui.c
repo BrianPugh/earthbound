@@ -552,7 +552,12 @@ void force_blank_and_wait_vblank_work(void) {
     bg2_distortion_active = false;
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
-    render_frame_tick_work();
+    /* Present the blanked screen WITHOUT advancing an actionscript frame: the
+     * blocking force_blank_and_wait_vblank() callers are all can't-park contexts
+     * (battle, or overworld setup with disable_actionscript set, where
+     * run_actionscript_frame would early-out anyway), so this avoids the nested
+     * pump. The mode-step callers use the park-propagating *_work_step() form. */
+    render_frame_tick_no_actionscript();
 }
 
 void force_blank_and_wait_vblank(void) {
@@ -1826,7 +1831,9 @@ void restore_bg_palette_and_enable_display(void) {
 /* Run-to-completion half (no trailing yield). Used by mode steps. */
 void blank_screen_and_wait_vblank_work(void) {
     ppu.inidisp = 0x80;
-    render_frame_tick_work();
+    /* No-actionscript present (see force_blank_and_wait_vblank_work): the blocking
+     * callers are can't-park; the mode-step callers use *_work_step(). */
+    render_frame_tick_no_actionscript();
 }
 
 void blank_screen_and_wait_vblank(void) {

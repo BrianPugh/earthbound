@@ -5370,7 +5370,13 @@ void reload_map(void) {
 void render_and_disable_entities(void) {
     update_party();
     refresh_party_entities();
-    render_frame_tick();
+    /* No-actionscript present: the sole blocking caller is inflict_status_nonbattle
+     * (reached from the CC interpreter / overworld homesickness check, where a
+     * nested run_actionscript_frame could park). Entities are disabled on the very
+     * next line, so not advancing them one final frame is imperceptible; the
+     * enclosing context owns the yield. Mode-step callers use the
+     * render_and_disable_entities_work_step()/_finish() split. */
+    render_frame_tick_no_actionscript();
     disable_all_entities();
     if (ow.entity_fade_entity != -1) {
         entities.tick_callback_hi[ow.entity_fade_entity] &=

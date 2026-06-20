@@ -1158,11 +1158,14 @@ void dismount_bicycle(void) {
 
     dismount_bicycle_begin();
 
-    /* Assembly lines 25-30: render a frame before swapping sprites */
+    /* Assembly lines 25-30: render a frame before swapping sprites.
+     * The main player dismount runs through the BD_DISMOUNT mode-step (park-
+     * propagating). This blocking form serves the secondary one-shot callers
+     * (mushroom auto-dismount, debug); its render no longer advances an
+     * actionscript frame (no nested pump) — a no-actionscript present keeps the
+     * current sprites for the one transition frame, then the sprite swap runs. */
     if (!ow.pending_interactions) {
-        oam_clear();
-        run_actionscript_frame();
-        update_screen();
+        render_frame_tick_no_actionscript();
         wait_for_vblank();
     }
 
