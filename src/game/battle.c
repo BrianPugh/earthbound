@@ -443,12 +443,20 @@ StepResult mode_step_char_select(ModeState *ms) {
             /* No actionable input this frame (includes a disallowed cancel). */
             st->counter++;
             if (st->counter >= st->delay) {
-                /* Poll window expired: toggle pagination arrow animation, reset
-                 * the longer delay, and re-render for the next outer iteration. */
+                /* Poll window expired: toggle the pagination arrow animation and
+                 * reset the longer delay. The original (party_character_selector.asm
+                 * @MULTI_PARTY_WINDOW6) only re-pokes the arrow tiles to VRAM inline
+                 * (PREPARE_VRAM_COPY) and falls straight back into the input loop —
+                 * it does NOT run a WINDOW_TICK or the CSP_PRIME meter yield here, so
+                 * input is polled every frame. Routing this through cs_render_tick()
+                 * inserted two input-blind frames per blink cycle (~1/6 of presses
+                 * silently dropped). Match the original: inline redraw + one meter
+                 * yield, staying in CSP_INPUT so the next frame re-polls. */
                 dt.pagination_animation_frame =
                     (dt.pagination_animation_frame != 0) ? 0 : 1;
                 st->delay = 10;
-                return cs_render_tick(st);
+                render_pagination_arrows();
+                st->counter = 0;
             }
             if (update_hppp_meter_work_step()) {
                 st->cs_flush = 3;
