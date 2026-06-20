@@ -320,15 +320,24 @@ void set_current_item(uint8_t item) {
  * state stays serializable. See docs/plans/savestate-unified-loop.md.
  * ------------------------------------------------------------------------- */
 
-/* CSP_RENDER body: highlight the current character (mode 0), run one non-yielding
- * window frame, draw pagination arrows, reset the input poll counter. */
-static void cs_render(CharSelectState *st) {
+/* CSP_RENDER body: highlight the current character (mode 0), run one window frame,
+ * draw pagination arrows, reset the input poll counter, then advance to CSP_PRIME.
+ * The window frame uses window_tick_work_step() so a parked actionscript frame (the
+ * overworld equip menu reaches char-select) STEP_PUSHes ACTIONSCRIPT_FRAME — the
+ * pagination/counter tail then runs at the cs_flush resume. Shared by every
+ * re-render site (the head of the former outer loop). */
+static StepResult cs_render_tick(CharSelectState *st) {
     if (st->mode == 0)
         select_battle_menu_character(st->current_index);
     clear_instant_printing();
-    window_tick_work();
+    if (window_tick_work_step()) {
+        st->cs_flush = 1;
+        return actionscript_frame_take_push();
+    }
     render_pagination_arrows();
     st->counter = 0;
+    st->phase = CSP_PRIME;
+    return STEP_RESULT_CONTINUE();
 }
 
 StepResult mode_step_char_select(ModeState *ms) {
@@ -338,21 +347,39 @@ StepResult mode_step_char_select(ModeState *ms) {
      * DISPLAY_TEXT child init for an on_change callback that requests a STEP_PUSH. */
     static ModeState cs_onchange_init;
 
+    /* Resume after a parked actionscript frame (overworld equip menu reaches here):
+     * finish that frame's render, run the deferred tail, advance, then continue. */
+    if (st->cs_flush == 1) {            /* cs_render_tick's window frame parked */
+        st->cs_flush = 0;
+        window_tick_work_flush();
+        render_pagination_arrows();
+        st->counter = 0;
+        st->phase = CSP_PRIME;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->cs_flush == 2) {            /* CSP_PRIME meter frame parked */
+        st->cs_flush = 0;
+        update_hppp_meter_work_flush();
+        st->phase = CSP_INPUT;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->cs_flush == 3) {            /* CSP_INPUT idle meter frame parked */
+        st->cs_flush = 0;
+        update_hppp_meter_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+
     /* Post-child resume: an on_change callback (CS_ONCHANGE_PARTY_SELECT_SCRIPT)
      * STEP_PUSHed a DISPLAY_TEXT child; run its deferred render tail on the frame the
      * child pops back, before re-entering the input loop. */
     if (st->resume == CS_RESUME_INIT) {
         st->resume = CS_RESUME_NONE;
         dt.pagination_animation_frame = 0;
-        cs_render(st);
-        st->phase = CSP_PRIME;
-        return STEP_RESULT_CONTINUE();
+        return cs_render_tick(st);
     } else if (st->resume == CS_RESUME_NAV) {
         st->resume = CS_RESUME_NONE;
         st->delay = 4;   /* shorter poll window right after navigating */
-        cs_render(st);
-        st->phase = CSP_PRIME;
-        return STEP_RESULT_CONTINUE();
+        return cs_render_tick(st);
     }
 
     switch ((CharSelectPhase)st->phase) {
@@ -371,20 +398,19 @@ StepResult mode_step_char_select(ModeState *ms) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &cs_onchange_init);
         }
         dt.pagination_animation_frame = 0;
-        cs_render(st);
-        st->phase = CSP_PRIME;
-        return STEP_RESULT_CONTINUE();
+        return cs_render_tick(st);
     }
 
     case CSP_RENDER:
-        cs_render(st);
-        st->phase = CSP_PRIME;
-        return STEP_RESULT_CONTINUE();
+        return cs_render_tick(st);
 
     case CSP_PRIME:
         /* One HP/PP-meter frame before the first input read, matching the
          * original inner loop's first update_hppp_meter_and_render() yield. */
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->cs_flush = 2;
+            return actionscript_frame_take_push();
+        }
         st->phase = CSP_INPUT;
         return STEP_RESULT_CONTINUE();
 
@@ -422,11 +448,12 @@ StepResult mode_step_char_select(ModeState *ms) {
                 dt.pagination_animation_frame =
                     (dt.pagination_animation_frame != 0) ? 0 : 1;
                 st->delay = 10;
-                cs_render(st);
-                st->phase = CSP_PRIME;
-                return STEP_RESULT_CONTINUE();
+                return cs_render_tick(st);
             }
-            update_hppp_meter_work();
+            if (update_hppp_meter_work_step()) {
+                st->cs_flush = 3;
+                return actionscript_frame_take_push();
+            }
             return STEP_RESULT_CONTINUE();
         }
 
@@ -464,9 +491,7 @@ StepResult mode_step_char_select(ModeState *ms) {
         }
 
         st->delay = 4;   /* shorter poll window right after navigating */
-        cs_render(st);
-        st->phase = CSP_PRIME;
-        return STEP_RESULT_CONTINUE();
+        return cs_render_tick(st);
     }
     }
 }

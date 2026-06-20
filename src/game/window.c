@@ -1953,9 +1953,13 @@ void select_battle_menu_character(uint16_t party_slot) {
 
     win.battle_menu_current_character_id = (int16_t)party_slot;
 
-    /* US retail: wait one frame before drawing */
-    render_frame_tick();
-
+    /* The US-retail WAIT_UNTIL_NEXT_FRAME here was a DMA-settle beat before the
+     * tilemap write; the C port writes bg2_buffer synchronously and the enclosing
+     * menu (battle command / char-select / equip) renders the indicator on its
+     * own next frame, so the render is dropped. This keeps the function a pure
+     * non-yielding draw — no nested pump and no run_actionscript_frame in a context
+     * (overworld equip menu) where it could park and freeze entities. The marker
+     * appears one frame earlier (imperceptible). */
     uint16_t row_offset = ((ACTIVE_HPPP_WINDOW_Y_OFFSET + HPPP_WINDOW_HEIGHT) * 32) * 2;
     uint16_t x_offset = calc_character_indicator_x_offset(win.battle_menu_current_character_id);
     uint16_t offset = row_offset + x_offset;
@@ -1984,8 +1988,8 @@ void clear_battle_menu_character_indicator(void) {
         return;
     }
 
-    render_frame_tick();
-
+    /* WAIT_UNTIL_NEXT_FRAME dropped — see select_battle_menu_character: a pure
+     * synchronous buffer write, shown by the caller's next render. */
     uint16_t row_offset = (ACTIVE_HPPP_WINDOW_Y_OFFSET * 32) * 2;
     uint16_t x_offset = calc_character_indicator_x_offset(win.battle_menu_current_character_id);
     uint16_t offset = row_offset + x_offset;

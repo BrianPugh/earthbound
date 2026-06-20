@@ -1134,6 +1134,7 @@ typedef struct {
     uint8_t  on_change_id;   /* CharSelectOnChangeId */
     uint8_t  check_valid_id; /* CharSelectCheckValidId */
     uint8_t  resume;         /* CharSelectResume: post-child work pending on POP */
+    uint8_t  cs_flush;       /* park-resume marker: 0 none / 1 render / 2 prime / 3 idle */
     uint16_t current_index;  /* selected party slot (0-based) */
     uint16_t delay;          /* input poll frames before pagination toggle */
     uint16_t counter;        /* frames elapsed in the current poll window */
