@@ -288,9 +288,11 @@ static void cc_1f_set_sprite_movement(ScriptReader *r) {
  * window_tick yield and the first input-loop yield — before the first read).
  * ------------------------------------------------------------------------- */
 
-/* NS_RENDER body: draw the digits at the saved cursor position, then run one
- * non-yielding window frame. Mirrors the head of the former outer loop. */
-static void ns_draw(NumberSelectState *st) {
+/* NS_RENDER body (drawing only): draw the digits at the saved cursor position.
+ * The window frame that follows is driven by ns_render_tick() so a parked
+ * actionscript callroutine (an overworld shop/ATM number prompt can reach one)
+ * becomes a STEP_PUSH instead of a nested pump. */
+static void ns_draw_digits(NumberSelectState *st) {
     set_instant_printing();
     set_focus_text_cursor(st->start_x, st->start_y);
 
@@ -314,22 +316,56 @@ static void ns_draw(NumberSelectState *st) {
     }
 
     clear_instant_printing();
-    window_tick_work();
+}
+
+/* Draw the digits and run the one window_tick frame, then advance to NS_PRIME.
+ * On a parked actionscript frame, flush=1 + STEP_PUSH ACTIONSCRIPT_FRAME (the
+ * mode resumes the render at the flush handler). Shared by NS_RENDER and every
+ * input branch that re-renders — the head of the former outer loop. */
+static StepResult ns_render_tick(NumberSelectState *st) {
+    ns_draw_digits(st);
+    if (window_tick_work_step()) {
+        st->flush = 1;
+        return actionscript_frame_take_push();
+    }
+    st->phase = NS_PRIME;
+    return STEP_RESULT_CONTINUE();
 }
 
 StepResult mode_step_number_select(ModeState *ms) {
     NumberSelectState *st = &ms->number_select;
 
-    switch ((NumberSelectPhase)st->phase) {
-    case NS_RENDER:
-        ns_draw(st);
+    /* Resume after a parked actionscript frame (overworld shop/ATM context):
+     * finish that frame's render, advance, then continue. */
+    if (st->flush == 1) {            /* window_tick (render) frame parked */
+        st->flush = 0;
+        window_tick_work_flush();
         st->phase = NS_PRIME;
         return STEP_RESULT_CONTINUE();
+    }
+    if (st->flush == 2) {            /* NS_PRIME meter frame parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        st->phase = NS_INPUT;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->flush == 3) {            /* NS_INPUT idle meter frame parked */
+        st->flush = 0;
+        update_hppp_meter_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+
+    switch ((NumberSelectPhase)st->phase) {
+    case NS_RENDER:
+        return ns_render_tick(st);
 
     case NS_PRIME:
         /* One HP/PP-meter frame before the first input read, matching the
          * original inner loop's first update_hppp_meter_and_render() yield. */
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->flush = 2;
+            return actionscript_frame_take_push();
+        }
         st->phase = NS_INPUT;
         return STEP_RESULT_CONTINUE();
 
@@ -344,9 +380,7 @@ StepResult mode_step_number_select(ModeState *ms) {
                 st->cursor_pos++;
                 st->place_value *= 10;
             }
-            ns_draw(st);
-            st->phase = NS_PRIME;
-            return STEP_RESULT_CONTINUE();
+            return ns_render_tick(st);
         }
         if (core.pad1_pressed & PAD_RIGHT) {
             if (st->cursor_pos > 1) {
@@ -354,9 +388,7 @@ StepResult mode_step_number_select(ModeState *ms) {
                 st->cursor_pos--;
                 st->place_value /= 10;
             }
-            ns_draw(st);
-            st->phase = NS_PRIME;
-            return STEP_RESULT_CONTINUE();
+            return ns_render_tick(st);
         }
         if (core.pad1_autorepeat & PAD_UP) {
             play_sfx(3);  /* SFX::CURSOR3 */
@@ -365,9 +397,7 @@ StepResult mode_step_number_select(ModeState *ms) {
                 st->value -= st->place_value * 9;
             else
                 st->value += st->place_value;
-            ns_draw(st);
-            st->phase = NS_PRIME;
-            return STEP_RESULT_CONTINUE();
+            return ns_render_tick(st);
         }
         if (core.pad1_autorepeat & PAD_DOWN) {
             play_sfx(3);  /* SFX::CURSOR3 */
@@ -376,9 +406,7 @@ StepResult mode_step_number_select(ModeState *ms) {
                 st->value += st->place_value * 9;
             else
                 st->value -= st->place_value;
-            ns_draw(st);
-            st->phase = NS_PRIME;
-            return STEP_RESULT_CONTINUE();
+            return ns_render_tick(st);
         }
         if (core.pad1_pressed & PAD_CONFIRM) {
             play_sfx(1);  /* SFX::CURSOR1 */
@@ -390,7 +418,10 @@ StepResult mode_step_number_select(ModeState *ms) {
         }
 
         /* No input: run one HP/PP-meter frame and keep waiting. */
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->flush = 3;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
 }

@@ -1082,6 +1082,7 @@ typedef enum {
 
 typedef struct {
     uint8_t  phase;        /* NumberSelectPhase */
+    uint8_t  flush;        /* park-resume marker: 0 none / 1 tick / 2 prime / 3 idle */
     uint16_t start_x;      /* saved focus-window text cursor (@LOCAL: start col) */
     uint16_t start_y;      /* saved focus-window text cursor (@LOCAL: start row) */
     uint16_t max_digits;   /* number of digit positions (CC arg) */
