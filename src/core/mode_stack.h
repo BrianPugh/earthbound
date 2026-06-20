@@ -2263,8 +2263,10 @@ typedef struct {
 typedef enum {
     BD_TEXT = 0,   /* create window + push the "got off the bicycle" text */
     BD_CLOSE,      /* close focus window + one window_tick frame */
-    BD_DISMOUNT,   /* dismount_bicycle, POP */
+    BD_DISMOUNT,   /* dismount_bicycle_begin + render frame (park-propagating) */
     BD_CLOSE_FLUSH, /* park-propagating resume of BD_CLOSE's window_tick frame */
+    BD_DISMOUNT_FINISH, /* dismount_bicycle_finish (create sprite), POP */
+    BD_DISMOUNT_FLUSH,  /* park-propagating resume of BD_DISMOUNT's render frame */
 } BicycleDismountPhase;
 
 typedef struct {

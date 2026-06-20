@@ -1130,11 +1130,12 @@ void get_on_bicycle(void) {
  * Port of asm/overworld/dismount_bicycle.asm.
  * Gets off the bicycle: removes bicycle sprite, creates normal Ness sprite,
  * clears walking_style. Only acts if currently on bicycle. */
-void dismount_bicycle(void) {
-    /* Check if currently on bicycle */
-    if (game_state.walking_style != WALKING_STYLE_BICYCLE)
-        return;
-
+/* dismount_bicycle, split for the savestate cutover. _begin() = the assembly's
+ * pre-render half (state clear); the caller then renders one frame (blocking
+ * wrapper below, or the BD_DISMOUNT mode-step via render_frame_tick_work_step);
+ * _finish() = the post-render half (swap in the Ness sprite). Caller must check
+ * walking_style == WALKING_STYLE_BICYCLE before calling _begin(). */
+void dismount_bicycle_begin(void) {
     ow.enable_auto_sector_music_changes = 1;
     if (!ow.battle_mode && !ow.pending_interactions) {
         update_map_music_at_leader();
@@ -1148,6 +1149,14 @@ void dismount_bicycle(void) {
     game_state.walking_style = 0;
     party_characters[0].position_index = 0;
     game_state.position_buffer_index = 0;
+}
+
+void dismount_bicycle(void) {
+    /* Check if currently on bicycle */
+    if (game_state.walking_style != WALKING_STYLE_BICYCLE)
+        return;
+
+    dismount_bicycle_begin();
 
     /* Assembly lines 25-30: render a frame before swapping sprites */
     if (!ow.pending_interactions) {
@@ -1157,6 +1166,10 @@ void dismount_bicycle(void) {
         wait_for_vblank();
     }
 
+    dismount_bicycle_finish();
+}
+
+void dismount_bicycle_finish(void) {
     /* Create normal Ness entity at leader's current position */
     ert.new_entity_var[0] = 0;
     ert.new_entity_var[1] = 0;

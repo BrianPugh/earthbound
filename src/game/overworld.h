@@ -389,6 +389,14 @@ void get_on_bicycle(void);
  * No-op if not currently on bicycle. */
 void dismount_bicycle(void);
 
+/* dismount_bicycle split around its mid-function render frame (savestate cutover).
+ * _begin() = the pre-render state clear; _finish() = the post-render sprite swap.
+ * Caller checks walking_style == WALKING_STYLE_BICYCLE before _begin(). Used by
+ * mode_step_bicycle_dismount (BD_DISMOUNT) to drive the render via
+ * render_frame_tick_work_step() instead of the blocking dismount_bicycle(). */
+void dismount_bicycle_begin(void);
+void dismount_bicycle_finish(void);
+
 /* SUM_ALIVE_PARTY_LEVELS: Port of asm/overworld/party/sum_alive_party_levels.asm.
  * Sums levels of all PC party members (char_id 1-4), excluding NPCs. */
 uint16_t sum_alive_party_levels(void);

@@ -1088,6 +1088,33 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
         return STEP_RESULT_CONTINUE();
 
     case BD_DISMOUNT:
+        /* Not on a bicycle (no-op), or the rare interaction-pending path (driven by
+         * a callroutine; its render is skipped and it does its own direct vblanks):
+         * the blocking dismount_bicycle() reaches no pump in either case. */
+        if (game_state.walking_style != WALKING_STYLE_BICYCLE || ow.pending_interactions) {
+            dismount_bicycle();
+            return STEP_RESULT_POP(0);
+        }
+        /* Normal player dismount: state clear, then the assembly's pre-swap render
+         * frame as a park-propagating step (the former blocking run_actionscript_frame
+         * + wait_for_vblank inside dismount_bicycle). */
+        dismount_bicycle_begin();
+        bs->phase = BD_DISMOUNT_FINISH;
+        if (render_frame_tick_work_step()) {
+            bs->phase = BD_DISMOUNT_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        /* fall through: no park, finish inline */
+        /* FALLTHROUGH */
+    case BD_DISMOUNT_FINISH:
+        dismount_bicycle_finish();
+        return STEP_RESULT_POP(0);
+
+    case BD_DISMOUNT_FLUSH:
+        render_frame_tick_work_flush();
+        bs->phase = BD_DISMOUNT_FINISH;
+        return STEP_RESULT_CONTINUE();
+
     default:
         dismount_bicycle();
         return STEP_RESULT_POP(0);
