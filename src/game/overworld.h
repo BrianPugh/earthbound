@@ -342,6 +342,9 @@ void render_frame_tick_work(void);
  * its resume phase; on no park the tick finishes inline and _step() returns false. */
 bool render_frame_tick_work_step(void);
 void render_frame_tick_work_flush(void);
+/* render_frame_tick's present without advancing entity action scripts or yielding
+ * (window_tick_without_instant_printing's show-window beat). See overworld.c. */
+void render_frame_tick_no_actionscript(void);
 
 /* Allocate/clear sprite VRAM table.
  * Port of ALLOC_SPRITE_MEM (asm/system/alloc_sprite_mem.asm).

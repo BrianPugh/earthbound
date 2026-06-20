@@ -1548,6 +1548,28 @@ void render_frame_tick_work_flush(void) {
     update_screen();
 }
 
+/* ---- RENDER_FRAME_TICK_NO_ACTIONSCRIPT ----
+ *
+ * render_frame_tick's window/present work WITHOUT advancing entity action scripts
+ * (no run_actionscript_frame) and without a host yield. Used by the US-only
+ * "tick one frame to show the freshly-built window" menu-setup beats
+ * (window_tick_without_instant_printing): running a nested actionscript frame
+ * there would either pump or, if it parked, leave ert.disable_actionscript set and
+ * freeze entities. The enclosing menu mode-step advances entities and owns the
+ * yield; this just refreshes the window VRAM. OAM is left as last frame's (no
+ * oam_clear), so sprites are unchanged. */
+void render_frame_tick_no_actionscript(void) {
+    if (ow.render_hppp_windows & 0xFF)
+        update_text_window_palette();
+
+    if (bt.battle_mode_flag) {
+        update_battle_screen_effects();
+        return;
+    }
+
+    update_screen();
+}
+
 /* ---- ALLOC_SPRITE_MEM (port of asm/system/alloc_sprite_mem.asm) ---- */
 void alloc_sprite_mem(uint16_t id, uint16_t param) {
     /* When id == 0x8000, clear the entire sprite VRAM table.

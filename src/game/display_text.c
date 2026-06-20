@@ -408,10 +408,19 @@ void window_tick_work_flush(void) {
 void window_tick_without_instant_printing(void) {
     /* Port of WINDOW_TICK_WITHOUT_INSTANT_PRINTING
      * (asm/text/window_tick_without_instant_printing.asm).
-     * Temporarily disables instant printing, calls full WINDOW_TICK,
-     * then re-enables instant printing. */
+     * Temporarily disables instant printing, renders one frame to show the
+     * freshly-built window, then re-enables instant printing.
+     *
+     * The render uses render_frame_tick_no_actionscript() rather than the full
+     * window_tick(): every remaining caller is a synchronous menu-setup helper
+     * (the US-only "tick one frame to show window" beat). A nested
+     * run_actionscript_frame here would pump or, if parked, freeze entities —
+     * and the enclosing menu mode-step already advances entities and owns the
+     * yield, then re-renders the window. So this just refreshes the window VRAM
+     * with no actionscript advance and no host yield. */
     dt.instant_printing = 0;
-    window_tick();
+    if (window_tick_prepare())
+        render_frame_tick_no_actionscript();
     dt.instant_printing = 1;
 }
 
