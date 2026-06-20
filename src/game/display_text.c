@@ -405,22 +405,24 @@ void window_tick_work_flush(void) {
     render_frame_tick_work_flush();
 }
 
+/* window_tick's window render + VRAM upload WITHOUT advancing entity action
+ * scripts or yielding. The "show the freshly-built/closed window" beat used by
+ * synchronous menu-setup/close helpers: a nested run_actionscript_frame would
+ * pump or, if parked, freeze entities, and the enclosing menu mode-step already
+ * advances entities and owns the yield. See render_frame_tick_no_actionscript. */
+void window_tick_no_actionscript(void) {
+    if (window_tick_prepare())
+        render_frame_tick_no_actionscript();
+}
+
 void window_tick_without_instant_printing(void) {
     /* Port of WINDOW_TICK_WITHOUT_INSTANT_PRINTING
      * (asm/text/window_tick_without_instant_printing.asm).
      * Temporarily disables instant printing, renders one frame to show the
-     * freshly-built window, then re-enables instant printing.
-     *
-     * The render uses render_frame_tick_no_actionscript() rather than the full
-     * window_tick(): every remaining caller is a synchronous menu-setup helper
-     * (the US-only "tick one frame to show window" beat). A nested
-     * run_actionscript_frame here would pump or, if parked, freeze entities —
-     * and the enclosing menu mode-step already advances entities and owns the
-     * yield, then re-renders the window. So this just refreshes the window VRAM
-     * with no actionscript advance and no host yield. */
+     * freshly-built window (no actionscript advance — see window_tick_no_
+     * actionscript), then re-enables instant printing. */
     dt.instant_printing = 0;
-    if (window_tick_prepare())
-        render_frame_tick_no_actionscript();
+    window_tick_no_actionscript();
     dt.instant_printing = 1;
 }
 

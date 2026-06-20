@@ -363,9 +363,14 @@ void close_all_windows(void) {
     dt.pagination_window = WINDOW_ID_NONE;
     ow.redraw_all_windows = 1;
 
-    /* Post-close cleanup (assembly lines 25-31) */
+    /* Post-close cleanup (assembly lines 25-31). The "show the cleared windows"
+     * WINDOW_TICK becomes a no-actionscript render (like
+     * window_tick_without_instant_printing): close_all_windows is a synchronous
+     * helper called from many mode-steps, each of which advances entities and
+     * renders afterward — a nested run_actionscript_frame here would pump or,
+     * parked, freeze entities. The cleared bg2 is still uploaded to VRAM. */
     clear_instant_printing();
-    window_tick();
+    window_tick_no_actionscript();
     init_used_bg2_tile_map();
 
     clear_vwf_indent_new_line();

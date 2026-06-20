@@ -3109,10 +3109,14 @@ void set_battler_target(uint16_t attacker_offset, uint16_t target_index) {
  * Closes all windows, ticks rendering, hides HPPP windows, ticks again.
  */
 void close_all_windows_and_hide_hppp(void) {
+    /* Battle-cleanup helper. The two "show the cleared/hidden windows" WINDOW_TICKs
+     * become no-actionscript renders (battle branch = update_battle_screen_effects,
+     * no nested pump, no host yield); the enclosing battle mode-step owns the yield.
+     * Same one-frame battle tradeoff as show_psi_animation. */
     close_all_windows();
-    window_tick();
+    window_tick_no_actionscript();
     hide_hppp_windows();
-    window_tick();
+    window_tick_no_actionscript();
 }
 
 /*

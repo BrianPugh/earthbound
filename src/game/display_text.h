@@ -276,6 +276,10 @@ void window_tick_work_flush(void);
  * Temporarily clears instant_printing, calls window_tick, re-enables it. */
 void window_tick_without_instant_printing(void);
 
+/* window_tick's window render + VRAM upload without advancing entity action
+ * scripts or yielding (the "show window" beat). See display_text.c. */
+void window_tick_no_actionscript(void);
+
 /* SET_WINDOW_NUMBER_PADDING: Port of asm/text/window/set_window_number_padding.asm.
  * Sets the number_padding field on the focus window. */
 void set_window_number_padding(uint16_t padding);
