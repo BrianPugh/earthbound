@@ -389,7 +389,19 @@ static bool window_tick_prepare(void) {
 bool window_tick_work_step(void) {
     if (window_tick_prepare())
         return render_frame_tick_work_step();
-    return false;   /* instant printing / no work: nothing to render or flush */
+    /* window_tick_prepare() skipped the render (instant printing / early-exit),
+     * but the mode-step caller still consumes a presented frame via its
+     * STEP_CONTINUE (e.g. the BW_* battle waits in mode_step_battle_wait). In
+     * battle the animated background must advance on EVERY presented frame or it
+     * visibly freezes for that frame — the same class of bug as the PUSH/POP
+     * transition stutter. render_frame_tick_work_step()'s battle branch is just
+     * update_battle_screen_effects() and never parks, so match it here. Outside
+     * battle there is no per-frame background animation, so the original no-op is
+     * preserved (and battle calls this once per presented frame, so the
+     * background still advances exactly once). */
+    if (bt.battle_mode_flag)
+        update_battle_screen_effects();
+    return false;   /* instant printing / no work: nothing parked to flush */
 }
 
 void window_tick_work_flush(void) {
