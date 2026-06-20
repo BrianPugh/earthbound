@@ -1615,10 +1615,13 @@ bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x04:
         /* CLOSE_ALL_WINDOWS: 0 args.
          * Port of tree_18.asm @CLOSE_ALL.
-         * Assembly: JSR CLOSE_ALL_WINDOWS → JSR HIDE_HPPP_WINDOWS → JSL WINDOW_TICK. */
+         * Assembly: JSR CLOSE_ALL_WINDOWS → JSR HIDE_HPPP_WINDOWS → JSL WINDOW_TICK.
+         * The trailing "show cleared windows" WINDOW_TICK is a no-actionscript
+         * render: DISPLAY_TEXT (this CC's caller) owns the per-char yield and
+         * re-renders; a nested run_actionscript_frame would pump/park here. */
         close_all_windows();
         hide_hppp_windows();
-        window_tick();
+        window_tick_no_actionscript();
         break;
     case 0x05: {
         /* FORCE_TEXT_ALIGNMENT: 2 args (x, y).

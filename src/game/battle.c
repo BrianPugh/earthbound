@@ -3171,11 +3171,16 @@ redraw_number:
         }
     }
     clear_instant_printing();
-    window_tick();
+    window_tick_no_actionscript();
+    wait_for_vblank();
 
-    /* Input loop (lines 117-217) */
+    /* Input loop (lines 117-217). Debug-only inline-blocking loop (like
+     * btl_debug_loop): the window render is no-actionscript and the frame
+     * advance / input read is an explicit wait_for_vblank, so it no longer
+     * routes through the (deleted) blocking window_tick(). */
     for (;;) {
-        window_tick();
+        window_tick_no_actionscript();
+        wait_for_vblank();
 
         /* LEFT: move cursor to higher digit (lines 120-129) */
         if (core.pad1_pressed & PAD_LEFT) {

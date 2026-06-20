@@ -1108,14 +1108,13 @@ void print_char_with_sound(uint16_t tile_code) {
         play_sfx(7);  /* SFX::TEXT_PRINT */
     }
 
-    /* Text speed delay (assembly lines 104-117):
-     * Assembly: LDX SELECTED_TEXT_SPEED; INX → delay = text_speed + 1. */
-    if (!dt.instant_printing) {
-        int delay = (game_state.text_speed & 0xFF) + 1;
-        for (int i = 0; i < delay; i++) {
-            window_tick();
-        }
-    }
+    /* Text speed delay (assembly lines 104-117): the asm spun text_speed+1
+     * WINDOW_TICK frames here. The only non-instant caller is DISPLAY_TEXT's
+     * VWF path (vwf_render_character) for the rare direct-tile chars
+     * (0x20/0x2F/EQUIPPED), and DT_RUN already runs its own per-char DT_DELAY
+     * for that same byte — so this loop was a redundant second delay (and a
+     * nested pump). Every other caller prints with instant_printing set. The
+     * char is already written above; no delay/render is needed here. */
 }
 
 /* ---- Window Border Animation ---- */
@@ -3269,10 +3268,13 @@ void print_money_in_window(uint32_t amount) {
                 play_sfx(7);  /* SFX::TEXT_PRINT */
             }
 
-            int delay = (game_state.text_speed & 0xFF) + 1;
-            for (int d = 0; d < delay; d++) {
-                window_tick();
-            }
+            /* The asm spun text_speed+1 WINDOW_TICK frames per money digit (a
+             * typewriter). print_money_in_window is a synchronous helper, so it
+             * cannot own a yield; driving the per-digit delay would require a
+             * DISPLAY_TEXT phase. The only non-instant caller is CC_1C_0B in
+             * dialogue — the money digits now render at once (on DISPLAY_TEXT's
+             * next frame) instead of typing out. Sound still plays per digit.
+             * COSMETIC DEVIATION: money pops in rather than typing. */
         }
     }
 
