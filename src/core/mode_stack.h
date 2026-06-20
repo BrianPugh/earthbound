@@ -1282,11 +1282,13 @@ typedef enum {
     SS_MAIN,       /* per-frame sequencing + sprite animation; on exit -> SS_FADEOUT */
     SS_FADEOUT,    /* wait for fade-out; then force-blank work + yield */
     SS_EXIT,       /* set color math + reload_map + fade_in, then pop */
+    SS_RTC_FLUSH,  /* resume after a parked force/blank frame: flush, -> resume_phase */
 } SoundStonePhase;
 
 typedef struct {
     uint8_t  phase;          /* SoundStonePhase */
     uint8_t  cancellable;    /* use_sound_stone() arg: A/B/X cancels early */
+    uint8_t  resume_phase;   /* SoundStonePhase SS_RTC_FLUSH returns to */
     int16_t  center_timer;   /* @LOCAL0E */
     int16_t  center_frame;   /* @LOCAL0F */
     int16_t  initial_delay;  /* @LOCAL0D */
@@ -1734,6 +1736,7 @@ typedef enum {
     FOP_CT_CLEAN2,   /* reload_map + bg2 + word-wrap + force-blank frame */
     FOP_CT_CLEAN3,   /* undraw + blank-screen frame */
     FOP_CT_DONE,     /* fade_in + POP */
+    FOP_RTC_FLUSH,   /* resume after a parked force/blank frame: flush, -> resume_phase */
 } FlyoverPhase;
 
 typedef struct {
@@ -1741,6 +1744,7 @@ typedef struct {
     uint8_t  phase;               /* FlyoverPhase */
     uint8_t  sub;                 /* opcode 0x09 sub-state */
     uint8_t  fade_primed;         /* FOP_CT_FADEWAIT: work-after-yield flag */
+    uint8_t  resume_phase;        /* FlyoverPhase FOP_RTC_FLUSH returns to */
     uint16_t id;                  /* FO_SCRIPT: flyover id 0-7; FO_COFFEETEA: type 0/1 */
     uint16_t ramp_delay_left;     /* yields left before the next brightness step */
     uint16_t display_left;        /* FO_SCRIPT 180-frame display countdown */

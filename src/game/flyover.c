@@ -625,14 +625,22 @@ StepResult mode_step_flyover(ModeState *st) {
             ppu.tm = 0x17;
             memset(win.bg2_buffer, 0, 0x700);
             dt.enable_word_wrap = (uint16_t)-1;
-            force_blank_and_wait_vblank_work();
+            s->resume_phase = FOP_S_CLEAN2;
+            if (force_blank_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_S_CLEAN2;
             return STEP_RESULT_CONTINUE();
 
         case FOP_S_CLEAN2:
             undraw_flyover_text();
             entities.tick_callback_hi[ENT(23)] = s->saved_ent23_tick_hi;
-            blank_screen_and_wait_vblank_work();
+            s->resume_phase = FOP_S_DONE;
+            if (blank_screen_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_S_DONE;
             return STEP_RESULT_CONTINUE();
 
@@ -660,7 +668,12 @@ StepResult mode_step_flyover(ModeState *st) {
         case FOP_CT_SETUP_A:
             flyover_init_screen();
             oam_clear();
-            force_blank_and_wait_vblank_work();   /* load_background_animation() start */
+            /* load_background_animation() start */
+            s->resume_phase = FOP_CT_SETUP_B;
+            if (force_blank_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_CT_SETUP_B;
             return STEP_RESULT_CONTINUE();
 
@@ -679,7 +692,11 @@ StepResult mode_step_flyover(ModeState *st) {
             uint16_t bg1 = (s->id == 0) ? BATTLEBG_COFFEE1 : BATTLEBG_TEA1;
             uint16_t bg2 = (s->id == 0) ? BATTLEBG_COFFEE2 : BATTLEBG_TEA2;
             load_battle_bg(bg1, bg2, 4);
-            blank_screen_and_wait_vblank_work();
+            s->resume_phase = FOP_CT_SETUP_C;
+            if (blank_screen_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_CT_SETUP_C;
             return STEP_RESULT_CONTINUE();
         }
@@ -752,7 +769,11 @@ StepResult mode_step_flyover(ModeState *st) {
             return STEP_RESULT_CONTINUE();
 
         case FOP_CT_CLEAN1:
-            force_blank_and_wait_vblank_work();
+            s->resume_phase = FOP_CT_CLEAN2;
+            if (force_blank_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_CT_CLEAN2;
             return STEP_RESULT_CONTINUE();
 
@@ -760,19 +781,34 @@ StepResult mode_step_flyover(ModeState *st) {
             reload_map();
             memset(win.bg2_buffer, 0, 1792);
             dt.enable_word_wrap = 0xFF;
-            force_blank_and_wait_vblank_work();
+            s->resume_phase = FOP_CT_CLEAN3;
+            if (force_blank_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_CT_CLEAN3;
             return STEP_RESULT_CONTINUE();
 
         case FOP_CT_CLEAN3:
             undraw_flyover_text();
-            blank_screen_and_wait_vblank_work();
+            s->resume_phase = FOP_CT_DONE;
+            if (blank_screen_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
             s->phase = FOP_CT_DONE;
             return STEP_RESULT_CONTINUE();
 
         case FOP_CT_DONE:
             fade_in(1, 1);
             return STEP_RESULT_POP(0);
+
+        case FOP_RTC_FLUSH:
+            /* Resume after a parked force/blank-screen frame: finish its render,
+             * then return to the phase that requested it. */
+            render_frame_tick_work_flush();
+            s->phase = (uint8_t)s->resume_phase;
+            return STEP_RESULT_CONTINUE();
         }
 
         return STEP_RESULT_POP(0);   /* unreachable */

@@ -560,6 +560,22 @@ void force_blank_and_wait_vblank(void) {
     wait_for_vblank();
 }
 
+/* Park-propagating split of force_blank_and_wait_vblank_work() (savestate cutover):
+ * same force-blank setup, but the frame render uses render_frame_tick_work_step() so a
+ * parked callroutine becomes a STEP_PUSH instead of a nested pump. A mode-step caller:
+ *     if (force_blank_and_wait_vblank_work_step()) { st->phase = <FLUSH>;
+ *                                                    return actionscript_frame_take_push(); }
+ * and runs render_frame_tick_work_flush() at <FLUSH> on the child's pop. Returns true
+ * ONLY when an actionscript frame parked. The blocking _work() form is kept for the
+ * blocking force_blank_and_wait_vblank() wrapper (synchronous, non-savestate contexts). */
+bool force_blank_and_wait_vblank_work_step(void) {
+    ppu.inidisp = 0x80;
+    ppu.window_hdma_active = false;
+    bg2_distortion_active = false;
+    fade_out(0, 0);
+    return render_frame_tick_work_step();
+}
+
 
 /* COLOR_MATH_REGISTER_TABLE (asm/system/palette/color_math_register_table.asm)
  *   [0..10]  = TM (main screen designation)
@@ -1816,6 +1832,14 @@ void blank_screen_and_wait_vblank_work(void) {
 void blank_screen_and_wait_vblank(void) {
     blank_screen_and_wait_vblank_work();
     wait_for_vblank();
+}
+
+/* Park-propagating split of blank_screen_and_wait_vblank_work() (savestate cutover).
+ * See force_blank_and_wait_vblank_work_step() for the caller contract; the only
+ * difference is this form does not disable HDMA or cancel the fade. */
+bool blank_screen_and_wait_vblank_work_step(void) {
+    ppu.inidisp = 0x80;
+    return render_frame_tick_work_step();
 }
 
 

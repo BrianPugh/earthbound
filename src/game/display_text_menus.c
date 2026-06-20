@@ -251,7 +251,11 @@ StepResult mode_step_sound_stone(ModeState *st) {
         SoundStoneAssets a = ss_load_assets();
         if (!a.ok)
             return STEP_RESULT_POP(0);
-        force_blank_and_wait_vblank_work();
+        s->resume_phase = SS_SETUP2;
+        if (force_blank_and_wait_vblank_work_step()) {
+            s->phase = SS_RTC_FLUSH;
+            return actionscript_frame_take_push();
+        }
         s->phase = SS_SETUP2;
         return STEP_RESULT_CONTINUE();
     }
@@ -291,7 +295,11 @@ StepResult mode_step_sound_stone(ModeState *st) {
             s->ps[i].pad = 0;
         }
 
-        blank_screen_and_wait_vblank_work();
+        s->resume_phase = SS_FADEIN;
+        if (blank_screen_and_wait_vblank_work_step()) {
+            s->phase = SS_RTC_FLUSH;
+            return actionscript_frame_take_push();
+        }
         s->phase = SS_FADEIN;
         return STEP_RESULT_CONTINUE();
     }
@@ -499,7 +507,11 @@ render_sprites:
          * 455-461). */
         if (fade_active())
             return STEP_RESULT_CONTINUE();
-        force_blank_and_wait_vblank_work();
+        s->resume_phase = SS_EXIT;
+        if (force_blank_and_wait_vblank_work_step()) {
+            s->phase = SS_RTC_FLUSH;
+            return actionscript_frame_take_push();
+        }
         s->phase = SS_EXIT;
         return STEP_RESULT_CONTINUE();
 
@@ -509,6 +521,13 @@ render_sprites:
         reload_map();
         fade_in(1, 1);
         return STEP_RESULT_POP(0);
+
+    case SS_RTC_FLUSH:
+        /* Resume after a parked force/blank-screen frame: finish its render, then
+         * return to the phase that requested it. */
+        render_frame_tick_work_flush();
+        s->phase = (uint8_t)s->resume_phase;
+        return STEP_RESULT_CONTINUE();
     }
 
     return STEP_RESULT_POP(0);
