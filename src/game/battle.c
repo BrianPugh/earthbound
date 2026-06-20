@@ -1089,7 +1089,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         /* for (i = frames; i != 0; i--) window_tick(); */
         if (s->remaining == 0)
             return STEP_RESULT_POP(0);
-        window_tick_work();
+        (void)window_tick_work_step();   /* battle: never parks (no actionscript frame) */
         s->remaining--;
         return STEP_RESULT_CONTINUE();
 
@@ -1097,14 +1097,14 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         /* while (is_psi_animation_active()) window_tick(); */
         if (!is_psi_animation_active())
             return STEP_RESULT_POP(0);
-        window_tick_work();
+        (void)window_tick_work_step();
         return STEP_RESULT_CONTINUE();
 
     case BW_SCREEN_EFFECT:
         /* while (bt.screen_effect_minimum_wait_frames) window_tick(); */
         if (!bt.screen_effect_minimum_wait_frames)
             return STEP_RESULT_POP(0);
-        window_tick_work();
+        (void)window_tick_work_step();
         return STEP_RESULT_CONTINUE();
 
     case BW_HPPP_STABLE:
@@ -1115,7 +1115,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
          * first step, which has not yet yielded). */
         if (s->primed && check_all_hppp_meters_stable())
             return STEP_RESULT_POP(0);
-        window_tick_work();
+        (void)window_tick_work_step();
         reset_hppp_meter_speed_if_stable();
         s->primed = 1;
         return STEP_RESULT_CONTINUE();
@@ -1124,7 +1124,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         /* while (is_battle_swirl_active()) window_tick(); */
         if (!is_battle_swirl_active())
             return STEP_RESULT_POP(0);
-        window_tick_work();
+        (void)window_tick_work_step();
         return STEP_RESULT_CONTINUE();
 
     case BW_SWIRL_UPDATE:

@@ -5017,7 +5017,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             hide_hppp_windows();
             bt.battle_mode_flag = 1;
             /* window_tick(): one frame of work, then the yield */
-            window_tick_work();
+            (void)window_tick_work_step();   /* battle: never parks */
             st->pc = 13;
             return STEP_RESULT_CONTINUE();
 
@@ -5106,7 +5106,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
         case 20: {  /* per-frame: tick + shake bookkeeping, then rotate */
             if (st->scratch16[1] != 0) {
                 st->scratch16[1]--;
-                window_tick_work();
+                (void)window_tick_work_step();   /* battle: never parks */
                 /* Decrement vertical shake and restart if repeats remain */
                 uint8_t countdown = (uint8_t)(st->scratch32 >> 8);
                 uint8_t repeats = (uint8_t)(st->scratch32 >> 16);

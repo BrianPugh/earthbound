@@ -199,9 +199,11 @@ StepResult mode_step_init_intro(ModeState *ms) {
 
         case II_FILE_MENU_POST:
             /* RUN_FILE_MENU post-cleanup (run_file_menu.asm:13-17). The single
-             * window_tick() becomes window_tick_work() + the CONTINUE yield. */
+             * window_tick() becomes window_tick_work_step() + the CONTINUE yield.
+             * Boot/intro context: the overworld isn't loaded yet, so there are no
+             * entity action scripts to park — the work_step never returns true. */
             clear_instant_printing();
-            window_tick_work();
+            (void)window_tick_work_step();
             st->phase = II_FILE_MENU_DONE;
             return STEP_RESULT_CONTINUE();
 
