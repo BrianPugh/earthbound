@@ -1474,15 +1474,48 @@ StepResult mode_step_overworld(ModeState *mst) {
  * former BOOT machine and its OWP_GAMEOVER "Continue" path resets itself to boot
  * rather than popping, so the root never pops and the stack is never empty. */
 void game_loop_step(void) {
-    uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
-    StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
-                                      &g_mode_stack.state[top]);
-    if (r.kind == STEP_PUSH) {
-        mode_push(r.push_mode, r.push_init);
-    } else if (r.kind == STEP_POP) {
-        mode_pop(r.pop_result);
+    /* Advance the mode stack until a step consumes a displayed frame (returns
+     * STEP_CONTINUE), then return so the host performs its one yield.
+     *
+     * PUSH and POP are control-flow transitions — entering/leaving a child mode
+     * was an instant function call/return in the blocking original, costing zero
+     * frames. They must therefore NOT each burn a displayed frame here, or a
+     * continuously-animating context visibly stutters whenever a child mode is
+     * entered or left. The most visible case is the battle background: finishing
+     * a piece of battle dialogue pops the text-prompt mode, then the DISPLAY_TEXT
+     * mode, then tears down its windows before the battle resumes — 2-3 transition
+     * steps that render no new background frame. One-step-per-frame turned each
+     * into a held frame, so the animated background froze "for a frame or few"
+     * every time text completed. Collapsing PUSH/POP into the surrounding frame
+     * also matches the original's zero-cost transitions exactly (it removes the
+     * "accepted ~1-frame STEP_PUSH/POP shift" deviations noted in
+     * docs/plans/pump-mode-removal.md).
+     *
+     * Only STEP_CONTINUE marks "one frame of rendered work done" (an actionscript
+     * park returns STEP_PUSH because the render did NOT finish — its child
+     * completes it and the parent's flush CONTINUE owns the frame). The guard
+     * bounds how many transitions fold into one frame: a healthy stack reaches a
+     * CONTINUE within a few pushes/pops (bounded by stack depth), but a malformed
+     * script that pushes/pops forever without rendering would otherwise hang the
+     * host loop. */
+    enum { MAX_TRANSITIONS_PER_FRAME = 64 };
+    for (int guard = 0; guard < MAX_TRANSITIONS_PER_FRAME; guard++) {
+        uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
+        StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
+                                          &g_mode_stack.state[top]);
+        if (r.kind == STEP_PUSH) {
+            mode_push(r.push_mode, r.push_init);
+            continue;
+        }
+        if (r.kind == STEP_POP) {
+            mode_pop(r.pop_result);
+            continue;
+        }
+        /* STEP_CONTINUE: one frame's work is done; the host yields next. */
+        return;
     }
-    /* STEP_CONTINUE: nothing extra; the host yields after this returns. */
+    LOG_WARN("game_loop_step: %d mode transitions without a rendered frame; "
+             "possible push/pop loop\n", (int)MAX_TRANSITIONS_PER_FRAME);
 }
 
 /* Legacy entry point retained for ports that drive the game with

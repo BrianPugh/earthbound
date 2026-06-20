@@ -108,9 +108,9 @@ typedef enum {
 } GameMode;
 
 typedef enum {
-    STEP_CONTINUE,   /* stay in this mode; the loop yields one frame          */
-    STEP_PUSH,       /* enter a child mode (push_mode); the loop yields        */
-    STEP_POP,        /* this mode is done; hand pop_result back to the parent  */
+    STEP_CONTINUE,   /* one frame of rendered work done; the host yields once  */
+    STEP_PUSH,       /* enter a child mode (push_mode); no frame (control flow) */
+    STEP_POP,        /* this mode is done; no frame (control flow)             */
 } StepKind;
 
 /* Forward declaration: ModeState is defined further down (it references the
