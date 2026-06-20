@@ -750,8 +750,18 @@ void show_psi_animation(uint16_t anim_id) {
 
     psi_animation_state.displayed_palette = displayed_pal_base;
 
-    /* Wait one frame for VRAM upload to complete */
-    render_frame_tick();
+    /* Former blocking render_frame_tick() that waited one frame for the VRAM upload
+     * to land. show_psi_animation is battle-only (apply_psi_battle_effect + the debug
+     * PSI cycler, both battle), so bt.battle_mode_flag is set → render_frame_tick_work_
+     * step() runs update_battle_screen_effects() and provably never parks (the battle
+     * path runs no actionscript frame). The C port writes GFX straight to ppu.vram[]
+     * synchronously above, so no real upload wait is needed; dropping the one VBlank is
+     * the sanctioned battle one-frame phase shift (cf. the cb2fe3d4 sanctuary site and
+     * render_frame_tick_work's documented FADE_TICK_BATTLE_EFFECTS shift) — the anim
+     * setup that follows is pure memory state, and playback yields via mode_step_battle_
+     * wait (BW_PSI_ANIM). */
+    bool psi_anim_parked = render_frame_tick_work_step();
+    (void)psi_anim_parked;  /* battle mode -> always false */
 
     /* Load PSI palette for this animation (4 colors = 8 bytes) */
     size_t pal_size = ASSET_SIZE(ASSET_PSIANIMS_PALETTES(anim_id));
