@@ -319,21 +319,10 @@ void initialize_party(void);
  * Port of CLEAR_MAP_ENTITIES (asm/overworld/clear_map_entities.asm). */
 void clear_map_entities(void);
 
-/* Render one frame: OAM clear, run actionscript, sync palettes, present.
- * Port of RENDER_FRAME_TICK (asm/system/render_frame_tick.asm).
- *
- * NOTE: This does NOT update windows or HP/PP meters. Most battle loops
- * should call window_tick() instead, which re-renders windows into
- * bg2_buffer, updates HP/PP rolling, uploads to VRAM, then calls this.
- * Only use render_frame_tick() directly when the assembly also calls
- * RENDER_FRAME_TICK (or WAIT_UNTIL_NEXT_FRAME) rather than WINDOW_TICK. */
-void render_frame_tick(void);
-
-/* Run-to-completion half of render_frame_tick(): the same work WITHOUT the
- * trailing wait_for_vblank(). The caller owns the yield. Used by mode-stack
- * step functions and the non-yielding window_tick_work()/update_hppp_meter_work()
- * wrappers during the savestate-anywhere migration. */
-void render_frame_tick_work(void);
+/* render_frame_tick() / render_frame_tick_work() (blocking pump-bridge forms,
+ * port of RENDER_FRAME_TICK) were deleted in the final pump_mode cutover. Mode
+ * steps use the park-propagating render_frame_tick_work_step()/_flush() split;
+ * synchronous "show frame" beats use render_frame_tick_no_actionscript(). */
 
 /* Park-propagating split of render_frame_tick_work() (savestate D4b): a parked
  * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.

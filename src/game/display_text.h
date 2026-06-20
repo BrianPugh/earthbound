@@ -252,18 +252,12 @@ void clear_instant_printing(void);
  * at the right edge of pagination_window. Called during character selection loops. */
 void render_pagination_arrows(void);
 
-/* WINDOW_TICK: Port of asm/text/window_tick.asm.
- * Per-frame orchestrator: renders windows to bg2_buffer, updates HPPP,
- * syncs bg2_buffer to VRAM via upload_battle_screen_to_vram, then
- * calls render_frame_tick. */
-void window_tick(void);
+/* WINDOW_TICK / WINDOW_TICK_WORK (blocking pump-bridge forms, port of
+ * asm/text/window_tick.asm): deleted in the final pump_mode cutover. Callers use
+ * the park-propagating window_tick_work_step()/_flush() split below, or
+ * window_tick_no_actionscript() for the synchronous "show window" beats. */
 
-/* Run-to-completion form of window_tick(): same work, but the frame render uses
- * render_frame_tick_work() (no internal wait_for_vblank) so the caller owns the
- * yield. Used by mode-stack step functions during the savestate migration. */
-void window_tick_work(void);
-
-/* Park-propagating split of window_tick_work() (savestate D4b): a parked
+/* Park-propagating split of window_tick (savestate D4b): a parked
  * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.
  * _step() returns true iff a frame parked — the caller must push
  * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at

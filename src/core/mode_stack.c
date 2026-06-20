@@ -238,28 +238,11 @@ int32_t mode_child_result(void) {
     return g_mode_stack.child_result[g_mode_stack.depth - 1];
 }
 
-/* ---- migration bridge ---------------------------------------------------- */
-
-int32_t pump_mode(GameMode mode, const ModeState *init) {
-    mode_push(mode, init);
-    uint8_t floor = g_mode_stack.depth;   /* depth that, once popped below, ends the pump */
-
-    for (;;) {
-        if (platform_input_quit_requested())
-            return 0;
-
-        uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
-        StepResult r = mode_dispatch_step((GameMode)g_mode_stack.mode[top],
-                                          &g_mode_stack.state[top]);
-
-        if (r.kind == STEP_PUSH) {
-            mode_push(r.push_mode, r.push_init);
-        } else if (r.kind == STEP_POP) {
-            mode_pop(r.pop_result);
-            if (g_mode_stack.depth < floor)
-                return r.pop_result;   /* completed without an extra yield */
-        }
-
-        host_process_frame();   /* the single (local) yield */
-    }
-}
+/* ---- migration bridge (removed) -----------------------------------------
+ *
+ * pump_mode() — the local "drive a child mode to completion with a nested
+ * host_process_frame() yield loop" bridge — was DELETED at the final cutover.
+ * Every former blocking caller now either runs as a mode_step_* on the single
+ * root-loop mode stack, or STEP_PUSHes GAME_MODE_ACTIONSCRIPT_FRAME via the
+ * park-propagating run_actionscript_frame_step() split. The program now has
+ * exactly one yield point: host_process_frame() in the root loop. */

@@ -496,24 +496,8 @@ StepResult actionscript_frame_take_push(void) {
     return STEP_RESULT_PUSH_INIT(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
 }
 
-void run_actionscript_frame(void) {
-    if (ert.disable_actionscript)
-        return;
-
-    ert.disable_actionscript = 1;
-
-    if (as_run_phase1_from(entities.first_entity) == EMS_YIELD) {
-        /* Blocking render-helper context: drive the parked frame's child modal to
-         * completion via the local pump (the original behaviour). See the header
-         * comment — the render-helper layer legitimately runs cutscene callroutines.
-         * Restore last frame's sprites first (the caller oam_clear()ed) so the
-         * pump's transition frame doesn't flash all sprites invisible. */
-        oam_restore_displayed();
-        ModeState init = {0};
-        as_state_from_request(&init.actionscript_frame);
-        pump_mode(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
-        return;
-    }
-
-    as_frame_tail();
-}
+/* run_actionscript_frame() (the blocking, pump_mode-bridging form) was deleted in
+ * the final pump_mode cutover. Its only callers were the deleted render_frame_tick()
+ * / render_frame_tick_work() bodies. All actionscript-frame stepping now goes
+ * through run_actionscript_frame_step() (park-propagating, below) + the
+ * GAME_MODE_ACTIONSCRIPT_FRAME mode that finishes a parked frame. */

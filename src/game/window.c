@@ -2663,15 +2663,11 @@ void update_hppp_meter_and_render(void) {
     wait_for_vblank();
 }
 
-/* Run-to-completion form of update_hppp_meter_and_render(): same work, but the
- * frame render uses render_frame_tick_work() (no internal wait_for_vblank) so
- * the caller owns the yield. Used by mode-stack step functions. */
-void update_hppp_meter_work(void) {
-    update_hppp_meter_prepare();
-    render_frame_tick_work();
-}
+/* The blocking update_hppp_meter_work() (pump-bridge form) was deleted in the
+ * final pump_mode cutover; callers use the park-propagating
+ * update_hppp_meter_work_step()/_flush() split below. */
 
-/* Park-propagating split of update_hppp_meter_work() (savestate D4b): a parked
+/* Park-propagating split (savestate D4b): a parked
  * actionscript callroutine becomes a STEP_PUSH instead of a nested pump_mode.
  * _step() returns true iff a frame parked — the caller must push
  * GAME_MODE_ACTIONSCRIPT_FRAME (actionscript_frame_take_push) and call _flush() at

@@ -2961,11 +2961,8 @@ int32_t mode_pop(int32_t result);
  * step to branch on the child's pop value. Returns child_result[depth-1]. */
 int32_t mode_child_result(void);
 
-/* Migration bridge: push `mode` (with optional initial state) and run it — and
- * any children it pushes — to completion using a LOCAL host_process_frame()
- * yield, then return its pop_result. Lets a still-blocking parent invoke an
- * already-converted child. Deleted at cutover, when the root loop is the only
- * pump. Returns 0 early if the user requested quit. */
-int32_t pump_mode(GameMode mode, const ModeState *init);
+/* The pump_mode() migration bridge was deleted at the final cutover: the root
+ * loop's host_process_frame() is now the program's only yield point. Mode steps
+ * STEP_PUSH children onto the single root mode stack instead. */
 
 #endif /* EB_CORE_MODE_STACK_H */

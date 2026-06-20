@@ -376,20 +376,11 @@ static bool window_tick_prepare(void) {
     return true;
 }
 
-void window_tick(void) {
-    if (window_tick_prepare())
-        render_frame_tick();
-}
+/* The blocking window_tick() and window_tick_work() (pump-bridge forms) were
+ * deleted in the final pump_mode cutover. All callers use the park-propagating
+ * window_tick_work_step()/_flush() split or window_tick_no_actionscript(). */
 
-/* Run-to-completion form of window_tick(): identical work, but the frame render
- * uses render_frame_tick_work() (no internal wait_for_vblank). The caller owns
- * the yield. Used by mode-stack step functions during the savestate migration. */
-void window_tick_work(void) {
-    if (window_tick_prepare())
-        render_frame_tick_work();
-}
-
-/* Park-propagating split of window_tick_work() (savestate D4b). A mode-step caller
+/* Park-propagating split of window_tick (savestate D4b). A mode-step caller
  * does `if (window_tick_work_step()) { st->phase = <FLUSH>; return
  * actionscript_frame_take_push(); }` and runs window_tick_work_flush() at <FLUSH>
  * on the child's pop. _step() returns true ONLY when an actionscript frame parked;

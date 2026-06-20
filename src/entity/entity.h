@@ -552,8 +552,8 @@ int16_t create_entity(uint16_t sprite, uint16_t script, int16_t index,
 /* Deactivate an entity and free its scripts */
 void deactivate_entity(int16_t entity_offset);
 
-/* Run one frame of the action script system (RUN_ACTIONSCRIPT_FRAME) */
-void run_actionscript_frame(void);
+/* run_actionscript_frame() (blocking RUN_ACTIONSCRIPT_FRAME, pump_mode bridge)
+ * deleted in the final pump_mode cutover; use run_actionscript_frame_step(). */
 
 /* Sync palettes[] to ppu.cgram — call during vblank */
 void sync_palettes_to_cgram(void);

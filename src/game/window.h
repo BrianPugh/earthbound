@@ -481,10 +481,8 @@ void fill_character_pp_tile_buffer(uint16_t id, uint8_t *afflictions,
  * bg2_buffer to VRAM, runs UPDATE_HPPP_METER_TILES, then RENDER_FRAME_TICK. */
 void update_hppp_meter_and_render(void);
 
-/* Run-to-completion form of update_hppp_meter_and_render(): same work, but the
- * frame render uses render_frame_tick_work() (no internal wait_for_vblank) so
- * the caller owns the yield. Used by mode-stack step functions. */
-void update_hppp_meter_work(void);
+/* update_hppp_meter_work() (blocking pump-bridge form) deleted in the final
+ * pump_mode cutover; use update_hppp_meter_work_step()/_flush() below. */
 
 /* Park-propagating split of update_hppp_meter_work() (savestate D4b): _step()
  * returns true iff an actionscript frame parked — the caller must push

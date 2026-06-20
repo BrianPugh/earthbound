@@ -1472,23 +1472,9 @@ StepResult mode_step_wait_frames(ModeState *ms) {
  * The assembly version also:
  *   - Checks RENDER_HPPP_WINDOWS flag → UPDATE_TEXT_WINDOW_PALETTE
  *   - Checks BATTLE_MODE_FLAG → WAIT_AND_UPDATE_BATTLE_EFFECTS_FAR */
-void render_frame_tick(void) {
-    if (ow.render_hppp_windows & 0xFF)
-        update_text_window_palette();
-
-    /* Assembly: if BATTLE_MODE_FLAG, JSL WAIT_AND_UPDATE_BATTLE_EFFECTS_FAR and return.
-     * WAIT_AND_UPDATE_BATTLE_EFFECTS = WAIT_UNTIL_NEXT_FRAME + UPDATE_BATTLE_SCREEN_EFFECTS. */
-    if (bt.battle_mode_flag) {
-        wait_for_vblank();
-        update_battle_screen_effects();
-        return;
-    }
-
-    oam_clear();
-    run_actionscript_frame();
-    update_screen();
-    wait_for_vblank();
-}
+/* render_frame_tick() (blocking pump-bridge form) was deleted in the final
+ * pump_mode cutover. Mode steps use render_frame_tick_work_step()/_flush(); the
+ * synchronous "show frame" beats use render_frame_tick_no_actionscript() (below). */
 
 /* ---- RENDER_FRAME_TICK_WORK (run-to-completion half of render_frame_tick) ----
  *
@@ -1502,19 +1488,10 @@ void render_frame_tick(void) {
  * the effects first, then the caller yields. This matches the shift already
  * accepted for GAME_MODE_FADE_WAIT's FADE_TICK_BATTLE_EFFECTS and is imperceptible
  * (the effects animate a frame earlier within the same fade/menu). */
-void render_frame_tick_work(void) {
-    if (ow.render_hppp_windows & 0xFF)
-        update_text_window_palette();
-
-    if (bt.battle_mode_flag) {
-        update_battle_screen_effects();
-        return;
-    }
-
-    oam_clear();
-    run_actionscript_frame();
-    update_screen();
-}
+/* render_frame_tick_work() (blocking pump-bridge form) was deleted in the final
+ * pump_mode cutover — its only callers were the deleted window_tick_work() /
+ * update_hppp_meter_work() bodies. The park-propagating render_frame_tick_work_
+ * step()/_flush() split below is the surviving form. */
 
 /* ---- RENDER_FRAME_TICK_WORK, park-propagating split (savestate D4b) ----
  *
