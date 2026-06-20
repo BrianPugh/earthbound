@@ -88,19 +88,12 @@ typedef struct {
     /* OAM address state */
     uint16_t oam_addr;
 
-    /* Per-scanline window positions (HDMA emulation for oval window) */
-    uint8_t wh0_table[EB_VIEWPORT_HEIGHT]; /* window 1 left per scanline */
-    uint8_t wh1_table[EB_VIEWPORT_HEIGHT]; /* window 1 right per scanline */
-    bool window_hdma_active;        /* use per-scanline tables instead of static wh0/wh1 */
-
-    uint8_t wh2_table[EB_VIEWPORT_HEIGHT]; /* window 2 left per scanline */
-    uint8_t wh3_table[EB_VIEWPORT_HEIGHT]; /* window 2 right per scanline */
-    bool window2_hdma_active;       /* use per-scanline tables instead of static wh2/wh3 */
-
-    /* Per-scanline TM/TS override (HDMA emulation for letterbox effect) */
-    uint8_t tm_per_scanline[EB_VIEWPORT_HEIGHT];
-    uint8_t ts_per_scanline[EB_VIEWPORT_HEIGHT];
-    bool tm_hdma_active;
+    /* HDMA-emulation enables. The per-scanline tables these gate are derived render
+     * scratch and live at the END of this struct (see the savestate boundary below);
+     * the flags themselves are persistent state and stay in the serialized prefix. */
+    bool window_hdma_active;        /* use wh0/wh1_table instead of static wh0/wh1 */
+    bool window2_hdma_active;       /* use wh2/wh3_table instead of static wh2/wh3 */
+    bool tm_hdma_active;            /* use tm/ts_per_scanline (letterbox effect) */
 
     /* Per-layer viewport mode (C port extension, not real SNES hardware).
      * Controls how each BG layer fills the extended viewport area.
@@ -115,6 +108,21 @@ typedef struct {
      * scenes that use explicit viewport fill. Defaults to 0. */
     int16_t sprite_x_offset;
     int16_t sprite_y_offset;
+
+    /* ---- Savestate boundary -------------------------------------------------------
+     * Everything ABOVE is serialized: SECTION_PPU copies the fixed-size prefix up to
+     * here (offsetof(PPUState, wh0_table)). Everything BELOW is per-scanline HDMA
+     * scratch sized by EB_VIEWPORT_HEIGHT, rebuilt from higher-level state before each
+     * frame's render (same derived-render-cache contract as swirl_window_hdma_buffer
+     * in oval_window.c). It is deliberately EXCLUDED from the savestate so the format
+     * is fixed-size and portable across builds with different viewport dimensions.
+     * Keep these arrays last and add no serialized field after them. */
+    uint8_t wh0_table[EB_VIEWPORT_HEIGHT]; /* window 1 left per scanline */
+    uint8_t wh1_table[EB_VIEWPORT_HEIGHT]; /* window 1 right per scanline */
+    uint8_t wh2_table[EB_VIEWPORT_HEIGHT]; /* window 2 left per scanline */
+    uint8_t wh3_table[EB_VIEWPORT_HEIGHT]; /* window 2 right per scanline */
+    uint8_t tm_per_scanline[EB_VIEWPORT_HEIGHT];
+    uint8_t ts_per_scanline[EB_VIEWPORT_HEIGHT];
 } PPUState;
 
 /* Global PPU state */

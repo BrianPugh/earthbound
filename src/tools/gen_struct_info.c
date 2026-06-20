@@ -609,12 +609,20 @@ int main(void) {
     FIELD(PPUState, vram_addr, "u16"); SEP();
     FIELD(PPUState, vmain, "u8"); SEP();
     FIELD(PPUState, oam_addr, "u16"); SEP();
-    BLOB_FIELD(PPUState, wh0_table); SEP();
-    BLOB_FIELD(PPUState, wh1_table); SEP();
     FIELD(PPUState, window_hdma_active, "bool"); SEP();
+    FIELD(PPUState, window2_hdma_active, "bool"); SEP();
+    FIELD(PPUState, tm_hdma_active, "bool"); SEP();
     FIELD(PPUState, bg_viewport_fill, "u8[4]"); SEP();
     FIELD(PPUState, sprite_x_offset, "i16"); SEP();
-    LAST_FIELD(PPUState, sprite_y_offset, "i16");
+    FIELD(PPUState, sprite_y_offset, "i16"); SEP();
+    /* Per-scanline HDMA scratch (EB_VIEWPORT_HEIGHT-sized, viewport-dependent). Kept
+     * last in PPUState and excluded from the savestate — see snes/ppu.h. */
+    BLOB_FIELD(PPUState, wh0_table); SEP();
+    BLOB_FIELD(PPUState, wh1_table); SEP();
+    BLOB_FIELD(PPUState, wh2_table); SEP();
+    BLOB_FIELD(PPUState, wh3_table); SEP();
+    BLOB_FIELD(PPUState, tm_per_scanline); SEP();
+    LAST_BLOB_FIELD(PPUState, ts_per_scanline);
     END_SECTION();
 
     SEP();

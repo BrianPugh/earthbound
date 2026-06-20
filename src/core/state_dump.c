@@ -9,6 +9,7 @@
  * and a capture fails safe (returns false) instead of tearing. */
 
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "core/memory.h"
@@ -48,14 +49,18 @@
  * the AUDIT in docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 9  /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 10 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
                                * v8: crash-safe persistence (item #4) — added seq +
                                * payload CRC-32 to the header (validate-on-load).
                                * v9: storage moved onto the platform_savestate_* slot
-                               * backend (item #5) — added payload_len to the header. */
+                               * backend (item #5) — added payload_len to the header.
+                               * v10: SECTION_PPU now serializes only the fixed PPUState
+                               * prefix — the EB_VIEWPORT_HEIGHT-sized per-scanline HDMA
+                               * tables are excluded (derived render scratch), making the
+                               * format portable across viewport dimensions. */
 
 /* Section IDs */
 enum {
@@ -139,7 +144,20 @@ _Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
 _Static_assert(sizeof(dt)                   == 152,   "ABI: dt");
 _Static_assert(sizeof(win)                  == 12952, "ABI: win");
 _Static_assert(sizeof(ml)                   == 16970, "ABI: ml");
-_Static_assert(sizeof(ppu)                  == 68510, "ABI: ppu");
+/* SECTION_PPU serializes only the fixed PREFIX of PPUState — everything before the
+ * per-scanline HDMA tables (wh0/wh1/wh2/wh3_table, tm/ts_per_scanline), which are
+ * EB_VIEWPORT_HEIGHT-sized derived render scratch deliberately excluded so the format
+ * stays fixed-size and portable across viewport dimensions (see the savestate boundary
+ * comment in snes/ppu.h). The prefix is viewport-independent, so its size is a plain
+ * constant again; a stray pointer/size_t/short-enum in the prefix still trips this. */
+_Static_assert(offsetof(PPUState, wh0_table) == 67166, "ABI: ppu");
+/* The six per-scanline tables must be EXACTLY the tail of PPUState — nothing serialized
+ * may follow them, or it would be silently dropped from the save. This pins that: prefix
+ * + the six EB_VIEWPORT_HEIGHT-sized uint8_t tables == the whole struct. Any field added
+ * after the tables (or a table inserted/removed) trips this right here, next to the
+ * serialization, rather than relying on the LAST_BLOB_FIELD guard in gen_struct_info.c. */
+_Static_assert(offsetof(PPUState, wh0_table) + 6 * EB_VIEWPORT_HEIGHT == sizeof(PPUState),
+               "PPUState: serialized prefix + per-scanline tables must cover the whole struct");
 _Static_assert(sizeof(pb)                   == 2952,  "ABI: pb");
 _Static_assert(sizeof(dr)                   == 44,    "ABI: dr");
 _Static_assert(sizeof(ert)                  == 24392, "ABI: ert");
@@ -216,7 +234,7 @@ static int build_section_table(StateSection *t) {
     ADD(SECTION_DISPLAY_TEXT,     &dt,                  sizeof(dt));
     ADD(SECTION_WINDOW,           &win,                 sizeof(win));
     ADD(SECTION_MAP_LOADER,       &ml,                  sizeof(ml));
-    ADD(SECTION_PPU,              &ppu,                 sizeof(ppu));
+    ADD(SECTION_PPU,              &ppu,                 offsetof(PPUState, wh0_table));
     ADD(SECTION_POSITION_BUFFER,  &pb,                  sizeof(pb));
     ADD(SECTION_DOOR,             &dr,                  sizeof(dr));
     ADD(SECTION_ENTITY_RUNTIME,   &ert,                 sizeof(ert));
