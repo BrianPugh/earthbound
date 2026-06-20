@@ -1737,6 +1737,8 @@ typedef enum {
     FOP_CT_CLEAN3,   /* undraw + blank-screen frame */
     FOP_CT_DONE,     /* fade_in + POP */
     FOP_RTC_FLUSH,   /* resume after a parked force/blank frame: flush, -> resume_phase */
+    FOP_CT_INIT_BODY, /* flyover_init_screen body (VRAM build) + blank-screen frame */
+    FOP_CT_SETUP_A2,  /* oam_clear + load_background_animation start force-blank frame */
 } FlyoverPhase;
 
 typedef struct {

@@ -273,9 +273,13 @@ static void set_bg3_vram_location(uint16_t tilemap_size, uint16_t tilemap_base,
  *   6. Upload tilemap to VRAM
  *   7. Initialize flyover state variables
  * ====================================================================== */
-static void flyover_init_screen(void) {
-    force_blank_and_wait_vblank();
-
+/* The synchronous middle of flyover_init_screen() — everything between the
+ * leading force-blank and the trailing blank-screen frame. Exposed so the
+ * mode-step (FOP_CT_INIT_BODY) can run it between its own park-propagating
+ * force/blank frames; the blocking flyover_init_screen() wrapper below keeps it
+ * for the callroutine-context caller (play_flyover_script_prepare), which can't
+ * park (disable_actionscript is set in a callroutine). */
+static void flyover_init_screen_body(void) {
     /* SET_BG3_VRAM_LOCATION(NORMAL, TEXT_LAYER_TILEMAP=0x7C00, TEXT_LAYER_TILES=0x6000) */
     set_bg3_vram_location(0, VRAM_TEXT_LAYER_TILEMAP, VRAM_TEXT_LAYER_TILES);
 
@@ -341,7 +345,16 @@ static void flyover_init_screen(void) {
     flyover_vwf_y = 0;
     flyover_pixel_offset = 0;
     flyover_byte_offset = 0;
+}
 
+/* Blocking INIT_FLYOVER_TEXT_SCREEN: force-blank frame, VRAM build, blank-screen
+ * frame. Used only by the callroutine-context caller (play_flyover_script_prepare),
+ * where disable_actionscript is set so neither frame can park. The mode-step
+ * (FOP_CT_SETUP_A/FOP_CT_INIT_BODY) drives the same three steps with
+ * park-propagating force/blank frames instead. */
+static void flyover_init_screen(void) {
+    force_blank_and_wait_vblank();
+    flyover_init_screen_body();
     blank_screen_and_wait_vblank();
 }
 
@@ -666,7 +679,27 @@ StepResult mode_step_flyover(ModeState *st) {
             continue;
 
         case FOP_CT_SETUP_A:
-            flyover_init_screen();
+            /* flyover_init_screen() leading force-blank frame (park-propagating). */
+            s->resume_phase = FOP_CT_INIT_BODY;
+            if (force_blank_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            s->phase = FOP_CT_INIT_BODY;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_INIT_BODY:
+            /* flyover_init_screen() VRAM build, then its trailing blank-screen frame. */
+            flyover_init_screen_body();
+            s->resume_phase = FOP_CT_SETUP_A2;
+            if (blank_screen_and_wait_vblank_work_step()) {
+                s->phase = FOP_RTC_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            s->phase = FOP_CT_SETUP_A2;
+            return STEP_RESULT_CONTINUE();
+
+        case FOP_CT_SETUP_A2:
             oam_clear();
             /* load_background_animation() start */
             s->resume_phase = FOP_CT_SETUP_B;
