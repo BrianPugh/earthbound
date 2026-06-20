@@ -20,7 +20,7 @@ ModeStack g_mode_stack = {
 
 /* GAME_MODE_FADE_WAIT — run per-frame "tick" work until the active brightness
  * fade completes (fade_parameters::step == 0), then pop. The single yield is
- * owned by the caller (pump_mode today, the root loop after cutover), so the
+ * owned by the root loop, so the
  * body here NEVER calls wait_for_vblank()/host_process_frame() itself.
  *
  * Ported from the blocking loops:

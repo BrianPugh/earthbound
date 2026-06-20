@@ -56,8 +56,8 @@ bool dt_make_child_init(union ModeState *init, uint32_t addr);
 
 /* No-yield runners for instant-print text (set_instant_printing() contexts).
  * Drive GAME_MODE_DISPLAY_TEXT to completion with NO host_process_frame() yield,
- * letting instant-print callers (menu hover text, the status window) avoid the
- * blocking pump_mode() bridge. Valid only because instant printing never enters
+ * letting instant-print callers (menu hover text, the status window) print without
+ * a yield (and without a STEP_PUSH frame). Valid only because instant printing never enters
  * the typewriter DT_DELAY phase and never pushes a yielding child; if the script
  * parks anyway, they warn and force-unwind rather than hang. */
 void display_text_inline(const uint8_t *script, size_t script_size);

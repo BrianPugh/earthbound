@@ -37,7 +37,7 @@ bool game_is_fast_forward(void);
  * "recommended build order" item #1) ─────────────────────────────────────────────
  * A snapshot is restorable only when taken at a root-loop boundary, where all logical
  * state lives in the serialized structures (mode stack + RAM) and no game logic is
- * suspended mid-C-stack inside a pump_mode or a blocking helper. So a capture request
+ * suspended mid-C-stack inside a synchronous blocking helper. So a capture request
  * does NOT snapshot immediately: it sets a pending flag, host_process_frame() then
  * free-runs (skips render + vblank pacing but keeps the per-frame logic running) so
  * any finite blocking helper unwinds to the root in CPU time, and host_root_boundary()
@@ -53,13 +53,13 @@ void host_request_capture(void);
 
 /* Request a savestate restore at the next root-loop boundary. Like the capture
  * request, this free-runs the C stack back to the root before acting — loading
- * replaces the mode stack wholesale, which is only coherent with no nested pump
- * frames suspended on the C stack. Idempotent while one is already pending. */
+ * replaces the mode stack wholesale, which is only coherent with no game logic
+ * suspended on the C stack. Idempotent while one is already pending. */
 void host_request_load(void);
 
 /* Perform a pending capture if one was requested, then clear the request. MUST be
- * called ONLY from the outermost host loop (the root boundary) — never from the
- * nested host_process_frame() inside pump_mode or a blocking helper, or the snapshot
+ * called ONLY from the outermost host loop (the root boundary) — never while a
+ * mode-step or a synchronous blocking helper is mid-execution, or the snapshot
  * would be torn. A no-op when nothing is pending. */
 void host_root_boundary(void);
 

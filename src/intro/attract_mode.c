@@ -272,7 +272,7 @@ void run_attract_mode_prepare(uint16_t scene_index) {
    *
    * The assembly does NOT clear ow.camera_focus_entity here — the camera
    * naturally follows the focus entity (sprite 106, invisible pathfinder)
-   * during the entire scene via render_frame_tick()'s scroll update.
+   * during the entire scene via render_frame_tick_work_step()'s scroll update.
    * This is what makes the view pan across the map through the oval window.
    *
    * Entity position tracking:

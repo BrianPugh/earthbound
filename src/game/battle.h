@@ -1141,11 +1141,7 @@ void force_blank_and_wait_vblank(void);
 /* BLANK_SCREEN_AND_WAIT_VBLANK — like above but keeps HDMA and fade. */
 void blank_screen_and_wait_vblank(void);
 
-/* Run-to-completion halves of the two helpers above: the same work without the
- * trailing wait_for_vblank(), for mode-stack steps where the pump owns the yield. */
-void force_blank_and_wait_vblank_work(void);
-void blank_screen_and_wait_vblank_work(void);
-/* Park-propagating split forms (savestate cutover): return true iff an actionscript
+/* Park-propagating forms (savestate cutover): return true iff an actionscript
  * frame parked (caller STEP_PUSHes ACTIONSCRIPT_FRAME, runs render_frame_tick_work_flush()
  * on resume). For mode-step callers; the plain _work() forms keep the blocking pump. */
 bool force_blank_and_wait_vblank_work_step(void);

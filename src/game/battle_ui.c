@@ -544,35 +544,28 @@ void enemy_flashing_on(uint16_t row, uint16_t enemy) {
  * cancels any active fade, then waits for one VBlank.
  * After VBlank, writes 0 to HDMAEN hardware register.
  */
-/* Run-to-completion half: the force-blank work without the trailing yield (the
- * pump/root loop owns the single host_process_frame). Used by mode steps. */
-void force_blank_and_wait_vblank_work(void) {
+void force_blank_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
     bg2_distortion_active = false;
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
-    /* Present the blanked screen WITHOUT advancing an actionscript frame: the
-     * blocking force_blank_and_wait_vblank() callers are all can't-park contexts
-     * (battle, or overworld setup with disable_actionscript set, where
-     * run_actionscript_frame would early-out anyway), so this avoids the nested
-     * pump. The mode-step callers use the park-propagating *_work_step() form. */
+    /* Present the blanked screen WITHOUT advancing an actionscript frame: every
+     * caller of this blocking wrapper is a can't-park context (battle, or overworld
+     * setup with disable_actionscript set), so this avoids a nested pump. Mode-step
+     * callers use the park-propagating force_blank_and_wait_vblank_work_step() form. */
     render_frame_tick_no_actionscript();
-}
-
-void force_blank_and_wait_vblank(void) {
-    force_blank_and_wait_vblank_work();
     wait_for_vblank();
 }
 
-/* Park-propagating split of force_blank_and_wait_vblank_work() (savestate cutover):
- * same force-blank setup, but the frame render uses render_frame_tick_work_step() so a
+/* Park-propagating form of force_blank_and_wait_vblank() (savestate cutover): same
+ * force-blank setup, but the frame render uses render_frame_tick_work_step() so a
  * parked callroutine becomes a STEP_PUSH instead of a nested pump. A mode-step caller:
  *     if (force_blank_and_wait_vblank_work_step()) { st->phase = <FLUSH>;
  *                                                    return actionscript_frame_take_push(); }
  * and runs render_frame_tick_work_flush() at <FLUSH> on the child's pop. Returns true
- * ONLY when an actionscript frame parked. The blocking _work() form is kept for the
- * blocking force_blank_and_wait_vblank() wrapper (synchronous, non-savestate contexts). */
+ * ONLY when an actionscript frame parked. Synchronous (non-savestate) callers use the
+ * blocking force_blank_and_wait_vblank() wrapper above instead. */
 bool force_blank_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
@@ -1828,20 +1821,15 @@ void restore_bg_palette_and_enable_display(void) {
  * Force-blanks the screen (INIDISP = 0x80) and waits for one VBlank.
  * Unlike FORCE_BLANK_AND_WAIT_VBLANK, does not disable HDMA or cancel fade.
  */
-/* Run-to-completion half (no trailing yield). Used by mode steps. */
-void blank_screen_and_wait_vblank_work(void) {
-    ppu.inidisp = 0x80;
-    /* No-actionscript present (see force_blank_and_wait_vblank_work): the blocking
-     * callers are can't-park; the mode-step callers use *_work_step(). */
-    render_frame_tick_no_actionscript();
-}
-
 void blank_screen_and_wait_vblank(void) {
-    blank_screen_and_wait_vblank_work();
+    ppu.inidisp = 0x80;
+    /* No-actionscript present (see force_blank_and_wait_vblank): every caller of this
+     * blocking wrapper is can't-park; mode-step callers use *_work_step(). */
+    render_frame_tick_no_actionscript();
     wait_for_vblank();
 }
 
-/* Park-propagating split of blank_screen_and_wait_vblank_work() (savestate cutover).
+/* Park-propagating form of blank_screen_and_wait_vblank() (savestate cutover).
  * See force_blank_and_wait_vblank_work_step() for the caller contract; the only
  * difference is this form does not disable HDMA or cancel the fade. */
 bool blank_screen_and_wait_vblank_work_step(void) {

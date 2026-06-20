@@ -1091,9 +1091,9 @@ bool cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init
     case CS_ONCHANGE_EQUIPMENT:   show_equipment_and_stats_callback(char_id); return false;
     case CS_ONCHANGE_PSI_LIST:    display_character_psi_list(char_id);        return false;
     case CS_ONCHANGE_STATUS:
-        /* display_status_window prints label strings via display_text(), which
-         * pump_modes GAME_MODE_DISPLAY_TEXT internally. That text is instant-printed
-         * (no typewriter yield) so the nested pump completes within one frame and is
+        /* display_status_window prints label strings via display_text_inline(), which
+         * runs GAME_MODE_DISPLAY_TEXT to completion with no yield. That text is
+         * instant-printed (no typewriter) so it finishes within one frame and is
          * never a savestate point; converting it to a STEP_PUSH (splitting the
          * window's before/after work) is deferred until its blocking parent — the
          * Status pause-menu (Phase C) — is converted. */

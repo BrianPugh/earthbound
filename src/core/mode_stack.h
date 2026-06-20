@@ -20,11 +20,12 @@
  * with its own hoisted state. A savestate is then state_dump_save() plus this
  * ModeStack.
  *
- * Migration is leaf -> root. Until the root loop is the only pump, a still-
- * blocking parent drives an already-converted child with pump_mode(), which runs
- * the child's step functions to completion using a LOCAL host_process_frame()
- * yield. pump_mode is deleted at cutover. See
- * docs/plans/savestate-unified-loop.md.
+ * The migration (leaf -> root) is COMPLETE: the root loop's host_process_frame()
+ * is the program's only yield point. A parent mode that needs a child runs it via
+ * STEP_PUSH onto this same stack; there is no longer any local/nested pump. (The
+ * former pump_mode() bridge that drove a child to completion with a LOCAL
+ * host_process_frame() loop was deleted at cutover.) See
+ * docs/plans/savestate-unified-loop.md and docs/plans/pump-mode-removal.md.
  * ------------------------------------------------------------------------- */
 
 typedef enum {
@@ -2584,7 +2585,7 @@ StepResult actionscript_frame_take_push(void);
 
 /* GAME_MODE_NUMBER_SELECT step (defined in display_text_cc.c, where the text/
  * window helpers it needs live). Declared here so the dispatch table can wire it
- * up. Init via ModeState.number_select before pump_mode(GAME_MODE_NUMBER_SELECT).
+ * up. Init via ModeState.number_select before STEP_PUSH GAME_MODE_NUMBER_SELECT.
  * Pops the entered value, or -1 on cancel. */
 StepResult mode_step_number_select(ModeState *st);
 
@@ -2595,29 +2596,29 @@ StepResult mode_step_actionscript_wait(ModeState *st);
 StepResult mode_step_text_prompt(ModeState *st);
 
 /* GAME_MODE_CHAR_SELECT step (defined in battle.c). Init via
- * ModeState.char_select before pump_mode(GAME_MODE_CHAR_SELECT). Pops the 1-based
+ * ModeState.char_select before STEP_PUSH GAME_MODE_CHAR_SELECT. Pops the 1-based
  * party member ID, or 0 on cancel. */
 StepResult mode_step_char_select(ModeState *st);
 
 /* GAME_MODE_SELECTION_MENU step (defined in window.c, where selection_menu's
  * helpers and the cursor VRAM layout live). Init via ModeState.selection_menu
- * (phase = SM_SETUP, allow_cancel) before pump_mode(GAME_MODE_SELECTION_MENU).
+ * (phase = SM_SETUP, allow_cancel) before STEP_PUSH GAME_MODE_SELECTION_MENU.
  * Pops the chosen item's userdata, or 0 on cancel. */
 StepResult mode_step_selection_menu(ModeState *st);
 
 /* GAME_MODE_TOWN_MAP step (defined in town_map.c). Init via ModeState.town_map
- * (phase = TM_LOAD_BEGIN, menu_mode, map_id) before pump_mode(GAME_MODE_TOWN_MAP).
+ * (phase = TM_LOAD_BEGIN, menu_mode, map_id) before STEP_PUSH GAME_MODE_TOWN_MAP.
  * Always pops 0; the caller derives its return value from its own state. */
 StepResult mode_step_town_map(ModeState *st);
 
 /* GAME_MODE_SOUND_STONE step (defined in display_text_menus.c). Init via
  * ModeState.sound_stone (phase = SS_SETUP1, cancellable) before
- * pump_mode(GAME_MODE_SOUND_STONE). Always pops 0. */
+ * STEP_PUSH GAME_MODE_SOUND_STONE. Always pops 0. */
 StepResult mode_step_sound_stone(ModeState *st);
 
 /* GAME_MODE_DEBUG_YMENU step (defined in game_main.c). Init via
  * ModeState.debug_ymenu (phase = DY_DRAW, kind, index) before
- * pump_mode(GAME_MODE_DEBUG_YMENU). Always pops 0. */
+ * STEP_PUSH GAME_MODE_DEBUG_YMENU. Always pops 0. */
 StepResult mode_step_debug_ymenu(ModeState *st);
 
 /* GAME_MODE_DEBUG_GOODS step (defined in game_main.c). Init via
@@ -2630,7 +2631,7 @@ StepResult mode_step_debug_menu(ModeState *st);
 
 /* GAME_MODE_BATTLE_WAIT step (defined in battle.c, where the swirl/PSI/meter
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for
- * BW_FRAMES) before pump_mode(GAME_MODE_BATTLE_WAIT). Always pops 0. */
+ * BW_FRAMES) before STEP_PUSH GAME_MODE_BATTLE_WAIT. Always pops 0. */
 StepResult mode_step_battle_wait(ModeState *st);
 
 /* GAME_MODE_LOAD_BATTLE_SCENE — see LoadBattleSceneState above. Init via
@@ -2650,23 +2651,23 @@ StepResult mode_step_battle_enemy_select(ModeState *st);
 /* GAME_MODE_NAMING_EVENTS step (defined in file_select.c, where the naming-
  * entity tables and render_frame_tick_naming_work_step()/_flush() live). Init via
  * ModeState.naming_events (phase = NE_WAIT_PENDING, naming_index) before
- * pump_mode(GAME_MODE_NAMING_EVENTS). Always pops 0. */
+ * STEP_PUSH GAME_MODE_NAMING_EVENTS. Always pops 0. */
 StepResult mode_step_naming_events(ModeState *st);
 
 /* GAME_MODE_TEXT_INPUT step (defined in file_select.c). Init via
- * ModeState.text_input before pump_mode(GAME_MODE_TEXT_INPUT). Pops 0 on confirm
+ * ModeState.text_input before STEP_PUSH GAME_MODE_TEXT_INPUT. Pops 0 on confirm
  * (name written to the resolved target buffer), -1 on cancel. */
 StepResult mode_step_text_input(ModeState *st);
 
 /* GAME_MODE_NAMING_PROMPT step (defined in file_select.c). Init via
- * ModeState.naming_prompt (name_tile_cols) before pump_mode(GAME_MODE_NAMING_
- * PROMPT). Always pops 0 (a button was pressed). */
+ * ModeState.naming_prompt (name_tile_cols) before STEP_PUSH GAME_MODE_NAMING_
+ * PROMPT. Always pops 0 (a button was pressed). */
 StepResult mode_step_naming_prompt(ModeState *st);
 
 /* GAME_MODE_SCREEN_TRANSITION step (defined in door.c, where the transition
  * helpers and the ert/dr/ppu state it touches are visible). Init via
  * ModeState.screen_transition (phase = ST_EXIT_BODY or ST_ENTER_BODY) before
- * pump_mode(GAME_MODE_SCREEN_TRANSITION). Always pops 0. */
+ * STEP_PUSH GAME_MODE_SCREEN_TRANSITION. Always pops 0. */
 StepResult mode_step_screen_transition(ModeState *st);
 
 /* GAME_MODE_WAIT_FRAMES step (defined in overworld.c). Init via
@@ -2685,8 +2686,8 @@ StepResult mode_step_ending(ModeState *st);
 StepResult mode_step_window_border_anim(ModeState *st);
 
 /* GAME_MODE_PALETTE_FADE step (defined in overworld_palette.c). Init via
- * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_
- * FADE). Pops 0 normally; the skippable kinds pop -1 if a button was pressed. */
+ * ModeState.palette_fade (kind, remaining) before STEP_PUSH GAME_MODE_PALETTE_
+ * FADE. Pops 0 normally; the skippable kinds pop -1 if a button was pressed. */
 StepResult mode_step_palette_fade(ModeState *st);
 
 /* GAME_MODE_MAP_PALETTE_FADE step (defined in map_loader.c, where the sprite-
@@ -2696,41 +2697,41 @@ StepResult mode_step_map_palette_fade(ModeState *st);
 
 /* GAME_MODE_MOSAIC_FADE step (defined in callroutine.c). Init via
  * ModeState.mosaic_fade (kind, step, delay, mosaic_bgs, final_hdma) before
- * pump_mode(GAME_MODE_MOSAIC_FADE). Always pops 0. */
+ * STEP_PUSH GAME_MODE_MOSAIC_FADE. Always pops 0. */
 StepResult mode_step_mosaic_fade(ModeState *st);
 
 /* GAME_MODE_FLYOVER step (defined in flyover.c, where the flyover render helpers
  * and module statics live). Init via ModeState.flyover (kind, phase = FOP_S_PARSE
- * or FOP_CT_FADEOUT1, id, pos, script_size, …) before pump_mode(GAME_MODE_
- * FLYOVER). Always pops 0. */
+ * or FOP_CT_FADEOUT1, id, pos, script_size, …) before STEP_PUSH GAME_MODE_
+ * FLYOVER. Always pops 0. */
 StepResult mode_step_flyover(ModeState *st);
 
 /* GAME_MODE_INTRO_LOGO step (defined in logo_screen.c). Init via
  * ModeState.intro_logo (phase = LG_LOAD, logo_idx = 0) before
- * pump_mode(GAME_MODE_INTRO_LOGO). Pops 0 normally, 1 on a button skip. */
+ * STEP_PUSH GAME_MODE_INTRO_LOGO. Pops 0 normally, 1 on a button skip. */
 StepResult mode_step_intro_logo(ModeState *st);
 
 /* GAME_MODE_GAS_STATION step (defined in gas_station.c). Init via
  * ModeState.gas_station (phase = GS_PH1, fade_delay_left = 11,
- * brightness_fading = 1, remaining = 236) before pump_mode(GAME_MODE_GAS_STATION).
+ * brightness_fading = 1, remaining = 236) before STEP_PUSH GAME_MODE_GAS_STATION.
  * Pops 0 on a full run, 1 on a button skip. */
 StepResult mode_step_gas_station(ModeState *st);
 
 /* GAME_MODE_TITLE_SCREEN step (defined in title_screen.c). Init via
  * ModeState.title_screen (phase = TS_WARMUP, quick_mode) before
- * pump_mode(GAME_MODE_TITLE_SCREEN). Pops 0 on time-out (attract mode), 1 on a
+ * STEP_PUSH GAME_MODE_TITLE_SCREEN. Pops 0 on time-out (attract mode), 1 on a
  * button press (file select). */
 StepResult mode_step_title_screen(ModeState *st);
 
 /* GAME_MODE_ATTRACT step (defined in attract_mode.c). Init via ModeState.attract
- * (phase = AT_MAIN) before pump_mode(GAME_MODE_ATTRACT) — the wrapper runs the
+ * (phase = AT_MAIN) before STEP_PUSH GAME_MODE_ATTRACT — the wrapper runs the
  * one-shot setup + the blocking scene script first. Pops the button-pressed
  * flag (1 if a button ended the scene, else 0). */
 StepResult mode_step_attract_mode(ModeState *st);
 
 /* GAME_MODE_FILE_MENU step (defined in file_select.c). Init via
- * ModeState.file_menu (phase = FM_FADEIN_WAIT) before pump_mode(GAME_MODE_FILE_
- * MENU). Pops 1 when a game starts/loads, 0 on quit. */
+ * ModeState.file_menu (phase = FM_FADEIN_WAIT) before STEP_PUSH GAME_MODE_FILE_
+ * MENU. Pops 1 when a game starts/loads, 0 on quit. */
 StepResult mode_step_file_menu(ModeState *st);
 
 /* GAME_MODE_NEW_GAME_NAMING step (defined in file_select.c). Init via
@@ -2751,7 +2752,7 @@ StepResult mode_step_special_event(ModeState *st);
 StepResult mode_step_enter_name(ModeState *st);
 
 /* GAME_MODE_INIT_INTRO step (defined in init_intro.c). Init via
- * ModeState.init_intro (phase = II_LOGO) before pump_mode(GAME_MODE_INIT_INTRO).
+ * ModeState.init_intro (phase = II_LOGO) before STEP_PUSH GAME_MODE_INIT_INTRO.
  * Pops 0. */
 StepResult mode_step_init_intro(ModeState *st);
 
@@ -2762,7 +2763,7 @@ StepResult mode_step_display_text(ModeState *st);
 
 /* GAME_MODE_TEXT_WAIT_FADE step (defined in overworld_interaction.c). Init with
  * ModeState.text_wait_fade (phase = TWF_TEXT, text_addr) before
- * pump_mode(GAME_MODE_TEXT_WAIT_FADE). Drives the overworld text-interaction
+ * STEP_PUSH GAME_MODE_TEXT_WAIT_FADE. Drives the overworld text-interaction
  * primitive: disable entities, push DISPLAY_TEXT, wait for the entity fade-out,
  * re-enable entities. Always pops 0. GAME_MODE_ENTITY_FADE_WAIT (the wait child)
  * is defined in mode_stack.c and takes no init. */
@@ -2770,12 +2771,12 @@ StepResult mode_step_text_wait_fade(ModeState *st);
 
 /* GAME_MODE_PROCESS_INTERACTION step (defined in overworld_interaction.c). Init
  * with ModeState.process_interaction (phase = PI_DISPATCH) before
- * pump_mode(GAME_MODE_PROCESS_INTERACTION). Always pops 0. */
+ * STEP_PUSH GAME_MODE_PROCESS_INTERACTION. Always pops 0. */
 StepResult mode_step_process_interaction(ModeState *st);
 
 /* GAME_MODE_DOOR_TRANSITION step (defined in door.c). Init with
  * ModeState.door_transition (phase = DTR_BEGIN, door_ptr) before
- * pump_mode(GAME_MODE_DOOR_TRANSITION). Always pops 0. */
+ * STEP_PUSH GAME_MODE_DOOR_TRANSITION. Always pops 0. */
 StepResult mode_step_door_transition(ModeState *st);
 
 /* GAME_MODE_TELEPORT_TO step (defined in door.c). Init with
@@ -2785,12 +2786,12 @@ StepResult mode_step_teleport_to(ModeState *st);
 
 /* GAME_MODE_QUICK_CHECKTALK step (defined in text.c). Init with
  * ModeState.quick_checktalk (phase = QCT_TEXT) before
- * pump_mode(GAME_MODE_QUICK_CHECKTALK). Always pops 0. */
+ * STEP_PUSH GAME_MODE_QUICK_CHECKTALK. Always pops 0. */
 StepResult mode_step_quick_checktalk(ModeState *st);
 
 /* GAME_MODE_PAUSE_MENU step (defined in text.c, where the command-menu /
  * inventory / give helpers live). Init with ModeState.pause_menu
- * (phase = PM_ENTER) before pump_mode(GAME_MODE_PAUSE_MENU). Always pops 0. */
+ * (phase = PM_ENTER) before STEP_PUSH GAME_MODE_PAUSE_MENU. Always pops 0. */
 StepResult mode_step_pause_menu(ModeState *st);
 
 /* GAME_MODE_EQUIP_MENU step (defined in text.c, where equipment_change_menu and
@@ -2805,7 +2806,7 @@ StepResult mode_step_status_menu(ModeState *st);
 
 /* GAME_MODE_HPPP_DISPLAY step (defined in text.c). Init with
  * ModeState.hppp_display (phase = HD_ENTER) before
- * pump_mode(GAME_MODE_HPPP_DISPLAY). Always pops 0. */
+ * STEP_PUSH GAME_MODE_HPPP_DISPLAY. Always pops 0. */
 StepResult mode_step_hppp_display(ModeState *st);
 
 /* GAME_MODE_PSI_MENU step (defined in text.c, where the PSI list/details

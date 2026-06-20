@@ -2039,8 +2039,8 @@ StepResult mode_step_display_text(ModeState *ms) {
 
 /* No-yield runner for instant-print text. Drives GAME_MODE_DISPLAY_TEXT to
  * completion with NO host_process_frame() yield — the keystone that lets
- * instant-print callers (menu hover text, the status window) stop using the
- * blocking pump_mode() bridge.
+ * instant-print callers (menu hover text, the status window) print without a yield
+ * (and without the extra frame a STEP_PUSH would add).
  *
  * Valid only when the text is instant-printed: set_instant_printing() makes the
  * main loop `continue` past every typewriter delay (no DT_DELAY phase) and such

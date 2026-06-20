@@ -448,8 +448,9 @@ void host_process_frame(void) {
         platform_video_set_vsync(!fast_forward_active);
     }
     /* F6 (save) / F7 (load): request the action rather than performing it here —
-     * this host_process_frame() may be a nested yield inside pump_mode or a blocking
-     * helper, where a save would be torn and a load (replacing the mode stack) would
+     * this host_process_frame() may be reached while a mode-step or a synchronous
+     * blocking helper is mid-execution, where a save would be torn and a load
+     * (replacing the mode stack) would
      * corrupt the suspended parent. host_root_boundary() services it at the root loop. */
     if (aux_new & AUX_SAVESTATE)
         host_request_capture();
