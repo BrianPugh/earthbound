@@ -1243,6 +1243,17 @@ typedef enum {
     SM_MOVE_RESUME,  /* finish a cursor move after a deferred cursor-callback text push */
 } SelectionMenuPhase;
 
+/* Park-resume markers: which of the mode's window_tick_work / update_hppp_meter_work
+ * frames parked an actionscript callroutine, so its tail runs at the flush. */
+typedef enum {
+    SMF_NONE = 0,
+    SMF_SETUP,   /* sm_setup_finish's setup window frame */
+    SMF_MOVE,    /* a cursor move's window frame */
+    SMF_PAGE1,   /* overflow page-flip first-half window frame */
+    SMF_PAGE2,   /* SM_PAGE2 re-render window frame */
+    SMF_MAIN,    /* SM_MAIN per-frame HP/PP meter frame */
+} SelectionMenuFlush;
+
 typedef struct {
     uint8_t  phase;         /* SelectionMenuPhase */
     uint8_t  allow_cancel;  /* selection_menu() arg */
@@ -1253,6 +1264,8 @@ typedef struct {
                              * focus on SM_*_RESUME before the menu-less-window early-out
                              * (a deferred cursor-callback text push moves focus away) */
     uint16_t frame_counter; /* frames since last cursor toggle */
+    uint8_t  sm_flush;      /* park-resume marker (SelectionMenuFlush): which window/
+                             * meter frame parked, so its tail runs after the push */
 } SelectionMenuState;
 
 /* GAME_MODE_TOWN_MAP — run-to-completion port of display_town_map() (overworld X

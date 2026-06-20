@@ -1476,7 +1476,7 @@ static StepResult sm_push_pending_text(void) {
 /* SM_SETUP first half (assembly lines 38-176): restore persisted selection, clear
  * the previous highlight, run the initial hover script + cursor_move_callback.
  * Returns true if the callback requested deferred (yielding) text — the caller then
- * STEP_PUSHes GAME_MODE_DISPLAY_TEXT and finishes via sm_setup_post() on resume.
+ * STEP_PUSHes GAME_MODE_DISPLAY_TEXT and finishes via sm_setup_finish() on resume.
  * Non-yielding. */
 static bool sm_setup_pre(WindowInfo *w) {
     /* Restore persisted selection if valid, otherwise start at 0.
@@ -1531,7 +1531,7 @@ static bool sm_setup_pre(WindowInfo *w) {
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
         w->cursor_move_callback(val);
         /* A callback that requested yielding text defers the rest (set_window_focus
-         * + window_tick) to sm_setup_post() after the pushed DISPLAY_TEXT pops, so
+         * + window_tick) to sm_setup_finish() after the pushed DISPLAY_TEXT pops, so
          * the text renders into the callback's window before focus returns. */
         if (sm_pending_cursor_text)
             return true;
@@ -1539,29 +1539,11 @@ static bool sm_setup_pre(WindowInfo *w) {
     return false;
 }
 
-/* SM_SETUP second half: restore focus to the menu window after the callback's
- * window/text, then the single setup window_tick. Runs inline (no deferred text) or
- * at SM_SETUP_RESUME after the pushed DISPLAY_TEXT pops. */
-static void sm_setup_post(WindowInfo *w) {
-    /* Assembly lines 157-158: restore focus to the menu window after the callback. */
-    if (w->cursor_move_callback && w->current_option < w->menu_count)
-        set_window_focus(w->id);
-
-    /* Assembly line 186: JSL WINDOW_TICK — render all windows, upload
-     * win.bg2_buffer to VRAM, run one full frame. This is the ONLY place
-     * windows are rendered in the selection loop; the per-frame loop just does
-     * HP/PP + frame tick. window_tick_work() omits the yield (caller owns it). */
-    clear_instant_printing();
-    window_tick_work();
-}
-
-/* Finish SM_SETUP: the post (focus restore + setup window_tick) plus the cursor/
- * frame init, then advance to SM_MAIN. Shared by the no-deferred-text path and
- * SM_SETUP_RESUME so neither adds an extra yield. */
-static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
-    sm_setup_post(w);
-    /* Assembly line 188: cursor_frame starts at 1, then immediately toggles
-     * to 0 at @CURSOR_BLINK_LOOP. */
+/* SM_SETUP cursor/frame init tail (assembly line 188): runs after the setup
+ * window frame completes, then advances to SM_MAIN. Shared by the inline path and
+ * the SMF_SETUP flush resume. */
+static StepResult sm_setup_finish_tail(SelectionMenuState *st) {
+    /* cursor_frame starts at 1, then immediately toggles to 0 at @CURSOR_BLINK_LOOP. */
     st->cursor_frame  = 1;
     st->redraw_cursor = 1;
     st->frame_counter = 0;
@@ -1570,19 +1552,44 @@ static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
     return STEP_RESULT_CONTINUE();   /* yield #1 (the setup window_tick) */
 }
 
+/* Finish SM_SETUP: restore focus to the menu window, run the one setup window
+ * frame (park-propagating), then the cursor/frame init tail. Shared by the
+ * no-deferred-text path and SM_SETUP_RESUME so neither adds an extra yield. */
+static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
+    /* Assembly lines 157-158: restore focus to the menu window after the callback. */
+    if (w->cursor_move_callback && w->current_option < w->menu_count)
+        set_window_focus(w->id);
+
+    /* Assembly line 186: JSL WINDOW_TICK — render all windows, upload bg2_buffer
+     * to VRAM, run one full frame. On a parked actionscript callroutine, push it
+     * and finish the cursor init at the SMF_SETUP flush. */
+    clear_instant_printing();
+    if (window_tick_work_step()) {
+        st->sm_flush = SMF_SETUP;
+        return actionscript_frame_take_push();
+    }
+    return sm_setup_finish_tail(st);
+}
+
 /* Tail of a cursor move (assembly @SETUP_CURRENT_OPTION lines 102-122 + line 160):
- * run the option's hover script (instant), one window_tick, and arm the render-only
- * next frame. Runs inline after a non-deferring callback, or at SM_MOVE_RESUME after
- * a deferred DISPLAY_TEXT push pops. */
-static void sm_move_finish(WindowInfo *w, SelectionMenuState *st) {
+ * run the option's hover script (instant), one window_tick (park-propagating), and
+ * arm the render-only next frame at SM_MAIN. Runs inline after a non-deferring
+ * callback, or at SM_MOVE_RESUME after a deferred DISPLAY_TEXT push pops. On a
+ * parked window frame, the redraw/primed/SM_MAIN tail runs at the SMF_MOVE flush. */
+static StepResult sm_move_tick(WindowInfo *w, SelectionMenuState *st) {
     if (w->menu_items[w->current_option].script != 0) {
         set_instant_printing();
         display_text_from_addr_inline(w->menu_items[w->current_option].script);
     }
     clear_instant_printing();
-    window_tick_work();
+    if (window_tick_work_step()) {
+        st->sm_flush = SMF_MOVE;
+        return actionscript_frame_take_push();
+    }
     st->redraw_cursor = 1;
     st->primed = 0;
+    st->phase = SM_MAIN;
+    return STEP_RESULT_CONTINUE();
 }
 
 /* SM_MAIN input handling (assembly @CURSOR_BLINK_LOOP body after the per-frame
@@ -1673,8 +1680,7 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
                  * callback might have changed it. */
                 set_window_focus(w->id);
             }
-            sm_move_finish(w, st);
-            return STEP_RESULT_CONTINUE();
+            return sm_move_tick(w, st);
         }
     }
 
@@ -1715,10 +1721,14 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
                 w->menu_page_number++;
 
             /* Page-flip first half (assembly): clear content, one window_tick
-             * yield. SM_PAGE2 finishes the re-render after this CONTINUE. */
+             * yield. SM_PAGE2 finishes the re-render after this CONTINUE; a parked
+             * window frame resumes at the SMF_PAGE1 flush. */
             clear_instant_printing();
             clear_window_tilemap(w->id);
-            window_tick_work();
+            if (window_tick_work_step()) {
+                st->sm_flush = SMF_PAGE1;
+                return actionscript_frame_take_push();
+            }
             st->phase = SM_PAGE2;
             st->primed = 0;
             return STEP_RESULT_CONTINUE();
@@ -1770,12 +1780,46 @@ StepResult mode_step_selection_menu(ModeState *ms) {
     /* Resuming after a deferred cursor-callback text push: the pushed DISPLAY_TEXT
      * left focus on its own (menu-less) window, so restore focus to the menu window
      * BEFORE deriving w — otherwise the early-out below would POP and close the menu. */
-    if (st->phase == SM_SETUP_RESUME || st->phase == SM_MOVE_RESUME)
+    if (st->phase == SM_SETUP_RESUME || st->phase == SM_MOVE_RESUME || st->sm_flush)
         set_window_focus(st->menu_window);
 
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0)
         return STEP_RESULT_POP(0);
+
+    /* Resume after a parked actionscript frame: finish that frame's render, then
+     * run the parked site's tail. menu_window focus is restored above so w is the
+     * menu window even if the parked actionscript child moved focus. */
+    if (st->sm_flush) {
+        uint8_t f = st->sm_flush;
+        st->sm_flush = SMF_NONE;
+        switch (f) {
+        case SMF_SETUP:
+            window_tick_work_flush();
+            return sm_setup_finish_tail(st);
+        case SMF_MOVE:
+            window_tick_work_flush();
+            st->redraw_cursor = 1;
+            st->primed = 0;
+            st->phase = SM_MAIN;
+            return STEP_RESULT_CONTINUE();
+        case SMF_PAGE1:
+            window_tick_work_flush();
+            st->phase = SM_PAGE2;
+            st->primed = 0;
+            return STEP_RESULT_CONTINUE();
+        case SMF_PAGE2:
+            window_tick_work_flush();
+            st->redraw_cursor = 1;
+            st->primed = 0;
+            st->phase = SM_MAIN;
+            return STEP_RESULT_CONTINUE();
+        case SMF_MAIN:
+        default:
+            update_hppp_meter_work_flush();
+            return STEP_RESULT_CONTINUE();
+        }
+    }
 
     switch ((SelectionMenuPhase)st->phase) {
     case SM_SETUP:
@@ -1795,9 +1839,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
         /* Resume a cursor move after its deferred description text popped:
          * restore focus, run the hover-script tail + window_tick, back to SM_MAIN. */
         set_window_focus(w->id);
-        sm_move_finish(w, st);
-        st->phase = SM_MAIN;
-        return STEP_RESULT_CONTINUE();
+        return sm_move_tick(w, st);
 
     case SM_PAGE2:
         /* Second half of an overflow page-flip (assembly): redraw items for the
@@ -1813,7 +1855,10 @@ StepResult mode_step_selection_menu(ModeState *ms) {
             }
         }
         clear_instant_printing();
-        window_tick_work();
+        if (window_tick_work_step()) {
+            st->sm_flush = SMF_PAGE2;
+            return actionscript_frame_take_push();
+        }
         st->redraw_cursor = 1;
         st->primed        = 0;
         st->phase         = SM_MAIN;
@@ -1832,11 +1877,15 @@ StepResult mode_step_selection_menu(ModeState *ms) {
         /* Render half (assembly @CURSOR_BLINK_LOOP draw + @INPUT_TICK):
          * Per-frame tick = UPDATE_HPPP_METER_AND_RENDER (HP_PP_ROLLER +
          * COPY_HPPP_WINDOW_TO_VRAM + UPDATE_HPPP_METER_TILES + RENDER_FRAME_TICK).
-         * update_hppp_meter_work() does that minus the yield. */
+         * update_hppp_meter_work_step() does that minus the yield; on a parked
+         * actionscript frame, finish it at the SMF_MAIN flush. */
         st->primed = 1;
         if (st->redraw_cursor)
             sm_draw_cursor(w, st);
-        update_hppp_meter_work();
+        if (update_hppp_meter_work_step()) {
+            st->sm_flush = SMF_MAIN;
+            return actionscript_frame_take_push();
+        }
         return STEP_RESULT_CONTINUE();
     }
 }
