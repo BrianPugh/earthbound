@@ -432,10 +432,6 @@ void set_window_palette_index(uint16_t palette_index);
  * Writes a tile-level character to the focus window, plays SFX, and delays. */
 void print_char_with_sound(uint16_t tile_code);
 
-/* DISPATCH_WINDOW_BORDER_ANIMATION: Port of asm/text/window/dispatch_window_border_animation.asm.
- * mode=1: animate border tiles (ROW1), mode=2: animate with HPPP updates. */
-void dispatch_window_border_animation(uint16_t mode);
-
 /* DRAW_HP_PP_WINDOW: Port of asm/text/hp_pp_window/draw.asm.
  * Draws the full HP/PP window (border, name, HP digits, PP digits) for
  * the given party slot into bg2_buffer. Near function (called from bank C2). */

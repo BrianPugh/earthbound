@@ -100,7 +100,11 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_window_id,
                     uint32_t *out_saved_argmem);
 void cc_1b_dispatch(ScriptReader *r);
-void cc_1c_dispatch(ScriptReader *r);
+/* cc_1c_dispatch: most sub-ops run inline and return false. Sub 0x08
+ * (window border flash, mode 1/2) instead fills out_init/out_mode
+ * (GAME_MODE_WINDOW_BORDER_ANIM to STEP_PUSH — no result to store) and returns
+ * true. The caller (mode_step_display_text) zeroes *out_init before the call. */
+bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode);
 void cc_1d_dispatch(ScriptReader *r);
 /* cc_1e_dispatch: most sub-ops run inline and return false. Sub 0x09
  * GIVE_EXPERIENCE with a level-up pending instead fills out_init/out_mode

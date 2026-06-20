@@ -1980,7 +1980,17 @@ StepResult mode_step_display_text(ModeState *ms) {
             break;
         }
         case 0x1B: cc_1b_dispatch(r); break;
-        case 0x1C: cc_1c_dispatch(r); break;
+        case 0x1C: {
+            /* Most CC_1C sub-ops run inline; the window border flash (sub 0x08,
+             * mode 1/2) requests a GAME_MODE_WINDOW_BORDER_ANIM child push. */
+            static ModeState cc1c_init;  /* outlives this dispatch (pump copies it) */
+            memset(&cc1c_init, 0, sizeof(cc1c_init));
+            GameMode child_mode = GAME_MODE_NONE;
+            if (cc_1c_dispatch(r, &cc1c_init, &child_mode)) {
+                return STEP_RESULT_PUSH_INIT(child_mode, &cc1c_init);
+            }
+            break;
+        }
         case 0x1D: cc_1d_dispatch(r); break;
         case 0x1E: {
             /* Most CC_1E sub-ops run inline; GIVE_EXPERIENCE (sub 0x09) with a

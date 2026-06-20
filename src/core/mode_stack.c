@@ -146,6 +146,7 @@ static const ModeStepFn mode_step[GAME_MODE_COUNT] = {
     [GAME_MODE_SCREEN_TRANSITION]   = mode_step_screen_transition,   /* door.c */
     [GAME_MODE_WAIT_FRAMES]         = mode_step_wait_frames,         /* overworld.c */
     [GAME_MODE_ENDING]              = mode_step_ending,              /* ending.c */
+    [GAME_MODE_WINDOW_BORDER_ANIM]  = mode_step_window_border_anim,  /* window.c */
     [GAME_MODE_PALETTE_FADE]        = mode_step_palette_fade,        /* overworld_palette.c */
     [GAME_MODE_MAP_PALETTE_FADE]    = mode_step_map_palette_fade,    /* map_loader.c */
     [GAME_MODE_MOSAIC_FADE]         = mode_step_mosaic_fade,         /* callroutine.c */

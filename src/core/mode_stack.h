@@ -102,6 +102,7 @@ typedef enum {
     GAME_MODE_TELEPHONE_MENU,      /* phone directory menu + contact text (open_telephone_menu) */
     GAME_MODE_WAIT_FRAMES,         /* render N frames (mode form of wait_frames_with_updates) */
     GAME_MODE_ENDING,              /* end-of-game cast scene + staff credits (play_cast_scene/play_credits) */
+    GAME_MODE_WINDOW_BORDER_ANIM,  /* CC_1C_08 window border flash (animate_window_border[_with_hppp]) */
     GAME_MODE_COUNT,
 } GameMode;
 
@@ -255,6 +256,30 @@ typedef struct {
     uint8_t  phase;     /* WaitFramesPhase */
     uint16_t remaining; /* frames left to render */
 } WaitFramesState;
+
+/* GAME_MODE_WINDOW_BORDER_ANIM — run-to-completion port of the blocking window
+ * border-flash effect (animate_window_border / animate_window_border_with_hppp,
+ * window.c), reached only via CC_1C_08 (display_text_cc.c) inside DISPLAY_TEXT.
+ * The original stepped through the border tiles one window_tick() frame each
+ * (mode 1) — or 4 tile frames, 8 HP/PP-meter frames, then 5 tile frames
+ * (mode 2). Each frame is a yielding phase that renders via the park-propagating
+ * window_tick_work_step() / update_hppp_meter_work_step() split, so a callroutine
+ * parked during overworld dialogue becomes a STEP_PUSH of ACTIONSCRIPT_FRAME
+ * (resumed at the matching *_FLUSH) instead of a nested pump_mode. */
+typedef enum {
+    WBA_TILE = 0,    /* write the current border tile, then run its window_tick frame */
+    WBA_TILE_FLUSH,  /* resume after a parked window_tick frame: flush, advance, continue */
+    WBA_HPPP,        /* mode 2: run one HP/PP-meter frame */
+    WBA_HPPP_FLUSH,  /* resume after a parked HP/PP-meter frame */
+} WindowBorderAnimPhase;
+
+typedef struct {
+    uint8_t phase;    /* WindowBorderAnimPhase */
+    uint8_t mode;     /* 1 = simple border, 2 = border + HP/PP meter halves */
+    uint8_t segment;  /* mode 2: 0 = first tile half, 2 = second tile half */
+    uint8_t index;    /* position within the current tile/meter segment */
+    uint8_t started;  /* 0 until the palette-3 prologue has run */
+} WindowBorderAnimState;
 
 /* GAME_MODE_ENDING — run-to-completion port of the two blocking end-of-game
  * sequences play_cast_scene() and play_credits() (asm/ending/). Each of their
@@ -2430,6 +2455,7 @@ union ModeState {
     ScreenTransitionState screen_transition;
     WaitFramesState       wait_frames;
     EndingState           ending;
+    WindowBorderAnimState window_border_anim;
     PaletteFadeState      palette_fade;
     MapPaletteFadeState   map_palette_fade;
     MosaicFadeState       mosaic_fade;
@@ -2637,6 +2663,11 @@ StepResult mode_step_wait_frames(ModeState *st);
  * (phase = EN_CAST_SETUP for the cast scene, EN_CR_SETUP for credits) before the
  * STEP_PUSH; runs the end-of-game sequence to completion and POPs 0. */
 StepResult mode_step_ending(ModeState *st);
+
+/* GAME_MODE_WINDOW_BORDER_ANIM step (defined in window.c). Init via
+ * ModeState.window_border_anim (mode = 1 or 2) before the STEP_PUSH; runs the
+ * border-flash animation to completion and POPs 0. */
+StepResult mode_step_window_border_anim(ModeState *st);
 
 /* GAME_MODE_PALETTE_FADE step (defined in overworld_palette.c). Init via
  * ModeState.palette_fade (kind, remaining) before pump_mode(GAME_MODE_PALETTE_

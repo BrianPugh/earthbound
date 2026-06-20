@@ -2429,7 +2429,7 @@ void cc_1b_dispatch(ScriptReader *r) {
 }
 
 
-void cc_1c_dispatch(ScriptReader *r) {
+bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -2554,9 +2554,16 @@ void cc_1c_dispatch(ScriptReader *r) {
     case 0x08: {
         /* PRINT_SPECIAL_GFX / DISPATCH_WINDOW_BORDER_ANIMATION: 1 arg (mode).
          * Port of CC_1C_08 (asm/text/ccs/print_special_graphics.asm).
-         * mode=1: animate window border, mode=2: animate border + HPPP update. */
+         * mode=1: animate window border, mode=2: animate border + HPPP update.
+         * The former blocking dispatch_window_border_animation() now STEP_PUSHes
+         * GAME_MODE_WINDOW_BORDER_ANIM (window.c); other mode values were no-ops
+         * in the original switch, so they fall through to `return false`. */
         uint8_t mode = script_read_byte(r);
-        dispatch_window_border_animation((uint16_t)mode);
+        if (mode == 1 || mode == 2) {
+            out_init->window_border_anim.mode = mode;
+            *out_mode = GAME_MODE_WINDOW_BORDER_ANIM;
+            return true;
+        }
         break;
     }
     case 0x09: {
@@ -2746,6 +2753,7 @@ void cc_1c_dispatch(ScriptReader *r) {
         FATAL("display_text: unknown CC 1C %02X\n", sub);
         break;
     }
+    return false;
 }
 
 

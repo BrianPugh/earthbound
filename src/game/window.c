@@ -1139,76 +1139,108 @@ static void load_border_anim_tiles(void) {
 }
 
 /*
- * ANIMATE_WINDOW_BORDER — Port of asm/text/window/animate_window_border.asm.
+ * GAME_MODE_WINDOW_BORDER_ANIM — run-to-completion port of the blocking window
+ * border-flash effect.  Replaces animate_window_border() (mode 1) and
+ * animate_window_border_with_hppp() (mode 2), formerly reached via
+ * dispatch_window_border_animation() from CC_1C_08 (display_text_cc.c).
  *
- * Sets palette to 3 (highlight), steps through ROW1 border tiles one per frame,
- * writing each via SET_TILE_ATTRIBUTE_AND_REDRAW + WINDOW_TICK.
- * Restores palette to 0 when done.
- */
-static void animate_window_border(void) {
-    load_border_anim_tiles();
-    if (!border_anim_tiles_row1) return;
-
-    set_window_palette_index(3);
-
-    const uint16_t *p = border_anim_tiles_row1;
-    while (*p != 0) {
-        set_tile_attribute_and_redraw(*p);
-        p++;
-        /* Assembly: WINDOW_TICK called once (loop count = 1) */
-        window_tick();
-    }
-
-    set_window_palette_index(0);
-}
-
-/*
- * ANIMATE_WINDOW_BORDER_WITH_HPPP — Port of asm/text/hp_pp_window/animate_window_border_with_hppp.asm.
+ * mode 1 (animate_window_border.asm): SET_WINDOW_PALETTE_INDEX(3), step through
+ *   the NUL-terminated ROW1 tiles one SET_TILE_ATTRIBUTE_AND_REDRAW + WINDOW_TICK
+ *   each, then SET_WINDOW_PALETTE_INDEX(0).
+ * mode 2 (animate_window_border_with_hppp.asm): like mode 1 but with ROW2 tiles —
+ *   the first 4 tiles, then 8 UPDATE_HPPP_METER_AND_RENDER frames (so the HP/PP
+ *   roller advances mid-animation), then the last 5 tiles.
  *
- * Like animate_window_border but uses ROW2 tiles and inserts 8 frames
- * of UPDATE_HPPP_METER_AND_RENDER between the first 4 and last 5 tiles.
- * This allows the HP/PP rolling counter to update during the animation.
+ * Each former WINDOW_TICK / UPDATE_HPPP_METER_AND_RENDER becomes one yielding
+ * frame using the park-propagating *_work_step()/_flush() split; on a parked
+ * actionscript callroutine (overworld dialogue can reach here) we STEP_PUSH
+ * ACTIONSCRIPT_FRAME and resume the render at the matching *_FLUSH phase.  The
+ * synchronous palette and segment transitions fall through without yielding,
+ * preserving the blocking original's exact frame count.
  */
-static void animate_window_border_with_hppp(void) {
-    load_border_anim_tiles();
-    if (!border_anim_tiles_row2) return;
+StepResult mode_step_window_border_anim(ModeState *ms) {
+    WindowBorderAnimState *st = &ms->window_border_anim;
 
-    set_window_palette_index(3);
-
-    const uint16_t *p = border_anim_tiles_row2;
-
-    /* First 4 tiles (assembly lines 13-36) */
-    for (int i = 0; i < BORDER_ANIM_ROW2_PART1; i++) {
-        set_tile_attribute_and_redraw(*p++);
-        window_tick();
+    /* One-time prologue: load tile data, then switch to the highlight palette.
+     * The asset-missing early-out happens BEFORE the palette change, matching the
+     * blocking `if (!border_anim_tiles_rowN) return;` guard. */
+    if (!st->started) {
+        load_border_anim_tiles();
+        const uint16_t *tiles = (st->mode == 2) ? border_anim_tiles_row2
+                                                : border_anim_tiles_row1;
+        if (!tiles)
+            return STEP_RESULT_POP(0);
+        set_window_palette_index(3);
+        st->started = 1;
     }
 
-    /* 8 frames of HPPP meter updates (assembly lines 37-48) */
-    for (int i = 0; i < HPPP_UPDATE_COUNT; i++) {
-        update_hppp_meter_and_render();
+    /* Resume after a parked frame: finish that frame's render, advance one step,
+     * and continue (the tile/meter position only advances once per frame). */
+    if (st->phase == WBA_TILE_FLUSH) {
+        window_tick_work_flush();
+        st->index++;
+        st->phase = WBA_TILE;
+        return STEP_RESULT_CONTINUE();
+    }
+    if (st->phase == WBA_HPPP_FLUSH) {
+        update_hppp_meter_work_flush();
+        st->index++;
+        st->phase = WBA_HPPP;
+        return STEP_RESULT_CONTINUE();
     }
 
-    /* Remaining 5 tiles (assembly lines 49-74) */
-    for (int i = 0; i < BORDER_ANIM_ROW2_PART2; i++) {
-        set_tile_attribute_and_redraw(*p++);
-        window_tick();
-    }
+    /* Synchronous segment transitions loop without yielding; a real frame of work
+     * returns out of the loop. */
+    for (;;) {
+        if (st->phase == WBA_HPPP) {
+            /* mode 2: 8 HP/PP-meter frames between the two tile halves. */
+            if (st->index < HPPP_UPDATE_COUNT) {
+                if (update_hppp_meter_work_step()) {
+                    st->phase = WBA_HPPP_FLUSH;
+                    return actionscript_frame_take_push();
+                }
+                st->index++;
+                return STEP_RESULT_CONTINUE();
+            }
+            st->segment = 2;      /* → second tile half (ROW2 tiles 4..8) */
+            st->index = 0;
+            st->phase = WBA_TILE;
+            continue;
+        }
 
-    set_window_palette_index(0);
-}
+        /* WBA_TILE: resolve the current border tile, or transition / finish. */
+        const uint16_t *tile = NULL;
+        if (st->mode == 2) {
+            if (st->segment == 0) {
+                if (st->index < BORDER_ANIM_ROW2_PART1) {
+                    tile = &border_anim_tiles_row2[st->index];
+                } else {
+                    st->segment = 1;   /* first half done → HP/PP meter frames */
+                    st->index = 0;
+                    st->phase = WBA_HPPP;
+                    continue;
+                }
+            } else if (st->index < BORDER_ANIM_ROW2_PART2) {
+                tile = &border_anim_tiles_row2[BORDER_ANIM_ROW2_PART1 + st->index];
+            }
+        } else if (border_anim_tiles_row1[st->index] != 0) {
+            tile = &border_anim_tiles_row1[st->index];
+        }
 
-/*
- * DISPATCH_WINDOW_BORDER_ANIMATION — Port of asm/text/window/dispatch_window_border_animation.asm.
- *
- * Dispatches border animation based on argument:
- *   1 → animate_window_border (simple border animation)
- *   2 → animate_window_border_with_hppp (border + HP/PP meter update)
- */
-void dispatch_window_border_animation(uint16_t mode) {
-    switch (mode) {
-    case 1: animate_window_border(); break;
-    case 2: animate_window_border_with_hppp(); break;
-    default: break;
+        if (!tile) {
+            /* All tiles drawn: restore palette 0 and pop, matching the blocking
+             * SET_WINDOW_PALETTE_INDEX(0) + return tail. */
+            set_window_palette_index(0);
+            return STEP_RESULT_POP(0);
+        }
+
+        set_tile_attribute_and_redraw(*tile);
+        if (window_tick_work_step()) {
+            st->phase = WBA_TILE_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        st->index++;
+        return STEP_RESULT_CONTINUE();
     }
 }
 
