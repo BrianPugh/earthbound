@@ -62,6 +62,12 @@ typedef struct {
 void frame_callback_savestate_pack(void *out);   /* out: FrameCallbackSaveState* */
 void frame_callback_savestate_unpack(const void *in);
 
+/* Regression guard (savestate cold-load): the credits asset pointers live
+ * outside any savestate section, so a restore into a later EN_CR_* phase must
+ * re-resolve them on demand. NULLs the caches, runs the resolver, and returns
+ * true iff all were re-resolved. Used by the savestate self-test. */
+bool ending_asset_selfheal_test(void);
+
 /* HANDLE_CAST_SCROLLING — tick callback for entity scripts during cast scene. */
 void handle_cast_scrolling(uint16_t current_entity_slot);
 

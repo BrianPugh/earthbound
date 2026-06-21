@@ -93,7 +93,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "savestate perturb (cold-load) self-test: %s\n", ok_pert ? "PASS" : "FAIL");
         bool ok_cs = state_dump_crashsafe_test();
         fprintf(stderr, "savestate crash-safe self-test: %s\n", ok_cs ? "PASS" : "FAIL");
-        exit((ok && ok_pert && ok_cs) ? 0 : 1);
+        bool ok_ap = state_dump_asset_pointer_test();
+        fprintf(stderr, "savestate asset-pointer self-test: %s\n", ok_ap ? "PASS" : "FAIL");
+        exit((ok && ok_pert && ok_cs && ok_ap) ? 0 : 1);
     }
 
     /* Initialize audio (loads audio packs from embedded assets) */

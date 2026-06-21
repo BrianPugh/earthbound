@@ -61,6 +61,36 @@ static size_t staff_text_size;
 static const uint8_t *party_cast_tile_ids_data;
 static const uint8_t *guardian_text_data;
 
+/* Resolve the credits/cast asset pointers. Like file_select.c's
+ * ensure_file_select_assets(), these are link-time-constant ASSET_DATA bases,
+ * but they are assigned in EN_CR_SETUP — a savestate restored into a later
+ * EN_CR_* phase (cross-process / cold load) would otherwise leave them NULL and
+ * render the credits blank. Idempotent; the EN_CR_HOLD teardown nulls them so a
+ * fresh credits run re-resolves here. */
+static void ensure_ending_credits_assets(void) {
+    if (staff_text_data) return; /* all resolved together */
+    photographer_cfg_data    = ASSET_DATA(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
+    photographer_cfg_size    = ASSET_SIZE(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
+    cast_seq_formatting_data = ASSET_DATA(ASSET_ENDING_CAST_SEQUENCE_FORMATTING_BIN);
+    staff_text_data          = ASSET_DATA(ASSET_ENDING_STAFF_TEXT_BIN);
+    staff_text_size          = ASSET_SIZE(ASSET_ENDING_STAFF_TEXT_BIN);
+    party_cast_tile_ids_data = ASSET_DATA(ASSET_ENDING_PARTY_CAST_TILE_IDS_BIN);
+    guardian_text_data       = ASSET_DATA(ASSET_ENDING_GUARDIAN_TEXT_BIN);
+}
+
+/* See ending.h. Mirrors a cold load: null the (un-sectioned) credits asset
+ * caches, then confirm the resolver re-resolves them all. */
+bool ending_asset_selfheal_test(void) {
+    staff_text_data          = NULL;
+    photographer_cfg_data    = NULL;
+    cast_seq_formatting_data = NULL;
+    party_cast_tile_ids_data = NULL;
+    guardian_text_data       = NULL;
+    ensure_ending_credits_assets();
+    return staff_text_data && photographer_cfg_data && cast_seq_formatting_data &&
+           party_cast_tile_ids_data && guardian_text_data;
+}
+
 /* Photograph map loading state — checked by map loader during photo rendering. */
 uint16_t photograph_map_loading_mode;
 uint16_t cur_photo_display;
@@ -1205,6 +1235,11 @@ static void initialize_credits_scene(void) {
 StepResult mode_step_ending(ModeState *st) {
     EndingState *s = &st->ending;
 
+    /* Self-heal the credits assets: a savestate restored into a later EN_CR_*
+     * phase may not have run EN_CR_SETUP in this process. No-op outside credits
+     * (resolved once, nulled at EN_CR_HOLD teardown). */
+    ensure_ending_credits_assets();
+
     for (;;) {
         switch ((EndingPhase)s->phase) {
 
@@ -1257,13 +1292,7 @@ StepResult mode_step_ending(ModeState *st) {
 
         /* ------------------- credits (play_credits) ------------------- */
         case EN_CR_SETUP: {
-            photographer_cfg_data = ASSET_DATA(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
-            photographer_cfg_size = ASSET_SIZE(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
-            cast_seq_formatting_data = ASSET_DATA(ASSET_ENDING_CAST_SEQUENCE_FORMATTING_BIN);
-            staff_text_data = ASSET_DATA(ASSET_ENDING_STAFF_TEXT_BIN);
-            staff_text_size = ASSET_SIZE(ASSET_ENDING_STAFF_TEXT_BIN);
-            party_cast_tile_ids_data = ASSET_DATA(ASSET_ENDING_PARTY_CAST_TILE_IDS_BIN);
-            guardian_text_data = ASSET_DATA(ASSET_ENDING_GUARDIAN_TEXT_BIN);
+            ensure_ending_credits_assets();
 
             ow.disabled_transitions = 1;
             initialize_credits_scene();

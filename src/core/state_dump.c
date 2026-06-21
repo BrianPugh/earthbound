@@ -36,6 +36,7 @@
 #include "game/flyover.h"
 #include "game/inventory.h"
 #include "game/ending.h"
+#include "intro/file_select.h"
 
 /* Container format (20-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"
@@ -658,4 +659,12 @@ bool state_dump_crashsafe_test(void) {
     if (state_dump_load_slots()) return false;
 
     return true;
+}
+
+/* See state_dump.h. Each module owns the list of its own un-sectioned asset
+ * caches (the perturb test can't reach them — they're in no section); add a
+ * sibling check here when a new module joins the ensure_* pattern. */
+bool state_dump_asset_pointer_test(void) {
+    return file_select_asset_selfheal_test()
+        && ending_asset_selfheal_test();
 }

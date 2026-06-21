@@ -11,6 +11,14 @@ typedef union ModeState ModeState;
  * then STEP_PUSHes GAME_MODE_FILE_MENU (phase FM_FADEIN_WAIT) to run the cascade. */
 void file_menu_setup(void);
 
+/* Regression guard (savestate cold-load): the file-select asset pointers live
+ * outside any savestate section, so a restore into the file-select/naming flow
+ * must re-resolve them on demand rather than dereferencing NULL (the meteorite-
+ * cutscene crash). NULLs the caches, drives a consumer + the resolver, and
+ * returns true iff all four pointers were re-resolved. Used by the savestate
+ * self-test. */
+bool file_select_asset_selfheal_test(void);
+
 /* Identifies the (stable global) buffer a naming dialog writes its result into.
  * The output buffer was a uint8_t* parameter; it is replaced by this ID so the
  * keyboard mode (GAME_MODE_TEXT_INPUT) can hoist its state into a POD ModeState

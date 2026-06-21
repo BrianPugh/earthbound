@@ -51,9 +51,43 @@ static const uint8_t *naming_prompts_data;
 #define INITIAL_STATS_ENTRY_SIZE 20
 static const uint8_t *initial_stats_data;
 
+/* Resolve the file-select asset pointers (don't-care names, HP-meter speeds,
+ * naming prompts, initial stats). These are link-time-constant ASSET_DATA bases,
+ * not runtime loads — but they must be resolved before any consumer reads them.
+ *
+ * file_menu_setup() resolves them on the normal path, but a savestate taken on
+ * the file-select/naming flow can be restored into a process where that setup
+ * never ran (cross-process / cold load). Every consumer therefore calls this
+ * idempotent guard first, matching the house pattern (inventory.c
+ * ensure_item_config, map_loader.c map_loader_init). Without it, the post-naming
+ * new-game init (NGN_FINALIZE) dereferenced a NULL initial_stats_data and
+ * faulted as the meteorite cutscene started. */
+static void ensure_file_select_assets(void) {
+    if (initial_stats_data) return; /* all four are resolved together */
+    dont_care_names_data = ASSET_DATA(ASSET_US_DATA_DONT_CARE_NAMES_BIN);
+    hp_meter_speeds_data = ASSET_DATA(ASSET_DATA_HP_METER_SPEEDS_BIN);
+    naming_prompts_data  = ASSET_DATA(ASSET_US_DATA_NAMING_PROMPTS_BIN);
+    initial_stats_data   = ASSET_DATA(ASSET_DATA_INITIAL_STATS_BIN);
+}
+
 /* Helper: get EB-encoded don't care name at [category][index] */
 static const uint8_t *get_dont_care_name(int category, int index) {
+    ensure_file_select_assets();
     return dont_care_names_data + (category * DONT_CARE_COUNT + index) * DONT_CARE_NAME_SIZE;
+}
+
+/* See file_select.h. Mirrors a cold load: null the (un-sectioned) asset caches,
+ * then confirm a consumer entry (get_dont_care_name) and the resolver re-resolve
+ * all four. */
+bool file_select_asset_selfheal_test(void) {
+    initial_stats_data   = NULL;
+    dont_care_names_data = NULL;
+    hp_meter_speeds_data = NULL;
+    naming_prompts_data  = NULL;
+    (void)get_dont_care_name(0, 0);   /* a consumer must self-heal its own ptr */
+    ensure_file_select_assets();      /* and the shared resolver */
+    return initial_stats_data && dont_care_names_data &&
+           hp_meter_speeds_data && naming_prompts_data;
 }
 
 /*
@@ -1326,6 +1360,11 @@ static ModeState ngn_child_init;
 StepResult mode_step_new_game_naming(ModeState *ms) {
     NewGameNamingState *st = &ms->new_game_naming;
 
+    /* Self-heal the file-select asset pointers: a savestate restored into this
+     * mode may not have run file_menu_setup() (covers naming_prompts_data +
+     * initial_stats_data; get_dont_care_name resolves its own). */
+    ensure_file_select_assets();
+
     for (;;) {
         switch ((NewGameNamingPhase)st->phase) {
         case NGN_ENTER:
@@ -1653,6 +1692,7 @@ static ModeState fm_child_init;
 /* Set the HP-meter rolling speed from the HP_METER_SPEEDS table by text_speed.
  * Assembly file_select_menu_loop.asm:665-678. */
 static void fm_set_hp_meter_speed(void) {
+    ensure_file_select_assets();
     int idx = (game_state.text_speed & 0xFF) - 1;
     if (idx < 0) idx = 0;
     if (idx > 2) idx = 2;
@@ -1981,11 +2021,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
  * Ported from FILE_SELECT_INIT + RUN_FILE_MENU in assembly.
  */
 void file_menu_setup(void) {
-    /* Load asset data for file select screen */
-    dont_care_names_data = ASSET_DATA(ASSET_US_DATA_DONT_CARE_NAMES_BIN);
-    hp_meter_speeds_data = ASSET_DATA(ASSET_DATA_HP_METER_SPEEDS_BIN);
-    naming_prompts_data = ASSET_DATA(ASSET_US_DATA_NAMING_PROMPTS_BIN);
-    initial_stats_data = ASSET_DATA(ASSET_DATA_INITIAL_STATS_BIN);
+    /* Load asset data for file select screen (consumers also resolve lazily). */
+    ensure_file_select_assets();
 
     /* Run the faithful FILE_SELECT_INIT sequence */
     file_select_init();

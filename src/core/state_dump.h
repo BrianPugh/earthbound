@@ -43,4 +43,12 @@ bool state_dump_perturb_test(void);
  * embedded. */
 bool state_dump_crashsafe_test(void);
 
+/* Un-sectioned asset-pointer self-test: some modules cache link-time-constant
+ * ASSET_DATA bases in file-static pointers that are NOT part of any savestate
+ * section (e.g. file_select.c's initial_stats_data). A cold load into such a
+ * mode leaves them NULL, which crashed the post-naming meteorite cutscene. This
+ * confirms each such module re-resolves its caches on demand (the ensure_*
+ * guards). Returns true on success. */
+bool state_dump_asset_pointer_test(void);
+
 #endif /* CORE_STATE_DUMP_H */
