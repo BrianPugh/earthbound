@@ -230,7 +230,7 @@ Requires SDL2 and the extracted assets from ebtools.
 
 **Architecture:** `src/` builds as a static library (`libgame.a`) containing all platform-agnostic game logic. Each port directory implements the `platform.h` interface and links against the library. See **[docs/porting-guide.md](docs/porting-guide.md)** for how to add a new platform port.
 
-- **`port/unix/`** — SDL2 desktop port (Windows/macOS/Linux). Primary development target; builds `earthbound_port`.
+- **`port/unix/`** — SDL2 desktop port (Windows/macOS/Linux). Primary development target; builds `build/earthbound`.
 - **`port/waveshare/pico-lcd-1.3/`** — RP2040 (Raspberry Pi Pico) embedded port for the Waveshare 1.3" LCD board (240x240 ST7789, 9 inputs). Playable, no audio yet.
 - **`port/snes/`** — Scaffolding for compiling the C port back to a native SNES ROM. Not yet functional — requires a 65816 C compiler (vbcc or Calypsi) and significant `src/` changes (removing coroutines, malloc, stdio). See `port/snes/README.md` for the full roadmap.
 - **`port/gw_retro_go/`** — Nintendo Game & Watch (STM32H7B0VB) embedded port. Compile-only scaffolding here; the real build is driven by the firmware repo [`game-and-watch-retro-go-sd`](https://github.com/sylverb/game-and-watch-retro-go-sd), which compiles `src/` directly into its multi-emulator launcher and provides the `platform_*` implementations. `CMakeLists.txt` here cross-compiles the stubs with `arm-none-eabi-gcc` as a `platform.h` interface-drift check. See `port/gw_retro_go/README.md`.
