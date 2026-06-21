@@ -281,6 +281,14 @@ StepResult mode_step_sound_stone(ModeState *st) {
         load_character_window_palette();
         /* Battle BG layers 228/229 (SOUNDSTONE1/2), no letterbox (style 4). */
         load_battle_bg(228, 229, 4);
+        /* load_battle_bg fills BG1/BG2 across the viewport and centers sprites
+         * vertically (sprite_y_offset), but leaves sprite_x_offset at 0. The
+         * melody indicators and center stone are drawn at raw SNES X coords
+         * (idle_x[i], center at 128); without a horizontal offset the whole ring
+         * sits in the left 256px of a wider viewport. Center it like the title
+         * and file-select scenes do. No-op at native res; reset by reload_map()
+         * on exit. */
+        ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
 
         s->collected_count = 0;
         for (int i = 0; i < 8; i++) {
@@ -488,8 +496,18 @@ render_sprites:
         sm2[2] = 0x3B; /* palette 5, priority 1 + hi priority */
         write_spritemap_to_oam(sm2, 128, 112);
 
-        /* Update screen and battle BG (assembly lines 496-502) */
-        update_screen();
+        /* Update screen and battle BG (assembly lines 496-502).
+         *
+         * The Sound Stone draws its melody/center sprites DIRECTLY via
+         * write_spritemap_to_oam (above), not through the priority queue. Calling
+         * the full update_screen() here would invoke render_all_priority_sprites(),
+         * which parks all 128 OAM slots and rebuilds only from the (empty) queue —
+         * wiping the sprites we just drew. The assembly's UPDATE_SCREEN is a no-op
+         * on OAM for a queue-less scene (its RENDER_ALL_PRIORITY_SPRITES relies on
+         * the preceding OAM_CLEAR rather than re-parking), so its only effect here
+         * is the palette sync. Mirror that — and render_all_battle_sprites(), which
+         * is the other direct-write scene — by syncing palettes only. */
+        sync_palettes_to_cgram();
         generate_battlebg_frame(&loaded_bg_data_layer1, 0);
         generate_battlebg_frame(&loaded_bg_data_layer2, 1);
 
