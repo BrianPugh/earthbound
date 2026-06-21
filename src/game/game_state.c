@@ -357,6 +357,34 @@ void reset_hppp_rolling(void) {
     fastest_hppp_meter_speed = 1;
 }
 
+/* On-cartridge SRAM signature stamped into every valid block header. Real
+ * EarthBound's CHECK_BLOCK_SIGNATURE (asm/system/saves/check_block_signature.asm)
+ * STRCMPs the 28-byte header against this; a mismatch makes it ERASE the block.
+ * From asm/data/sram_signature.asm — ASCIIZ, the remaining bytes stay zero. */
+static const char SRAM_BLOCK_SIGNATURE[] = "HAL Laboratory, inc.";
+
+/* Byte offset (within the SRAM image / .srm file) of the 16-bit SRAM version
+ * word. Real EarthBound's CHECK_SRAM_INTEGRITY reads SAVE_BASE + $1FFE on boot
+ * and, if it != SRAM_VERSION, memsets the ENTIRE 8 KB SRAM to zero (wiping every
+ * slot). SAVE_BASE is file offset 0, so this is just $1FFE. Writing it keeps a
+ * port-written .srm from being reformatted when loaded on real hardware/snes9x. */
+#define SRAM_VERSION_WORD_OFFSET 0x1FFE
+/* Full on-cartridge SRAM size. snes9x sizes the .srm from the ROM's SRAM header
+ * and will not load a file that is short of this. The 6 save blocks only cover
+ * the first 7680 bytes; padding out to 8192 makes the file the size emulators
+ * expect (the gap stays zero). */
+#define SRAM_IMAGE_SIZE 0x2000
+
+/* Stamp the on-cartridge metadata that real EarthBound validates but the port's
+ * own (checksum-only) loader ignores: the per-slot writes leave the version word
+ * and file tail untouched, so refresh them on every save. */
+static bool write_sram_version_word(void) {
+    uint8_t ver[2] = { (uint8_t)(SRAM_VERSION & 0xFF), (uint8_t)(SRAM_VERSION >> 8) };
+    /* Writing 2 bytes at $1FFE extends the file to the full 8 KB SRAM image
+     * (the unwritten gap between the save blocks and here is zero-filled). */
+    return platform_save_write(ver, SRAM_VERSION_WORD_OFFSET, sizeof(ver));
+}
+
 /* Compute ADD checksum for a save block.
  * Port of CALC_SAVE_BLOCK_ADD_CHECKSUM (asm/system/saves/calc_save_block_checksum.asm):
  * sums every byte of the save data (excluding the header). */
@@ -397,6 +425,12 @@ bool save_game(int slot) {
     memcpy(block->party_characters, party_characters, sizeof(party_characters));
     memcpy(block->event_flags, event_flags, sizeof(block->event_flags));
 
+    /* Stamp the on-cartridge block signature so real EarthBound's
+     * CHECK_BLOCK_SIGNATURE accepts the slot instead of erasing it. The checksums
+     * below cover only game_state onward (header excluded), so this does not
+     * affect them — matching the assembly, which signs during format/erase. */
+    memcpy(block->header.signature, SRAM_BLOCK_SIGNATURE, sizeof(SRAM_BLOCK_SIGNATURE));
+
     /* Compute checksums — assembly uses ADD + XOR, NOT ADD + ~ADD.
      * See validate_save_block_checksums.asm: checksum = ADD, checksum_complement = XOR. */
     block->header.checksum = compute_add_checksum(block);
@@ -409,7 +443,9 @@ bool save_game(int slot) {
             return false;
     }
 
-    return true;
+    /* Refresh the global version word (and pad the image to 8 KB) so the file
+     * survives real EarthBound's boot integrity check / loads in snes9x. */
+    return write_sram_version_word();
 }
 
 bool load_game(int slot) {
@@ -446,9 +482,11 @@ bool load_game(int slot) {
 }
 
 /* Port of ERASE_SAVE (erase_save_slot.asm) + ERASE_SAVE_BLOCK (erase_save_block.asm):
- * Zeroes both copies of a save slot (primary + backup).
- * Assembly memsets each 0x500-byte block to 0 then writes SRAM_SIGNATURE;
- * we just zero the blocks (signature is an SRAM-only concept). */
+ * Zeroes both copies of a save slot (primary + backup). The assembly leaves the
+ * block's signature in place; an empty (all-zero) block is fine here because the
+ * remaining slots' checksums still fail validation, so real EarthBound treats it
+ * as empty. We still refresh the global version word so the rest of the image
+ * (other slots) survives the boot integrity check on hardware/snes9x. */
 bool erase_save(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
@@ -461,5 +499,5 @@ bool erase_save(int slot) {
             return false;
     }
 
-    return true;
+    return write_sram_version_word();
 }
