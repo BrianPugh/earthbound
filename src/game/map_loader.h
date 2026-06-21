@@ -125,6 +125,11 @@ uint16_t get_npc_config_sprite(uint16_t npc_id);
  * Returns 4 (DOWN) if NPC ID is invalid or -1. */
 uint8_t get_npc_config_direction(uint16_t npc_id);
 
+/* NPC config type field values (asm enum NPC_TYPE in include/enums.asm). */
+#define NPC_TYPE_PERSON   1
+#define NPC_TYPE_ITEM_BOX 2
+#define NPC_TYPE_OBJECT   3
+
 /* Get the type field from the NPC config table (1=PERSON, 2=ITEM_BOX, 3=OBJECT). */
 uint8_t get_npc_config_type(uint16_t npc_id);
 

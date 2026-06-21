@@ -18,6 +18,8 @@
 #include "data/event_script_data.h"
 #include "data/assets.h"
 #include "game/overworld.h"
+#include "game/game_state.h"
+#include "game/map_loader.h"
 #include "include/binary.h"
 #include "snes/ppu.h"
 #include "core/log.h"
@@ -850,6 +852,26 @@ static void call_entity_draw(int16_t entity_offset) {
         LOG_TRACE("call_entity_draw: ent=%d SKIPPED (animation_frame=%d)\n",
                   entity_offset, entities.animation_frame[entity_offset]);
         return;
+    }
+
+    /* C port: during a script-controlled camera pan (camera_mode == 2) in a
+     * larger-than-SNES viewport, the camera follows a scripted sprite over areas
+     * framed for the 256x224 screen. A wandering PERSON NPC can drift into the
+     * viewport gutter (outside the SNES-visible rectangle) and "pop" at a corner
+     * — e.g. the Onett bulletin-board reader (NPC 166) during the opening pan.
+     * Skip drawing PERSON NPCs whose origin is outside the SNES rectangle, so they
+     * stay hidden exactly as on real hardware. OBJECT scenery (streetlights,
+     * signs) and ITEM_BOXes still scroll through the gutter naturally, and normal
+     * player-controlled play (camera_mode != 2) still shows the extra NPCs.
+     * Compile-time no-op at native resolution. */
+    if ((EB_VIEWPORT_WIDTH > SNES_WIDTH || EB_VIEWPORT_HEIGHT > SNES_HEIGHT) &&
+        game_state.camera_mode == 2 &&
+        get_npc_config_type(entities.npc_ids[entity_offset]) == NPC_TYPE_PERSON) {
+        int sx = entities.screen_x[entity_offset];
+        int sy = entities.screen_y[entity_offset];
+        if (sx < EB_VIEWPORT_PAD_LEFT || sx >= EB_VIEWPORT_PAD_LEFT + SNES_WIDTH ||
+            sy < EB_VIEWPORT_PAD_TOP  || sy >= EB_VIEWPORT_PAD_TOP  + SNES_HEIGHT)
+            return;
     }
 
     switch (entities.draw_callback[entity_offset]) {
