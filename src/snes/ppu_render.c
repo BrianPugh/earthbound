@@ -493,7 +493,8 @@ static inline bool tile_fully_blank(uint32_t tile_addr, int bytes_per_tile) {
  * buffers via BGRenderCtx.  render_width controls how many screen pixels
  * to process (may be EB_VIEWPORT_WIDTH or SNES_WIDTH). */
 static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp,
-                                         const BGRenderCtx *ctx, int render_width) {
+                                         const BGRenderCtx *ctx, int render_width,
+                                         int x_pad) {
     /* BG tilemap base address (word address from register, *2 for byte) */
     uint16_t sc_reg = ppu.bg_sc[bg_index];
     uint32_t tilemap_base = (uint32_t)(sc_reg & 0xFC) << 9;
@@ -517,8 +518,17 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
     int tile_mask = tile_size - 1;      /* 7 or 15 — replaces % tile_size */
     int tile_shift = big_tiles ? 4 : 3; /* log2(tile_size) — replaces / tile_size */
 
-    /* Apply scroll offset */
-    int scroll_x = ppu.bg_hofs[bg_index] & 0x3FF;
+    /* Apply scroll offset.
+     *
+     * x_pad shifts a FILL-mode layer's content right by EB_VIEWPORT_PAD_LEFT so
+     * its native 256px window lands at viewport x [PAD_LEFT, PAD_LEFT+256) — the
+     * same horizontal span the CENTER path places content at (dst_start =
+     * PAD_LEFT) and the span sprites occupy (drawn at SNES x + PAD_LEFT). Without
+     * it a FILL background renders from screen x=0 and sits PAD_LEFT to the left
+     * of the sprites that overlay it (battle enemies, the Sound Stone ring). The
+     * gutters still fill via the tilemap's natural wrap. x_pad is 0 for the
+     * centered/native paths and a no-op when the viewport equals SNES width. */
+    int scroll_x = (ppu.bg_hofs[bg_index] - x_pad) & 0x3FF;
     int scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
 
     /* Per-scanline horizontal offset for BG2 (HDMA distortion emulation).
@@ -1709,8 +1719,16 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             };
 
             if (layer_fills) {
+                /* x_pad centers the native 256px content under the +PAD_LEFT
+                 * sprite/window space, but ONLY for layers explicitly marked
+                 * BG_VIEWPORT_FILL (battle BGs, Sound Stone, file select, logo).
+                 * A layer that fills merely because it has a 64-tile-wide tilemap
+                 * (the overworld map) is left at x_pad=0: that world already
+                 * scrolls in its own coordinate space and is centered by the
+                 * camera, so a PAD_LEFT shift would desync it from entities. */
+                int fill_pad = fills_explicit ? EB_VIEWPORT_PAD_LEFT : 0;
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
-                                   &ctx, EB_VIEWPORT_WIDTH);
+                                   &ctx, EB_VIEWPORT_WIDTH, fill_pad);
             } else if (wide_mode) {
                 /* Non-filling layer in wide mode: render SNES_WIDTH into
                  * temp buffers, then merge visible portion into main. */
@@ -1749,7 +1767,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 temp_ctx.uncond = 1;
 
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
-                                   &temp_ctx, SNES_WIDTH);
+                                   &temp_ctx, SNES_WIDTH, 0);
 
                 /* Copy visible portion into main merged buffers */
                 int pad = EB_VIEWPORT_PAD_LEFT;
@@ -1798,7 +1816,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 }
             } else {
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
-                                   &ctx, render_width);
+                                   &ctx, render_width, 0);
             }
 
             /* This layer has now written best_bg, so later layers must use the

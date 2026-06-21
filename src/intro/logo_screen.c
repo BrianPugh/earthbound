@@ -63,10 +63,13 @@ void logo_screen_load(uint16_t logo_id) {
     ppu.tm = 0x04;
     ppu.ts = 0x00;
 
-    /* Fill viewport — the dark background tile wraps seamlessly.
-     * Scroll to center the 256px content in the wider viewport. */
+    /* Fill viewport — the dark background tile wraps seamlessly. The renderer's
+     * FILL path now centers the native 256px content at viewport x [PAD_LEFT,
+     * PAD_LEFT+256) for every explicit-FILL layer (see render_bg_scanline's
+     * fill_pad), so no manual hofs compensation is needed — doing so would
+     * double-shift the logo. */
     ppu.bg_viewport_fill[2] = BG_VIEWPORT_FILL;
-    ppu.bg_hofs[2] = (256 - EB_VIEWPORT_PAD_LEFT) & 0xFF;
+    ppu.bg_hofs[2] = 0;
 
     /* Asset IDs for each logo.
      * Nintendo gfx/arr are locale-specific (US/ or JP/) — locale aliases
