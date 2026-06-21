@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Workflow
+
+Committing directly to `main` (or whatever the current branch is) is OK — no need to create a feature branch first. Still only commit when the user asks.
+
 ## Project Overview
 
 ebsrc is a disassembly/decompilation of the SNES games EarthBound (US) and Mother 2 (Japan), with support for a US localization prototype (1995-03-27). The codebase is pure 65816 assembly (ca65 dialect) with SPC700 assembly for audio. The assembly disassembly is essentially complete — all ~1,000 previously-unknown functions have been identified and reorganized into proper subsystem directories.
