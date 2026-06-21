@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 project(earthbound C)
 set(CMAKE_C_STANDARD 11)
 
+# Emit compile_commands.json so clangd/IDEs resolve include paths and types.
+# A root-level symlink (../../compile_commands.json) points at this file.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(EB_VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
 set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 
