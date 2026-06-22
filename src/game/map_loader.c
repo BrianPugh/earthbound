@@ -1014,6 +1014,16 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
     LOG_TRACE("map_loader: fill_tilemaps view=(%d,%d) arr_size=%zu\n",
               view_x_tile, view_y_tile, arrangement_size);
 
+    /* How to fill wide-viewport tiles that lie off the map or in a sector with a
+     * different tileset combo than the loaded one (areas the SNES's ±128px
+     * camera never reveals). During normal play a black gutter reads as a clean
+     * letterbox, so leave those tiles transparent. During a scripted camera move
+     * (camera_mode != 0, e.g. the Tessie ride's pan over Lake Tess) the camera
+     * deliberately frames terrain that should continue, so fall back to the
+     * loaded tileset's block 0 (the assembly's out-of-bounds behavior) to extend
+     * the current terrain — open water on the lake map — instead of a black void. */
+    bool fill_empty_with_block0 = (game_state.camera_mode != 0);
+
     /* BG1 tilemap at VRAM byte $7000 (word $3800), 64×32 entries.
      * BG2 tilemap at VRAM byte $B000 (word $5800), 64×32 entries.
      * Each tilemap is split into two 32-wide nametables (HORIZONTAL mode). */
@@ -1028,17 +1038,13 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
             uint16_t bx = (uint16_t)world_tx / 4;       /* block column */
             uint8_t sub_col = (uint16_t)world_tx & 3;   /* column within block (0-3) */
 
-            /* Out-of-bounds tiles (negative coords or beyond map) get empty block.
-             * Assembly: LOAD_MAP_ROW checks block_row < 320 (unsigned), so negative
-             * rows wrap to huge values and fail → block_id = 0 (empty).
-             *
-             * `render_empty` marks tiles that lie beyond the currently-loaded
-             * map area (off the map, or in a sector that uses a different
-             * tileset combo).  Native hardware never shows these — the camera
-             * only spans ±128px around the leader — but a wider viewport
-             * reveals them.  Rather than draw block 0's opaque fill graphic
-             * (a jarring light-blue tile), we render them transparent so the
-             * black backdrop (cgram[0], always 0) shows through. */
+            /* Classify the tile: in-bounds and in a sector matching the loaded
+             * tileset combo renders its real block; anything else is "empty"
+             * (off the map, or an adjacent sector with a different tileset).
+             * Empty tiles are either left transparent (black gutter, normal play)
+             * or filled with the loaded tileset's block 0 — the assembly's
+             * out-of-bounds behavior (LOAD_MAP_ROW uses block 0 when its
+             * block_row < 320 bounds check fails) — during scripted camera moves. */
             uint16_t block_id = 0;
             bool render_empty = false;
             if (world_tx < 0 || world_ty < 0) {
@@ -1057,12 +1063,13 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
             }
 
             uint16_t bg1_tile, bg2_tile;
-            if (render_empty) {
-                /* Transparent on both layers → black backdrop */
+            if (render_empty && !fill_empty_with_block0) {
+                /* Normal play: transparent on both layers → black backdrop */
                 bg1_tile = 0;
                 bg2_tile = 0;
             } else {
-                /* Look up tile entry from arrangement */
+                /* Real block, or block 0 fill during a scripted camera move.
+                 * Look up the tile entry from the arrangement. */
                 bg1_tile = get_arrangement_tile(block_id, sub_col, sub_row);
 
                 /* BG2 logic from LOAD_MAP_ROW_TO_VRAM:

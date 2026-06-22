@@ -1711,6 +1711,22 @@ StepResult mode_step_display_text(ModeState *ms) {
          *
          * The per-character delay creates the typewriter effect. */
         if (byte >= 0x20) {
+            /* PRINT_LETTER (print_letter.asm) early-out: if no window is open
+             * (CURRENT_FOCUS_WINDOW == -1), the routine RETURNs immediately —
+             * no VWF render and, crucially, no per-character WINDOW_TICK
+             * typewriter delay. Cutscene scripts use runs of space characters
+             * with no window open purely as control-stream padding; rendering
+             * them with the typewriter delay would step entity actionscripts
+             * (window_tick → render_frame_tick) once per space, desyncing
+             * scripted entities from the orchestrating dialogue. (Tessie-ride
+             * Lake Tess bug: Tessie froze her screen position ~243 frames early
+             * because the windowless space-runs advanced her past her
+             * SET_POSITION_CHANGE_CALLBACK freeze before DISABLE_SPRITE_MOVEMENT
+             * could park her.) */
+            if (win.current_focus_window == WINDOW_ID_NONE) {
+                continue;
+            }
+
             uint8_t eb_buf[2] = { byte, 0x00 };
             print_eb_string(eb_buf, 1);
 
