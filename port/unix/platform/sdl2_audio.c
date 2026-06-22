@@ -2,7 +2,7 @@
 #include "game_main.h"
 #include "game/audio.h"
 
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
 
 #include <SDL.h>
 #include <string.h>
@@ -116,11 +116,11 @@ void platform_audio_unlock(void) {
     if (audio_mutex) SDL_UnlockMutex(audio_mutex);
 }
 
-#else /* !ENABLE_AUDIO */
+#else /* !EB_ENABLE_AUDIO */
 
 bool platform_audio_init(void) { return true; }
 void platform_audio_shutdown(void) {}
 void platform_audio_lock(void) {}
 void platform_audio_unlock(void) {}
 
-#endif /* ENABLE_AUDIO */
+#endif /* EB_ENABLE_AUDIO */

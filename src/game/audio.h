@@ -3,7 +3,7 @@
 
 #include "core/types.h"
 
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
 
 typedef struct {
     uint16_t current_music_track;
@@ -60,7 +60,7 @@ void audio_generate_samples(int16_t *buffer, int samples);
 void audio_lock(void);
 void audio_unlock(void);
 
-#else /* !ENABLE_AUDIO */
+#else /* !EB_ENABLE_AUDIO */
 
 typedef struct {
     uint16_t current_music_track;
@@ -80,6 +80,6 @@ static inline void audio_generate_samples(int16_t *buffer, int samples) { (void)
 static inline void audio_lock(void) {}
 static inline void audio_unlock(void) {}
 
-#endif /* ENABLE_AUDIO */
+#endif /* EB_ENABLE_AUDIO */
 
 #endif /* GAME_AUDIO_H */

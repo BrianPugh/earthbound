@@ -38,7 +38,7 @@ void platform_timer_frame_start(void) {
 void platform_timer_frame_end(void) {
     if (platform_headless)
         return;
-    int fps = game_is_fast_forward() ? TARGET_FPS * FAST_FORWARD_MULTIPLIER : TARGET_FPS;
+    int fps = game_is_fast_forward() ? TARGET_FPS * EB_FAST_FORWARD_MULTIPLIER : TARGET_FPS;
     uint64_t target_ticks = ticks_per_sec / fps;
 
     /* Sleep until the frame budget is reached. */

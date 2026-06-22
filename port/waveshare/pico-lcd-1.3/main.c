@@ -21,7 +21,7 @@ int main(void) {
     platform_input_init();
     platform_timer_init();
     platform_audio_init();
-#ifdef ENABLE_DUAL_CORE_PPU
+#ifdef EB_ENABLE_DUAL_CORE_PPU
     extern void platform_worker_init(void);
     platform_worker_init();
 #endif

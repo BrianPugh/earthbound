@@ -7,7 +7,7 @@
 
 typedef struct Apu Apu;
 
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
 #include "snes.h"
 #else
 typedef struct Snes Snes;

@@ -168,8 +168,8 @@ void ppu_render_frame(scanline_callback_t send_scanline);
 
 /* Number of independent render contexts (tile cache + working buffers).
  * Set to 2 via build system when dual-core PPU rendering is enabled. */
-#ifndef PPU_NUM_RENDER_CONTEXTS
-#define PPU_NUM_RENDER_CONTEXTS 1
+#ifndef EB_PPU_NUM_RENDER_CONTEXTS
+#define EB_PPU_NUM_RENDER_CONTEXTS 1
 #endif
 
 /* Pre-build the shadow palette (BGR555→BGR565) from current CGRAM.
@@ -185,7 +185,7 @@ void ppu_prepare_palette(void);
 void ppu_render_frame_ex(int ctx_id, int y_start, int y_end, int y_stride,
                          scanline_callback_t send_scanline);
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
 typedef struct {
     /* total = whole-frame duration of ppu_render_frame_ex.
      * iter  = time spent inside the scanline for-loop (sum of all phases

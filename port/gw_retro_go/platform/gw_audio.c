@@ -6,7 +6,7 @@
  * (16 kHz, ping-pong DMA buffers) and pumps SPC700 samples through
  * audio_get_active_buffer().
  *
- * Initial builds will set ENABLE_AUDIO=OFF in src/CMakeLists.txt to free
+ * Initial builds will set EB_ENABLE_AUDIO=OFF in src/CMakeLists.txt to free
  * ~64 KB of BSS used by the lakesnes SPC700/DSP emulator; with audio off
  * these functions are still defined but called only on init/shutdown and
  * are effectively no-ops.
@@ -16,7 +16,7 @@
 
 bool platform_audio_init(void) {
     /*
-     * TODO: When ENABLE_AUDIO=ON, start SAI DMA via audio_start_playing()
+     * TODO: When EB_ENABLE_AUDIO=ON, start SAI DMA via audio_start_playing()
      * with SAMPLES_PER_FRAME = 534 (matching the Zelda 3/SMW ports' 16 kHz
      * @ 30 fps cadence) and arrange for platform_audio_pump() to be driven
      * from the main loop's frame end.

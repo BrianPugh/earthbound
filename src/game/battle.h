@@ -30,8 +30,8 @@
 #include "include/constants.h"
 
 /* Set to 0 to disable the letterbox (black bars at top/bottom) during battle */
-#ifndef BATTLE_LETTERBOX_ENABLED
-#define BATTLE_LETTERBOX_ENABLED 1
+#ifndef EB_BATTLE_LETTERBOX
+#define EB_BATTLE_LETTERBOX 1
 #endif
 
 /* ---- Party member IDs (from include/enums.asm) ---- */

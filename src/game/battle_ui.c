@@ -1060,7 +1060,7 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
 
     /* Build letterbox HDMA table and apply to PPU */
     build_letterbox_hdma_table();
-#if BATTLE_LETTERBOX_ENABLED
+#if EB_BATTLE_LETTERBOX
     apply_letterbox_to_ppu();
 #endif
 
@@ -2296,12 +2296,12 @@ void update_battle_screen_effects(void) {
             bt.letterbox_bottom_start = bottom_pixels;
         }
         build_letterbox_hdma_table();
-#if BATTLE_LETTERBOX_ENABLED
+#if EB_BATTLE_LETTERBOX
         apply_letterbox_to_ppu();
 #endif
     }
 
-#if BATTLE_LETTERBOX_ENABLED
+#if EB_BATTLE_LETTERBOX
     /* When letterbox fully opens, disable per-scanline override */
     if (!bt.letterbox_effect_ending && !bt.letterbox_top_end) {
         ppu.tm_hdma_active = false;

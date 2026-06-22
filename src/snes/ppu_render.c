@@ -7,34 +7,34 @@
 
 /* Embedded ports can define these at build time to optimize rendering:
  *
- *   PPU_RAM_SECTION — section name for placing hot functions in fast memory.
+ *   EB_PPU_RAM_SECTION — section name for placing hot functions in fast memory.
  *     Examples: ".time_critical" (RP2040), ".dtcm" (STM32 DTCM-RAM),
  *              ".iram1" (ESP32).  Eliminates instruction cache misses
  *              for the decode + scanline render inner loops (~3KB).
  *
- *   PPU_FORCE_SPEED_OPT — when defined, forces -O3 for this file even when
+ *   EB_PPU_FORCE_SPEED_OPT — when defined, forces -O3 for this file even when
  *     the library is compiled with -Os.  Useful when the port uses -Os
  *     globally to reduce code size / cache pressure, but still wants
  *     maximum speed for the PPU rendering hot path. */
-#ifdef PPU_FORCE_SPEED_OPT
+#ifdef EB_PPU_FORCE_SPEED_OPT
 #pragma GCC optimize("O3")
 #endif
 
-#ifdef PPU_RAM_SECTION
+#ifdef EB_PPU_RAM_SECTION
 #define PPU_HOT_FUNC(name) \
-    __attribute__((section(PPU_RAM_SECTION "." #name))) name
+    __attribute__((section(EB_PPU_RAM_SECTION "." #name))) name
 #else
 #define PPU_HOT_FUNC(name) name
 #endif
 
-/* PPU_LINEBUF_ATTR — embedded ports can route the per-scanline working buffers
+/* EB_PPU_LINEBUF_ATTR — embedded ports can route the per-scanline working buffers
  * into fast memory (e.g. STM32 DTCM) by defining this at build time. Defaults
  * to nothing on desktop, so the buffers stay in normal BSS. */
-#ifndef PPU_LINEBUF_ATTR
-#define PPU_LINEBUF_ATTR
+#ifndef EB_PPU_LINEBUF_ATTR
+#define EB_PPU_LINEBUF_ATTR
 #endif
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
 PPUProfile ppu_profile;
 #define PROF_SECTION(name) uint64_t _prof_##name = platform_timer_ticks()
 #define PROF_END(name, acc) (acc) += (uint32_t)(platform_timer_ticks() - _prof_##name)
@@ -78,7 +78,7 @@ static BGCounters g_bgc;
 typedef struct {
     uint32_t key;       /* tile_addr | (pixel_y << 17), 0xFFFFFFFF = invalid */
     uint8_t indices[8]; /* decoded palette indices for this tile row */
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     uint8_t opaque;     /* 1 = no transparent pixel in this row (diagnostic only) */
 #endif
 } TileRowCacheEntry;
@@ -147,7 +147,7 @@ void ppu_prepare_palette(void) {
 #define TILE_CACHE_MASK  (TILE_CACHE_SIZE - 1)
 #define TILE_CACHE_EMPTY 0xFFFFFFFF
 
-static TileRowCacheEntry tile_row_cache[PPU_NUM_RENDER_CONTEXTS][TILE_CACHE_SIZE];
+static TileRowCacheEntry tile_row_cache[EB_PPU_NUM_RENDER_CONTEXTS][TILE_CACHE_SIZE];
 
 /* Decode a single 2bpp tile row (8 pixels) — unrolled, no loop.
  * Not force-inlined: keeping as regular functions reduces render_bg_scanline
@@ -316,14 +316,14 @@ void emit_tile_run(
                 decode_2bpp_row(tile_data, pixel_y, dest);
             cache[cache_idx].key = cache_key;
             indices = dest;
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
             uint8_t _opq = 1;
             for (int _k = 0; _k < 8; _k++) if (dest[_k] == 0) { _opq = 0; break; }
             cache[cache_idx].opaque = _opq;
 #endif
         }
     }
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     if (ctx->tile_cache[cache_idx].opaque) BGC_INC(opaque_runs);
 #endif
 
@@ -448,15 +448,15 @@ void emit_tile_run(
  * 8x8 tiles only; 16x16 and bg2 HDMA distortion (per-scanline scroll) fall back to
  * the full loop. Assumes a single render context (the cache is global, not per
  * ctx_id) — auto-disabled otherwise. */
-#ifndef PPU_BG_ROW_CACHE
-#define PPU_BG_ROW_CACHE 1
+#ifndef EB_PPU_BG_ROW_CACHE
+#define EB_PPU_BG_ROW_CACHE 1
 #endif
-#if PPU_BG_ROW_CACHE && PPU_NUM_RENDER_CONTEXTS != 1
-#undef PPU_BG_ROW_CACHE
-#define PPU_BG_ROW_CACHE 0
+#if EB_PPU_BG_ROW_CACHE && EB_PPU_NUM_RENDER_CONTEXTS != 1
+#undef EB_PPU_BG_ROW_CACHE
+#define EB_PPU_BG_ROW_CACHE 0
 #endif
 
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
 #define BG_ROW_PLAN_MAXCOL 48   /* >= max tile columns across render_width (~42) */
 typedef struct {
     uint16_t tile_num;
@@ -473,7 +473,7 @@ static struct {
 } bg_row_cache[4];
 #endif
 
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
 /* A tile whose entire graphic (all bytes_per_tile bytes) is zero is palette
  * index 0 everywhere — fully transparent on every row (emit_tile_run would skip
  * every pixel via `if (_cidx == 0) continue`). Detected once while building the
@@ -572,7 +572,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
         tile_row_local -= 32;
     }
 
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
     /* Replay the cached column plan when this scanline shares its tile row with an
      * already-decoded scanline of this frame (the common case: 7 of every 8). */
     bool row_cacheable = !big_tiles
@@ -632,7 +632,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
         if (!big_tiles) {
             /* 8x8 tile: decode once, emit up to 8 pixels */
             int eff_py = vflip ? (7 - pixel_y_in_tile) : pixel_y_in_tile;
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
             /* While building the plan, elide fully-transparent tiles (see
              * tile_fully_blank): they emit nothing on any row, so dropping them
              * from the plan saves their emit overhead on the whole tile row. */
@@ -693,7 +693,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
 
         screen_x += pixels_this_tile;
     }
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
     /* Commit the plan for replay by this row's other scanlines. Only when it fit
      * (plan_n < MAXCOL); if it ever overflowed we leave the cache invalid and just
      * recompute — correct, only slower. */
@@ -755,15 +755,15 @@ static const int obj_sizes[8][2][2] = {
  * redundancy shape as bg_row_cache.  Priority (lower OAM index wins) is
  * preserved by appending in 127->0 order so the low index is emitted last.
  * Global arrays => single render context only, auto-disabled otherwise. */
-#ifndef PPU_OBJ_BUCKET
-#define PPU_OBJ_BUCKET 1
+#ifndef EB_PPU_OBJ_BUCKET
+#define EB_PPU_OBJ_BUCKET 1
 #endif
-#if PPU_OBJ_BUCKET && PPU_NUM_RENDER_CONTEXTS != 1
-#undef PPU_OBJ_BUCKET
-#define PPU_OBJ_BUCKET 0
+#if EB_PPU_OBJ_BUCKET && EB_PPU_NUM_RENDER_CONTEXTS != 1
+#undef EB_PPU_OBJ_BUCKET
+#define EB_PPU_OBJ_BUCKET 0
 #endif
 
-#if PPU_OBJ_BUCKET
+#if EB_PPU_OBJ_BUCKET
 #define OBJ_BAND_SHIFT 3                               /* 8-scanline bands */
 #define OBJ_NUM_BANDS  ((256 >> OBJ_BAND_SHIFT) + 1)   /* covers scanline 0..255 */
 
@@ -824,7 +824,7 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
             obj_band[b][obj_band_count[b]++] = (uint8_t)slot;
     }
 }
-#endif /* PPU_OBJ_BUCKET */
+#endif /* EB_PPU_OBJ_BUCKET */
 
 /* Render OBJ (sprites) for one scanline into separate color/prio arrays.
  * Returns true if any sprite overlapped this scanline (i.e. obj_prio may hold
@@ -846,7 +846,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
     uint32_t obj_base = (uint32_t)(ppu.obsel & 0x07) * 0x4000; /* byte address */
     uint32_t obj_gap = (uint32_t)((ppu.obsel >> 3) & 0x03) * 0x2000 + 0x2000;
 
-#if PPU_OBJ_BUCKET
+#if EB_PPU_OBJ_BUCKET
     int band = scanline >> OBJ_BAND_SHIFT;
     if (band < 0 || band >= OBJ_NUM_BANDS) return false;
     uint8_t bcnt = obj_band_count[band];
@@ -905,7 +905,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         uint8_t spr_prio = (spr->attr >> 4) & 3;
         uint8_t spr_pal = (spr->attr >> 1) & 7;
         uint16_t tile_num = spr->tile | ((uint16_t)(spr->attr & 1) << 8);
-#endif /* PPU_OBJ_BUCKET */
+#endif /* EB_PPU_OBJ_BUCKET */
 
         if (vflip) row = h - 1 - row;
 
@@ -1304,30 +1304,30 @@ void PPU_HOT_FUNC(precompute_window_masks)(
 
 /* Per-context static buffers for dual-core rendering.
  * Promoted from stack to static so both cores have independent working memory.
- * When PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
+ * When EB_PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
  * with no runtime overhead vs. the old stack allocation. */
-static pixel_t  line_out_ctx[PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t best_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t best_bg_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t sub_bg_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  sub_bg_gp_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t obj_color_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  obj_prio_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  eff_tm_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  eff_ts_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  cm_prevented_line_ctx[PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] PPU_LINEBUF_ATTR;
+static pixel_t  line_out_ctx[EB_PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t best_bg_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t best_bg_gp_lm_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t sub_bg_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  sub_bg_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t obj_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  obj_prio_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  eff_tm_line_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  eff_ts_line_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  cm_prevented_line_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 
 /* Temp buffers for wide-mode non-filling layer render path.
  * Promoted from stack to static to avoid core 1 stack overflow (4KB limit). */
-static uint16_t temp_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t temp_gp_lm_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
-static uint16_t temp_sub_color_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  temp_sub_gp_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
-static uint8_t  temp_tm_all_ctx[PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] PPU_LINEBUF_ATTR;
+static uint16_t temp_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t temp_gp_lm_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint16_t temp_sub_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  temp_sub_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint8_t  temp_tm_all_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 
 void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                          int y_stride, scanline_callback_t send_scanline) {
-#if PPU_BG_ROW_CACHE
+#if EB_PPU_BG_ROW_CACHE
     /* Invalidate the tilemap-row plan cache at frame start. Within a frame scroll
      * is constant, so keying replays on tile_row_map (+scroll_x/width) is correct;
      * across frames the plan may be stale, hence this reset. */
@@ -1434,7 +1434,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         fb_y_offset = EB_VIEWPORT_HEIGHT > SNES_HEIGHT ? (EB_VIEWPORT_HEIGHT - SNES_HEIGHT) / 2 : 0;
     }
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     uint32_t prof_clear = 0, prof_bg = 0, prof_obj = 0;
     uint32_t prof_win = 0, prof_composite = 0, prof_send = 0;
     uint32_t prof_iter = 0;
@@ -1559,7 +1559,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         memset(eff_ts_line, ppu.ts, render_width);
     }
 
-#if PPU_OBJ_BUCKET
+#if EB_PPU_OBJ_BUCKET
     /* Bucket sprites by scanline band once per frame; render_obj_scanline then
      * iterates only the sprites overlapping each scanline (see build_obj_buckets). */
     build_obj_buckets();
@@ -1584,7 +1584,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         if (need_sub)
             memset(sub_bg_gp, 0, render_width);
         if (layers_needed & LAYER_OBJ) {
-#if PPU_OBJ_BUCKET
+#if EB_PPU_OBJ_BUCKET
             /* Skip the clear when no sprite touches this scanline's band: nothing
              * writes obj_prio this line and the compositor skips reading it
              * (render_obj_scanline returns false -> scanline_has_obj false), so
@@ -1964,7 +1964,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     }
     PROF_END(iter, prof_iter);
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     ppu_profile.total = (uint32_t)(platform_timer_ticks() - _prof_total);
     ppu_profile.iter = prof_iter;
     ppu_profile.clear = prof_clear;
@@ -1984,7 +1984,7 @@ void ppu_render_frame(scanline_callback_t send_scanline) {
     ppu_prepare_palette();
     ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 1, send_scanline);
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     /* Periodic BG work report — averaged over BG_PROF_FRAMES frames, with the
      * last frame's phase timings folded in (0.1 ms units, same scale as the
      * on-screen overlay) so the monitor line is self-contained. Diagnostic only. */

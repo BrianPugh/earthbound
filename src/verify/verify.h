@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
 
 /* Initialize the verification emulator with a ROM file.
    Returns true on success. */
@@ -30,6 +30,6 @@ static inline bool verify_frame(uint16_t pad_state) { (void)pad_state; return tr
 static inline void verify_shutdown(void) {}
 static inline uint32_t verify_get_frame(void) { return 0; }
 
-#endif /* ENABLE_VERIFY */
+#endif /* EB_ENABLE_VERIFY */
 
 #endif /* VERIFY_H */

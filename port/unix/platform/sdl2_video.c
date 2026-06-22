@@ -3,8 +3,8 @@
 #include <string.h>
 
 /* Initial window scale factor (window is resizable) */
-#ifndef WINDOW_SCALE
-#define WINDOW_SCALE 3
+#ifndef EB_WINDOW_SCALE
+#define EB_WINDOW_SCALE 3
 #endif
 
 static SDL_Window *window;
@@ -22,7 +22,7 @@ bool platform_video_init(void) {
     window = SDL_CreateWindow(
         "EarthBound",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        EB_VIEWPORT_WIDTH * WINDOW_SCALE, EB_VIEWPORT_HEIGHT * WINDOW_SCALE,
+        EB_VIEWPORT_WIDTH * EB_WINDOW_SCALE, EB_VIEWPORT_HEIGHT * EB_WINDOW_SCALE,
         SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
     if (!window) return false;

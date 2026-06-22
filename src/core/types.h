@@ -34,8 +34,8 @@
 #define TARGET_FPS 60
 
 /* Fast-forward speed multiplier (Tab key toggle) */
-#ifndef FAST_FORWARD_MULTIPLIER
-#define FAST_FORWARD_MULTIPLIER 3
+#ifndef EB_FAST_FORWARD_MULTIPLIER
+#define EB_FAST_FORWARD_MULTIPLIER 3
 #endif
 
 /* SNES memory sizes */

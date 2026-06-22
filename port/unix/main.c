@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     uint32_t sdl_flags = SDL_INIT_TIMER;
     if (!platform_headless) {
         sdl_flags |= SDL_INIT_VIDEO;
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
         sdl_flags |= SDL_INIT_AUDIO;
 #endif
     }
@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
     if (!platform_headless)
         platform_audio_init();
 
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
     if (verify_rom_path) {
         if (!verify_init(verify_rom_path)) {
             fprintf(stderr, "Failed to initialize verification with ROM: %s\n", verify_rom_path);
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
         host_root_boundary(); /* root boundary: perform any pending torn-safe capture */
     }
 
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
     verify_shutdown();
 #endif
 

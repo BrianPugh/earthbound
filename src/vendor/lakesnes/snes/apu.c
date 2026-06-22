@@ -6,7 +6,7 @@
 #include <stdbool.h>
 
 #include "apu.h"
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
 #include "snes.h"
 #endif
 #include "spc.h"
@@ -26,7 +26,7 @@ Apu* apu_init(Snes* snes) {
   Apu* apu = malloc(sizeof(Apu));
   apu->snes = snes;
   apu->palTiming = false;
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
   if(snes) apu->palTiming = snes->palTiming;
 #endif
   apu->spc = spc_init(apu, apu_spcRead, apu_spcWrite, apu_spcIdle);

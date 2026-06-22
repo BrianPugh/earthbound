@@ -35,22 +35,22 @@ set(EB_VIEWPORT_HEIGHT 240 CACHE STRING "Viewport height in pixels")
 
 # RP2040 has only 264KB RAM; game BSS alone is ~250KB, leaving no room
 # for the SPC700/DSP emulator's 64KB APU RAM allocation.
-set(ENABLE_AUDIO OFF CACHE BOOL "" FORCE)
+set(EB_ENABLE_AUDIO OFF CACHE BOOL "" FORCE)
 
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../src
                  ${CMAKE_CURRENT_BINARY_DIR}/game_lib)
 
 # Optimize game library: -Os globally to reduce code size (fits more in 16KB XIP
-# cache).  PPU rendering overrides to -O3 via PPU_FORCE_SPEED_OPT pragma.
+# cache).  PPU rendering overrides to -O3 via EB_PPU_FORCE_SPEED_OPT pragma.
 target_compile_options(earthbound_game PRIVATE -Os)
 
 # Place hot PPU rendering functions in SRAM (avoids XIP cache contention),
 # and force -O3 for the PPU rendering file via pragma.
 target_compile_definitions(earthbound_game PRIVATE
-    PPU_RAM_SECTION=".time_critical"
-    PPU_FORCE_SPEED_OPT=1
-    MAX_FRAME_SKIP=2
+    EB_PPU_RAM_SECTION=".time_critical"
+    EB_PPU_FORCE_SPEED_OPT=1
+    EB_MAX_FRAME_SKIP=2
 )
 
 # Shared drivers (display, HAL, generic RP2040 platform)
@@ -92,7 +92,7 @@ target_link_libraries(earthbound_pico
     hardware_sync
 )
 
-if(ENABLE_AUDIO)
+if(EB_ENABLE_AUDIO)
     target_link_libraries(earthbound_pico
         hardware_timer
         hardware_irq
@@ -112,15 +112,15 @@ pico_enable_stdio_usb(earthbound_pico 0)
 pico_enable_stdio_uart(earthbound_pico 0)
 
 # Dual-core PPU rendering: distribute even/odd scanlines across both RP2040 cores.
-option(ENABLE_DUAL_CORE_PPU "Distribute PPU rendering across both RP2040 cores" OFF)
+option(EB_ENABLE_DUAL_CORE_PPU "Distribute PPU rendering across both RP2040 cores" OFF)
 
-if(ENABLE_DUAL_CORE_PPU)
+if(EB_ENABLE_DUAL_CORE_PPU)
     target_compile_definitions(earthbound_pico PRIVATE
-        ENABLE_DUAL_CORE_PPU=1
+        EB_ENABLE_DUAL_CORE_PPU=1
         PICO_CORE1_STACK_SIZE=4096
     )
     target_compile_definitions(earthbound_game PRIVATE
-        PPU_NUM_RENDER_CONTEXTS=2
+        EB_PPU_NUM_RENDER_CONTEXTS=2
     )
     target_link_libraries(earthbound_pico pico_multicore hardware_sync)
 endif()

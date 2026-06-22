@@ -172,7 +172,7 @@ _Static_assert(sizeof(g_mode_stack)         == 3964,  "ABI: g_mode_stack");
 _Static_assert(sizeof(overworld_spritemaps) == 900,   "ABI: overworld_spritemaps");
 _Static_assert(sizeof(loaded_bg_data_layer1)== 124,   "ABI: loaded_bg_data_layer1");
 _Static_assert(sizeof(text_render_state)    == 6,     "ABI: text_render_state");
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
 _Static_assert(sizeof(audio_state)          == 6,     "ABI: audio_state");
 #endif
 
@@ -244,7 +244,7 @@ static int build_section_table(StateSection *t) {
     ADD(SECTION_SPRITE_PRIORITY,  sprite_priority,      sizeof(SpritePriorityQueue) * 4);
     ADD(SECTION_FADE,             &fade_state,          sizeof(fade_state));
     ADD(SECTION_RNG,              &rng_state,           sizeof(rng_state));
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
     ADD(SECTION_AUDIO,            &audio_state,         sizeof(audio_state));
 #endif
     ADD(SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state));

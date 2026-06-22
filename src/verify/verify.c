@@ -1,4 +1,4 @@
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
 
 #include "verify/verify.h"
 
@@ -564,4 +564,4 @@ uint32_t verify_get_frame(void) {
     return verify_frame_count;
 }
 
-#endif /* ENABLE_VERIFY */
+#endif /* EB_ENABLE_VERIFY */

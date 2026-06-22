@@ -1,6 +1,6 @@
 #include "game/audio.h"
 
-#ifdef ENABLE_AUDIO
+#ifdef EB_ENABLE_AUDIO
 
 #include "game/overworld.h"
 #include "platform/platform.h"
@@ -362,4 +362,4 @@ void audio_unlock(void) {
     platform_audio_unlock();
 }
 
-#endif /* ENABLE_AUDIO */
+#endif /* EB_ENABLE_AUDIO */

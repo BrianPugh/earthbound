@@ -75,11 +75,11 @@ add_custom_command(
 )
 
 # Audio subsystem option (declared early so embed-registry exclusions can check it)
-option(ENABLE_AUDIO "Enable audio subsystem (lakesnes SPC700/DSP emulator)" ON)
+option(EB_ENABLE_AUDIO "Enable audio subsystem (lakesnes SPC700/DSP emulator)" ON)
 
 # Optional asset exclusions (e.g., audio packs when audio is disabled)
 set(EMBED_EXCLUDE_ARGS "")
-if(NOT ENABLE_AUDIO)
+if(NOT EB_ENABLE_AUDIO)
     list(APPEND EMBED_EXCLUDE_ARGS --exclude "audiopacks/*")
 endif()
 
@@ -138,7 +138,7 @@ target_include_directories(earthbound_game PUBLIC ${EMBED_GEN_DIR})
 set_source_files_properties(${EMBED_ARRAY} PROPERTIES COMPILE_FLAGS "-w")
 
 
-if(ENABLE_AUDIO)
+if(EB_ENABLE_AUDIO)
     add_library(lakesnes_audio STATIC
         vendor/lakesnes/snes/apu.c
         vendor/lakesnes/snes/spc.c
@@ -150,13 +150,13 @@ if(ENABLE_AUDIO)
 
     target_link_libraries(earthbound_game lakesnes_audio)
     target_include_directories(earthbound_game PUBLIC vendor/lakesnes/snes/)
-    target_compile_definitions(earthbound_game PUBLIC ENABLE_AUDIO=1)
+    target_compile_definitions(earthbound_game PUBLIC EB_ENABLE_AUDIO=1)
 endif()
 
 # Side-by-side ROM verification using LakeSnes emulator
-option(ENABLE_VERIFY "Enable side-by-side ROM verification" OFF)
+option(EB_ENABLE_VERIFY "Enable side-by-side ROM verification" OFF)
 
-if(ENABLE_VERIFY)
+if(EB_ENABLE_VERIFY)
     file(GLOB LAKESNES_SOURCES "vendor/lakesnes/snes/*.c")
     add_library(lakesnes STATIC ${LAKESNES_SOURCES})
     target_include_directories(lakesnes PRIVATE vendor/lakesnes/)
@@ -164,10 +164,10 @@ if(ENABLE_VERIFY)
         -include ${CMAKE_CURRENT_SOURCE_DIR}/vendor/lakesnes/lk_prefix.h
         -w
     )
-    target_compile_definitions(lakesnes PRIVATE ENABLE_VERIFY=1)
+    target_compile_definitions(lakesnes PRIVATE EB_ENABLE_VERIFY=1)
 
     target_link_libraries(earthbound_game lakesnes)
-    target_compile_definitions(earthbound_game PUBLIC ENABLE_VERIFY=1)
+    target_compile_definitions(earthbound_game PUBLIC EB_ENABLE_VERIFY=1)
     target_include_directories(earthbound_game PUBLIC vendor/lakesnes/)
 endif()
 
@@ -208,7 +208,7 @@ if(NOT CMAKE_CROSSCOMPILING)
         USA=1
         EB_VIEWPORT_WIDTH=${EB_VIEWPORT_WIDTH}
         EB_VIEWPORT_HEIGHT=${EB_VIEWPORT_HEIGHT}
-        $<$<BOOL:${ENABLE_AUDIO}>:ENABLE_AUDIO=1>
+        $<$<BOOL:${EB_ENABLE_AUDIO}>:EB_ENABLE_AUDIO=1>
     )
     add_dependencies(gen_struct_info items_header music_header)
 

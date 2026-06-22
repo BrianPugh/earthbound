@@ -86,8 +86,8 @@ static HostCaptureStatus g_capture_status = HOST_CAPTURE_IDLE;
  * When the system falls behind real-time, skip PPU rendering (but keep
  * running game logic + audio) to catch up. Max 2 consecutive skips
  * (visual floor ~20fps). */
-#ifndef MAX_FRAME_SKIP
-#define MAX_FRAME_SKIP 0
+#ifndef EB_MAX_FRAME_SKIP
+#define EB_MAX_FRAME_SKIP 0
 #endif
 static uint64_t frame_deadline;
 static int consecutive_skips;
@@ -148,7 +148,7 @@ static int debug_format_tenths(char *buf, int size, uint32_t tenths) {
  * ppu_render_frame. Works on all platforms regardless of BG/tilemap state. */
 
 /* Cached overlay text, computed once at frame start */
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
 #define FPS_OVERLAY_LINES 13
 #else
 #define FPS_OVERLAY_LINES 5
@@ -186,7 +186,7 @@ static void fps_overlay_prepare(void) {
     fps_overlay.colors[n++] = PIXEL_RGB(0x88, 0x88, 0x88);
 
     /* Show frame-skip indicator when dynamic frame-skipping is enabled */
-#if MAX_FRAME_SKIP > 0
+#if EB_MAX_FRAME_SKIP > 0
     snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]),
              "SKP %d", display_skip_run);
     fps_overlay.colors[n++] = display_skip_run > 0
@@ -194,7 +194,7 @@ static void fps_overlay_prepare(void) {
         : PIXEL_RGB(0x88, 0x88, 0x88);
 #endif
 
-#ifdef PPU_PROFILE
+#ifdef EB_PPU_PROFILE
     if (ppu_profile.ready) {
         /* Convert ticks to tenths-of-ms for display.
          * Displayed values are in 0.1ms units: "BG 310" = 31.0ms. */
@@ -338,9 +338,9 @@ void host_process_frame(void) {
     bool do_render;
     if (fast_forward_active) {
         do_render = (frame_skip_counter == 0);
-        frame_skip_counter = (frame_skip_counter + 1) % FAST_FORWARD_MULTIPLIER;
+        frame_skip_counter = (frame_skip_counter + 1) % EB_FAST_FORWARD_MULTIPLIER;
     } else {
-#ifdef PLATFORM_HOST_PACED_FRAMESKIP
+#ifdef EB_HOST_PACED_FRAMESKIP
         /* The platform paces the loop against an external clock and owns the
          * skip decision (e.g. G&W locks to its audio DMA). should_render()
          * records this frame's skip state for the matching sleep_until() and
@@ -357,7 +357,7 @@ void host_process_frame(void) {
         uint64_t frame_period = tps / TARGET_FPS;
         int64_t time_debt = (int64_t)(now - frame_deadline);
 
-        if (time_debt > (int64_t)frame_period && consecutive_skips < MAX_FRAME_SKIP) {
+        if (time_debt > (int64_t)frame_period && consecutive_skips < EB_MAX_FRAME_SKIP) {
             do_render = false;
             consecutive_skips++;
         } else {
@@ -437,7 +437,7 @@ void host_process_frame(void) {
     }
     memory_update_joypad(current_pad);
 
-#ifdef ENABLE_VERIFY
+#ifdef EB_ENABLE_VERIFY
     verify_frame(current_pad);
 #endif
 
@@ -495,10 +495,10 @@ void host_process_frame(void) {
             /* Advance deadline by one frame */
             frame_deadline += frame_period;
 
-            /* Clamp: if debt exceeds MAX_FRAME_SKIP frames, reset deadline
+            /* Clamp: if debt exceeds EB_MAX_FRAME_SKIP frames, reset deadline
              * to prevent runaway catch-up after pause/breakpoint */
             uint64_t now = platform_timer_ticks();
-            if ((int64_t)(now - frame_deadline) > (int64_t)(MAX_FRAME_SKIP * frame_period))
+            if ((int64_t)(now - frame_deadline) > (int64_t)(EB_MAX_FRAME_SKIP * frame_period))
                 frame_deadline = now;
 
             /* Sleep if ahead of schedule (skipped during a capture free-run so
