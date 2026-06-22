@@ -2093,6 +2093,7 @@ typedef enum {
     II_ATTRACT_RESULT,  /* button -> file menu; else next scene or back to title */
     II_FILE_MENU,       /* exit cleanup; change_music(SETUP); setup; push FILE_MENU */
     II_FILE_MENU_POST,  /* post-file-menu cleanup (clear_instant_printing/window_tick_work) */
+    II_FILE_MENU_FADE,  /* FADE_OUT_WITH_MOSAIC the confirmation screen to black (file_select_init.asm:81) */
     II_FILE_MENU_DONE,  /* clear disabled_transitions; free title script data; pop */
 } InitIntroPhase;
 

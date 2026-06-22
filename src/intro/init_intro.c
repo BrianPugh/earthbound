@@ -204,8 +204,33 @@ StepResult mode_step_init_intro(ModeState *ms) {
              * entity action scripts to park — the work_step never returns true. */
             clear_instant_printing();
             (void)window_tick_work_step();
-            st->phase = II_FILE_MENU_DONE;
+            st->phase = II_FILE_MENU_FADE;
             return STEP_RESULT_CONTINUE();
+
+        case II_FILE_MENU_FADE: {
+            /* Assembly file_select_init.asm:78-81 — FADE_OUT_WITH_MOSAIC(step=1,
+             * delay=1, mosaic=0) blanks the confirmation screen to black before
+             * returning to MAIN_LOOP. Without this the screen is left at full
+             * brightness (the file menu never fades out), so MAIN_LOOP's FADE_IN
+             * is a no-op and the first overworld frame renders bright — showing
+             * the map centered on the new leader position for one frame before the
+             * prologue script's CAMERA_FOLLOW / TELEPORT_TO repositions the camera.
+             * MF_OUT ends force-blanked (inidisp=0x80), so the boot FADE_IN then
+             * correctly ramps up from black and masks the camera reposition. */
+            static ModeState fade_child;
+            memset(&fade_child, 0, sizeof(fade_child));
+            fade_child.mosaic_fade.kind       = (uint8_t)MF_OUT;
+            fade_child.mosaic_fade.step        = 1;
+            fade_child.mosaic_fade.delay       = 1;
+            fade_child.mosaic_fade.mosaic_bgs  = 0;  /* Y = 0: no mosaic */
+            /* final_hdma = 1: FADE_OUT_WITH_MOSAIC's @FADE_DONE always clears
+             * HDMAEN_MIRROR/HDMAEN and waits one trailing vblank (not gated on a
+             * param). Matches the real asm function (vs. the logo/flyover ramps
+             * which only borrow the brightness loop). */
+            fade_child.mosaic_fade.final_hdma  = 1;
+            st->phase = II_FILE_MENU_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &fade_child);
+        }
 
         case II_FILE_MENU_DONE:
             /* Critical: ow.disabled_transitions must be cleared or the overworld
