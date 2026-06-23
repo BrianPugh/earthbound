@@ -71,6 +71,13 @@ void logo_screen_load(uint16_t logo_id) {
     ppu.bg_viewport_fill[2] = BG_VIEWPORT_FILL;
     ppu.bg_hofs[2] = 0;
 
+    /* Vertically center the logo: an explicit-FILL layer's vertical position is
+     * driven by sprite_y_offset (snes_scanline = scanline - sprite_y_offset),
+     * so without this the logo renders top-aligned. The dark background tile
+     * still wraps to fill the top/bottom gutters. Horizontal centering is
+     * automatic via the FILL fill_pad (see render_bg_scanline). */
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
+
     /* Asset IDs for each logo.
      * Nintendo gfx/arr are locale-specific (US/ or JP/) — locale aliases
      * in asset_ids.h resolve transparently via locale aliases.

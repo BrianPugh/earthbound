@@ -107,6 +107,7 @@ static StepResult title_fadeout_step(TitleScreenState *s) {
         ppu.inidisp = 0x80;
         ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
         ppu.sprite_x_offset = 0;
+        ppu.sprite_y_offset = 0;
         ert.actionscript_state = 0;
         setup_entity_color_math();
         entity_system_init();
@@ -270,6 +271,14 @@ void title_screen_setup(uint16_t quick_mode) {
      * at SNES_WIDTH and then centered in the viewport (temp_nf path), so
      * sprite OAM X values (designed for 256px) need the same offset. */
     ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
+
+    /* Vertically center too: in wide mode (CLAMP keeps it active) the BG and
+     * OBJ vertical position is driven solely by sprite_y_offset, so without
+     * this the logo sits top-aligned with the bottom gutter clamp-filled.
+     * CLAMP still edge-extends the top/bottom gutters (dark space). Reset to 0
+     * on exit so the following attract-mode overworld (camera-centered) isn't
+     * double-shifted. Matches gas_station.c / file_select.c. */
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
 
     /* ROM: JSL OAM_CLEAR */
     memset(ppu.oam, 0, sizeof(ppu.oam));
