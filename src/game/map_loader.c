@@ -41,6 +41,7 @@ extern uint16_t photograph_map_loading_mode;
 /* Forward declarations */
 #include "game_main.h"
 static uint16_t get_tileset_id(uint16_t tileset_combo);
+static size_t load_and_decompress(AssetId id, uint8_t *dst, size_t dst_max);
 
 /* --- Data tables loaded from assets --- */
 
@@ -505,6 +506,41 @@ static void load_map_block_event_changes(uint16_t tileset_id) {
 void load_current_map_block_events(void) {
     if (ml.loaded_tileset_combo < 0) return;
     uint16_t tileset_id = get_tileset_id((uint16_t)ml.loaded_tileset_combo);
+    load_map_block_event_changes(tileset_id);
+}
+
+/* --- map_loader_savestate_rebind ---
+ * Rebuild the non-serialized map scratch a cold-boot resume needs but never
+ * loaded. The serialized snapshot carries the live map STATE (ml: collision
+ * grid, tileset combo, palettes; the VRAM tileset GFX + tilemaps in the PPU
+ * section) but NOT the file-static scratch that load_map_at_sector() populates:
+ * `arrangement_buffer` (= shared_scratch.arrangement, deliberately non-serialized
+ * scratch) and the `arrangement_loaded`/`chunks_loaded` flags + the compile-time
+ * table pointers (tilesetpalette_data, chunk_data[], collision_arrangement_table).
+ * On an in-process F7 load those are already live; on a cold boot the boot path
+ * that would have set them is bypassed, so fill_tilemaps()/fill_collision_tiles()
+ * early-return and the camera just scrolls within the stale VRAM nametable (the
+ * "street loops as you walk" symptom). Re-derive them here from the restored
+ * tileset combo. Everything rebuilt is deterministic from restored state (combo +
+ * event flags), so this is idempotent and safe whether the prior state was a live
+ * session or a fresh boot. The tileset GFX (VRAM) is intentionally NOT reloaded —
+ * it is restored by the PPU section, and load_map_at_sector only reloads it on a
+ * combo change anyway. */
+void map_loader_savestate_rebind(void) {
+    if (ml.loaded_tileset_combo < 0) return;   /* no overworld map loaded */
+    if (!map_loader_init()) return;            /* bind ROM tables + load_chunks() */
+
+    uint16_t tileset_id = get_tileset_id((uint16_t)ml.loaded_tileset_combo);
+
+    /* Re-decompress the tileset's block→tile arrangement into the scratch buffer. */
+    arrangement_size = load_and_decompress(ASSET_MAPS_ARRANGEMENTS(tileset_id),
+                                           arrangement_buffer, SHARED_SCRATCH_SIZE);
+    arrangement_loaded = (arrangement_size > 0);
+
+    /* Rebuild the collision pointer buffer, then re-apply event-driven block
+     * swaps (same order as load_map_at_sector) so both the arrangement and the
+     * collision data match what was saved — deterministic from restored flags. */
+    load_tile_collision(tileset_id);
     load_map_block_event_changes(tileset_id);
 }
 

@@ -1539,6 +1539,33 @@ void game_init(void) {
     game_state_init();
     floating_sprite_table_load();
 
+    /* Bind the compile-time ROM-asset pointers that gameplay reads on EVERY boot
+     * path. These are NOT serialized state — they are file-static caches of pointers
+     * into compiled-in ROM data. Normally they are bound lazily during boot
+     * (overworld_boot_step / initialize_overworld_state / boot_begin), but the
+     * cold-boot savestate-resume path applies the snapshot at the first root boundary
+     * and replaces the mode stack BEFORE any of those run — leaving the pointers NULL
+     * for the whole resumed session. Binding them here covers every path; each is
+     * idempotent (re-binds the same pointers), so the normal new-game boot's repeat
+     * calls and guards no-op. Any serialized side effects (load_sprite_data() clears
+     * sprite_vram_table + overworld_spritemaps; text_system_init() sets
+     * dt.enable_word_wrap) happen BEFORE the load and are overwritten by the restored
+     * sections. Symptoms each one fixes on cold-boot resume:
+     *   - load_sprite_data:        sprite_grouping_* / sprite_banks[] → frozen entity
+     *                              sprites; broken door/new-map entity spawns
+     *   - load_event_script_data:  event_script_pointer_table / script_banks[] → NPC,
+     *                              door, and cutscene action scripts can't execute
+     *   - display_text_init:       dialogue_blob / inline_string_table → broken
+     *                              dialogue, signs, and menu text
+     *   - text_system_init:        fonts[] glyph data → blank/garbled rendered text
+     * (The map tileset arrangement scratch is rebuilt separately by
+     * map_loader_savestate_rebind() in read_slot, since it must run AFTER the snapshot
+     * restores ml.loaded_tileset_combo. ensure_item_config() already self-heals lazily.) */
+    load_sprite_data();
+    load_event_script_data();
+    display_text_init();
+    text_system_init();
+
     /* Push the permanent GAME_MODE_OVERWORLD root (g_mode_stack[0]) so the first
      * game_loop_step() dispatches its OWP_BOOT_SETUP phase (boot_begin -> intro).
      * The root is never popped; the stack is never empty after this. */

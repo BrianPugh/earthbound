@@ -245,6 +245,12 @@ void apply_next_map_music(void);
  * Called from event scripts after event flags change to update map tiles. */
 void load_current_map_block_events(void);
 
+/* Rebuild non-serialized map scratch (tileset arrangement buffer, collision
+ * pointer buffer, table pointers) after a savestate load. Required on cold-boot
+ * resume, where the boot path that normally populates them is bypassed. Safe and
+ * idempotent for in-process loads too. Invoked from read_slot() in state_dump.c. */
+void map_loader_savestate_rebind(void);
+
 /* Load and decompress sanctuary tileset/tilemap/palette data for one sanctuary.
  * Port of LOAD_YOUR_SANCTUARY_LOCATION (asm/overworld/load_your_sanctuary_location.asm) +
  *        LOAD_YOUR_SANCTUARY_LOCATION_DATA  (asm/overworld/load_your_sanctuary_location_data.asm).

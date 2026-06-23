@@ -512,6 +512,10 @@ static bool read_slot(int slot) {
     window_savestate_rebind();
     overworld_savestate_rebind();
     psi_animation_savestate_rebind();
+    /* Rebuild the non-serialized map scratch (tileset arrangement buffer, etc.).
+     * Without this a cold-boot resume scrolls within the stale VRAM nametable
+     * (map "loops") because fill_tilemaps() has no arrangement data to stream. */
+    map_loader_savestate_rebind();
     return true;
 }
 
