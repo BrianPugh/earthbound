@@ -73,6 +73,18 @@ static bool load_attract_mode_text_offsets(void) {
 StepResult mode_step_attract_mode(ModeState *st) {
   AttractState *s = &st->attract;
 
+  /* Vertically center the BG3 overlay-text layer (scene credits: producer,
+   * etc.) to match the rest of the centered scene in a taller viewport. The
+   * oval spotlight and swirl window already center at EB_VIEWPORT_PAD_TOP
+   * (oval_window.c), and the world+sprites center via camera scroll, but the
+   * text layer is non-filling: the renderer top-aligns it (snes_scanline =
+   * scanline - sprite_y_offset, with sprite_y_offset == 0 for the overworld).
+   * Shifting its scroll up by PAD_TOP moves the content down into the centered
+   * band (tilemap row = scanline + bg_vofs, ppu_render.c). Re-asserted every
+   * frame (before the flush-resume too) so scene reloads can't undo it.
+   * Inert at native resolution (PAD_TOP == 0). Reset to 0 on exit below. */
+  ppu.bg_vofs[2] = (uint16_t)(-EB_VIEWPORT_PAD_TOP);
+
   /* Resume after a parked actionscript frame (D4b): finish the render, then run
    * the exact post-render tail of whichever site parked. */
   if (s->flush == 1) {        /* AT_MAIN render parked */
@@ -167,6 +179,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
       stop_oval_window();
       ert.actionscript_state = 0;
       clear_map_entities();
+      ppu.bg_vofs[2] = 0; /* undo the attract text-layer centering shift */
       return STEP_RESULT_POP(s->button_pressed);
     }
     fade_update();

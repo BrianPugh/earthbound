@@ -97,6 +97,16 @@ void overworld_setup_vram(void) {
     ppu.bg_hofs[2] = 0;
     ppu.bg_vofs[2] = 0;
 
+    /* The overworld BG3 is always the 32-tile text/overlay layer — never a
+     * filling layer. Force CENTER (render at SNES_WIDTH, centered with blank
+     * gutters) to clear any stale BG_VIEWPORT_FILL left over from the intro
+     * company logos (logo_screen.c sets FILL on BG3 and never resets it). Without
+     * this, attract mode — which runs before file_select.c restores CENTER —
+     * renders full-screen BG3 credit cards ("Produced by Shigesato Itoi",
+     * "Nintendo Presentation") with the 256px tilemap wrapping across a wider
+     * viewport, duplicating the image into the gutter. Inert at native res. */
+    ppu.bg_viewport_fill[2] = BG_VIEWPORT_CENTER;
+
     /* Tile data bases: BG1=$0000 (nba lo=0), BG2=$2000 (nba hi=2) */
     ppu.bg_nba[0] = 0x20;
     /* BG3=$6000 (nba lo=6) */
