@@ -65,3 +65,14 @@ size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size) 
     fclose(f);
     return r;
 }
+
+/* Savestate (de)compressor scratch — the tamp LZ window + working struct + I/O
+ * staging (see state_dump.c). The embedded ports lend an idle framebuffer; on
+ * desktop a small static buffer is fine. 16 KiB gives generous staging without
+ * mattering on a PC. */
+void *platform_savestate_scratch(size_t *out_bytes) {
+    static unsigned char scratch[16 * 1024];
+    if (out_bytes)
+        *out_bytes = sizeof(scratch);
+    return scratch;
+}

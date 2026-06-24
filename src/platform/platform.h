@@ -156,6 +156,19 @@ bool   platform_savestate_write(int slot, size_t offset, const void *src, size_t
 bool   platform_savestate_commit(int slot);
 size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size);
 
+/*
+ * Transient scratch RAM for the savestate (de)compressor — the LZ window, the
+ * tamp working struct, and the compressed-byte I/O staging buffer. The payload
+ * is stored as a tamp stream (see state_dump.c); compress (save) and decompress
+ * (load) both run only at the root boundary, where the port can lend a large
+ * already-allocated buffer it isn't using (the G&W lends its idle third
+ * framebuffer; desktop returns a static buffer). Returns the buffer and writes
+ * its byte size to *out_bytes. The caller treats it as volatile scratch and owns
+ * no state across calls. Must be >= 512 bytes; a bigger region just enables
+ * chunkier I/O staging. Never NULL.
+ */
+void  *platform_savestate_scratch(size_t *out_bytes);
+
 /* Debug dumps (desktop: write files to debug/; embedded: no-op) */
 void platform_debug_dump_ppu(const pixel_t *framebuffer);
 void platform_debug_dump_vram_image(void);

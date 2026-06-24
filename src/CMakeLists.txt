@@ -12,6 +12,9 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "verify/*.c"
     "game_main.c"
 )
+# tamp's desktop match-finder is #include'd by core/tamp/compressor.c on 64-bit
+# hosts, never compiled as its own translation unit — drop it from the glob.
+list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/core/tamp/compressor_find_match_desktop.c")
 file(GLOB_RECURSE DATA_SOURCES CONFIGURE_DEPENDS "data/*.c")
 
 add_library(earthbound_game STATIC ${SOURCES} ${DATA_SOURCES})

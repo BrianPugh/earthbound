@@ -37,20 +37,25 @@
 #include "game/inventory.h"
 #include "game/ending.h"
 #include "intro/file_select.h"
+#include "core/tamp/compressor.h"
+#include "core/tamp/decompressor.h"
 
 /* Container format (20-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"
  *   version     u16
  *   frame       u16  informational (the authoritative value rides in SECTION_CORE)
  *   seq         u32  monotonic sequence — the ping-pong layer picks the highest valid
- *   crc32       u32  CRC-32 of the payload that follows the header
- *   payload_len u32  byte length of the payload (so the offset-addressed slot backend
- *                    knows how much to read without an EOF signal)
- * Then the payload: id(u16)/size(u32)/blob sections, then a 0xFFFF terminator. See
- * the AUDIT in docs/plans/savestate-unified-loop.md. */
+ *   crc32       u32  CRC-32 of the COMPRESSED payload that follows the header
+ *   payload_len u32  byte length of the COMPRESSED payload (so the offset-addressed
+ *                    slot backend knows how much to read without an EOF signal)
+ * Then the payload: a single tamp-compressed stream whose decompressed form is the
+ * id(u16)/size(u32)/blob sections followed by a 0xFFFF terminator. The header stays
+ * uncompressed so peek/header/CRC paths are cheap raw reads; the CRC is over the
+ * stored (compressed) bytes so verify never has to decompress. See the AUDIT in
+ * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 10 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 11 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -61,7 +66,10 @@
                                * v10: SECTION_PPU now serializes only the fixed PPUState
                                * prefix — the EB_VIEWPORT_HEIGHT-sized per-scanline HDMA
                                * tables are excluded (derived render scratch), making the
-                               * format portable across viewport dimensions. */
+                               * format portable across viewport dimensions.
+                               * v11: the payload (sections + terminator) is now a single
+                               * tamp-compressed stream; the header's crc32/payload_len
+                               * describe the COMPRESSED bytes. Header stays uncompressed. */
 
 /* Section IDs */
 enum {
@@ -320,83 +328,202 @@ static uint32_t crc32_step(uint32_t crc, const void *buf, size_t len) {
     return crc;
 }
 
-/* CRC-32 of the exact byte stream the section walk writes (id u16, size u32, data),
- * followed by the 0xFFFF terminator. Relies on the asserted little-endian target so
- * the in-memory bytes of id/size equal the bytes written to the slot. Run AFTER each
- * pack() has gathered its statics into the scratch buffer. */
-static uint32_t compute_payload_crc(const StateSection *table, int n) {
-    uint32_t crc = 0xFFFFFFFFu;
-    for (int i = 0; i < n; i++) {
-        uint16_t id = table[i].id;
-        uint32_t size = table[i].size;
-        crc = crc32_step(crc, &id, 2);
-        crc = crc32_step(crc, &size, 4);
-        if (size)
-            crc = crc32_step(crc, table[i].ptr, size);
-    }
-    uint16_t term = SECTION_TERMINATOR;
-    crc = crc32_step(crc, &term, 2);
-    return crc ^ 0xFFFFFFFFu;
-}
-
 /* ---- Storage on the platform_savestate_* slot backend (build-order item #5) ----
  * All raw byte I/O goes through the port's offset/slot-addressed hooks (file-backed
  * on desktop, flash on embedded). The format/ping-pong/CRC logic lives here in core;
  * the port owns only the bytes + durability. Every multi-byte field is written/read
- * as its little-endian in-memory bytes (the target is asserted little-endian). */
+ * as its little-endian in-memory bytes (the target is asserted little-endian).
+ *
+ * Since v11 the PAYLOAD (sections + terminator) is a single tamp-compressed stream
+ * (item: savestate compression). The 20-byte header stays uncompressed at offset 0;
+ * the window/struct/I/O-staging the (de)compressor needs come from the port's
+ * platform_savestate_scratch() lend (no persistent RAM). The stored CRC covers the
+ * COMPRESSED bytes, so peek/verify never decompress. */
 
-/* Sequential slot writer: tracks a running offset and latches the first failure. */
-typedef struct { int slot; size_t off; bool ok; } SsWriter;
-static void ssw(SsWriter *w, const void *p, size_t n) {
-    if (w->ok && !platform_savestate_write(w->slot, w->off, p, n))
-        w->ok = false;
-    w->off += n;
+/* tamp LZ window = 2^8 = 256 bytes (measured: only marginally worse ratio than a
+ * larger window on this data, and a small window keeps match-search fast). */
+#define SS_WINDOW_BITS  8u
+#define SS_WINDOW_SIZE  (1u << SS_WINDOW_BITS)
+#define SS_STAGE_MAX    16384u   /* cap on compressed-I/O staging (chunky SD ops) */
+#define SS_STAGE_MIN    512u     /* refuse to run if the scratch lend is smaller */
+
+static unsigned char *ss_align8(unsigned char *p) {
+    uintptr_t a = ((uintptr_t)p + 7u) & ~(uintptr_t)7u;
+    return (unsigned char *)a;
 }
-static void ssw_u16(SsWriter *w, uint16_t v) { ssw(w, &v, 2); }
-static void ssw_u32(SsWriter *w, uint32_t v) { ssw(w, &v, 4); }
 
-/* Serialize the live state into `slot`, tagged with sequence `seq`. The CRC and
- * payload length are computed in a pre-pass over the section table (no seek-back, no
- * staging of the whole snapshot). Returns true only on a fully committed write; a
- * partial/failed write is left uncommitted (it fails CRC validation later, so the
- * prior slot stays the newest valid one). */
+/* Compressing sequential writer. Replaces the old raw SsWriter: the section walk's
+ * byte stream is sunk through a TampCompressor and the compressed output is staged
+ * and flushed to the slot in chunks. The window, the compressor struct, and the
+ * staging buffer all live in the port's scratch lend (none on the stack). The
+ * running CRC accumulates over the COMPRESSED bytes as they are flushed, so the
+ * header's crc/len match what verify_slot_crc later reads back. */
+typedef struct {
+    TampCompressor *c;
+    unsigned char  *stage;      /* compressed-output staging (in the scratch lend) */
+    size_t          stage_cap;
+    size_t          stage_fill;
+    int             slot;
+    size_t          out_off;    /* slot offset for the next staged flush (>= header) */
+    uint32_t        crc;        /* running CRC of compressed bytes (pre final XOR) */
+    size_t          comp_len;   /* total compressed bytes written */
+    bool            ok;
+} CompCtx;
+
+static void comp_flush_stage(CompCtx *x) {
+    if (!x->ok || x->stage_fill == 0)
+        return;
+    if (!platform_savestate_write(x->slot, x->out_off, x->stage, x->stage_fill)) {
+        x->ok = false;
+        return;
+    }
+    x->crc       = crc32_step(x->crc, x->stage, x->stage_fill);
+    x->out_off  += x->stage_fill;
+    x->comp_len += x->stage_fill;
+    x->stage_fill = 0;
+}
+
+static bool comp_init(CompCtx *x, int slot) {
+    size_t region = 0;
+    unsigned char *base = (unsigned char *)platform_savestate_scratch(&region);
+    if (!base)
+        return false;
+    unsigned char *p = base;
+    unsigned char *window = p;            p += SS_WINDOW_SIZE;
+    p = ss_align8(p);
+    x->c = (TampCompressor *)p;           p += sizeof(TampCompressor);
+    p = ss_align8(p);
+    size_t used = (size_t)(p - base);
+    if (region < used + SS_STAGE_MIN)
+        return false;
+    size_t cap = region - used;
+    if (cap > SS_STAGE_MAX)
+        cap = SS_STAGE_MAX;
+    x->stage      = p;
+    x->stage_cap  = cap;
+    x->stage_fill = 0;
+    x->slot       = slot;
+    x->out_off    = STATE_DUMP_HEADER_SIZE;
+    x->crc        = 0xFFFFFFFFu;
+    x->comp_len   = 0;
+    x->ok         = true;
+    const TampConf conf = { .window = SS_WINDOW_BITS, .literal = 8, .use_custom_dictionary = 0 };
+    if (tamp_compressor_init(x->c, &conf, window) != TAMP_OK)
+        x->ok = false;
+    return x->ok;
+}
+
+/* Compress one token out of the input buffer into staging (flushing staging to SD
+ * first if it's nearly full — a poll emits at most (16+WINDOW_BITS)/8 = 3 bytes). */
+static void comp_poll(CompCtx *x) {
+    if (!x->ok)
+        return;
+    if (x->stage_cap - x->stage_fill < 32)
+        comp_flush_stage(x);
+    if (!x->ok)
+        return;
+    size_t written = 0;
+    if (tamp_compressor_poll(x->c, x->stage + x->stage_fill,
+                             x->stage_cap - x->stage_fill, &written) != TAMP_OK) {
+        x->ok = false;
+        return;
+    }
+    x->stage_fill += written;
+}
+
+static void comp_write(CompCtx *x, const void *src, size_t n) {
+    const unsigned char *p = (const unsigned char *)src;
+    while (n && x->ok) {
+        size_t consumed = 0;
+        tamp_compressor_sink(x->c, p, n, &consumed);
+        p += consumed;
+        n -= consumed;
+        if (tamp_compressor_full(x->c))
+            comp_poll(x);
+    }
+}
+static void comp_u16(CompCtx *x, uint16_t v) { comp_write(x, &v, 2); }
+static void comp_u32(CompCtx *x, uint32_t v) { comp_write(x, &v, 4); }
+
+/* Drain the compressor (remaining buffered input + bit buffer), flush staging, and
+ * finalize the CRC. flush needs all its output contiguous, so empty the staging
+ * first (cap >= SS_STAGE_MIN comfortably exceeds flush's worst case). */
+static void comp_finish(CompCtx *x) {
+    if (!x->ok)
+        return;
+    comp_flush_stage(x);
+    if (!x->ok)
+        return;
+    size_t written = 0;
+    if (tamp_compressor_flush(x->c, x->stage + x->stage_fill,
+                              x->stage_cap - x->stage_fill, &written,
+                              /*write_token=*/false) != TAMP_OK) {
+        x->ok = false;
+        return;
+    }
+    x->stage_fill += written;
+    comp_flush_stage(x);
+    if (x->ok)
+        x->crc ^= 0xFFFFFFFFu;
+}
+
+/* Write the 20-byte uncompressed header at offset 0. Called LAST (after the compress
+ * pass) because crc/comp_len aren't known until then. */
+static bool write_header(int slot, uint16_t frame, uint32_t seq,
+                         uint32_t crc, uint32_t comp_len) {
+    uint8_t h[STATE_DUMP_HEADER_SIZE];
+    uint32_t magic = STATE_DUMP_MAGIC;
+    uint16_t ver   = STATE_DUMP_VERSION;
+    memcpy(h + 0,  &magic,    4);
+    memcpy(h + 4,  &ver,      2);
+    memcpy(h + 6,  &frame,    2);
+    memcpy(h + 8,  &seq,      4);
+    memcpy(h + 12, &crc,      4);
+    memcpy(h + 16, &comp_len, 4);
+    return platform_savestate_write(slot, 0, h, sizeof h);
+}
+
+/* Serialize the live state into `slot`, tagged with sequence `seq`, as a compressed
+ * stream. Single pass: the section walk is compressed straight to the slot, then the
+ * header (with the resulting compressed CRC + length) is written back at offset 0.
+ * Returns true only on a fully committed write; a partial/failed write is left
+ * uncommitted (it fails CRC validation later, so the prior slot stays newest-valid). */
 static bool write_slot(int slot, uint32_t seq) {
     /* Gather the pack/unpack sections' scattered statics into their scratch buffers
-     * BEFORE both the CRC pre-pass and the write, so the two see identical bytes. */
+     * BEFORE the compress pass so the bytes are coherent. */
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
     for (int i = 0; i < n; i++)
         if (table[i].pack)
             table[i].pack(table[i].ptr);
 
-    /* payload = sections (id u16 + size u32 + data) + terminator u16 */
-    uint32_t payload_len = 2; /* terminator */
-    for (int i = 0; i < n; i++)
-        payload_len += 2 + 4 + table[i].size;
-    uint32_t crc = compute_payload_crc(table, n);
-
     if (!platform_savestate_begin(slot))
         return false;
 
-    SsWriter w = { slot, 0, true };
-    ssw_u32(&w, STATE_DUMP_MAGIC);
-    ssw_u16(&w, STATE_DUMP_VERSION);
-    ssw_u16(&w, (uint16_t)core.frame_counter);
-    ssw_u32(&w, seq);
-    ssw_u32(&w, crc);
-    ssw_u32(&w, payload_len);
-    for (int i = 0; i < n; i++) {
-        ssw_u16(&w, table[i].id);
-        ssw_u32(&w, table[i].size);
-        if (table[i].size)
-            ssw(&w, table[i].ptr, table[i].size); /* straight from the live global */
+    CompCtx x;
+    if (!comp_init(&x, slot)) {
+        platform_savestate_commit(slot);   /* close the truncated (invalid) slot */
+        return false;
     }
-    ssw_u16(&w, SECTION_TERMINATOR);
+
+    /* Compress: id u16 + size u32 + data per section, then the terminator. The
+     * decompressed stream is byte-identical to the pre-v11 uncompressed payload. */
+    for (int i = 0; i < n; i++) {
+        comp_u16(&x, table[i].id);
+        comp_u32(&x, table[i].size);
+        if (table[i].size)
+            comp_write(&x, table[i].ptr, table[i].size); /* straight from the live global */
+    }
+    comp_u16(&x, SECTION_TERMINATOR);
+    comp_finish(&x);
+
+    bool hdr = x.ok && write_header(slot, (uint16_t)core.frame_counter, seq,
+                                    x.crc, (uint32_t)x.comp_len);
 
     /* Always commit (closes/flushes the open writer); succeed only if every write
      * landed. A torn write produces an invalid slot, never a half-applied load. */
     bool committed = platform_savestate_commit(slot);
-    return w.ok && committed;
+    return x.ok && hdr && committed;
 }
 
 /* Read & validate the 20-byte header from `slot`. On success fills seq/crc/payload_len
@@ -450,16 +577,109 @@ static bool peek_slot(int slot, uint32_t *seq) {
     return true;
 }
 
-/* Sequential slot reader: tracks a running offset and latches the first failure. */
-typedef struct { int slot; size_t off; bool ok; } SsReader;
-static bool ssr(SsReader *r, void *p, size_t n) {
-    if (!r->ok)
+/* Decompressing sequential reader. Replaces the raw SsReader: the apply pass pulls
+ * the section stream through a TampDecompressor instead of reading slot bytes
+ * directly. The window, the decompressor struct, and the compressed-input staging
+ * all live in the port's scratch lend (none on the stack). Compressed bytes are read
+ * from the slot starting after the header; tamp self-configures its window/literal
+ * bits from the 1-byte stream header (conf = NULL). */
+typedef struct {
+    TampDecompressor *d;
+    unsigned char    *in;        /* compressed-input staging (in the scratch lend) */
+    size_t            in_cap;
+    size_t            in_fill;    /* valid bytes in staging */
+    size_t            in_pos;     /* bytes already consumed from staging */
+    int               slot;
+    size_t            src_off;    /* next compressed byte offset in the slot */
+    uint32_t          src_left;   /* compressed bytes not yet pulled from the slot */
+    bool              ok;
+} DecompCtx;
+
+static bool decomp_init(DecompCtx *x, int slot, uint32_t comp_len) {
+    size_t region = 0;
+    unsigned char *base = (unsigned char *)platform_savestate_scratch(&region);
+    if (!base)
         return false;
-    if (platform_savestate_read(r->slot, r->off, p, n) != n) {
-        r->ok = false;
+    unsigned char *p = base;
+    unsigned char *window = p;            p += SS_WINDOW_SIZE;
+    p = ss_align8(p);
+    x->d = (TampDecompressor *)p;         p += sizeof(TampDecompressor);
+    p = ss_align8(p);
+    size_t used = (size_t)(p - base);
+    if (region < used + SS_STAGE_MIN)
         return false;
+    size_t cap = region - used;
+    if (cap > SS_STAGE_MAX)
+        cap = SS_STAGE_MAX;
+    x->in       = p;
+    x->in_cap   = cap;
+    x->in_fill  = 0;
+    x->in_pos   = 0;
+    x->slot     = slot;
+    x->src_off  = STATE_DUMP_HEADER_SIZE;
+    x->src_left = comp_len;
+    x->ok       = true;
+    if (tamp_decompressor_init(x->d, NULL /*conf from stream*/, window, SS_WINDOW_BITS) != TAMP_OK)
+        x->ok = false;
+    return x->ok;
+}
+
+/* Deliver exactly `n` decompressed bytes into `dst`; false on a short/torn stream or
+ * decode error. (The CRC pass already validated the compressed bytes, so a verified
+ * slot never errors here.) */
+static bool decomp_read(DecompCtx *x, void *dst, size_t n) {
+    if (!x->ok)
+        return false;
+    unsigned char *out = (unsigned char *)dst;
+    size_t done = 0;
+    while (done < n) {
+        if (x->in_pos >= x->in_fill && x->src_left > 0) {   /* drained — refill from slot */
+            size_t chunk = x->src_left < x->in_cap ? x->src_left : x->in_cap;
+            size_t got = platform_savestate_read(x->slot, x->src_off, x->in, chunk);
+            if (got == 0) { x->ok = false; return false; }
+            x->in_fill   = got;
+            x->in_pos    = 0;
+            x->src_off  += got;
+            x->src_left -= (uint32_t)got;
+        }
+        size_t avail = x->in_fill - x->in_pos;   /* 0 only at end (src_left == 0) */
+        size_t written = 0, consumed = 0;
+        tamp_res r = tamp_decompressor_decompress(
+            x->d, out + done, n - done, &written,
+            x->in + x->in_pos, avail, &consumed);
+        x->in_pos += consumed;
+        done      += written;
+        if (done == n)
+            break;
+        if (r == TAMP_INPUT_EXHAUSTED) {
+            /* Needs more input. With slot bytes left we refill next loop; at true
+             * end-of-stream the decompressor still drains its bit buffer with zero
+             * input (avail==0), so only a zero-progress call there is a real tear. */
+            if (x->src_left == 0 && avail == 0 && written == 0 && consumed == 0) {
+                x->ok = false;       /* truncated stream */
+                return false;
+            }
+            continue;
+        }
+        if (r != TAMP_OUTPUT_FULL) {
+            x->ok = false;           /* TAMP_OOB or other decode error */
+            return false;
+        }
+        /* TAMP_OUTPUT_FULL with done < n: keep delivering. */
     }
-    r->off += n;
+    return true;
+}
+
+/* Decompress-and-discard `n` bytes — the rare unknown/mismatched-section skip path
+ * (can't seek a compressed stream). */
+static bool decomp_skip(DecompCtx *x, uint32_t n) {
+    unsigned char tmp[256];
+    while (n) {
+        uint32_t chunk = n < sizeof tmp ? n : (uint32_t)sizeof tmp;
+        if (!decomp_read(x, tmp, chunk))
+            return false;
+        n -= chunk;
+    }
     return true;
 }
 
@@ -476,19 +696,21 @@ static bool read_slot(int slot) {
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
 
-    /* Read each tagged section straight into its live global. Unknown ids (or a known
-     * id whose size doesn't match this build) are skipped — forward-compatibility, and
-     * a guard against a layout mismatch smashing a struct. Same-binary loads never
+    /* Decompress each tagged section straight into its live global. Unknown ids (or a
+     * known id whose size doesn't match this build) are skipped — forward-compatibility,
+     * and a guard against a layout mismatch smashing a struct. Same-binary loads never
      * hit the skip; the CRC pass already proved the structure is intact. */
-    SsReader r = { slot, STATE_DUMP_HEADER_SIZE, true };
+    DecompCtx r;
+    if (!decomp_init(&r, slot, plen))
+        return false;
     for (;;) {
         uint16_t id;
-        if (!ssr(&r, &id, 2))
+        if (!decomp_read(&r, &id, 2))
             return false;
         if (id == SECTION_TERMINATOR)
             break;
         uint32_t size;
-        if (!ssr(&r, &size, 4))
+        if (!decomp_read(&r, &size, 4))
             return false;
 
         StateSection *sec = NULL;
@@ -496,13 +718,14 @@ static bool read_slot(int slot) {
             if (table[i].id == id) { sec = &table[i]; break; }
 
         if (sec && sec->size == size) {
-            if (size && !ssr(&r, sec->ptr, size))
+            if (size && !decomp_read(&r, sec->ptr, size))
                 return false;
             /* pack/unpack section: scatter the scratch buffer back into its statics. */
             if (sec->unpack)
                 sec->unpack(sec->ptr);
         } else {
-            r.off += size; /* skip unknown / mismatched section */
+            if (!decomp_skip(&r, size)) /* skip unknown / mismatched section */
+                return false;
         }
     }
 
@@ -522,46 +745,71 @@ static bool read_slot(int slot) {
 /* ---- Crash-safe ping-pong slots (build-order item #4 + #5) ---- */
 
 bool state_dump_save_slots(void) {
-    uint32_t s0 = 0, s1 = 0;
-    bool ok0 = peek_slot(0, &s0);
-    bool ok1 = peek_slot(1, &s1);
+    /* Cheap header-only peek of both slots (20 bytes each), then a SINGLE full CRC
+     * verify of the newest-by-header slot — not both. A torn write leaves a valid
+     * header carrying the NEW (highest) seq but a failing payload CRC, so the
+     * freshly-torn slot, if any, is always the newest-by-header one. Verifying just
+     * it tells us whether the newest slot committed (preserve it, write the other)
+     * or is torn (overwrite it, preserving the older slot). Under the single-fault
+     * model the non-verified slot is then valid, so the second full CRC pass the old
+     * code ran over it was pure read overhead. */
+    uint32_t s0 = 0, c0 = 0, p0 = 0, s1 = 0, c1 = 0, p1 = 0;
+    bool h0 = read_slot_header(0, &s0, &c0, &p0);
+    bool h1 = read_slot_header(1, &s1, &c1, &p1);
 
-    /* next sequence = max(valid sequences) + 1 (>= 1). */
-    uint32_t maxseq = 0;
-    bool any = false;
-    if (ok0)                          { maxseq = s0; any = true; }
-    if (ok1 && (!any || s1 > maxseq)) { maxseq = s1; any = true; }
-    uint32_t next = any ? maxseq + 1 : 1;
+    int newest = -1;
+    if (h0 && h1) newest = (s0 >= s1) ? 0 : 1;
+    else if (h0)  newest = 0;
+    else if (h1)  newest = 1;
 
-    /* Write to the slot that is NOT the current newest-valid one, so that slot stays
-     * intact until the new write commits (atomic via the sequence number). */
-    bool slot0_is_newest = ok0 && (!ok1 || s0 >= s1);
-    int target = slot0_is_newest ? 1 : 0;
-    return write_slot(target, next);
+    int target;
+    uint32_t next;
+    if (newest < 0) {
+        target = 0;                 /* no valid header anywhere — start a fresh chain */
+        next = 1;
+    } else {
+        uint32_t nseq  = newest ? s1 : s0;
+        uint32_t ncrc  = newest ? c1 : c0;
+        uint32_t nplen = newest ? p1 : p0;
+        bool other_hdr = newest ? h0 : h1;
+        uint32_t oseq  = newest ? s0 : s1;
+        if (verify_slot_crc(newest, nplen, ncrc)) {
+            target = newest ? 0 : 1;            /* preserve the committed newest slot */
+            next = nseq + 1;
+        } else {
+            target = newest;                    /* newest-by-header is torn — overwrite it */
+            next = (other_hdr ? oseq : 0) + 1;  /* preserving the older valid slot */
+        }
+    }
+    bool ok = write_slot(target, next);
+    return ok;
 }
 
 bool state_dump_load_slots(void) {
+    /* Order candidates by a cheap header-only peek; read_slot() does its own
+     * verify+apply, so we no longer CRC both slots up front. Newest-by-header is
+     * tried first; a torn newest fails read_slot()'s CRC pass and we fall back to
+     * the older slot. The old code CRC-verified BOTH slots here AND again inside
+     * read_slot — the ~140 KiB snapshot was read ~4x; now it is read at most twice
+     * (the chosen slot's verify pass + its apply pass). */
     uint32_t s0 = 0, s1 = 0;
-    bool ok0 = peek_slot(0, &s0);
-    bool ok1 = peek_slot(1, &s1);
+    bool h0 = read_slot_header(0, &s0, NULL, NULL);
+    bool h1 = read_slot_header(1, &s1, NULL, NULL);
 
-    /* Try the valid slots newest-first; fall back to the older one if the newest
-     * fails to apply (it passed CRC at peek, so this is belt-and-suspenders). */
     int first = -1, second = -1;
-    if (ok0 && ok1) {
+    if (h0 && h1) {
         if (s0 >= s1) { first = 0; second = 1; }
         else          { first = 1; second = 0; }
-    } else if (ok0) {
+    } else if (h0) {
         first = 0;
-    } else if (ok1) {
+    } else if (h1) {
         first = 1;
-    } else {
-        return false;
     }
 
-    if (first >= 0 && read_slot(first)) return true;
-    if (second >= 0 && read_slot(second)) return true;
-    return false;
+    bool ok = false;
+    if (first >= 0 && read_slot(first))        ok = true;
+    else if (second >= 0 && read_slot(second)) ok = true;
+    return ok;
 }
 
 /* ---- Desktop diagnostics (the `--selftest-savestate` flag) ---- */
