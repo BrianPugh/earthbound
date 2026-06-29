@@ -20,8 +20,13 @@ if(NOT SDL2_FOUND)
     pkg_check_modules(SDL2 REQUIRED sdl2)
 endif()
 
-# Platform executable
-file(GLOB PLATFORM_SOURCES CONFIGURE_DEPENDS "platform/*.c")
+# Platform executable. Use GLOB_RECURSE (not plain GLOB): a non-recursive
+# `file(GLOB ... CONFIGURE_DEPENDS ...)` silently returns empty on some
+# filesystems (notably the Docker Desktop virtiofs mount used by the i386 build
+# in port/unix/docker), which drops every platform/*.c object and breaks the
+# link. GLOB_RECURSE + CONFIGURE_DEPENDS works there and matches src/CMakeLists.txt.
+# platform/ has no subdirectories, so this is equivalent to a flat glob.
+file(GLOB_RECURSE PLATFORM_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.c")
 add_executable(earthbound main.c ${PLATFORM_SOURCES})
 
 target_link_libraries(earthbound earthbound_game)
