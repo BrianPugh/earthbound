@@ -1745,7 +1745,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 uint8_t *temp_sub_gp = temp_sub_gp_ctx[ctx_id];
                 uint8_t *temp_tm_all = temp_tm_all_ctx[ctx_id];
                 memset(temp_gp_lm, 0, SNES_WIDTH * sizeof(uint16_t));
-                memset(temp_tm_all, 0xFF, SNES_WIDTH);
+                /* temp_tm_all is NOT cleared: the temp render always uses the
+                 * uncond emit variant (uncond=1, main_on=1 below), which never
+                 * reads tm_line/ts_line, and the merge below reads the *main*
+                 * eff_tm_line — so temp_tm_all is write-only dead work here
+                 * (~3% of the overworld frame was this memset). If the emit
+                 * dispatch ever stops taking EMIT_PIXELS_UNCOND for temp, restore
+                 * `memset(temp_tm_all, 0xFF, SNES_WIDTH);` */
                 if (need_sub) memset(temp_sub_gp, 0, SNES_WIDTH);
 
                 /* Temp context pointing to temp buffers */
