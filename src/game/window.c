@@ -2845,13 +2845,22 @@ void scroll_window_up(WindowInfo *w) {
         free_tile(w->content_tilemap[i]);
     }
 
-    /* 2. Shift entries up by one text line (entries_per_text_line entries) */
+    /* 2. Shift entries up by one text line (entries_per_text_line entries).
+     * NB: the memmove args are materialized into plain locals first. Passing the
+     * over-aligned member `w->content_tilemap` (ABI_PTR_ALIGN = aligned(8))
+     * directly into memmove made arm-none-eabi-gcc 15.2 mis-marshal the arguments
+     * (in the scroll_window_up.part.0 hot/cold split) — shifting them one register
+     * over so the source POINTER landed in the size slot, giving memmove a
+     * pointer-sized (~604 MB) length that ran off the tilemap pool into peripheral
+     * space and took an imprecise bus fault. Plain local pointer/size variables
+     * force correct argument setup. */
     if (total_entries > entries_per_text_line) {
         uint16_t shift_count = total_entries - entries_per_text_line;
         if (shift_count > w->content_tilemap_size) shift_count = w->content_tilemap_size;
-        memmove(w->content_tilemap,
-                w->content_tilemap + entries_per_text_line,
-                shift_count * sizeof(uint16_t));
+        uint16_t *dst = w->content_tilemap;
+        uint16_t *src = dst + entries_per_text_line;
+        size_t nbytes = (size_t)shift_count * sizeof(uint16_t);
+        memmove(dst, src, nbytes);
     }
 
     /* 3. Fill bottom text line with 0 (empty) */
