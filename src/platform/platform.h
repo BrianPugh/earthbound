@@ -157,6 +157,21 @@ bool   platform_savestate_commit(int slot);
 size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size);
 
 /*
+ * Suspend/resume audio *output* around the root-boundary save/load I/O (the
+ * ~0.6-1 s of blocking slot reads/writes during which the game loop, and thus
+ * the port's audio producer, is stalled). A port whose audio is pulled by a
+ * DMA/callback that keeps running while the loop is blocked (e.g. the G&W SAI
+ * ring) will otherwise drain its buffer and then repeat/underrun for the rest
+ * of the stall. freeze(true) is called once immediately before the blocking
+ * state_dump, freeze(false) once after it returns (both branches). It is only
+ * ever called at the root boundary, where the producer is quiescent, so a port
+ * may safely gate its output callback here without deadlocking the producer.
+ * Optional: the default (weak) implementation is a no-op for ports that don't
+ * need it. Must be balanced and reentrancy-free (never nested).
+ */
+void platform_savestate_freeze_audio(bool freeze);
+
+/*
  * Transient scratch RAM for the savestate (de)compressor — the LZ window, the
  * tamp working struct, and the compressed-byte I/O staging buffer. The payload
  * is stored as a tamp stream (see state_dump.c); compress (save) and decompress

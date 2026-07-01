@@ -541,6 +541,14 @@ HostCaptureStatus host_capture_status(void) {
     return g_capture_status;
 }
 
+/* Default no-op: ports whose audio doesn't keep pulling while the root loop is
+ * blocked (desktop, and any that don't overlap I/O with playback) need nothing
+ * here. Ports with a free-running output callback (G&W SAI ring) override this
+ * with a strong definition. See platform_savestate_freeze_audio in platform.h. */
+__attribute__((weak)) void platform_savestate_freeze_audio(bool freeze) {
+    (void)freeze;
+}
+
 /* Perform a pending save/load, if any. MUST be called only from the outermost host
  * loop (the root boundary) — never from a nested host_process_frame(). See game_main.h. */
 void host_root_boundary(void) {
@@ -550,6 +558,11 @@ void host_root_boundary(void) {
 
     g_pending_root_action = ROOT_ACTION_NONE;
     g_capture_unwind_frames = 0;
+
+    /* Gate audio output across the blocking slot I/O below: the producer is
+     * stalled here (root boundary), so a port with a free-running output
+     * callback would otherwise drain and drone for the ~0.6-1 s it takes. */
+    platform_savestate_freeze_audio(true);
 
     if (action == ROOT_ACTION_SAVE) {
         /* Crash-safe ping-pong write through the platform_savestate_* slot backend:
@@ -575,6 +588,8 @@ void host_root_boundary(void) {
             LOG_WARN("savestate: failed to load slot\n");
         }
     }
+
+    platform_savestate_freeze_audio(false);
 }
 
 /* Wait for one frame (NMI equivalent).
