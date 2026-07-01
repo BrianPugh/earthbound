@@ -27,7 +27,7 @@ venv/
 *.so
 ebtools/_version.py
 src/CMakePresets.json
-src/assets/
+src/assets
 port/assets/
 *.sav
 src/profile.sh
