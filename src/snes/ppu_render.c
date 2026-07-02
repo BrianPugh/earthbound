@@ -110,8 +110,9 @@ typedef struct {
     /* 1 = target merge buffer is known-empty (freshly cleared) for every pixel
      * this layer writes, so the per-pixel priority load+compare is dead — the
      * write always wins. Set for the first BG layer into best_bg and for every
-     * temp-buffer layer (temp_gp_lm is memset per layer). Requires no_window +
-     * main_on; falls back to the windowed/NW path otherwise. */
+     * temp-buffer layer (both buffers enter each use all-zero via consumer
+     * store-back + a once-per-frame clear). Requires no_window + main_on;
+     * falls back to the windowed/NW path otherwise. */
     uint8_t uncond;
     TileRowCacheEntry *tile_cache; /* per-context tile cache (may be in fast SRAM) */
 } BGRenderCtx;
@@ -1565,6 +1566,17 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     build_obj_buckets();
 #endif
 
+    /* Establish the best_bg_gp_lm / temp_gp_lm all-zero invariant once per
+     * frame. Inside the scanline loop their consumers zero each entry as they
+     * read it (store-back: the compositor for best_bg_gp_lm, the wide-mode
+     * merge loop for temp_gp_lm), replacing the old per-scanline/per-layer
+     * memsets (~11% + ~9% of the overworld frame). This full-width clear
+     * catches anything outside the consumers' coverage: mosaic writes past
+     * render_width in non-wide frames, render_width changes between scenes,
+     * force-blank frames. */
+    memset(best_bg_gp_lm, 0, LINE_BUF_WIDTH * sizeof(uint16_t));
+    memset(temp_gp_lm_ctx[ctx_id], 0, SNES_WIDTH * sizeof(uint16_t));
+
     PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
         /* Border scanline — outside the renderable area */
@@ -1580,7 +1592,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         bool need_sub = color_math_active && use_sub_screen;
 
         PROF_SECTION(clear);
-        memset(best_bg_gp_lm, 0, render_width * sizeof(uint16_t));
+        /* best_bg_gp_lm is NOT cleared here: it enters every scanline all-zero
+         * — the once-per-frame clear above establishes the invariant and the
+         * compositor maintains it by zeroing each entry as it reads it
+         * (store-back), including the head/tail it doesn't visit. */
         if (need_sub)
             memset(sub_bg_gp, 0, render_width);
         if (layers_needed & LAYER_OBJ) {
@@ -1657,8 +1672,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         /* Render BG layers — merge directly into priority buffers */
         PROF_SECTION(bg);
         BGC_INC(scanlines);
-        /* best_bg_* was just cleared, so the first BG layer to write it can skip
-         * the per-pixel priority compare (uncond). Cleared once a layer writes. */
+        /* best_bg_* enters each scanline all-zero (compositor store-back), so
+         * the first BG layer to write it can skip the per-pixel priority
+         * compare (uncond). Cleared once a layer writes. */
         bool merged_empty = true;
         for (int bg = 0; bg < 4; bg++) {
             if (!(layers_needed & (1 << bg))) continue;
@@ -1744,7 +1760,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 uint16_t *temp_sub_color = temp_sub_color_ctx[ctx_id];
                 uint8_t *temp_sub_gp = temp_sub_gp_ctx[ctx_id];
                 uint8_t *temp_tm_all = temp_tm_all_ctx[ctx_id];
-                memset(temp_gp_lm, 0, SNES_WIDTH * sizeof(uint16_t));
+                /* temp_gp_lm is NOT cleared here: like best_bg_gp_lm it enters
+                 * every use all-zero — the once-per-frame clear above
+                 * establishes the invariant and the merge loop below maintains
+                 * it by zeroing each non-zero entry as it consumes it
+                 * (store-back), plus head/tail guards for the span the merge
+                 * doesn't visit. Was ~9% of the overworld frame (512 B per
+                 * layer per scanline). */
                 /* temp_tm_all is NOT cleared: the temp render always uses the
                  * uncond emit variant (uncond=1, main_on=1 below), which never
                  * reads tm_line/ts_line, and the merge below reads the *main*
@@ -1752,7 +1774,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * (~3% of the overworld frame was this memset). If the emit
                  * dispatch ever stops taking EMIT_PIXELS_UNCOND for temp, restore
                  * `memset(temp_tm_all, 0xFF, SNES_WIDTH);` */
-                if (need_sub) memset(temp_sub_gp, 0, SNES_WIDTH);
+                /* temp_sub_gp is NOT cleared for the same reason: the uncond
+                 * emit writes it without reading, and the merge gates the sub
+                 * screen on `gp` from temp_gp_lm — temp_sub_gp is never read
+                 * anywhere, so its clear was dead work too. */
 
                 /* Temp context pointing to temp buffers */
                 BGRenderCtx temp_ctx = ctx;
@@ -1768,8 +1793,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 temp_ctx.no_window = 1;
                 temp_ctx.main_on = 1;
                 temp_ctx.sub_on = 1;
-                /* temp_gp_lm is memset to 0 above and each screen_x is written
-                 * once per layer, so every temp write is into an empty slot. */
+                /* temp_gp_lm enters each use all-zero (store-back in the merge
+                 * loop) and each screen_x is written once per layer, so every
+                 * temp write is into an empty slot. */
                 temp_ctx.uncond = 1;
 
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
@@ -1785,12 +1811,18 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 for (int i = 0; i < count; i++) {
                     int sx = src_start + i;
                     int dx = dst_start + i;
-                    uint8_t gp = GP_LM_GP(temp_gp_lm[sx]);
+                    uint16_t t_packed = temp_gp_lm[sx];
+                    uint8_t gp = GP_LM_GP(t_packed);
                     if (gp == 0) continue;
+                    /* Store-back clear: consume the entry so the buffer
+                     * re-enters the next layer/scanline all-zero (replaces the
+                     * per-layer memset). Zero entries need no store — they are
+                     * already zero. */
+                    temp_gp_lm[sx] = 0;
                     /* Apply window mask during merge */
                     if ((eff_tm_line[dx] & layer_bit) &&
                         gp > GP_LM_GP(best_bg_gp_lm[dx])) {
-                        best_bg_gp_lm[dx] = temp_gp_lm[sx];
+                        best_bg_gp_lm[dx] = t_packed;
                         best_bg_color[dx] = temp_color[sx];
                     }
                     if (need_sub &&
@@ -1799,6 +1831,21 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                         sub_bg_gp[dx] = gp;
                         sub_bg_color[dx] = temp_sub_color[sx];
                     }
+                }
+
+                /* The store-back only covers the merged span; re-zero any
+                 * head/tail the temp render wrote but the merge didn't visit.
+                 * Empty on G&W (src_start == 0, count == SNES_WIDTH) — only a
+                 * viewport narrower than SNES_WIDTH + pad produces one. */
+                {
+                    int merged_lo = src_start;
+                    int merged_hi = src_start + count;
+                    if (count <= 0) { merged_lo = 0; merged_hi = 0; }
+                    if (merged_lo > 0)
+                        memset(temp_gp_lm, 0, merged_lo * sizeof(uint16_t));
+                    if (merged_hi < SNES_WIDTH)
+                        memset(temp_gp_lm + merged_hi, 0,
+                               (SNES_WIDTH - merged_hi) * sizeof(uint16_t));
                 }
 
                 /* Clamp mode: extend edge pixels into the border area */
@@ -1896,6 +1943,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     obj_pk = (scanline_has_obj && (eff_tm_line[x] & LAYER_OBJ)) ? obj_prio[x] : 0;
 
                 uint16_t bg_packed = best_bg_gp_lm[x];
+                /* Store-back clear: leave the entry zero for the next scanline
+                 * (replaces the per-scanline memset — see the clear phase). */
+                best_bg_gp_lm[x] = 0;
                 uint8_t bg_gp_val = GP_LM_GP(bg_packed);
 
                 if (obj_pk > 0 && bg_gp_val < obj_thresh[obj_pk]) {
@@ -1961,6 +2011,17 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
                 line_out[x + fb_x_offset] = px;
             }
+
+            /* The store-back clear above only covers [x_start, x_end); re-zero
+             * any head/tail the compositor didn't visit so the next scanline's
+             * all-zero invariant holds. Both ranges are empty unless the
+             * viewport is narrower than the render width (never on G&W) —
+             * frame-constant conditions, predicted away. */
+            if (x_start > 0)
+                memset(best_bg_gp_lm, 0, x_start * sizeof(uint16_t));
+            if (x_end < render_width)
+                memset(best_bg_gp_lm + x_end, 0,
+                       (render_width - x_end) * sizeof(uint16_t));
         }
         PROF_END(comp, prof_composite);
 
