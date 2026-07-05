@@ -40,6 +40,18 @@ void battle_bg_savestate_unpack(const void *in) {
     const BattleBgSaveState *s = (const BattleBgSaveState *)in;
     distort_30fps = s->distort_30fps;
     bg_state      = s->bg_state;
+    /* The derived render state must be re-derived, not inherited from the
+     * running process: loading a non-battle snapshot while currently IN a
+     * battle otherwise leaves the current battle's bg2_distortion_active +
+     * stale hoffset table applied to the loaded scene forever (nothing
+     * outside battle code ever clears them — the "rebuilt each frame"
+     * invariant above only holds while battle frames run).
+     * In-battle snapshots recover on their next battle frame: the
+     * full-config path (generate_battlebg_frame) re-asserts the flag and
+     * rebuilds the table every frame, and the simplified path's flag is
+     * exactly bg_state.active && dist_type != 0. */
+    memset(bg2_scanline_hoffset, 0, sizeof(bg2_scanline_hoffset));
+    bg2_distortion_active = bg_state.active && (bg_state.dist_type != 0);
 }
 
 /* Saved palette for cycling */
