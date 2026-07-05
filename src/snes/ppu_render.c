@@ -115,6 +115,13 @@ typedef struct {
      * falls back to the windowed/NW path otherwise. */
     uint8_t uncond;
     TileRowCacheEntry *tile_cache; /* per-context tile cache (may be in fast SRAM) */
+    /* Emit-span tracking: emit_tile_run widens [emit_lo, emit_hi) with every
+     * run that survives the blank-row skip. The temp-layer merge uses it to
+     * scan only the columns the temp render could have written — on the
+     * overworld BG3 (HUD/text) is usually entirely blank, collapsing the
+     * 256-column merge scan to nothing. Callers that consume the span must
+     * re-init it (lo = INT_MAX, hi = 0) before each render_bg_scanline call. */
+    int emit_lo, emit_hi;
 } BGRenderCtx;
 
 /* Helper to extract gp and lmask from packed main_gp_lm value */
@@ -274,7 +281,7 @@ void emit_tile_run(
     uint16_t tile_num, int pixel_y, int start_px, int count,
     bool hflip, int screen_x, uint8_t prio_bit, uint8_t palette,
     int bpp, uint32_t tile_data_base, int bytes_per_tile,
-    const BGRenderCtx *ctx)
+    BGRenderCtx *ctx)
 {
     uint32_t tile_addr = tile_data_base + (uint32_t)tile_num * bytes_per_tile;
     if (tile_addr + bytes_per_tile > VRAM_SIZE) return;
@@ -327,6 +334,11 @@ void emit_tile_run(
 #ifdef EB_PPU_PROFILE
     if (ctx->tile_cache[cache_idx].opaque) BGC_INC(opaque_runs);
 #endif
+
+    /* Widen the emit span (blank rows were already skipped above, so the
+     * span only grows for runs that can actually write pixels). */
+    if (screen_x < ctx->emit_lo) ctx->emit_lo = screen_x;
+    if (screen_x + count > ctx->emit_hi) ctx->emit_hi = screen_x + count;
 
     int pal_base = (bpp == 8) ? 0 : (bpp == 4) ? palette * 16 : palette * 4;
     uint16_t gp_lm = prio_bit ? ctx->gp1_lm : ctx->gp0_lm;
@@ -494,7 +506,7 @@ static inline bool tile_fully_blank(uint32_t tile_addr, int bytes_per_tile) {
  * buffers via BGRenderCtx.  render_width controls how many screen pixels
  * to process (may be EB_VIEWPORT_WIDTH or SNES_WIDTH). */
 static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp,
-                                         const BGRenderCtx *ctx, int render_width,
+                                         BGRenderCtx *ctx, int render_width,
                                          int x_pad) {
     /* BG tilemap base address (word address from register, *2 for byte) */
     uint16_t sc_reg = ppu.bg_sc[bg_index];
@@ -831,6 +843,18 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
  * Returns true if any sprite overlapped this scanline (i.e. obj_prio may hold
  * nonzero entries). When false, the compositor skips its per-pixel obj_prio
  * load entirely. */
+#if EB_PPU_OBJ_BUCKET
+/* Dirty x-span of obj_prio: all nonzero entries lie inside
+ * [obj_prio_dirty_lo, obj_prio_dirty_hi). The per-scanline clear wipes only
+ * this span instead of the whole LINE_BUF_WIDTH (sprites cover a narrow
+ * x-range on a typical line). render_obj_scanline widens it per overlapping
+ * sprite (conservative: full sprite width, transparent pixels included).
+ * Initial full span makes the first clear wipe any pre-existing contents.
+ * Globals => single render context only (same gate as the bucket). */
+static int obj_prio_dirty_lo = 0;
+static int obj_prio_dirty_hi = LINE_BUF_WIDTH;
+#endif
+
 static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
     /* When vertical centering is active, sprites only render within the
      * SNES-visible scanline range. The border scanlines (above/below the
@@ -914,6 +938,17 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         int pixel_y = row & 7;
         int tiles_wide = w >> 3;
         int pal_base_idx = 128 + spr_pal * 16;
+
+#if EB_PPU_OBJ_BUCKET
+        /* Widen the obj_prio dirty span for this sprite's x-range. */
+        {
+            int lo = spr_x < 0 ? 0 : spr_x;
+            int hi = spr_x + w;
+            if (hi > LINE_BUF_WIDTH) hi = LINE_BUF_WIDTH;
+            if (lo < obj_prio_dirty_lo) obj_prio_dirty_lo = lo;
+            if (hi > obj_prio_dirty_hi) obj_prio_dirty_hi = hi;
+        }
+#endif
 
         /* Iterate by 8-pixel tile columns instead of individual pixels.
          * decode_4bpp_row is expensive (~32 shift/mask ops); decoding once
@@ -1604,11 +1639,21 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * writes obj_prio this line and the compositor skips reading it
              * (render_obj_scanline returns false -> scanline_has_obj false), so
              * stale contents are never observed. Conservative — an occupied band
-             * with no exact-scanline overlap still clears, which is harmless. */
+             * with no exact-scanline overlap still clears, which is harmless.
+             * The clear itself is span-limited: every nonzero entry lies inside
+             * the dirty span render_obj_scanline recorded (see its definition),
+             * so wiping that span restores the all-zero invariant. */
             int _oband = scanline >> OBJ_BAND_SHIFT;
-            if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_count[_oband] > 0)
+            if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_count[_oband] > 0) {
+                if (obj_prio_dirty_hi > obj_prio_dirty_lo)
+                    memset(obj_prio + obj_prio_dirty_lo, 0,
+                           obj_prio_dirty_hi - obj_prio_dirty_lo);
+                obj_prio_dirty_lo = LINE_BUF_WIDTH;
+                obj_prio_dirty_hi = 0;
+            }
+#else
+            memset(obj_prio, 0, LINE_BUF_WIDTH);
 #endif
-                memset(obj_prio, 0, LINE_BUF_WIDTH);
         }
 
         /* Clear output line (handles left/right black borders). Skipped in
@@ -1711,28 +1756,34 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 eff_scanline = (bg_scanline / block) * block;
             }
 
-            /* Set up render context for this layer */
-            BGRenderCtx ctx = {
-                .main_color = best_bg_color,
-                .main_gp_lm = best_bg_gp_lm,
-                .sub_color = need_sub ? sub_bg_color : NULL,
-                .sub_gp = need_sub ? sub_bg_gp : NULL,
-                .tm_line = eff_tm_line,
-                .ts_line = eff_ts_line,
-                .gp0_lm = bg_gp[bg][0] | ((uint16_t)layer_bit << 8),
-                .gp1_lm = bg_gp[bg][1] | ((uint16_t)layer_bit << 8),
-                .layer_bit = layer_bit,
-                /* eff_tm_line/eff_ts_line are uniform (= base_tm/base_ts) when
-                 * no windows are active, so the per-pixel window mask reduces to
-                 * these constants — enables the window-mask-free emit variant. */
-                .no_window = no_windows,
-                .main_on = (base_tm & layer_bit) != 0,
-                .sub_on  = (base_ts & layer_bit) != 0,
-                /* First layer into the just-cleared best_bg writes unconditionally.
-                 * Only valid window-free (uncond bypasses the per-pixel mask). */
-                .uncond = (uint8_t)(no_windows && merged_empty),
-                .tile_cache = tile_cache,
-            };
+            /* Set up render context for this layer. Field-by-field assignment
+             * instead of a designated initializer: the initializer form makes
+             * GCC memset the whole struct first (~3% of the overworld frame,
+             * 720 calls/frame), all of it immediately overwritten. */
+            BGRenderCtx ctx;
+            ctx.main_color = best_bg_color;
+            ctx.main_gp_lm = best_bg_gp_lm;
+            ctx.sub_color = need_sub ? sub_bg_color : NULL;
+            ctx.sub_gp = need_sub ? sub_bg_gp : NULL;
+            ctx.tm_line = eff_tm_line;
+            ctx.ts_line = eff_ts_line;
+            ctx.gp0_lm = bg_gp[bg][0] | ((uint16_t)layer_bit << 8);
+            ctx.gp1_lm = bg_gp[bg][1] | ((uint16_t)layer_bit << 8);
+            ctx.layer_bit = layer_bit;
+            /* eff_tm_line/eff_ts_line are uniform (= base_tm/base_ts) when
+             * no windows are active, so the per-pixel window mask reduces to
+             * these constants — enables the window-mask-free emit variant. */
+            ctx.no_window = no_windows;
+            ctx.main_on = (base_tm & layer_bit) != 0;
+            ctx.sub_on  = (base_ts & layer_bit) != 0;
+            /* First layer into the just-cleared best_bg writes unconditionally.
+             * Only valid window-free (uncond bypasses the per-pixel mask). */
+            ctx.uncond = (uint8_t)(no_windows && merged_empty);
+            ctx.tile_cache = tile_cache;
+            /* Span fields are only consumed on the temp path, which re-inits
+             * them before each render; keep them defined for the copy. */
+            ctx.emit_lo = 0;
+            ctx.emit_hi = 0;
 
             if (layer_fills) {
                 /* x_pad centers the native 256px content under the +PAD_LEFT
@@ -1797,6 +1848,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * loop) and each screen_x is written once per layer, so every
                  * temp write is into an empty slot. */
                 temp_ctx.uncond = 1;
+                /* Track the emitted x-span so the merge below only scans
+                 * columns this layer could have written. */
+                temp_ctx.emit_lo = SNES_WIDTH;
+                temp_ctx.emit_hi = 0;
 
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &temp_ctx, SNES_WIDTH, 0);
@@ -1808,7 +1863,39 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 int count = SNES_WIDTH - src_start;
                 if (dst_start + count > EB_VIEWPORT_WIDTH)
                     count = EB_VIEWPORT_WIDTH - dst_start;
-                for (int i = 0; i < count; i++) {
+
+                /* Merge only the emitted span: i covers sx in
+                 * [emit_lo, emit_hi) clamped to the visible window. All
+                 * other temp entries were never written this scanline, so
+                 * they are still zero (store-back invariant) and the scan
+                 * would skip them anyway. On the overworld BG3 is usually
+                 * fully blank -> the merge collapses to nothing. */
+                int i_lo = temp_ctx.emit_lo - src_start;
+                int i_hi = temp_ctx.emit_hi - src_start;
+                if (i_lo < 0) i_lo = 0;
+                if (i_hi > count) i_hi = count;
+
+                if (no_windows && !need_sub && ctx.main_on) {
+                    /* No windows: eff_tm_line is uniformly base_tm, so the
+                     * per-pixel mask test reduces to the loop-invariant
+                     * main_on; no sub screen -> the sub merge block is dead.
+                     * Same store-back-clear contract as the generic loop. */
+                    for (int i = i_lo; i < i_hi; i++) {
+                        int sx = src_start + i;
+                        int dx = dst_start + i;
+                        uint16_t t_packed = temp_gp_lm[sx];
+                        uint8_t gp = GP_LM_GP(t_packed);
+                        if (gp == 0) continue;
+                        temp_gp_lm[sx] = 0;
+                        if (gp > GP_LM_GP(best_bg_gp_lm[dx])) {
+                            best_bg_gp_lm[dx] = t_packed;
+                            best_bg_color[dx] = temp_color[sx];
+                        }
+                    }
+                    goto merge_done;
+                }
+
+                for (int i = i_lo; i < i_hi; i++) {
                     int sx = src_start + i;
                     int dx = dst_start + i;
                     uint16_t t_packed = temp_gp_lm[sx];
@@ -1833,10 +1920,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     }
                 }
 
+merge_done:
                 /* The store-back only covers the merged span; re-zero any
                  * head/tail the temp render wrote but the merge didn't visit.
                  * Empty on G&W (src_start == 0, count == SNES_WIDTH) — only a
-                 * viewport narrower than SNES_WIDTH + pad produces one. */
+                 * viewport narrower than SNES_WIDTH + pad produces one.
+                 * (Entries inside the window but outside [i_lo, i_hi) were
+                 * never written this scanline — the emit span bounds all
+                 * writes — so they are still zero and need no re-clear.) */
                 {
                     int merged_lo = src_start;
                     int merged_hi = src_start + count;
@@ -1930,6 +2021,45 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             bool row_is_vgutter = wide_mode && need_sub &&
                 (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT);
 
+            /* Fast path for the dominant case (all of the overworld and most
+             * scenes): no windows, no color math, full brightness. The
+             * generic loop below evaluates four per-pixel conditionals that
+             * are all frame-constant false here (math eligibility, gutter
+             * fill, color-math apply, brightness), plus computes main_layer
+             * solely to feed them — and it is too big for GCC to unswitch,
+             * so the dead flags are re-loaded from spill slots every pixel.
+             * This specialized loop is just: pick OBJ vs BG vs backdrop,
+             * store-back-clear, store. Same store-back invariant as the
+             * generic loop (best_bg_gp_lm re-enters the next scanline
+             * all-zero). */
+            if (no_windows && !color_math_active && brightness == 0x0F) {
+                if (obj_main_en) {
+                    for (int x = x_start; x < x_end; x++) {
+                        uint16_t bg_packed = best_bg_gp_lm[x];
+                        best_bg_gp_lm[x] = 0;
+                        uint8_t bg_gp_val = GP_LM_GP(bg_packed);
+                        uint8_t obj_pk = obj_prio[x];
+                        uint16_t color;
+                        if (obj_pk > 0 && bg_gp_val < obj_thresh[obj_pk])
+                            color = obj_color[x];
+                        else if (bg_gp_val > 0)
+                            color = best_bg_color[x];
+                        else
+                            color = backdrop;
+                        line_out[x + fb_x_offset] = color;
+                    }
+                } else {
+                    for (int x = x_start; x < x_end; x++) {
+                        uint16_t bg_packed = best_bg_gp_lm[x];
+                        best_bg_gp_lm[x] = 0;
+                        line_out[x + fb_x_offset] =
+                            GP_LM_GP(bg_packed) > 0 ? best_bg_color[x]
+                                                    : backdrop;
+                    }
+                }
+                goto composite_tail;
+            }
+
             for (int x = x_start; x < x_end; x++) {
                 uint16_t color;
                 uint8_t main_layer;
@@ -2012,6 +2142,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 line_out[x + fb_x_offset] = px;
             }
 
+composite_tail:
             /* The store-back clear above only covers [x_start, x_end); re-zero
              * any head/tail the compositor didn't visit so the next scanline's
              * all-zero invariant holds. Both ranges are empty unless the
