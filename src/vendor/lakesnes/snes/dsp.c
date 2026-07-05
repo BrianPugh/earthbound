@@ -205,7 +205,16 @@ void dsp_cycle(Dsp* dsp) {
 }
 
 static int clamp16(int val) {
+#if defined(__arm__) && (__ARM_ARCH >= 6)
+  /* Single saturate instruction; the portable ternary compiles to a branchy
+   * compare chain that showed up as ~4% of the G&W frame (clamp16 is inlined
+   * into every voice mix, echo tap, and gaussian step). */
+  int out;
+  __asm__("ssat %0, #16, %1" : "=r"(out) : "r"(val));
+  return out;
+#else
   return val < -0x8000 ? -0x8000 : (val > 0x7fff ? 0x7fff : val);
+#endif
 }
 
 static int clip16(int val) {
@@ -292,14 +301,18 @@ static void dsp_cycleChannel(Dsp* dsp, int ch) {
     }
     pitch = 0;
   }
-  // get sample
+  // get sample — skipped entirely for silent voices (gain scales the sample
+  // to 0 anyway); envelope/keyon/BRR/pitch bookkeeping below still runs, so
+  // attack-from-zero and ENDx timing are unchanged.
   int sample = 0;
-  if(dsp->channel[ch].useNoise) {
-    sample = clip16(dsp->noiseSample * 2);
-  } else {
-    sample = dsp_getSample(dsp, ch);
+  if(dsp->channel[ch].gain != 0) {
+    if(dsp->channel[ch].useNoise) {
+      sample = clip16(dsp->noiseSample * 2);
+    } else {
+      sample = dsp_getSample(dsp, ch);
+    }
+    sample = ((sample * dsp->channel[ch].gain) >> 11) & ~1;
   }
-  sample = ((sample * dsp->channel[ch].gain) >> 11) & ~1;
   // handle reset and release
   if(dsp->reset || (dsp->channel[ch].brrHeader & 0x03) == 1) {
     dsp->channel[ch].adsrState = 3; // go to release
@@ -343,11 +356,13 @@ static void dsp_cycleChannel(Dsp* dsp, int ch) {
   dsp->ram[(ch << 4) | 8] = dsp->channel[ch].gain >> 4;
   dsp->ram[(ch << 4) | 9] = sample >> 8;
   dsp->channel[ch].sampleOut = sample;
-  dsp->sampleOutL = clamp16(dsp->sampleOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
-  dsp->sampleOutR = clamp16(dsp->sampleOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
-  if(dsp->channel[ch].echoEnable) {
-    dsp->echoOutL = clamp16(dsp->echoOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
-    dsp->echoOutR = clamp16(dsp->echoOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
+  if(sample != 0) {
+    dsp->sampleOutL = clamp16(dsp->sampleOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
+    dsp->sampleOutR = clamp16(dsp->sampleOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
+    if(dsp->channel[ch].echoEnable) {
+      dsp->echoOutL = clamp16(dsp->echoOutL + ((sample * dsp->channel[ch].volumeL) >> 7));
+      dsp->echoOutR = clamp16(dsp->echoOutR + ((sample * dsp->channel[ch].volumeR) >> 7));
+    }
   }
 }
 
@@ -402,10 +417,19 @@ static void dsp_handleGain(Dsp* dsp, int ch) {
 static int16_t dsp_getSample(Dsp* dsp, int ch) {
   int pos = (dsp->channel[ch].pitchCounter >> 12) + dsp->channel[ch].bufferOffset;
   int offset = (dsp->channel[ch].pitchCounter >> 4) & 0xff;
-  int16_t news = dsp->channel[ch].decodeBuffer[(pos + 3) % 12];
-  int16_t olds = dsp->channel[ch].decodeBuffer[(pos + 2) % 12];
-  int16_t olders = dsp->channel[ch].decodeBuffer[(pos + 1) % 12];
-  int16_t oldests = dsp->channel[ch].decodeBuffer[pos % 12];
+  // pos is bounded: pitchCounter>>12 in [0,7], bufferOffset in {0,4,8},
+  // so pos+3 <= 18 < 24 — the ring wrap is a single conditional subtract.
+  // The previous % 12 cost four constant divisions per sample per voice.
+  const int16_t* buf = dsp->channel[ch].decodeBuffer;
+  int i0 = pos, i1 = pos + 1, i2 = pos + 2, i3 = pos + 3;
+  if(i0 >= 12) i0 -= 12;
+  if(i1 >= 12) i1 -= 12;
+  if(i2 >= 12) i2 -= 12;
+  if(i3 >= 12) i3 -= 12;
+  int16_t news = buf[i3];
+  int16_t olds = buf[i2];
+  int16_t olders = buf[i1];
+  int16_t oldests = buf[i0];
   int out = (gaussValues[0xff - offset] * oldests) >> 11;
   out += (gaussValues[0x1ff - offset] * olders) >> 11;
   out += (gaussValues[0x100 + offset] * olds) >> 11;

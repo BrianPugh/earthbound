@@ -87,29 +87,40 @@ int apu_runCycles(Apu* apu, int wantedCycles) {
   return runCycles;
 }
 
+static inline void apu_timerTick(Timer* t) {
+  if(t->enabled) {
+    t->divider++;
+    if(t->divider == t->target) {
+      t->divider = 0;
+      t->counter++;
+      t->counter &= 0xf;
+    }
+  }
+}
+
 static void apu_cycle(Apu* apu) {
-  if((apu->cycles & 0x1f) == 0) {
+  uint32_t c = apu->cycles;
+  if((c & 0x1f) == 0) {
     // every 32 cycles
     dsp_cycle(apu->dsp);
   }
 
-  // handle timers
-  for(int i = 0; i < 3; i++) {
-    if(apu->timer[i].cycles == 0) {
-      apu->timer[i].cycles = i == 2 ? 16 : 128;
-      if(apu->timer[i].enabled) {
-        apu->timer[i].divider++;
-        if(apu->timer[i].divider == apu->timer[i].target) {
-          apu->timer[i].divider = 0;
-          apu->timer[i].counter++;
-          apu->timer[i].counter &= 0xf;
-        }
-      }
+  // Timers fire on fixed phases of the free-running cycle counter: the
+  // original per-cycle countdown loop (timer[i].cycles, reset only by
+  // apu_reset, never re-phased by register writes) is equivalent to
+  // "tick timers 0/1 when cycles % 128 == 0, timer 2 when cycles % 16 == 0".
+  // The loop ran every SPC cycle (~1.02 MHz) and was ~24% of the APU's
+  // per-frame CPU cost on G&W; the phase test makes it O(1) per cycle.
+  // timer[i].cycles is left stale (kept in the struct for savestate layout).
+  if((c & 15) == 0) {
+    apu_timerTick(&apu->timer[2]);
+    if((c & 127) == 0) {
+      apu_timerTick(&apu->timer[0]);
+      apu_timerTick(&apu->timer[1]);
     }
-    apu->timer[i].cycles--;
   }
 
-  apu->cycles++;
+  apu->cycles = c + 1;
 }
 
 uint8_t apu_read(Apu* apu, uint16_t adr) {
