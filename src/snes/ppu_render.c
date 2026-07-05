@@ -93,8 +93,12 @@ typedef struct {
  * This halves the number of stores per winning pixel and reduces register
  * pressure on the M0+ (7 pointer fields → 6). */
 typedef struct {
-    uint16_t *main_color;   /* merged main screen color buffer */
-    uint16_t *main_gp_lm;  /* packed gp (low) + lmask (high) */
+    /* Merged main screen, one 32-bit word per pixel:
+     *   [31:16] color (RGB565)   [15:8] layer bitmask   [7:0] global priority
+     * Interleaving color with gp|lm halves the memory ops in the emit and
+     * composite hot loops (1 str/ldr instead of 2 strh/ldrh into two separate
+     * arrays = two cache lines per pixel). */
+    uint32_t *main;
     uint16_t *sub_color;    /* merged sub screen color (NULL = no sub) */
     uint8_t  *sub_gp;       /* merged sub screen global priority (NULL = no sub) */
     const uint8_t *tm_line; /* per-pixel main screen mask (always valid, never NULL) */
@@ -124,9 +128,13 @@ typedef struct {
     int emit_lo, emit_hi;
 } BGRenderCtx;
 
-/* Helper to extract gp and lmask from packed main_gp_lm value */
+/* Helpers to extract fields from a packed main word (or a 16-bit gp_lm —
+ * GP/LM live in the same low bits either way). */
 #define GP_LM_GP(v)    ((uint8_t)(v))
 #define GP_LM_LM(v)    ((uint8_t)((v) >> 8))
+#define MAIN_COLOR(v)  ((uint16_t)((v) >> 16))
+#define MAIN_PACK(color, gp_lm) \
+    (((uint32_t)(uint16_t)(color) << 16) | (uint16_t)(gp_lm))
 
 /* Shadow palette: SNES BGR555 converted to BGR565 once per frame.
  * Eliminates per-pixel bgr555_to_pixel() calls during rendering.
@@ -359,9 +367,8 @@ void emit_tile_run(
         int _sx = screen_x + _i; \
         /* Main screen: window mask + priority check, packed store */ \
         if ((ctx->tm_line[_sx] & ctx->layer_bit) && \
-            gp > GP_LM_GP(ctx->main_gp_lm[_sx])) { \
-            ctx->main_gp_lm[_sx] = gp_lm; \
-            ctx->main_color[_sx] = _rgb; \
+            gp > GP_LM_GP(ctx->main[_sx])) { \
+            ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
         } \
         if (HAS_SUB) { \
             if ((ctx->ts_line[_sx] & ctx->layer_bit) && \
@@ -385,9 +392,8 @@ void emit_tile_run(
         uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
                                     : cgram_render[pal_base + _cidx]; \
         int _sx = screen_x + _i; \
-        if (main_on && gp > GP_LM_GP(ctx->main_gp_lm[_sx])) { \
-            ctx->main_gp_lm[_sx] = gp_lm; \
-            ctx->main_color[_sx] = _rgb; \
+        if (main_on && gp > GP_LM_GP(ctx->main[_sx])) { \
+            ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
         } \
         if (HAS_SUB && sub_on && gp > ctx->sub_gp[_sx]) { \
             ctx->sub_gp[_sx] = gp; \
@@ -409,8 +415,7 @@ void emit_tile_run(
         uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
                                     : cgram_render[pal_base + _cidx]; \
         int _sx = screen_x + _i; \
-        ctx->main_gp_lm[_sx] = gp_lm; \
-        ctx->main_color[_sx] = _rgb; \
+        ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
         if (HAS_SUB && sub_on) { \
             ctx->sub_gp[_sx] = gp; \
             ctx->sub_color[_sx] = _rgb; \
@@ -1343,8 +1348,9 @@ void PPU_HOT_FUNC(precompute_window_masks)(
  * When EB_PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
  * with no runtime overhead vs. the old stack allocation. */
 static pixel_t  line_out_ctx[EB_PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH] EB_PPU_LINEBUF_ATTR;
-static uint16_t best_bg_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
-static uint16_t best_bg_gp_lm_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+/* Interleaved main merge buffer: color(hi16) | lmask | gp — see BGRenderCtx.
+ * Same total RAM as the two uint16 arrays it replaced. */
+static uint32_t best_bg_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint16_t sub_bg_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  sub_bg_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint16_t obj_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
@@ -1355,8 +1361,7 @@ static uint8_t  cm_prevented_line_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH
 
 /* Temp buffers for wide-mode non-filling layer render path.
  * Promoted from stack to static to avoid core 1 stack overflow (4KB limit). */
-static uint16_t temp_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
-static uint16_t temp_gp_lm_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
+static uint32_t temp_main_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint16_t temp_sub_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  temp_sub_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  temp_tm_all_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
@@ -1371,8 +1376,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         bg_row_cache[2].row = bg_row_cache[3].row = -1;
 #endif
     pixel_t  *line_out        = line_out_ctx[ctx_id];
-    uint16_t *best_bg_color   = best_bg_color_ctx[ctx_id];
-    uint16_t *best_bg_gp_lm   = best_bg_gp_lm_ctx[ctx_id];
+    uint32_t *best_bg         = best_bg_ctx[ctx_id];
     uint16_t *sub_bg_color    = sub_bg_color_ctx[ctx_id];
     uint8_t  *sub_bg_gp       = sub_bg_gp_ctx[ctx_id];
     uint16_t *obj_color       = obj_color_ctx[ctx_id];
@@ -1549,6 +1553,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
      * uses WOBJSEL for color math windowing without masking any layers). */
     bool has_cm_windows = color_math_active && (prevent_mode == 1 || prevent_mode == 2);
     bool has_windows = has_layer_windows || has_cm_windows;
+    /* CM-only windows (e.g. EB's darkness/tint scenes: cgadsub math with a
+     * prevent window but TMW/TSW=0) mask COLOR MATH only — the per-pixel
+     * layer masks eff_tm/ts_line stay uniform (= base_tm/base_ts;
+     * precompute_window_masks writes them only under `if (ppu.tmw||ppu.tsw)`).
+     * Everything except the color-math prevent check can therefore use the
+     * window-free fast paths, keyed on this flag instead of has_windows. */
+    const bool no_layer_windows = !has_layer_windows;
     if (has_layer_windows)
         classify_window_layers(&win_class);
 
@@ -1589,7 +1600,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
      * Fill once here and skip it in the loop. Removes ~2 × 320 × 240 ≈ 150
      * KB/frame of memset (each fill is render_width bytes). Frame-constant
      * predicate, hoisted. */
-    const bool eff_lines_frame_constant = !has_windows && !ppu.tm_hdma_active;
+    const bool eff_lines_frame_constant = no_layer_windows && !ppu.tm_hdma_active;
     if (eff_lines_frame_constant) {
         memset(eff_tm_line, ppu.tm, render_width);
         memset(eff_ts_line, ppu.ts, render_width);
@@ -1601,16 +1612,16 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     build_obj_buckets();
 #endif
 
-    /* Establish the best_bg_gp_lm / temp_gp_lm all-zero invariant once per
+    /* Establish the best_bg / temp_main all-zero (gp==0) invariant once per
      * frame. Inside the scanline loop their consumers zero each entry as they
-     * read it (store-back: the compositor for best_bg_gp_lm, the wide-mode
-     * merge loop for temp_gp_lm), replacing the old per-scanline/per-layer
+     * read it (store-back: the compositor for best_bg, the wide-mode
+     * merge loop for temp_main), replacing the old per-scanline/per-layer
      * memsets (~11% + ~9% of the overworld frame). This full-width clear
      * catches anything outside the consumers' coverage: mosaic writes past
      * render_width in non-wide frames, render_width changes between scenes,
      * force-blank frames. */
-    memset(best_bg_gp_lm, 0, LINE_BUF_WIDTH * sizeof(uint16_t));
-    memset(temp_gp_lm_ctx[ctx_id], 0, SNES_WIDTH * sizeof(uint16_t));
+    memset(best_bg, 0, LINE_BUF_WIDTH * sizeof(uint32_t));
+    memset(temp_main_ctx[ctx_id], 0, SNES_WIDTH * sizeof(uint32_t));
 
     PROF_SECTION(iter);
     for (int out_y = y_start; out_y < y_end; out_y += y_stride) {
@@ -1627,7 +1638,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         bool need_sub = color_math_active && use_sub_screen;
 
         PROF_SECTION(clear);
-        /* best_bg_gp_lm is NOT cleared here: it enters every scanline all-zero
+        /* best_bg is NOT cleared here: it enters every scanline all-zero
          * — the once-per-frame clear above establishes the invariant and the
          * compositor maintains it by zeroing each entry as it reads it
          * (store-back), including the head/tail it doesn't visit. */
@@ -1761,8 +1772,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * GCC memset the whole struct first (~3% of the overworld frame,
              * 720 calls/frame), all of it immediately overwritten. */
             BGRenderCtx ctx;
-            ctx.main_color = best_bg_color;
-            ctx.main_gp_lm = best_bg_gp_lm;
+            ctx.main = best_bg;
             ctx.sub_color = need_sub ? sub_bg_color : NULL;
             ctx.sub_gp = need_sub ? sub_bg_gp : NULL;
             ctx.tm_line = eff_tm_line;
@@ -1773,12 +1783,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             /* eff_tm_line/eff_ts_line are uniform (= base_tm/base_ts) when
              * no windows are active, so the per-pixel window mask reduces to
              * these constants — enables the window-mask-free emit variant. */
-            ctx.no_window = no_windows;
+            ctx.no_window = no_layer_windows;
             ctx.main_on = (base_tm & layer_bit) != 0;
             ctx.sub_on  = (base_ts & layer_bit) != 0;
             /* First layer into the just-cleared best_bg writes unconditionally.
-             * Only valid window-free (uncond bypasses the per-pixel mask). */
-            ctx.uncond = (uint8_t)(no_windows && merged_empty);
+             * Only valid layer-window-free (uncond bypasses the per-pixel
+             * mask; CM-only windows don't mask layers). */
+            ctx.uncond = (uint8_t)(no_layer_windows && merged_empty);
             ctx.tile_cache = tile_cache;
             /* Span fields are only consumed on the temp path, which re-inits
              * them before each render; keep them defined for the copy. */
@@ -1806,12 +1817,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
                 /* Per-context static temp buffers (avoids 2KB stack alloc
                  * that would overflow core 1's 4KB SCRATCH_X stack) */
-                uint16_t *temp_color = temp_color_ctx[ctx_id];
-                uint16_t *temp_gp_lm = temp_gp_lm_ctx[ctx_id];
+                uint32_t *temp_main = temp_main_ctx[ctx_id];
                 uint16_t *temp_sub_color = temp_sub_color_ctx[ctx_id];
                 uint8_t *temp_sub_gp = temp_sub_gp_ctx[ctx_id];
                 uint8_t *temp_tm_all = temp_tm_all_ctx[ctx_id];
-                /* temp_gp_lm is NOT cleared here: like best_bg_gp_lm it enters
+                /* temp_main is NOT cleared here: like best_bg it enters
                  * every use all-zero — the once-per-frame clear above
                  * establishes the invariant and the merge loop below maintains
                  * it by zeroing each non-zero entry as it consumes it
@@ -1832,8 +1842,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
                 /* Temp context pointing to temp buffers */
                 BGRenderCtx temp_ctx = ctx;
-                temp_ctx.main_color = temp_color;
-                temp_ctx.main_gp_lm = temp_gp_lm;
+                temp_ctx.main = temp_main;
                 temp_ctx.sub_color = need_sub ? temp_sub_color : NULL;
                 temp_ctx.sub_gp = need_sub ? temp_sub_gp : NULL;
                 /* No window masking in temp — apply when merging. temp_tm_all
@@ -1844,7 +1853,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 temp_ctx.no_window = 1;
                 temp_ctx.main_on = 1;
                 temp_ctx.sub_on = 1;
-                /* temp_gp_lm enters each use all-zero (store-back in the merge
+                /* temp_main enters each use all-zero (store-back in the merge
                  * loop) and each screen_x is written once per layer, so every
                  * temp write is into an empty slot. */
                 temp_ctx.uncond = 1;
@@ -1875,7 +1884,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 if (i_lo < 0) i_lo = 0;
                 if (i_hi > count) i_hi = count;
 
-                if (no_windows && !need_sub && ctx.main_on) {
+                if (no_layer_windows && !need_sub && ctx.main_on) {
                     /* No windows: eff_tm_line is uniformly base_tm, so the
                      * per-pixel mask test reduces to the loop-invariant
                      * main_on; no sub screen -> the sub merge block is dead.
@@ -1883,14 +1892,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     for (int i = i_lo; i < i_hi; i++) {
                         int sx = src_start + i;
                         int dx = dst_start + i;
-                        uint16_t t_packed = temp_gp_lm[sx];
-                        uint8_t gp = GP_LM_GP(t_packed);
+                        uint32_t t = temp_main[sx];
+                        uint8_t gp = GP_LM_GP(t);
                         if (gp == 0) continue;
-                        temp_gp_lm[sx] = 0;
-                        if (gp > GP_LM_GP(best_bg_gp_lm[dx])) {
-                            best_bg_gp_lm[dx] = t_packed;
-                            best_bg_color[dx] = temp_color[sx];
-                        }
+                        temp_main[sx] = 0;
+                        /* Interleaved word: the color rides along in one copy. */
+                        if (gp > GP_LM_GP(best_bg[dx]))
+                            best_bg[dx] = t;
                     }
                     goto merge_done;
                 }
@@ -1898,19 +1906,18 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 for (int i = i_lo; i < i_hi; i++) {
                     int sx = src_start + i;
                     int dx = dst_start + i;
-                    uint16_t t_packed = temp_gp_lm[sx];
-                    uint8_t gp = GP_LM_GP(t_packed);
+                    uint32_t t = temp_main[sx];
+                    uint8_t gp = GP_LM_GP(t);
                     if (gp == 0) continue;
                     /* Store-back clear: consume the entry so the buffer
                      * re-enters the next layer/scanline all-zero (replaces the
                      * per-layer memset). Zero entries need no store — they are
                      * already zero. */
-                    temp_gp_lm[sx] = 0;
+                    temp_main[sx] = 0;
                     /* Apply window mask during merge */
                     if ((eff_tm_line[dx] & layer_bit) &&
-                        gp > GP_LM_GP(best_bg_gp_lm[dx])) {
-                        best_bg_gp_lm[dx] = t_packed;
-                        best_bg_color[dx] = temp_color[sx];
+                        gp > GP_LM_GP(best_bg[dx])) {
+                        best_bg[dx] = t;
                     }
                     if (need_sub &&
                         (eff_ts_line[dx] & layer_bit) &&
@@ -1933,29 +1940,23 @@ merge_done:
                     int merged_hi = src_start + count;
                     if (count <= 0) { merged_lo = 0; merged_hi = 0; }
                     if (merged_lo > 0)
-                        memset(temp_gp_lm, 0, merged_lo * sizeof(uint16_t));
+                        memset(temp_main, 0, merged_lo * sizeof(uint32_t));
                     if (merged_hi < SNES_WIDTH)
-                        memset(temp_gp_lm + merged_hi, 0,
-                               (SNES_WIDTH - merged_hi) * sizeof(uint16_t));
+                        memset(temp_main + merged_hi, 0,
+                               (SNES_WIDTH - merged_hi) * sizeof(uint32_t));
                 }
 
                 /* Clamp mode: extend edge pixels into the border area */
                 if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP && count > 0) {
-                    uint16_t left_c = best_bg_color[dst_start];
-                    uint16_t left_packed = best_bg_gp_lm[dst_start];
-                    uint16_t right_c = best_bg_color[dst_start + count - 1];
-                    uint16_t right_packed = best_bg_gp_lm[dst_start + count - 1];
+                    uint32_t left_w = best_bg[dst_start];
+                    uint32_t right_w = best_bg[dst_start + count - 1];
                     for (int x = 0; x < dst_start; x++) {
-                        if (GP_LM_GP(left_packed) > GP_LM_GP(best_bg_gp_lm[x])) {
-                            best_bg_gp_lm[x] = left_packed;
-                            best_bg_color[x] = left_c;
-                        }
+                        if (GP_LM_GP(left_w) > GP_LM_GP(best_bg[x]))
+                            best_bg[x] = left_w;
                     }
                     for (int x = dst_start + count; x < EB_VIEWPORT_WIDTH; x++) {
-                        if (GP_LM_GP(right_packed) > GP_LM_GP(best_bg_gp_lm[x])) {
-                            best_bg_gp_lm[x] = right_packed;
-                            best_bg_color[x] = right_c;
-                        }
+                        if (GP_LM_GP(right_w) > GP_LM_GP(best_bg[x]))
+                            best_bg[x] = right_w;
                     }
                 }
             } else {
@@ -1975,14 +1976,15 @@ merge_done:
                 uint8_t gp0 = bg_gp[bg][0];
                 uint8_t gp1 = bg_gp[bg][1];
                 for (int x = 0; x < EB_VIEWPORT_WIDTH; x += block) {
-                    uint16_t ref_color = best_bg_color[x];
-                    uint8_t ref_gp = GP_LM_GP(best_bg_gp_lm[x]);
+                    uint32_t ref_w = best_bg[x];
+                    uint8_t ref_gp = GP_LM_GP(ref_w);
                     /* Only replicate if this pixel belongs to this layer */
                     if (ref_gp != gp0 && ref_gp != gp1) continue;
-                    uint16_t ref_packed = ref_gp | ((uint16_t)layer_bit << 8);
+                    uint32_t ref_packed =
+                        MAIN_PACK(MAIN_COLOR(ref_w),
+                                  ref_gp | ((uint16_t)layer_bit << 8));
                     for (int dx = 1; dx < block && (x + dx) < EB_VIEWPORT_WIDTH; dx++) {
-                        best_bg_gp_lm[x + dx] = ref_packed;
-                        best_bg_color[x + dx] = ref_color;
+                        best_bg[x + dx] = ref_packed;
                     }
                 }
             }
@@ -2011,8 +2013,8 @@ merge_done:
             /* Hoist loop-invariant OBJ enable check. When no sprite overlapped
              * this scanline (obj_prio all-0), drop the per-pixel obj_prio load
              * entirely — scanline_has_obj folds into the enable flags. */
-            bool obj_main_en = scanline_has_obj && (no_windows ? (base_tm & LAYER_OBJ) != 0 : false);
-            bool obj_sub_en = scanline_has_obj && (no_windows ? (base_ts & LAYER_OBJ) != 0 : false);
+            bool obj_main_en = scanline_has_obj && (no_layer_windows ? (base_tm & LAYER_OBJ) != 0 : false);
+            bool obj_sub_en = scanline_has_obj && (no_layer_windows ? (base_ts & LAYER_OBJ) != 0 : false);
 
             /* Whole-row gutter: a scanline outside the centered SNES content
              * band (top/bottom letterbox in a taller viewport) has no centered
@@ -2032,29 +2034,29 @@ merge_done:
              * store-back-clear, store. Same store-back invariant as the
              * generic loop (best_bg_gp_lm re-enters the next scanline
              * all-zero). */
-            if (no_windows && !color_math_active && brightness == 0x0F) {
+            if (no_layer_windows && !color_math_active && brightness == 0x0F) {
                 if (obj_main_en) {
                     for (int x = x_start; x < x_end; x++) {
-                        uint16_t bg_packed = best_bg_gp_lm[x];
-                        best_bg_gp_lm[x] = 0;
-                        uint8_t bg_gp_val = GP_LM_GP(bg_packed);
+                        uint32_t bg_w = best_bg[x];
+                        best_bg[x] = 0;
+                        uint8_t bg_gp_val = GP_LM_GP(bg_w);
                         uint8_t obj_pk = obj_prio[x];
                         uint16_t color;
                         if (obj_pk > 0 && bg_gp_val < obj_thresh[obj_pk])
                             color = obj_color[x];
                         else if (bg_gp_val > 0)
-                            color = best_bg_color[x];
+                            color = MAIN_COLOR(bg_w);
                         else
                             color = backdrop;
                         line_out[x + fb_x_offset] = color;
                     }
                 } else {
                     for (int x = x_start; x < x_end; x++) {
-                        uint16_t bg_packed = best_bg_gp_lm[x];
-                        best_bg_gp_lm[x] = 0;
+                        uint32_t bg_w = best_bg[x];
+                        best_bg[x] = 0;
                         line_out[x + fb_x_offset] =
-                            GP_LM_GP(bg_packed) > 0 ? best_bg_color[x]
-                                                    : backdrop;
+                            GP_LM_GP(bg_w) > 0 ? MAIN_COLOR(bg_w)
+                                               : backdrop;
                     }
                 }
                 goto composite_tail;
@@ -2065,25 +2067,25 @@ merge_done:
                 uint8_t main_layer;
 
                 /* OBJ check: window-masked or constant. scanline_has_obj gates
-                 * the load on both paths (no_windows folds into obj_main_en). */
+                 * the load on both paths (no_layer_windows folds into obj_main_en). */
                 uint8_t obj_pk;
-                if (no_windows)
+                if (no_layer_windows)
                     obj_pk = obj_main_en ? obj_prio[x] : 0;
                 else
                     obj_pk = (scanline_has_obj && (eff_tm_line[x] & LAYER_OBJ)) ? obj_prio[x] : 0;
 
-                uint16_t bg_packed = best_bg_gp_lm[x];
+                uint32_t bg_w = best_bg[x];
                 /* Store-back clear: leave the entry zero for the next scanline
                  * (replaces the per-scanline memset — see the clear phase). */
-                best_bg_gp_lm[x] = 0;
-                uint8_t bg_gp_val = GP_LM_GP(bg_packed);
+                best_bg[x] = 0;
+                uint8_t bg_gp_val = GP_LM_GP(bg_w);
 
                 if (obj_pk > 0 && bg_gp_val < obj_thresh[obj_pk]) {
                     color = obj_color[x];
                     main_layer = LAYER_OBJ;
                 } else if (bg_gp_val > 0) {
-                    color = best_bg_color[x];
-                    main_layer = GP_LM_LM(bg_packed);
+                    color = MAIN_COLOR(bg_w);
+                    main_layer = GP_LM_LM(bg_w);
                 } else {
                     color = backdrop;
                     main_layer = 0x20;
@@ -2113,7 +2115,7 @@ merge_done:
                     uint16_t sub_color;
                     if (need_sub) {
                         uint8_t sub_obj_pk;
-                        if (no_windows)
+                        if (no_layer_windows)
                             sub_obj_pk = obj_sub_en ? obj_prio[x] : 0;
                         else
                             sub_obj_pk = (scanline_has_obj && (eff_ts_line[x] & LAYER_OBJ)) ? obj_prio[x] : 0;
@@ -2149,10 +2151,10 @@ composite_tail:
              * viewport is narrower than the render width (never on G&W) —
              * frame-constant conditions, predicted away. */
             if (x_start > 0)
-                memset(best_bg_gp_lm, 0, x_start * sizeof(uint16_t));
+                memset(best_bg, 0, x_start * sizeof(uint32_t));
             if (x_end < render_width)
-                memset(best_bg_gp_lm + x_end, 0,
-                       (render_width - x_end) * sizeof(uint16_t));
+                memset(best_bg + x_end, 0,
+                       (render_width - x_end) * sizeof(uint32_t));
         }
         PROF_END(comp, prof_composite);
 
