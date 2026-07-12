@@ -115,7 +115,7 @@ NPROC = $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 .PHONY: unix unix-check-deps unix-check-rom unix-extract unix-venv
 
-unix: unix-check-deps unix-check-rom unix-venv unix-extract
+unix: unix-check-deps unix-check-rom unix-submodules unix-venv unix-extract
 	@echo ""
 	@echo "=== Configuring C port ==="
 	@cmake -S port/unix -B $(UNIX_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
@@ -158,6 +158,12 @@ unix-check-deps:
 		exit 1; \
 	fi; \
 	echo "  All dependencies found."
+
+unix-submodules:
+	@if [ ! -f src/vendor/tamp/tamp/_c_src/tamp/compressor.c ]; then \
+		echo "=== Initializing git submodules ==="; \
+		git submodule update --init; \
+	fi
 
 unix-check-rom:
 	@if [ ! -f earthbound.sfc ]; then \

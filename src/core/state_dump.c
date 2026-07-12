@@ -37,8 +37,8 @@
 #include "game/inventory.h"
 #include "game/ending.h"
 #include "intro/file_select.h"
-#include "core/tamp/compressor.h"
-#include "core/tamp/decompressor.h"
+#include "tamp/compressor.h"
+#include "tamp/decompressor.h"
 
 /* Container format (20-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"

@@ -12,10 +12,21 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "verify/*.c"
     "game_main.c"
 )
-# tamp's desktop match-finder is #include'd by core/tamp/compressor.c on 64-bit
-# hosts, never compiled as its own translation unit — drop it from the glob.
-list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/core/tamp/compressor_find_match_desktop.c")
 file(GLOB_RECURSE DATA_SOURCES CONFIGURE_DEPENDS "data/*.c")
+
+# tamp (savestate compression) is a git submodule; list its sources explicitly —
+# the upstream repo also carries tests/benchmarks/bindings that must not build,
+# and compressor_find_match_desktop.c is #include'd by compressor.c on 64-bit
+# hosts, never compiled as its own translation unit.
+set(TAMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/tamp/tamp/_c_src")
+if(NOT EXISTS "${TAMP_DIR}/tamp/compressor.c")
+    message(FATAL_ERROR "tamp submodule missing — run: git submodule update --init")
+endif()
+list(APPEND SOURCES
+    "${TAMP_DIR}/tamp/common.c"
+    "${TAMP_DIR}/tamp/compressor.c"
+    "${TAMP_DIR}/tamp/decompressor.c"
+)
 
 add_library(earthbound_game STATIC ${SOURCES} ${DATA_SOURCES})
 
@@ -26,6 +37,7 @@ set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 target_include_directories(earthbound_game PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     include/
+    ${TAMP_DIR}
 )
 
 target_compile_definitions(earthbound_game PUBLIC

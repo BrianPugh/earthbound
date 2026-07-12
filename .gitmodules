@@ -1,0 +1,3 @@
+[submodule "src/vendor/tamp"]
+	path = src/vendor/tamp
+	url = https://github.com/BrianPugh/tamp
