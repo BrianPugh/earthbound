@@ -13899,7 +13899,7 @@ dumpEntries:
 - subdir: US/intro
   name: title_screen_scripts
   offset: 0x042172
-  size: 618
+  size: 2048
   extension: bin
   compressed: false
 - subdir: US/intro

@@ -331,7 +331,7 @@ static WramField resolve_wram(uint16_t addr) {
     WRAM_GLOBAL(0x0A60, ert.disable_actionscript);
 
     /* Entity fade globals */
-    WRAM_GLOBAL(0x195F, ow.entity_fade_entity);
+    WRAM_GLOBAL(0xB4A8, ow.entity_fade_entity);
 
     /* Overworld state globals */
     WRAM_GLOBAL(0x438A, ow.current_teleport_destination_x);
