@@ -134,7 +134,14 @@ def extract(
             # PARSERS produce assembly/text source; everything else is binary assets
             if entry.extension not in PARSERS:
                 for f in files:
-                    binary_assets.append(str(Path(entry.subdir) / f))
+                    # .as_posix(), not str() -- assets.manifest paths must
+                    # use forward slashes on every platform. str(Path(...))
+                    # uses the OS-native separator, which on Windows means
+                    # backslashes -- silently breaking every forward-slash
+                    # --exclude glob (fnmatch.fnmatch() does a literal
+                    # character match, no path normalization) and inflating
+                    # the asset count/layout since nothing gets excluded.
+                    binary_assets.append((Path(entry.subdir) / f).as_posix())
 
         # Write manifest of binary asset files for the C port's embedded asset pipeline
         manifest_path = out_path / "assets.manifest"
