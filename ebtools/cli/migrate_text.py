@@ -94,7 +94,7 @@ def _find_block_for_address(
     return None
 
 
-def _resolve_symbolic_names(ops: list[dict], common_data: CommonData) -> None:
+def _resolve_symbolic_names(ops: list[dict], common_data: "CommonData") -> None:
     """Replace numeric IDs with symbolic names from CommonData in-place.
 
     Walks all opcode dicts and replaces integer values in typed args
@@ -272,8 +272,8 @@ def export_dialogue_yaml(
     *,
     assets_dir: Path,
     bin_dir: Path,
-    doc: DumpDoc,
-    common_data: CommonData,
+    doc: "DumpDoc",
+    common_data: "CommonData",
 ) -> None:
     """Export ROM text to editable dialogue YAML and migrate JSON text pointers.
 
