@@ -93,7 +93,12 @@ StepResult mode_step_enter_name(ModeState *st) {
         /* Create the prompt window (WINDOW::NAMING_PROMPT = 0x27) */
         create_window(WINDOW_NAMING_PROMPT);
 
-        ModeState child;
+        /* static: outlives this dispatch (the pump copies it on the next
+         * step, after this function has already returned) -- a plain local
+         * here is a dangling pointer the moment control leaves this case,
+         * the same bug class found and fixed at this file's own
+         * mode_step_special_event() below. */
+        static ModeState child;
         if (s->param != 0) {
             /* --- Mother 2 player name path (param=1) ---
              * Assembly lines 21-56: shows EB name at row 0, M2 name input at row 1. */
@@ -573,8 +578,21 @@ StepResult mode_step_special_event(ModeState *st) {
     if (s->phase == SE_RESULT_CHILD)
         return STEP_RESULT_POP((uint16_t)mode_child_result());
 
-    /* SE_ENTER: dispatch on event_id. */
-    ModeState child = {0};
+    /* SE_ENTER: dispatch on event_id.
+     * static: outlives this dispatch (the pump copies it on the next step,
+     * after this function has already returned) -- a plain local here is a
+     * dangling pointer the moment control leaves this case. Confirmed live:
+     * case 1/2 (COFFEE_SCENE/TEA_SCENE) sets kind=FO_COFFEETEA and
+     * phase=FOP_CT_FADEOUT1 here, but by the time mode_push() actually
+     * copies from the by-then-dangling pointer, the stack memory had
+     * already been reused/zeroed -- the flyover entered at kind=FO_SCRIPT
+     * (0)/phase=FOP_S_PARSE (0) instead, skipping every bit of setup either
+     * variant actually needs (flyover_init_screen()'s BG3 text layer for
+     * FO_SCRIPT, load_battle_bg()'s wavy background for FO_COFFEETEA) --
+     * the exact "screen goes black, music plays, but no text or background
+     * ever appears" symptom reported after Master Belch's Saturn Valley
+     * aftermath. */
+    static ModeState child = {0};
     switch (s->event_id) {
     case 1:   /* COFFEE_SCENE: coffeetea_scene(0) */
     case 2: { /* TEA_SCENE:    coffeetea_scene(1) */

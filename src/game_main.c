@@ -774,7 +774,11 @@ StepResult mode_step_debug_goods(ModeState *mst) {
              * mode-1 epilogue runs in DG_GIVE_RESULT after it pops. */
             s->saved_argument_memory = get_argument_memory();
             s->give_window_id = char_select_overworld_prepare(NULL);
-            ModeState child = {0};
+            /* static: outlives this dispatch (the pump copies it on the next
+             * step) -- a plain local here is a dangling pointer the instant
+             * this function returns, the same bug class found and fixed at
+             * display_text_menus.c's mode_step_enter_name/special_event. */
+            static ModeState child = {0};
             child.selection_menu.phase        = SM_SETUP;
             child.selection_menu.allow_cancel = 1;
             s->phase = DG_GIVE_RESULT;
