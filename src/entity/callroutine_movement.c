@@ -607,10 +607,38 @@ int16_t cr_movement_cmd_get_event_flag(int16_t entity_offset, int16_t script_off
 
 int16_t cr_movement_cmd_set_event_flag(int16_t entity_offset, int16_t script_offset,
                                         uint16_t pc, uint16_t *out_pc) {
-    /* 2 extra bytes: flag ID (word) — set the flag */
+    /* 2 extra bytes: flag ID (word). This is SET_EVENT_FLAG(flag, value),
+     * not an unconditional set (asm/overworld/movement/movement_cmd_set_
+     * event_flag.asm calls it with the tempvar/A-register as the boolean;
+     * asm/text/set_event_flag.asm: LDY value / BEQ @CLEAR_FLAG). The
+     * caller primes that boolean immediately beforehand via
+     * EVENT_WRITE_WORD_TEMPVAR ($0000 = clear, $0001 = set), same
+     * tempvar[script_offset] convention every sibling routine in this
+     * file already uses (e.g. cr_movement_cmd_get_event_flag just above,
+     * or the direction/speed setters below).
+     *
+     * Unconditionally calling event_flag_set() here meant a script could
+     * never actually clear a flag through this opcode -- confirmed live
+     * as the Threed hotel-zombie lure NPC (movement script EVENT_78,
+     * asm/data/events/scripts/078.asm) looping her walk-into-hotel
+     * animation forever, even after the ambush/dungeon event was long
+     * since completed: EVENT_78's WRITE_WORD_TEMPVAR $0000 + this opcode
+     * is supposed to clear FLG_THRK_BIKINIZOMBI_F_APPEAR as she hands off
+     * to the next stage, but it silently stayed set instead, so her
+     * NPC record (gated on that exact flag, port/assets/data/
+     * npc_config.json) kept satisfying its spawn condition and re-running
+     * its script on every subsequent visit. At least 11 other flag
+     * transitions across the game rely on the same clear-half of this
+     * opcode and were equally broken (grep the extracted movement scripts
+     * for "WRITE_WORD_TEMPVAR $0000" followed by this opcode to find
+     * them all), not something specific to Threed. */
     uint16_t flag_id = sw(pc);
     *out_pc = pc + 2;
-    event_flag_set(flag_id);
+    if (scripts.tempvar[script_offset] != 0) {
+        event_flag_set(flag_id);
+    } else {
+        event_flag_clear(flag_id);
+    }
     return 0;
 }
 
