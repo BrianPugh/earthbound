@@ -44,6 +44,7 @@ static const uint8_t *script_ptrs_buf = NULL;
 static const uint8_t *spritemap_buf = NULL;
 static const uint8_t *event_ptr_table_buf = NULL;
 static const uint8_t *bank_c4_scripts_buf = NULL;
+static const uint8_t *bank_c0_scripts_buf = NULL;
 static const uint8_t *naming_entities_buf = NULL;
 
 /*
@@ -54,6 +55,9 @@ static const uint8_t *naming_entities_buf = NULL;
 
 /* Bank C4 naming scripts start at $C40F18, within-bank = $0F18 */
 #define C4_NAMING_SCRIPT_ROM_BASE 0x0E24
+
+/* Bank C0 script EVENT_MINI_GHOST (786) at $C0AD8A, within-bank = $AD8A */
+#define C0_SCRIPT_ROM_BASE 0xAD8A
 
 
 /*
@@ -251,6 +255,17 @@ void load_event_script_data(void) {
         }
     }
 
+    /* Load bank C0 scripts (EVENT_MINI_GHOST). Registered after C3 so the
+     * bank indices of the banks above, stored in savestates, are unchanged. */
+    size = ASSET_SIZE(ASSET_EVENTS_BANK_C0_SCRIPTS_BIN);
+    bank_c0_scripts_buf = ASSET_DATA(ASSET_EVENTS_BANK_C0_SCRIPTS_BIN);
+    if (bank_c0_scripts_buf) {
+        register_script_bank(bank_c0_scripts_buf, (uint32_t)size,
+                             C0_SCRIPT_ROM_BASE, 0xC0);
+    } else {
+        LOG_WARN("WARN: failed to load bank_c0_scripts.bin\n");
+    }
+
     /* Load naming screen entity table (14 DWORD pointers + entity lists) */
     size = ASSET_SIZE(ASSET_EVENTS_NAMING_SCREEN_ENTITIES_BIN);
     naming_entities_buf = ASSET_DATA(ASSET_EVENTS_NAMING_SCREEN_ENTITIES_BIN);
@@ -270,6 +285,7 @@ void free_event_script_data(void) {
     event_script_pointer_count = 0;
 
     bank_c4_scripts_buf = NULL;
+    bank_c0_scripts_buf = NULL;
 
     naming_entities_buf = NULL;
     naming_entities_data = NULL;

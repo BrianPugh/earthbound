@@ -13927,6 +13927,12 @@ dumpEntries:
   extension: bin
   compressed: false
 - subdir: US/events
+  name: bank_c0_scripts
+  offset: 0x00AD8A
+  size: 40
+  extension: bin
+  compressed: false
+- subdir: US/events
   name: bank_c3_scripts_combined
   offset: 0x030000
   size: 0xE012
