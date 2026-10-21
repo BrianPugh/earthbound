@@ -1625,7 +1625,10 @@ static StepResult btlact_bomb_step_common(BattleActionState *st,
                  * access. */
                 if (slot + 1 < 6) {
                     uint8_t next_member = game_state.party_members[slot + 1];
-                    if (next_member <= 5) {
+                    /* Original signed comparisons admit IDs 1..4 only.
+                     * Empty slots and NPCs skip both splash damage and its
+                     * variance RNG consumption. */
+                    if (next_member >= 1 && next_member <= 4) {
                         adjacent_right = (uint16_t)((slot + 1) * sizeof(Battler));
                     }
                 }
