@@ -3319,10 +3319,9 @@ void resolve_map_sector_music(uint16_t x_coord, uint16_t y_coord) {
         uint16_t flag_id = flag_word & 0x7FFF;
         int flag_state = event_flag_get(flag_id) ? 1 : 0;
 
-        /* Assembly BLTEQ on signed CMP #$8000:
-         * Only $8000 exactly is <= -32768 signed. All other values > -32768.
-         * So expected=0 only when flag_word == $8000; otherwise expected=1. */
-        int expected = (flag_word == 0x8000) ? 0 : 1;
+        /* Assembly BLTEQ is BCC followed by BEQ: an unsigned comparison.
+         * Words through $8000 require a clear flag; larger words require set. */
+        int expected = (flag_word > 0x8000) ? 1 : 0;
 
         if (flag_state == expected) {
             /* Condition met — use this entry */
