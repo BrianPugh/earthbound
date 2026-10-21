@@ -1006,6 +1006,24 @@ int16_t map_input_to_direction(uint16_t walking_style) {
  *
  * speeds: pointer to pb.h_speeds or pb.v_speeds array.
  */
+/* ASR8_INT: arithmetic shift right by 8 (floor division by 256), without
+ * relying on implementation-defined signed right shifts. */
+static int32_t asr8_int32(int32_t v) {
+    int32_t q = v / 256;
+    if (v < 0 && v % 256 != 0) q--;
+    return q;
+}
+
+/* ASR8_INT, MULT32 (low 32 product bits), ASR8_INT: the modifier sequence
+ * both ADJUST_POSITION routines use. Quantizing before the multiply gives
+ * different (and sign-asymmetric) results from a full-precision product. */
+static int32_t apply_speed_modifier(int32_t speed, uint32_t modifier) {
+    uint32_t product_bits = (uint32_t)asr8_int32(speed) * modifier;
+    int32_t product;
+    memcpy(&product, &product_bits, sizeof(product));
+    return asr8_int32(product);
+}
+
 static int32_t adjust_position(int16_t direction, uint16_t surface_flags,
                                int32_t pos, const int32_t *speeds) {
     uint16_t ws = game_state.walking_style;
@@ -1013,27 +1031,31 @@ static int32_t adjust_position(int16_t direction, uint16_t surface_flags,
     int32_t speed = speeds[ws * NUM_DIRECTIONS + direction];
 
     uint16_t water = surface_flags & 0x0C;
+    int32_t delta;
 
     if (water == SURFACE_SHALLOW_WATER) {
         /* Shallow water: speed * 0.5 (assembly lines 22-55) */
-        int32_t delta = (int32_t)(((int64_t)speed * SHALLOW_WATER_SPEED) >> 16);
-        return pos + delta;
+        delta = apply_speed_modifier(speed, SHALLOW_WATER_SPEED);
     } else if (water == SURFACE_DEEP_WATER) {
         /* Deep water: speed * 0.33 (assembly lines 56-89) */
-        int32_t delta = (int32_t)(((int64_t)speed * DEEP_WATER_SPEED) >> 16);
-        return pos + delta;
+        delta = apply_speed_modifier(speed, DEEP_WATER_SPEED);
     } else if (ow.demo_frames_left) {
         /* Demo mode: raw speed, no modifiers (assembly lines 91-112) */
-        return pos + speed;
+        delta = speed;
     } else if ((game_state.party_status & 0xFF) == 3 && ws == 0) {
         /* Skip sandwich active + NORMAL walking style: speed * 1.5
          * (assembly @UNKNOWN8, lines 113-153) */
-        int32_t delta = (int32_t)(((int64_t)speed * SKIP_SANDWICH_SPEED) >> 16);
-        return pos + delta;
+        delta = apply_speed_modifier(speed, SKIP_SANDWICH_SPEED);
     } else {
         /* Normal case: raw speed (assembly @UNKNOWN13, lines 154-173) */
-        return pos + speed;
+        delta = speed;
     }
+
+    /* ADD_INT_ASSIGN wraps the fixed-point position modulo 32 bits. */
+    uint32_t result_bits = (uint32_t)pos + (uint32_t)delta;
+    int32_t result;
+    memcpy(&result, &result_bits, sizeof(result));
+    return result;
 }
 
 /*
