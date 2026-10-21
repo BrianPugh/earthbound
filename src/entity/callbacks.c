@@ -23,6 +23,7 @@
 #include "include/binary.h"
 #include "snes/ppu.h"
 #include "core/log.h"
+#include "core/math.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -1616,7 +1617,8 @@ void cr_animate_entity_tile_merge(void) {
     uint8_t *slot_table = &ert.buffer[BUF_TILE_MERGE_SLOTS];
 
     /* Pick a random unused slot from the 64-entry table */
-    uint16_t slot_idx = rand() % 64;
+    /* Original ANIMATE_ENTITY_TILE_MERGE uses one serialized RAND byte. */
+    uint16_t slot_idx = rng_next_byte() & 0x3Fu;
     while (read_u16_le(slot_table + slot_idx * 2) != 0) {
         slot_idx = (slot_idx + 1) & 0x3F;
     }
