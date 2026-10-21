@@ -180,7 +180,7 @@
 #define ROM_ADDR_ACTIONSCRIPT_PREPARE_AT_LEADER     0xC0A8FF  /* 0 extra bytes */
 #define ROM_ADDR_ACTIONSCRIPT_PREPARE_AT_SELF       0xC0A8F7  /* 0 extra bytes */
 #define ROM_ADDR_ACTIONSCRIPT_FADE_OUT              0xC09FBB  /* 2 extra bytes */
-#define ROM_ADDR_ACTIONSCRIPT_FADE_IN               0xC0886C  /* 2 extra bytes */
+#define ROM_ADDR_ACTIONSCRIPT_FADE_IN               0xC09FAE  /* 2 extra bytes */
 #define ROM_ADDR_ACTIONSCRIPT_GET_PARTY_MEMBER_POS  0xC0A943  /* 1 extra byte  */
 #define ROM_ADDR_PREPARE_ENTITY_AT_TELEPORT_DEST    0xC46DE5  /* 1 extra byte  */
 #define ROM_ADDR_DISABLE_OBJ_HDMA                   0xC4248A  /* 0 extra bytes */

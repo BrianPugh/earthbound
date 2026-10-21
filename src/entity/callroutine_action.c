@@ -64,7 +64,7 @@ int16_t cr_actionscript_fade_out(int16_t entity_offset, int16_t script_offset,
 
 int16_t cr_actionscript_fade_in(int16_t entity_offset, int16_t script_offset,
                                 uint16_t pc, uint16_t *out_pc) {
-    /* Port of C0886C ACTIONSCRIPT_FADE_IN.
+    /* Port of C09FAE ACTIONSCRIPT_FADE_IN (tail-jumps to FADE_IN, C0886C).
      * Reads 2 bytes: low byte = step, high byte = delay.
      * Assembly: XBA/TAX/XBA decodes A_lo=step, X_lo=delay.
      * FADE_IN stores step (positive) into FADE_PARAMETERS.
