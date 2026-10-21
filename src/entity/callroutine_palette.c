@@ -66,8 +66,12 @@ void prepare_palette_fade_slopes(int16_t frames, uint16_t mask) {
                 fade->accum_b[i] = (int16_t)(c_b << 8);
             }
         } else {
+            /* Excluded groups: the asm (@READ_FROM_TARGET) copies the current
+             * color into the target, so FINALIZE_PALETTE_FADE's full-buffer
+             * copy leaves these groups unchanged. */
             for (int i = start; i < end; i++) {
                 uint16_t current = ert.palettes[i];
+                fade->target[i] = current;
                 fade->accum_r[i] = (int16_t)((current & 0x1F) << 8);
                 fade->accum_g[i] = (int16_t)(((current >> 5) & 0x1F) << 8);
                 fade->accum_b[i] = (int16_t)(((current >> 10) & 0x1F) << 8);
