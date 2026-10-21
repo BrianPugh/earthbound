@@ -67,8 +67,11 @@ static bool push_plain_text(ModeState *child, uint32_t addr) {
 
 /* The level-N physical damage formula shared by the attack steppers:
  * offense*mult - defense with 25% variance, floored to 1. The variance
- * gate differs by level: raw > 1 for levels 1/2, raw > 0 for levels 3/4
- * (see the battle_level_N_attack blocking forms in battle_calc.c). */
+ * gate is raw > 1 for all four attack levels (asm/battle/actions/
+ * level_1_attack.asm through level_4_attack.asm all use the identical
+ * `CLC; SBC #0; BRANCHLTEQS` idiom); `variance_when_gt1` is always true
+ * at every current call site, kept as a parameter only in case a future
+ * caller needs a different gate. */
 static uint16_t phys_attack_damage(uint16_t mult, bool variance_when_gt1) {
     Battler *atk = battler_from_offset(bt.current_attacker);
     Battler *tgt = battler_from_offset(bt.current_target);
@@ -287,18 +290,22 @@ static StepResult btlact_level_1_attack_step(BattleActionState *st) {
 
 
 /*
- * BTLACT_LEVEL_3_ATK / BTLACT_LEVEL_4_ATK steppers (the blocking forms are
- * battle_level_3/4_attack in battle_calc.c — full attacks with the
- * miss/smaaaash/dodge prologue, the raw > 0 variance gate, and the
- * strangeness heal).
+ * BTLACT_LEVEL_3_ATK / BTLACT_LEVEL_4_ATK steppers: full attacks with the
+ * miss/smaaaash/dodge prologue, the raw > 1 variance gate (asm/battle/actions/
+ * level_3_attack.asm and level_4_attack.asm both use the identical
+ * `CLC; SBC #0; BRANCHLTEQS` idiom as level_1/2 -- raw_damage - 1 <= 0, i.e.
+ * skip variance only when raw <= 1, same threshold as every other level; a
+ * previous version of this comment and the `false` passed below claimed a
+ * level-3/4-specific "raw > 0" gate that isn't in the assembly), and the
+ * strangeness heal.
  */
 static StepResult btlact_level_3_attack_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 3, false,
+    return btlact_phys_attack_step(st, 0, true, 3, true,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
 static StepResult btlact_level_4_attack_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 4, false,
+    return btlact_phys_attack_step(st, 0, true, 4, true,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
