@@ -184,10 +184,10 @@ uint16_t battle_25pct_variance(uint16_t value) {
         chosen_abs = abs_r2;
     }
 
-    /* Apply half the percentage offset to the value.
-     * The assembly uses TRUNCATE_16_TO_8 which is (value * abs) >> 8,
-     * then divides by 2 (LSR). */
-    uint8_t adjustment = (uint8_t)(((uint16_t)value * chosen_abs) >> 8);
+    /* TRUNCATE_16_TO_8 takes an 8-bit factor but returns the full 16-bit
+     * scaled product. The caller then halves it with a 16-bit LSR; narrowing
+     * before that wraps large PSI damage and healing adjustments. */
+    uint16_t adjustment = (uint16_t)(((uint32_t)value * chosen_abs) >> 8);
     adjustment >>= 1; /* Half for 25% variant (12.5% effective range) */
 
     if (chosen < 0) {
@@ -225,8 +225,9 @@ uint16_t battle_50pct_variance(uint16_t value) {
         chosen_abs = abs_r2;
     }
 
-    /* No /2 for 50% variant — full adjustment */
-    uint8_t adjustment = (uint8_t)(((uint16_t)value * chosen_abs) >> 8);
+    /* Keep TRUNCATE_16_TO_8's full 16-bit return value. The factor is 8-bit,
+     * not the result; this variant has no following division by two. */
+    uint16_t adjustment = (uint16_t)(((uint32_t)value * chosen_abs) >> 8);
 
     if (chosen < 0) {
         if (adjustment > value)
