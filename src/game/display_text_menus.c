@@ -592,7 +592,8 @@ StepResult mode_step_special_event(ModeState *st) {
      * the exact "screen goes black, music plays, but no text or background
      * ever appears" symptom reported after Master Belch's Saturn Valley
      * aftermath. */
-    static ModeState child = {0};
+    static ModeState child;
+    child = (ModeState){0};  /* zero per use, as the former local was */
     switch (s->event_id) {
     case 1:   /* COFFEE_SCENE: coffeetea_scene(0) */
     case 2: { /* TEA_SCENE:    coffeetea_scene(1) */
