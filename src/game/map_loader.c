@@ -2454,10 +2454,13 @@ static uint16_t check_collision_tile_pattern(uint16_t mask) {
     for (int i = 0; i < 6; i++) {
         if (mask & 1) {
             /* Compute tile coordinates for this check point */
-            int16_t px = (int16_t)ow.checked_collision_left_x + collision_x_offsets[i];
-            int16_t py = (int16_t)ow.checked_collision_top_y + collision_y_offsets[i];
-            int16_t tile_x = px >> 3;
-            int16_t tile_y = py >> 3;
+            /* The 65816 ADC wraps to 16 bits, then LSR shifts logically.
+             * Signed C shifts preserve the lookup's low six bits but store
+             * incorrect ladder/door coordinates at wraparound boundaries. */
+            uint16_t px = (uint16_t)(ow.checked_collision_left_x + collision_x_offsets[i]);
+            uint16_t py = (uint16_t)(ow.checked_collision_top_y + collision_y_offsets[i]);
+            int16_t tile_x = (int16_t)(px >> 3);
+            int16_t tile_y = (int16_t)(py >> 3);
 
             uint8_t flags = get_collision_tile_and_check_ladder(tile_x, tile_y);
             surface_accum |= flags;
@@ -2875,9 +2878,12 @@ process_result:
 uint16_t get_collision_at_pixel(int16_t x, int16_t y) {
     temp_entity_surface_flags = 0;
 
-    /* Assembly: y += 4, then divide both by 8 to get tile coords */
-    int16_t tile_y = (y + 4) >> 3;
-    int16_t tile_x = x >> 3;
+    /* Original C05FD1 increments Y's word four times, then uses logical
+     * LSR for both coordinates. Preserve 16-bit wrapping and unsigned
+     * shifts so ladder/door coordinates match even when bit 15 is set. */
+    uint16_t pixel_y = (uint16_t)((uint16_t)y + 4u);
+    int16_t tile_y = (int16_t)(pixel_y >> 3);
+    int16_t tile_x = (int16_t)((uint16_t)x >> 3);
 
     uint8_t flags = get_collision_tile_and_check_ladder(tile_x, tile_y);
     temp_entity_surface_flags = flags;
