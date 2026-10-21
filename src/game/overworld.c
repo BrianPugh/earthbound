@@ -43,6 +43,7 @@
 #include "core/decomp.h"
 #include "core/log.h"
 #include "core/mode_stack.h"
+#include "core/math.h"
 #include "platform/platform.h"
 #include "include/binary.h"
 #include "include/constants.h"
@@ -2356,8 +2357,8 @@ uint16_t attempt_homesickness(void) {
         if (prob == 0)
             return 0;
 
-        /* RAND_MOD(prob): returns 0..prob inclusive (rand % (prob+1)); homesick if result == 0 */
-        uint16_t roll = (uint16_t)(rand() % ((int)prob + 1));
+        /* RAND_MOD(prob): returns 0..prob inclusive (RAND % (prob+1)); homesick if result == 0 */
+        uint16_t roll = (uint16_t)(rng_next_byte() % ((int)prob + 1));
         if (roll != 0)
             return 0;
 

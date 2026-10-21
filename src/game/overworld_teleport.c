@@ -73,7 +73,7 @@ static void init_psi_teleport_beta(void) {
     setup_teleport_entity_flags();
 
     /* Randomize beta angle (assembly: RAND → XBA → AND #$FF00) */
-    ow.psi_teleport_beta_angle = (rand() % 256) << 8;
+    ow.psi_teleport_beta_angle = (uint16_t)(rng_next_byte() << 8);
 
     if (ow.psi_teleport_style == TELEPORT_STYLE_PSI_BETA) {
         ow.psi_teleport_beta_progress = 4;

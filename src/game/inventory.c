@@ -11,6 +11,7 @@
 #include "data/text_refs.h"
 #include "include/constants.h"
 #include "core/mode_stack.h"
+#include "core/math.h"
 #include "game/display_text_internal.h"  /* dt_make_child_init (LEVEL_UP text pushes) */
 #include <stdio.h>
 #include <stdlib.h>
@@ -438,8 +439,8 @@ static void initialize_item_transformation(uint16_t slot) {
     loaded_transformations[loaded_off + LIT_OFF_SFX_FREQUENCY] = sfx_freq;
 
     /* Initial countdown: sfx_freq + rand(0,2) - 1
-     * Assembly: RAND_MOD(2) = rand() % 3 (range 0-2) */
-    uint8_t rand_val = (uint8_t)(rand() % 3);
+     * Assembly: RAND_MOD(2) = RAND % 3 (range 0-2) */
+    uint8_t rand_val = (uint8_t)(rng_next_byte() % 3);
     loaded_transformations[loaded_off + LIT_OFF_SFX_COUNTDOWN] =
         (uint8_t)(sfx_freq + rand_val - 1);
 
@@ -646,8 +647,8 @@ void process_item_transformations(void) {
 
                 if (countdown == 0) {
                     /* Reset countdown: sfx_freq + rand(0,2) - 1
-                     * Assembly: RAND_MOD(2) = rand() % 3 (range 0-2) */
-                    uint8_t rand_val = (uint8_t)(rand() % 3);
+                     * Assembly: RAND_MOD(2) = RAND % 3 (range 0-2) */
+                    uint8_t rand_val = (uint8_t)(rng_next_byte() % 3);
                     loaded_transformations[off + LIT_OFF_SFX_COUNTDOWN] =
                         (uint8_t)(sfx_freq + rand_val - 1);
                     /* Play the SFX */
@@ -1356,7 +1357,7 @@ uint16_t get_item_ep(uint16_t item_id) {
  * Scans Jeff's inventory for broken items. For each broken item:
  *   1. Checks item.type == 8 (broken)
  *   2. Checks item.params.epi <= Jeff's IQ
- *   3. Rolls rand()%256 % 100 < fix_probability
+ *   3. Rolls RAND_MOD(99) < fix_probability
  * On success, replaces the broken item with item.params.ep in-place.
  * Returns original broken item ID on success, 0 if nothing fixed. */
 uint16_t try_fix_broken_item(uint16_t fix_probability) {
@@ -1387,7 +1388,7 @@ uint16_t try_fix_broken_item(uint16_t fix_probability) {
         if (epi > jeff->iq) continue;
 
         /* Random check: rand % 100, fix succeeds if rand < probability */
-        uint16_t roll = (uint16_t)((rand() % 256) % 100);
+        uint16_t roll = (uint16_t)(rng_next_byte() % 100);  /* RAND_MOD(99) */
         if (roll >= fix_probability) continue;
 
         /* Fix the item: replace broken with fixed version */
@@ -1493,12 +1494,12 @@ static int16_t calculate_stat_gain(uint8_t growth_var, uint8_t base_stat, uint16
     if (diff <= 0) return 0;
 
     /* Assembly lines 42-62: apply random modifier.
-     * rand_val = rand() % 4 (RAND_MOD(3))
+     * rand_val = RAND % 4 (RAND_MOD(3))
      * cycle = (old_level + 1) % 4
      * table_val = STAT_GAIN_MODIFIER_TABLE[cycle]
      * modifier = table_val + rand_val - 1
      * result = diff * modifier / 50 (signed) */
-    int16_t rand_val = (int16_t)(rand() % 4);
+    int16_t rand_val = (int16_t)(rng_next_byte() % 4);
     int16_t cycle = (int16_t)((old_level + 1) % 4);
     int16_t table_val = (int16_t)stat_gain_mod_data[cycle];
     int16_t modifier = table_val + rand_val - 1;
@@ -1522,7 +1523,7 @@ static int16_t calculate_stat_gain_simple(uint8_t growth_var, uint8_t base_stat,
  *
  * Split for the run-to-completion conversion: the per-stage stat math lives
  * in level_up_apply_stage() (shared so both paths run the exact assembly
- * math, including the rand() call order); the silent play_sound == 0 path
+ * math, including the RAND call order); the silent play_sound == 0 path
  * (no music, no texts, no PSI-learn scan — the assembly gates all of those
  * on the play-sound flag) is level_up_char_silent(); the text-displaying
  * play_sound != 0 path is mode_step_level_up() (GAME_MODE_LEVEL_UP), defined
@@ -1638,7 +1639,7 @@ static int16_t level_up_apply_stage(uint16_t char_id, uint16_t old_level, uint8_
     /* --- Max HP increase (assembly lines 490-540) ---
      * hp_potential = vitality * 15 - max_hp
      * If hp_potential > 1: hp_increase = hp_potential
-     * Otherwise: hp_increase = rand()%3 + 1 (i.e., 1-3) — always >= 1, so
+     * Otherwise: hp_increase = RAND_MOD(2) + 1 (i.e., 1-3) — always >= 1, so
      * the HP message always shows. */
     case LU_STAGE_HP: {
         int16_t hp_potential = (int16_t)ch->vitality * 15 - (int16_t)ch->max_hp;
@@ -1646,7 +1647,7 @@ static int16_t level_up_apply_stage(uint16_t char_id, uint16_t old_level, uint8_
         if (hp_potential > 1) {
             hp_increase = (uint16_t)hp_potential;
         } else {
-            hp_increase = (uint16_t)(rand() % 3) + 1;  /* RAND_MOD(2) + 1 */
+            hp_increase = (uint16_t)(rng_next_byte() % 3) + 1;  /* RAND_MOD(2) + 1 */
         }
         ch->max_hp += hp_increase;
         ch->current_hp_target += hp_increase;
@@ -1658,7 +1659,7 @@ static int16_t level_up_apply_stage(uint16_t char_id, uint16_t old_level, uint8_
      * Otherwise: pp_base = iq
      * pp_potential = pp_base * 5 - max_pp
      * If pp_potential > 1: pp_increase = pp_potential
-     * Otherwise: pp_increase = rand()%3 (0-2; 0 -> no change, no message) */
+     * Otherwise: pp_increase = RAND_MOD(2) (0-2; 0 -> no change, no message) */
     case LU_STAGE_PP: {
         if (char_index == 2) return 0;
         uint16_t pp_base = (uint16_t)ch->iq;
@@ -1670,7 +1671,7 @@ static int16_t level_up_apply_stage(uint16_t char_id, uint16_t old_level, uint8_
         if (pp_potential > 1) {
             pp_increase = (uint16_t)pp_potential;
         } else {
-            pp_increase = (uint16_t)(rand() % 3);  /* RAND_MOD(2) */
+            pp_increase = (uint16_t)(rng_next_byte() % 3);  /* RAND_MOD(2) */
         }
         if (pp_increase == 0) return 0;
         ch->max_pp += pp_increase;

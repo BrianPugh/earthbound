@@ -33,6 +33,7 @@
 #include "include/constants.h"
 #include "core/memory.h"
 #include "core/log.h"
+#include "core/math.h"
 #include "game_main.h"
 #include <string.h>
 #include <stdlib.h>
@@ -100,7 +101,7 @@ void spawn_delivery_entities(void) {
 
         /* If sprite == 0, pick a random for-sale sign sprite */
         if (sprite_id == 0) {
-            int r = rand() % 4;  /* RAND & 3 */
+            int r = rng_next_byte() & 3;
             sprite_id = read_u16_le(&for_sale_signs[r * 2]);
         }
 
@@ -128,7 +129,7 @@ void get_delivery_sprite_and_placeholder(uint16_t delivery_id) {
 
     /* If sprite == 0 (bicycle), pick a random for-sale sign sprite */
     if (sprite_id == 0) {
-        int r = rand() % 4;  /* RAND & 3 */
+        int r = rng_next_byte() & 3;
         sprite_id = read_u16_le(&for_sale_signs[r * 2]);
     }
 
@@ -328,7 +329,7 @@ void attempt_enemy_spawn(uint16_t x, uint16_t y, uint16_t encounter_id) {
 
         /* Assembly lines 104-112: Roll random 0-99, compare with spawn_rate.
          * If rand < rate, try magic butterfly. */
-        uint16_t roll = (uint16_t)(rand() % 100);  /* 0-99 */
+        uint16_t roll = (uint16_t)(rng_next_byte() % 100);  /* RAND % 100 */
         if (roll >= spawn_rate)
             return;
 
@@ -396,14 +397,16 @@ select_enemy_group:
         /* Assembly lines 192-206: Roll spawn chance (PIRACY_FLAG check).
          * PIRACY_FLAG is always 0 in legitimate copies, so always roll. */
         {
-            uint16_t roll = (uint16_t)(rand() % 100);  /* 0-99 */
+            /* RAND * 100 via MULT168, then XBA: scales the byte to 0-99
+             * (a different distribution from RAND % 100). */
+            uint16_t roll = (uint16_t)(((uint16_t)rng_next_byte() * 100) >> 8);
             if (roll >= ow.enemy_spawn_chance)
                 return;
         }
 
         /* Assembly lines 207-243: Pick random slot and find matching group.
          * Random value 0-7 + group_offset_delta -> cumulative slot search. */
-        uint16_t random_slot = (rand() % 256) & 0x0007;
+        uint16_t random_slot = rng_next_byte() & 0x0007;
         uint16_t target_slot = group_offset_delta + random_slot;
 
         /* Walk through enemy_group entries: { slots(1), group(2) }
@@ -499,11 +502,11 @@ read_group_entry_count:
                 bool position_found = false;
                 for (int attempt = 0; attempt < 20; attempt++) {
                     /* Random x within spawn range */
-                    uint16_t rand_x_off = rand() % ow.enemy_spawn_range_width;
+                    uint16_t rand_x_off = rng_next_byte() % ow.enemy_spawn_range_width;
                     int16_t pixel_x = (int16_t)((x * 8 + rand_x_off) * 8);
 
                     /* Random y within spawn range */
-                    uint16_t rand_y_off = rand() % ow.enemy_spawn_range_height;
+                    uint16_t rand_y_off = rng_next_byte() % ow.enemy_spawn_range_height;
                     int16_t pixel_y = (int16_t)((y * 8 + rand_y_off) * 8);
 
                     /* Check surface flags at position */
@@ -538,7 +541,7 @@ read_group_entry_count:
                     entities.pathfinding_states[ent] = 0;
 
                     /* Set random weak_enemy_value */
-                    entities.weak_enemy_value[ent] = rand() % 256;
+                    entities.weak_enemy_value[ent] = rng_next_byte();
 
                     ow.overworld_enemy_count++;
 

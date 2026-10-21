@@ -1336,7 +1336,7 @@ void battle_remove_npc_targeting(void) {
  *
  * Re-rolls targeting for a confused battler based on their action's target type:
  *   ONE    → pick one random target from all conscious battlers
- *   RANDOM → target a random row (rand() % 3: 0=allies, 1=row0, 2=row1)
+ *   RANDOM → target a random row (RAND % 3: 0=allies, 1=row0, 2=row1)
  *   ALL    → 50/50 target all allies or all enemies; check shield targeting
  */
 void battle_feeling_strange_retargeting(void) {

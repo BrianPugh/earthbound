@@ -3209,10 +3209,10 @@ void cc_1d_dispatch(ScriptReader *r) {
         /* GENERATE_RANDOM_NUMBER: 1 arg.
          * Port of CC_1D_21 (asm/text/ccs/get_random_number.asm).
          * If arg != 0, use arg; else use argument_memory.
-         * Calls RAND_MOD(N) → rand() % (N + 1), stores result in working_memory. */
+         * Calls RAND_MOD(N) → RAND % (N + 1), stores result in working_memory. */
         uint8_t arg = script_read_byte(r);
         uint16_t n = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = (uint16_t)((rand() % 256) % (n + 1));
+        uint16_t result = (uint16_t)(rng_next_byte() % (n + 1));
         set_working_memory((uint32_t)result);
         break;
     }
