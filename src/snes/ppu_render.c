@@ -643,6 +643,9 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
         uint16_t entry = read_u16_le(&ppu.vram[entry_addr]);
         uint16_t tile_num = entry & 0x3FF;
         uint8_t palette = (entry >> 10) & 0x07;
+        /* Mode 0 gives each BG its own 32-color bank (BG1..4). Keep the
+         * adjusted palette in the row plan so cached runs use the same bank. */
+        if ((ppu.bgmode & BGMODE_MODE_MASK) == 0) palette += 8 * bg_index;
         uint8_t prio_bit = (entry >> 13) & 1;
         bool hflip = (entry >> 14) & 1;
         bool vflip = (entry >> 15) & 1;
