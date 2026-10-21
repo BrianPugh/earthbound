@@ -1142,8 +1142,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         /* Check 1: fade active (fade step != 0) */
         if (fade_active())
             return 1;
-        /* Check 2: screen brightness < 15 (screen not fully on) */
-        if (core.screen_brightness < 15)
+        /* Check 2: INIDISP_MIRROR != 15 (forced blank, or not full brightness) */
+        if (ppu.inidisp != 15)
             return 1;
         /* Check 3: any window open */
         if (any_window_open())
