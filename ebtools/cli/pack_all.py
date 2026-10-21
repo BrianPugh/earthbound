@@ -618,10 +618,16 @@ def pack_all(
         _pack_event_script(_c4_json, output_dir / "US" / "events" / "bank_c4_scripts.bin", addr_remap)
         packed += 1
 
-    # Door data with text address remapping
+    # Door data with text address remapping. Restrict the remap scan to
+    # known entry-start offsets (derived from the just-packed pointer/config
+    # tables above) -- an unrestricted blind byte scan can false-positive on
+    # a door's own event_flag/coordinate fields that happen to collide with
+    # an unrelated dialogue address, corrupting them. See
+    # _compute_door_data_entry_offsets() and _pack_binary_with_addr_remap().
     _door_json = assets_dir / "maps" / "door_data.json"
     if _door_json.exists():
-        _pack_binary_with_addr_remap(_door_json, output_dir / "maps" / "door_data.bin", addr_remap)
+        _door_entry_offsets = _compute_door_data_entry_offsets(assets_dir)
+        _pack_binary_with_addr_remap(_door_json, output_dir / "maps" / "door_data.bin", addr_remap, _door_entry_offsets)
         packed += 1
 
     # Attract mode text pointer table
@@ -901,30 +907,168 @@ def _pack_dialogue(
     return addr_remap
 
 
+def _compute_door_data_entry_offsets(assets_dir: Path) -> set[int] | None:
+    """Enumerate every legitimate door_data::text_ptr window start offset.
+
+    Walks door_pointer_table.json (a flat array of 4-byte ROM pointers, one
+    per map sector) and, for each valid pointer, the door_config_table.json
+    block it points to (a count-prefixed list of 5-byte records: y, x,
+    type, and a 2-byte offset into door_data) -- exactly the lookup
+    find_door_at_position() (door.c) performs at runtime, just done once
+    here over every sector instead of one lookup at a time.
+
+    Critically, the byte offset of the 4-byte text_ptr field *within* a
+    door_data entry depends on the entry's door type, per the four
+    door_data readers in door.c (get_door_data_entry() callers):
+      - type 0  (check_door_event_flag):    event_flag@+0, text_ptr@+2
+      - type 2  (mode_step_door_transition): text_ptr@+0, event_flag@+4
+      - type 5  (check_door_near_leader):    text_ptr@+0
+      - type 6  (check_door_in_direction):   text_ptr@+0
+      - all other types (1,3,4,7, and any out-of-range value found in the
+        raw config data): never read via get_door_data_entry() at all --
+        no window is legitimate for them, so none is returned. An earlier,
+        wrong version of this function assumed text_ptr always started at
+        entry+0 regardless of type; for type-0 entries that scanned
+        [event_flag_lo, event_flag_hi, text_lo0, text_lo1] as if it were a
+        whole address, which could both miss the real (shifted) text
+        pointer and, worse, false-positive-corrupt the event_flag bytes --
+        exactly the failure mode this function exists to avoid. The same
+        door_data offset can legitimately be referenced by config entries
+        of different types across different sectors (e.g. a shared
+        stairs/escalator record referenced by both a type-3 and a type-4
+        entry) -- neither of those reads text, so such offsets contribute
+        no window either.
+
+    Returns the set of 4-byte window START offsets (not entry starts) safe
+    to scan for an addr_remap match. Returns None if either source JSON is
+    missing (caller falls back to the old, unrestricted scan rather than
+    silently skipping all remapping) -- see _pack_binary_with_addr_remap()'s
+    doc comment for why this restriction matters at all.
+    """
+    import json
+
+    ptr_path = assets_dir / "maps" / "door_pointer_table.json"
+    cfg_path = assets_dir / "maps" / "door_config_table.json"
+    if not ptr_path.exists() or not cfg_path.exists():
+        return None
+
+    ptr_data = bytes(json.loads(ptr_path.read_text()))
+    cfg_data = bytes(json.loads(cfg_path.read_text()))
+    door_config_base_addr = 0xCF264F
+    # door type -> byte offset (within the entry) of the 4-byte text_ptr
+    # field, for the door types actually read as text via
+    # get_door_data_entry() in door.c. Types not listed here are never
+    # read as text and contribute no window.
+    text_ptr_offset_by_type = {0: 2, 2: 0, 5: 0, 6: 0}
+    # door type -> (protected_start_delta, protected_end_delta): the
+    # non-text bytes each type's reader also consumes from the SAME entry
+    # (event_flag / dest / transition fields for type 0 and 2 -- types 5/6
+    # read only the 4-byte text_ptr and nothing else, so they claim no
+    # extra protected range).
+    protected_delta_by_type = {0: (0, 2), 2: (4, 11)}
+
+    raw_windows: set[tuple[int, int]] = set()  # (door_off, entry_type) pairs, deduped
+    for i in range(0, len(ptr_data) - 3, 4):
+        rom_ptr = int.from_bytes(ptr_data[i : i + 4], "little")
+        if rom_ptr == 0 or rom_ptr < door_config_base_addr:
+            continue
+        config_offset = rom_ptr - door_config_base_addr
+        if config_offset + 2 > len(cfg_data):
+            continue
+        count = int.from_bytes(cfg_data[config_offset : config_offset + 2], "little")
+        if count == 0:
+            continue
+        entry_base = config_offset + 2
+        if entry_base + count * 5 > len(cfg_data):
+            continue
+        for e in range(count):
+            entry_off = entry_base + e * 5
+            entry_type = cfg_data[entry_off + 2]
+            if entry_type not in text_ptr_offset_by_type:
+                continue
+            door_off = int.from_bytes(cfg_data[entry_off + 3 : entry_off + 5], "little")
+            raw_windows.add((door_off, entry_type))
+
+    # Some door_data bytes are shared/overlapped between adjacent entries in
+    # the original ROM data itself (a real space-saving trick in the source
+    # table, not a packer artifact -- confirmed by comparing raw,
+    # never-repacked door_data.bin: a "small" field like event_flag can
+    # already equal the tail of a neighboring entry's real address before
+    # this tool ever touches it). Remapping a text_ptr window there would
+    # scribble over bytes another entry depends on as a non-text field (or
+    # vice versa). Rather than guess which of the two conflicting
+    # interpretations is "right", leave any window that overlaps another
+    # entry's protected (non-text) range untouched -- its text_ptr stays at
+    # the pre-repack ROM value (a narrower, pre-existing miscompile risk)
+    # instead of corrupting a flag/coordinate/transition field into
+    # something that can permanently break the door.
+    protected_ranges: list[tuple[int, int]] = []
+    windows: dict[int, tuple[int, int]] = {}  # window_start -> (window_start, window_end)
+    for door_off, entry_type in raw_windows:
+        w = door_off + text_ptr_offset_by_type[entry_type]
+        windows[w] = (w, w + 4)
+        pd = protected_delta_by_type.get(entry_type)
+        if pd is not None:
+            protected_ranges.append((door_off + pd[0], door_off + pd[1]))
+
+    def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
+        return a[0] < b[1] and b[0] < a[1]
+
+    return {w for w, rng in windows.items() if not any(_overlaps(rng, pr) for pr in protected_ranges)}
+
+
 def _pack_binary_with_addr_remap(
     json_path: Path,
     output_path: Path,
     addr_remap: dict[int, int],
+    entry_offsets: set[int] | None = None,
 ) -> None:
-    """Pack a raw byte array, remapping any 4-byte LE values found in addr_remap.
+    """Pack a raw byte array, remapping 4-byte LE values found in addr_remap.
 
-    Scans every 4-byte-aligned offset for values that match an addr_remap key
-    (SNES text addresses >= 0xC00000) and replaces them with the dialogue blob
-    offset.  Safe for binary data where text pointers are 4-byte aligned and
-    other fields are small integers (event flags, coordinates, etc.).
+    entry_offsets, when given, restricts remapping to the first 4 bytes of
+    each of those offsets ONLY -- the actual text_ptr fields, positively
+    identified via _compute_door_data_entry_offsets(). Without it, this
+    used to scan EVERY byte offset in the blob for anything that happened
+    to equal an addr_remap key, on the reasoning that "other fields are
+    small integers (event flags, coordinates, etc.)" and therefore
+    wouldn't collide -- false: addr_remap holds every recompiled dialogue
+    address in the game (thousands of entries), and a door entry's own
+    unrelated fields (event_flag, destination coordinates, ...) sitting
+    right next to a real text_ptr are well within blind-4-byte-window
+    range of matching one by coincidence. That's exactly what corrupted a
+    real door's event_flag field into an out-of-range flag ID that could
+    never be satisfied, silently turning a normal walk-in door into a
+    permanent no-op -- found by live-reproducing the bug, tracing it
+    through the runtime door-transition state machine, and finally
+    comparing the shipped packed asset against the raw ROM-extracted
+    original byte for byte, where the two diverged starting at this
+    door's entry. Falls back to the old unrestricted scan when
+    entry_offsets is None (source tables missing) rather than skip
+    remapping entirely -- door text would otherwise point at stale
+    pre-repack addresses.
     """
     import json
 
     data = bytearray(json.loads(json_path.read_text()))
     patched = 0
-    # Scan at every byte offset — door data text pointers aren't necessarily
-    # 4-byte aligned (they're at offset 2 within variable-length entries).
-    for i in range(len(data) - 3):
-        val = int.from_bytes(data[i : i + 4], "little")
-        if val in addr_remap:
-            new_val = addr_remap[val]
-            data[i : i + 4] = new_val.to_bytes(4, "little")
-            patched += 1
+    if entry_offsets is not None:
+        for i in sorted(entry_offsets):
+            if i + 4 > len(data):
+                continue
+            val = int.from_bytes(data[i : i + 4], "little")
+            if val in addr_remap:
+                new_val = addr_remap[val]
+                data[i : i + 4] = new_val.to_bytes(4, "little")
+                patched += 1
+    else:
+        # Scan at every byte offset — door data text pointers aren't necessarily
+        # 4-byte aligned (they're at offset 2 within variable-length entries).
+        for i in range(len(data) - 3):
+            val = int.from_bytes(data[i : i + 4], "little")
+            if val in addr_remap:
+                new_val = addr_remap[val]
+                data[i : i + 4] = new_val.to_bytes(4, "little")
+                patched += 1
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(bytes(data))
     print(f"  Packed {json_path.name} ({patched} text addresses remapped)")
