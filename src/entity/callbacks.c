@@ -98,6 +98,65 @@ static void entity_screen_coords_bg1(int16_t ent) {
     entities.screen_y[ent] = entities.abs_y[ent] - (int16_t)ppu.bg_vofs[0];
 }
 
+/* 16-bit SBC result, negated when BPL fails (bit 15 set), as in the
+ * CHECK_FOLLOWER_*_DISTANCE routines; $8000 stays $8000. */
+static uint16_t follower_magnitude(uint16_t value) {
+    return (value & 0x8000u) ? (uint16_t)(0u - value) : value;
+}
+
+/* FOLLOWER_DISTANCE_CHECK_TABLE (C0A350) dispatched on the follower's
+ * direction: CHECK_FOLLOWER_VERTICAL/HORIZONTAL/DIAGONAL_DISTANCE.
+ * `ordinal` is entity var5 / 2 (var5 is the byte offset into the WORD
+ * threshold tables). Values from asm/data/overworld/
+ * follower_spacing_thresholds.asm and follower_diagonal_spacing_thresholds.asm. */
+static uint16_t follower_spacing_delta(int16_t ent, int16_t leader, unsigned ordinal) {
+    static const uint16_t cardinal[6] = {0, 17, 32, 47, 62, 77};
+    static const uint16_t diagonal[6] = {0, 11, 22, 32, 43, 54};
+    uint16_t direction = (uint16_t)entities.directions[ent];
+    uint16_t value;
+    if (direction & 1u) {
+        uint16_t dx = follower_magnitude((uint16_t)(
+            (uint16_t)entities.abs_x[leader] - (uint16_t)entities.abs_x[ent]));
+        if (dx < diagonal[ordinal]) return dx;
+        uint16_t dy = follower_magnitude((uint16_t)(
+            (uint16_t)entities.abs_y[leader] - (uint16_t)entities.abs_y[ent]));
+        value = follower_magnitude((uint16_t)(dy - dx));
+    } else {
+        bool horizontal = direction == 2u || direction == 6u;
+        uint16_t cross = horizontal ?
+            (uint16_t)((uint16_t)entities.screen_y[leader] ^ (uint16_t)entities.screen_y[ent]) :
+            (uint16_t)((uint16_t)entities.screen_x[leader] ^ (uint16_t)entities.screen_x[ent]);
+        if (cross) return cross;
+        uint16_t delta = horizontal ?
+            (uint16_t)((uint16_t)entities.abs_x[leader] - (uint16_t)entities.abs_x[ent]) :
+            (uint16_t)((uint16_t)entities.abs_y[leader] - (uint16_t)entities.abs_y[ent]);
+        value = follower_magnitude((uint16_t)(follower_magnitude(delta) - cardinal[ordinal]));
+    }
+    return value ? (uint16_t)(value - 1u) : 0;
+}
+
+/* UPDATE_PARTY_SPRITE_POSITION (C0A26B). The callback runs with A16, so
+ * the bytes 29 00 18 assembled under an .A8 annotation as AND #$00 / CLC
+ * execute as AND #$1800. A follower walking the leader's direction keeps
+ * its existing screen coordinates while it's at its spacing (the check
+ * result << 1 is zero); everything else recomputes them from abs. The
+ * leader/direction/var5 guards only reject values whose table dispatch
+ * would be out of range. */
+static void update_party_sprite_position(int16_t ent) {
+    int16_t leader = (int16_t)ow.current_leading_party_member_entity;
+    uint16_t spacing_offset = (uint16_t)entities.var[5][ent];
+    if (leader >= 0 && leader < MAX_ENTITIES && ent != leader &&
+        !((uint16_t)entities.var[7][ent] & 0x1800u) &&
+        !ow.not_moving_in_same_direction_faced &&
+        (uint16_t)entities.directions[ent] == ow.current_leader_direction &&
+        ow.current_leader_direction < 8u &&
+        !(spacing_offset & 1u) && spacing_offset <= 10u) {
+        uint16_t delta = follower_spacing_delta(ent, leader, spacing_offset / 2u);
+        if ((uint16_t)(delta << 1) == 0) return;
+    }
+    entity_screen_coords_bg1(ent);
+}
+
 /*
  * COPY_ENTITY_ABS_TO_SCREEN (C0A0BB)
  *
@@ -222,9 +281,8 @@ void call_move_callback(int16_t entity_offset) {
          * Instead computes screen coords from abs coords (screen = abs - bg_scroll).
          * The actual position update is done by UPDATE_FOLLOWER_STATE (tick callback)
          * which reads from PLAYER_POSITION_BUFFER.
-         * The full ROM version also handles overlap avoidance via FOLLOWER_DISTANCE_CHECK_TABLE,
-         * but the common path is just entity_screen_coords_bg1. */
-        entity_screen_coords_bg1(entity_offset);
+         * Preserve the original spacing check before updating screen coords. */
+        update_party_sprite_position(entity_offset);
         break;
     case CB_MOVE_DELTA_3D:
         apply_entity_delta_position_3d(entity_offset);
