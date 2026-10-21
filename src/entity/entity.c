@@ -24,7 +24,6 @@
 #include "include/binary.h"
 #include "snes/ppu.h"
 #include "core/log.h"
-#include <math.h>
 #include <string.h>
 
 /* Global entity system state (large SoA structs — kept separate) */
@@ -771,18 +770,47 @@ void remove_associated_entities(int16_t parent_slot) {
  */
 uint16_t calculate_direction_fine(int16_t from_x, int16_t from_y,
                                   int16_t to_x, int16_t to_y) {
-    int dx = to_x - from_x;
-    int dy = to_y - from_y;
-    if (dx == 0 && dy == 0)
-        return 0x8000;  /* default: down */
+    /* Exact C41EFF arithmetic and C41FC5/C41FDF tables. The original
+     * quantizes before its eight-way rounding; continuous atan2 changes
+     * ordinary facing and encounter initiative near sector boundaries.
+     * Values from asm/data/math/direction_offset_table.asm and
+     * asm/data/math/atan2_lookup_table.asm. */
+    static const uint16_t offsets[13] = {
+        0x4000, 0x8000, 0x0000, 0xC000, 0x8000, 0xFFFF, 0x0000,
+        0xFFFF, 0x4000, 0xC000, 0xFFFF, 0xFFFF, 0x0000
+    };
+    static const uint16_t atan_thresholds[16] = {
+        0x000D, 0x0026, 0x0040, 0x005C, 0x0079, 0x0099, 0x00BE, 0x00E8,
+        0x011A, 0x0159, 0x01AB, 0x021D, 0x02CB, 0x03FD, 0x06BB, 0x143D
+    };
+    uint16_t dx = (uint16_t)((uint16_t)from_x - (uint16_t)to_x);
+    uint16_t dy = (uint16_t)((uint16_t)from_y - (uint16_t)to_y);
+    uint16_t abs_x = (dx & 0x8000) ? (uint16_t)(0u - dx) : dx;
+    uint16_t abs_y = (dy & 0x8000) ? (uint16_t)(0u - dy) : dy;
+    while (abs_x >= 0x0100) {
+        abs_x >>= 1;
+        abs_y >>= 1;
+    }
 
-    /* atan2(dx, dy) in screen coords: 0=+Y(down), π/2=+X(right), CW.
-     * Fine direction: 0=UP(0x0000), RIGHT(0x4000), DOWN(0x8000), LEFT(0xC000).
-     * Mapping: fine = 0x8000 - atan2_scaled (reflect + offset). */
-    double angle = atan2((double)dx, (double)dy);
-    if (angle < 0) angle += 2.0 * M_PI;
-    uint16_t fine = (uint16_t)(angle * 65536.0 / (2.0 * M_PI));
-    return 0x8000 - fine;
+    uint16_t quadrant = !dy ? 8 : (dy & 0x8000) ? 0 : 2;
+    if (!dx)
+        quadrant |= 4;
+    else if (!(dx & 0x8000))
+        quadrant |= 1;
+    if (quadrant & 0x000C)
+        return offsets[quadrant];  /* Coincident positions return UP, too. */
+
+    /* XBA/BIT saturates the dividend if normalized Y does not fit a byte.
+     * WRDIVL/WRDIVB then performs unsigned integer division. abs_x cannot
+     * be zero here: cardinal and coincident cases returned above. */
+    uint16_t dividend = abs_y >= 0x0100 ? 0xFFFF : (uint16_t)(abs_y << 8);
+    uint16_t ratio = (uint16_t)(dividend / abs_x);
+    uint16_t bin = 0;
+    while (bin < 16 && ratio >= atan_thresholds[bin])
+        bin++;
+    if (quadrant != 0 && quadrant != 3)
+        bin = (uint16_t)(16 - bin);
+    return (uint16_t)(offsets[quadrant] + (bin << 10));
 }
 
 /*
