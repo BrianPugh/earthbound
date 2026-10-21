@@ -333,8 +333,9 @@ def export_timed_delivery_json(data: bytes, output_path: Path) -> None:
     _write_json(output_path, entries)
 
 
-def pack_timed_delivery(json_path: Path, output_path: Path) -> None:
+def pack_timed_delivery(json_path: Path, output_path: Path, addr_remap: dict[int, int] | None = None) -> None:
     entries = _read_json(json_path)
+    addr_remap = addr_remap or {}
     buf = bytearray()
     for e in entries:
         buf.extend(struct.pack("<H", e["sprite_id"]))
@@ -344,10 +345,12 @@ def pack_timed_delivery(json_path: Path, output_path: Path) -> None:
         buf.extend(struct.pack("<H", e["delivery_time"]))
         # success_text_ptr: 24-bit SNES addr → 2 byte addr + 1 byte bank
         sptr = int(e["success_text_ptr"], 16)
+        sptr = addr_remap.get(sptr, sptr)
         buf.extend(struct.pack("<H", sptr & 0xFFFF))
         buf.append((sptr >> 16) & 0xFF)
         # failure_text_ptr: 24-bit SNES addr → 2 byte addr + 1 byte bank
         fptr = int(e["failure_text_ptr"], 16)
+        fptr = addr_remap.get(fptr, fptr)
         buf.extend(struct.pack("<H", fptr & 0xFFFF))
         buf.append((fptr >> 16) & 0xFF)
         buf.extend(struct.pack("<H", e["enter_speed"]))

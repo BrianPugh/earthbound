@@ -133,12 +133,6 @@ def pack_all(
         ("tileset table", "data/tileset_table.json", "data/tileset_table.bin", _pack_simple("pack_tileset_table")),
         ("hotspots", "data/hotspots.json", "data/hotspot_coordinates.bin", _pack_simple("pack_hotspots")),
         (
-            "timed delivery",
-            "data/timed_delivery.json",
-            "data/timed_delivery_table.bin",
-            _pack_simple("pack_timed_delivery"),
-        ),
-        (
             "timed item transforms",
             "data/timed_item_transforms.json",
             "data/timed_item_transformation_table.bin",
@@ -572,7 +566,11 @@ def pack_all(
     dialogue_dir = assets_dir / "dialogue"
     if dialogue_dir.exists():
         addr_remap = _pack_dialogue(
-            dialogue_dir, output_dir, doc, reverse_text_table, common_data,
+            dialogue_dir,
+            output_dir,
+            doc,
+            reverse_text_table,
+            common_data,
             text_refs_dir=text_refs_dir,
         )
         packed += 1
@@ -592,6 +590,15 @@ def pack_all(
         pack_telephone_contacts(_telephone_json, text_table, _telephone_out, addr_remap=addr_remap)
         packed += 1
         print("  Packed telephone contacts")
+
+    # Timed delivery table (success/failure text pointers need addr_remap)
+    _delivery_json = assets_dir / "data" / "timed_delivery.json"
+    if _delivery_json.exists():
+        from ebtools.parsers.simple_tables import pack_timed_delivery
+
+        pack_timed_delivery(_delivery_json, output_dir / "data" / "timed_delivery_table.bin", addr_remap=addr_remap)
+        packed += 1
+        print("  Packed timed delivery (with text address remapping)")
 
     # Event scripts with text address remapping.
     # The C port loads bank_c3_scripts_combined.bin (early + main concatenated).
