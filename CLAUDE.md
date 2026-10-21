@@ -63,12 +63,16 @@ All `ebtools` CLI invocations, `pytest` runs, and Python scripts must use the `.
 
 ### Tests and linting
 
-Pytest tests live in `tests/` (sprite/tile extraction, text DSL, asset migration, coverage). Run the full suite or a single test:
+Pytest tests live in `tests/` (sprite/tile extraction, text DSL, asset migration, coverage, C-port/disassembly consistency). Run the full suite or a single test:
 
 ```bash
-uv run python -m pytest                              # all
+uv run python -m pytest tests                        # all (bare `pytest` also collects the tamp submodule's tests, which error)
 uv run python -m pytest tests/test_overworld_sprites.py::test_name   # one
 ```
+
+pytest is not a declared dependency; if the venv lacks it, `uv pip install pytest`. `uv run` may recreate `.venv` with a different interpreter; `uv run --no-sync` avoids re-syncing.
+
+`tests/test_port_consistency.py` cross-checks the C port against the disassembly: `ROM_ADDR_*` constants vs the linker map, script callroutines vs dispatch cases, script WRAM writes vs `resolve_wram()`, script pointers vs loaded script banks, and no libc `rand()` in game code. It needs `build/earthbound.map` (`make`) and extracted assets; those tests skip otherwise.
 
 Ruff is configured in `pyproject.toml` (target Python 3.10, line length 120, numpy docstring convention) and runs on commit via `.pre-commit-config.yaml`. Install hooks once with `pre-commit install`, or invoke manually: `uv run ruff check .` / `uv run ruff format .`.
 
@@ -175,6 +179,12 @@ All game data flows through ebtools extraction:
 5. C code loads assets at runtime via `asset_load()` / `asset_load_locale()`
 
 **Editing game data:** Edit the JSON files in `src/assets/` (items, enemies, NPCs, etc.), then rebuild. The pack-all step automatically regenerates the binary. No need to touch `asm/bin/` or `earthbound.yml`.
+
+**Pipeline gotchas:**
+- Changing an `earthbound.yml` entry (new asset, different size) needs a re-run of `ebtools extract`; `make unix` skips extraction once assets exist.
+- The pack-all stamp (`PACK_ALL_STAMP` in `src/CMakeLists.txt`) tracks asset JSON, not ebtools' Python sources. After changing a packer, delete `port/unix/build/**/pack_all.stamp` before rebuilding.
+- Text-pointer fields in data tables hold original SNES ROM addresses and must be remapped with `addr_remap` after dialogue packing (see the telephone-contacts and timed-delivery blocks in `pack_all.py`). A table packed by the plain simple packers keeps unresolvable addresses.
+- Event scripts are only runnable if their ROM range is inside a registered script bank (`event_script_data.c`); otherwise `event_script_init` halts them with "unknown script ID".
 
 **`asset_load` vs `asset_load_locale`**: In assembly, `LOCALEBINARY "path"` means the asset is locale-specific (extracted to `asm/bin/US/` or `asm/bin/JP/`); use `asset_load_locale()` in C. Plain `BINARY "path"` is locale-independent; use `asset_load()`.
 
@@ -295,6 +305,12 @@ uint16_t lo = script_read_byte(r);
 uint16_t hi = script_read_byte(r);
 return lo | (hi << 8);
 ```
+
+**Randomness:** always use the game RNG (`rng_next_byte()`, `RAND_MOD(N)` = `RAND % (N+1)`), never libc `rand()`. It must advance the serialized RNG state like the original. Check the asm's arithmetic too: some sites scale (`RAND * N >> 8` via `MULT168`) rather than take a modulo.
+
+**Width and signedness of asm math:** `BLTEQ` is `BCC`+`BEQ` (unsigned); `LSR` is a logical shift (use `uint16_t`, not signed `>>`); 16-bit `ADC`/`SBC` wrap. `TRUNCATE_16_TO_8` takes an 8-bit *factor* but returns the full 16-bit result, so don't narrow it. Watch for `.A8`/`.A16` annotations that disagree with the caller's actual accumulator mode: e.g. `UPDATE_PARTY_SPRITE_POSITION`'s `AND #$0000 / CLC` executes as `AND #$1800`.
+
+**Callroutine dispatch:** an unknown callroutine address falls to `callroutine_dispatch`'s default, which leaves `pc` unchanged, so the routine's parameter bytes then run as script opcodes. A wrong `ROM_ADDR_*` value fails silently this way.
 
 ## Python Style (ebtools)
 
