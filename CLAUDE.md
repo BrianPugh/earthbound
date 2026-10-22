@@ -258,6 +258,8 @@ Requires SDL2 and the extracted assets from ebtools.
 
 To play or verify a change in-game, use the interactive session driver `playtest/pt.py` (see `playtest/README.md`): each step returns decoded window text, game state and a screenshot PNG. Batch scripts: `playtest/run.py` / `--input FILE`. Story saves go in gitignored `playtest/saves/` (README says where to get them).
 
+The `playtest` skill (`.claude/skills/playtest/SKILL.md`) holds the workflow, debug shortcuts, gotchas and a table of verified scene recipes (save + exact steps); load it before playing, and add a row when you reach a new scene.
+
 - In zsh, wrap the driver in a function (`pt(){ uv run --no-sync python playtest/pt.py "$@"; }`); a `PT="uv run ..."` variable won't word-split.
 - Several agents can play at once: give each its own build dir (`EB_BIN=port/unix/build-X/earthbound`) and session-name prefix.
 - The pre-commit hook stashes unstaged files during a commit, so with parallel agents stage and commit only your own paths, quickly.
