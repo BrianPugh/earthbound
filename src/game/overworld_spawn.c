@@ -486,8 +486,9 @@ read_group_entry_count:
                         continue;
                 }
 
-                /* Check overworld enemy count limit */
-                if (ow.overworld_enemy_count >= ow.overworld_enemy_maximum) {
+                /* Equality only, as in the asm: CLEAR_ALL_ENEMIES can leave
+                 * the count wrapped below 0, and spawning must continue. */
+                if (ow.overworld_enemy_count == ow.overworld_enemy_maximum) {
                     ow.enemy_spawn_too_many_failures++;
                     continue;
                 }

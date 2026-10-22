@@ -66,20 +66,18 @@ static bool push_plain_text(ModeState *child, uint32_t addr) {
  * ====================================================================== */
 
 /* The level-N physical damage formula shared by the attack steppers:
- * offense*mult - defense with 25% variance, floored to 1. The variance
- * gate is raw > 1 for all four attack levels (asm/battle/actions/
- * level_1_attack.asm through level_4_attack.asm all use the identical
- * `CLC; SBC #0; BRANCHLTEQS` idiom); `variance_when_gt1` is always true
- * at every current call site, kept as a parameter only in case a future
- * caller needs a different gate. */
-static uint16_t phys_attack_damage(uint16_t mult, bool variance_when_gt1) {
+ * offense*mult - defense with 25% variance, floored to 1. All four attack
+ * levels (asm/battle/actions/level_1_attack.asm through level_4_attack.asm)
+ * gate the variance with `CLC; SBC #0; BRANCHLTEQS`, which skips it when
+ * raw - 1 < 0, i.e. it applies for raw > 0. */
+static uint16_t phys_attack_damage(uint16_t mult) {
     Battler *atk = battler_from_offset(bt.current_attacker);
     Battler *tgt = battler_from_offset(bt.current_target);
 
     int16_t raw_damage = (int16_t)(atk->offense * mult) - (int16_t)tgt->defense;
 
     uint16_t damage;
-    if (variance_when_gt1 ? raw_damage > 1 : raw_damage > 0) {
+    if (raw_damage > 0) {
         damage = battle_25pct_variance((uint16_t)raw_damage);
     } else {
         damage = (uint16_t)raw_damage;
@@ -96,14 +94,13 @@ static uint16_t phys_attack_damage(uint16_t mult, bool variance_when_gt1) {
  *   (25% variance, floor 1) → CALC_RESIST_DAMAGE → [heal strangeness].
  * The calc pipeline stages are GAME_MODE_BATTLE_CALC pushes (value-returning
  * — see BattleCalcKind); the dodge check is pure (no text) and runs inline,
- * with the dodge text as a DISPLAY_TEXT push. `variance_when_gt1` selects
- * the level-1/2 variance gate (raw > 1) vs the level-3/4 gate (raw > 0).
+ * with the dodge text as a DISPLAY_TEXT push.
  * RNG order matches the blocking composition exactly: miss roll → smaaaash
  * roll → dodge roll → variance rolls → resist-pipeline rolls.
  * ---------------------------------------------------------------------- */
 static StepResult btlact_phys_attack_step(BattleActionState *st,
                                           uint16_t miss_type, bool do_smaaaash,
-                                          uint16_t mult, bool variance_when_gt1,
+                                          uint16_t mult,
                                           uint32_t dodge_msg, bool heal_strange) {
     static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
@@ -138,7 +135,7 @@ static StepResult btlact_phys_attack_step(BattleActionState *st,
 
             st->pc = 4;
             battle_calc_make_init(&child, BC_RESIST_DAMAGE,
-                                  phys_attack_damage(mult, variance_when_gt1), 0xFF);
+                                  phys_attack_damage(mult), 0xFF);
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         }
         case 4:
@@ -165,7 +162,7 @@ static StepResult btlact_phys_attack_step(BattleActionState *st,
  * level 2 attack → heal strangeness.
  */
 static StepResult btlact_bash_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 2, true,
+    return btlact_phys_attack_step(st, 0, true, 2,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
@@ -177,7 +174,7 @@ static StepResult btlact_bash_step(BattleActionState *st) {
  * No SMAAAASH check and no strangeness healing.
  */
 static StepResult btlact_shoot_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 1, false, 2, true,
+    return btlact_phys_attack_step(st, 1, false, 2,
                                    MSG_BTL4_RESULT_DODGE_QUICK, false);
 }
 
@@ -284,7 +281,7 @@ static StepResult btlact_spy_step(BattleActionState *st) {
  * Uses level 1 damage formula (offense - defense).
  */
 static StepResult btlact_level_1_attack_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 1, true,
+    return btlact_phys_attack_step(st, 0, true, 1,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
@@ -300,12 +297,12 @@ static StepResult btlact_level_1_attack_step(BattleActionState *st) {
  * strangeness heal.
  */
 static StepResult btlact_level_3_attack_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 3, true,
+    return btlact_phys_attack_step(st, 0, true, 3,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
 static StepResult btlact_level_4_attack_step(BattleActionState *st) {
-    return btlact_phys_attack_step(st, 0, true, 4, true,
+    return btlact_phys_attack_step(st, 0, true, 4,
                                    MSG_BTL4_RESULT_DODGE_ATTACK, true);
 }
 
@@ -320,7 +317,7 @@ static StepResult btlact_level_2_attack_step(BattleActionState *st) {
     if (st->pc == 0) {
         st->pc = 1;
         battle_calc_make_init(&child, BC_RESIST_DAMAGE,
-                              phys_attack_damage(2, true), 0xFF);
+                              phys_attack_damage(2), 0xFF);
         return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
     }
     return STEP_RESULT_POP(0);
@@ -946,7 +943,7 @@ static StepResult btlact_l2_status_attack_step(BattleActionState *st,
             }
             st->pc = 4;
             battle_calc_make_init(&child, BC_RESIST_DAMAGE,
-                                  phys_attack_damage(2, true), 0xFF);
+                                  phys_attack_damage(2), 0xFF);
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
         case 4:
             st->pc = 5;
