@@ -265,5 +265,6 @@ extern uint8_t current_save_slot; /* 1-indexed: 1, 2, or 3. Port of CURRENT_SAVE
 bool save_game(int slot);
 bool load_game(int slot);
 bool erase_save(int slot);
+bool copy_save(int to, int from); /* 0-based slots; COPY_SAVE */
 
 #endif /* GAME_STATE_H */

@@ -291,11 +291,43 @@ static int fm_submenu_build(void) {
     add_menu_item("Delete", 3, 10, 0);
     add_menu_item("Set Up", 4, 15, 0);
 
-    /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS then
-     * SELECTION_MENU directly — no RENDER_ALL_WINDOWS in between. The caller
-     * pushes GAME_MODE_SELECTION_MENU(allow_cancel=1). */
+    /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS, then (US
+     * only) ENABLE_WORD_WRAP = $FF, then SELECTION_MENU directly — no
+     * RENDER_ALL_WINDOWS in between. The caller pushes
+     * GAME_MODE_SELECTION_MENU(allow_cancel=1). */
     print_menu_items();
+    dt.enable_word_wrap = 0xFF;
     return -1;
+}
+
+/* Build the "Copy to where?" window (SHOW_FILE_COPY_DIALOG,
+ * asm/text/show_file_copy_dialog.asm, minus its SELECTION_MENU(1), which the
+ * caller pushes). Lists each empty slot as "N:" with userdata N (1-based); the
+ * FM_COPY_RESULT phase performs the COPY_SAVE half. */
+static void fm_copy_dialog_build(void) {
+    /* Count empty slots (asm @COUNT_EMPTY_SLOT loop). */
+    int empty = 0;
+    for (int i = 0; i < SAVE_COUNT; i++) {
+        if (!save_files_present[i]) empty++;
+    }
+
+    /* CPY #1 / BNEL @TWO_FILES_CASE: exactly one empty slot uses the short
+     * window; anything else uses the two-choice window. */
+    create_window(empty == 1 ? WINDOW_FILE_SELECT_COPY_1 : WINDOW_FILE_SELECT_COPY_2);
+    set_instant_printing();
+    print_string("Copy to where?");   /* FILE_SELECT_TEXT_COPY_TO_WHERE, 14 chars */
+
+    /* One-file case: the single item sits at row 1. Two-file case: items fill
+     * rows 1, 2, ... (@VIRTUAL04 starts at 1). Both at text_x 0. */
+    uint16_t row = 1;
+    for (int i = 0; i < SAVE_COUNT; i++) {
+        if (save_files_present[i]) continue;
+        char label[3] = { (char)('1' + i), ':', '\0' };  /* CHAR::ONE + slot, CHAR::COLON */
+        add_menu_item(label, (uint16_t)(i + 1), 0, row);
+        if (empty != 1) row++;
+    }
+
+    print_menu_items();
 }
 
 /*
@@ -1771,6 +1803,9 @@ StepResult mode_step_file_menu(ModeState *ms) {
             if (selected == 0) { st->phase = FM_SELECT; continue; }
             int slot = selected - 1;
             if (save_files_present[slot]) {
+                /* FILE_SELECT_MENU @AFTER_SELECTION: LOAD_GAME_SLOT(CURRENT_SAVE_SLOT-1),
+                 * so the submenu / delete confirmation show this slot's data. */
+                load_game(slot);
                 st->phase = FM_SUBMENU;              /* @VALID_FILE_SELECTED */
             } else {
                 game_state_init();
@@ -1813,34 +1848,37 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 close_all_windows();
                 return STEP_RESULT_POP(1);
 
-            case 2: /* Copy — @MENU_COPY_SELECTED */
-                close_all_windows();
-                st->phase = FM_SELECT;
-                continue;
+            case 2: /* Copy — @MENU_COPY_SELECTED: SHOW_FILE_COPY_DIALOG.
+                     * The submenu window stays open behind the copy window. */
+                fm_copy_dialog_build();
+                return fm_push_selection(st, FM_COPY_RESULT, 1);
 
-            case 3: /* Delete — CONFIRM_FILE_DELETE (C1F2A8) */
+            case 3: /* Delete — @MENU_DELETE_SELECTED: CONFIRM_FILE_DELETE
+                     * (asm/text/confirm_file_delete.asm). The submenu window
+                     * stays open behind the confirmation window. */
             {
-                close_focus_window();
                 WindowInfo *dw = create_window(WINDOW_FILE_SELECT_DELETE);
                 if (dw) {
+                    set_instant_printing();
+                    set_window_number_padding(0);
                     set_focus_text_cursor(0, 0);
-                    print_string("Are you sure you want to delete?");
+                    print_string("Are you sure you want to delete?");  /* 32 chars */
 
+                    set_text_pixel_position(1, 0);
                     set_focus_text_cursor(0, 1);
-                    print_number(current_save_slot, 1);
+                    print_number(current_save_slot, 0);
+                    print_string(":");                 /* PRINT_LETTER CHAR::COLON */
 
+                    /* PRINT_CHARACTER_NAME(1): party member 1's name */
                     set_focus_text_cursor(2, 1);
-                    {
-                        int len = 0;
-                        while (len < 5 && party_characters[0].name[len] != 0x00) len++;
-                        print_eb_string(party_characters[0].name, len);
-                    }
+                    print_eb_string(party_characters[0].name,
+                                    (int)sizeof(party_characters[0].name));
 
                     set_focus_text_cursor(8, 1);
-                    print_string("Level:");
+                    print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
 
                     set_focus_text_cursor(12, 1);
-                    print_number(party_characters[0].level, 2);
+                    print_number(party_characters[0].level, 0);
 
                     add_menu_item("No", 0, 0, 2);
                     add_menu_item("Yes", 1, 0, 3);
@@ -1861,14 +1899,41 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
 
         case FM_DELETE_RESULT: {
+            /* CONFIRM_FILE_DELETE tail: Yes (1) → ERASE_SAVE(CURRENT_SAVE_SLOT-1);
+             * either way ENABLE_WORD_WRAP = 0 and CLOSE_FOCUS_WINDOW. FILE_MENU_LOOP
+             * then returns to @VALID_FILE_SELECTED (the submenu) on 0 (No / B), or
+             * @MENU_OTHER_SELECTED (close all, back to the slot list) otherwise. */
             uint16_t del_confirm = fm_take_result(st);
-            int slot = st->selected - 1;
-            if (del_confirm == 1) {
-                save_files_present[slot] = 0;
-                erase_save(slot);
+            if (del_confirm != 0)
+                erase_save(current_save_slot - 1);
+            dt.enable_word_wrap = 0;
+            close_focus_window();
+            if (del_confirm == 0) {
+                st->phase = FM_SUBMENU;
+            } else {
+                close_all_windows();
+                st->phase = FM_SELECT;
             }
-            close_all_windows();
-            st->phase = FM_SELECT;
+            continue;
+        }
+
+        case FM_COPY_RESULT: {
+            /* SHOW_FILE_COPY_DIALOG tail: a chosen slot N (1-based) →
+             * COPY_SAVE(to = N-1, from = CURRENT_SAVE_SLOT-1); either way
+             * ENABLE_WORD_WRAP = 0 and CLOSE_FOCUS_WINDOW. FILE_MENU_LOOP then
+             * returns to the submenu on 0 (B), else closes all windows and
+             * goes back to the slot list (which re-reads every slot). */
+            uint16_t dest = fm_take_result(st);
+            if (dest != 0)
+                copy_save(dest - 1, current_save_slot - 1);
+            dt.enable_word_wrap = 0;
+            close_focus_window();
+            if (dest == 0) {
+                st->phase = FM_SUBMENU;
+            } else {
+                close_all_windows();
+                st->phase = FM_SELECT;
+            }
             continue;
         }
 

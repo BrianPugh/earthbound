@@ -501,3 +501,24 @@ bool erase_save(int slot) {
 
     return write_sram_version_word();
 }
+
+/* Port of COPY_SAVE (asm/system/saves/copy_save_slot.asm) + COPY_SAVE_BLOCK
+ * (asm/system/saves/copy_save_block.asm): raw-copies both SRAM blocks (primary +
+ * backup) of slot `from` over slot `to`, header and checksums included, with no
+ * re-validation. Slots are 0-based. Like erase_save, it also refreshes the global
+ * version word so the image survives real EarthBound's boot integrity check. */
+bool copy_save(int to, int from) {
+    if (to < 0 || to >= SAVE_COUNT || from < 0 || from >= SAVE_COUNT) return false;
+
+    SaveBlock *block = &ert.save_scratch;
+    for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
+        size_t src = (size_t)(from * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
+        size_t dst = (size_t)(to * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
+        if (platform_save_read(block, src, sizeof(SaveBlock)) != sizeof(SaveBlock))
+            return false;
+        if (!platform_save_write(block, dst, sizeof(SaveBlock)))
+            return false;
+    }
+
+    return write_sram_version_word();
+}

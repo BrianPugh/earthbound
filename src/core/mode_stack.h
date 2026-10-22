@@ -1957,15 +1957,15 @@ typedef struct {
 /* GAME_MODE_FILE_MENU — run-to-completion port of file_menu_loop() (file_select.c),
  * the file-select cascade reached from the intro. Each former blocking sub-menu
  * (file_select_menu / show_file_select_submenu / text_speed / sound_mode / flavour
- * / delete-confirm) was a thin wrapper around selection_menu(); the cascade now
+ * / copy-destination / delete-confirm) was a thin wrapper around selection_menu(); the cascade now
  * builds each menu's window synchronously, STEP_PUSHes GAME_MODE_SELECTION_MENU,
  * and reads the choice back via mode_child_result() in the matching *_RESULT phase.
  *
  * Two things deliberately stay blocking, called inline from the step (the C-stack
  * during them is acceptable — they are terminal, input-driven, and depend on
  * subsystems not yet converted): new_game_naming() (its own multi-character driver
- * over the already-converted naming modes) and the synchronous load/save/erase
- * helpers (no yield). The leading fade-in wait is phase FM_FADEIN_WAIT.
+ * over the already-converted naming modes) and the synchronous load/save/erase/
+ * copy helpers (no yield). The leading fade-in wait is phase FM_FADEIN_WAIT.
  *
  * Pops 1 when a game is started/loaded (overworld follows), 0 on quit. The result
  * is ignored by the init_intro parent (it runs the same post-file-menu cleanup
@@ -1991,6 +1991,7 @@ typedef enum {
     FM_NG_FLV_RESULT,
     FM_NG_NAMING,       /* new-game: push GAME_MODE_NEW_GAME_NAMING */
     FM_NG_NAMING_RESULT,/* naming popped: started (pop 1) or backed out (re-enter flavour) */
+    FM_COPY_RESULT,     /* after the copy-destination selection_menu(1) (SHOW_FILE_COPY_DIALOG) */
 } FileMenuPhase;
 
 typedef struct {
