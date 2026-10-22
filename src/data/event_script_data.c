@@ -127,6 +127,14 @@ bool resolve_script_id(uint16_t script_id, int *out_bank_idx, uint16_t *out_offs
     uint16_t within_bank = read_u16_le(&event_script_pointer_table[entry_off]);
     uint8_t rom_bank = event_script_pointer_table[entry_off + 2];
 
+    return resolve_script_rom_addr(((uint32_t)rom_bank << 16) | within_bank,
+                                   out_bank_idx, out_offset);
+}
+
+bool resolve_script_rom_addr(uint32_t rom_addr, int *out_bank_idx, uint16_t *out_offset) {
+    uint16_t within_bank = (uint16_t)(rom_addr & 0xFFFF);
+    uint8_t rom_bank = (uint8_t)(rom_addr >> 16);
+
     /* Find a loaded bank that covers this address */
     for (int i = 0; i < script_bank_count; i++) {
         if (script_banks[i].rom_bank == rom_bank) {

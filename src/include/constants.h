@@ -100,6 +100,9 @@ enum TextFlavour {
 #define EVENT_SCRIPT_002  2    /* EVENT_002: party follower entity */
 #define EVENT_SCRIPT_003  3    /* EVENT_003: Bubble Monkey follower */
 #define EVENT_SCRIPT_DESPAWN        35   /* EVENT_DESPAWN: deallocate entity sprite */
+/* BRIEF_PAUSE_END_TASK ($C3A209): pause 4 frames, then jump to EVENT_DESPAWN.
+ * No event number; DEACTIVATE_NPC_ENTITY/DEACTIVATE_SPRITE_ENTITY LOADPTR it. */
+#define ROM_ADDR_BRIEF_PAUSE_END_TASK 0xC3A209
 #define EVENT_SCRIPT_MINI_GHOST    786   /* EVENT_MINI_GHOST: mini ghost entity */
 #define EVENT_SCRIPT_ENTITY_WIPE   859   /* EVENT_ENTITY_WIPE: fade/wipe animation driver */
 #define EVENT_SCRIPT_799  799  /* Photo object entity script */

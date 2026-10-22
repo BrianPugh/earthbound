@@ -62,6 +62,30 @@ void event_script_init(uint16_t script_id, int16_t entity_offset,
 }
 
 /*
+ * event_script_init_rom — like event_script_init, for a script the assembly
+ * references directly by label (LOADPTR) instead of by event number.
+ */
+void event_script_init_rom(uint32_t rom_addr, int16_t entity_offset,
+                           int16_t script_offset) {
+    int bank_idx;
+    uint16_t offset;
+    if (resolve_script_rom_addr(rom_addr, &bank_idx, &offset)) {
+        scripts.pc[script_offset] = offset;
+        scripts.pc_bank[script_offset] = (uint8_t)bank_idx;
+        scripts.sleep_frames[script_offset] = 0;
+        scripts.stack_offset[script_offset] = 0;
+        return;
+    }
+
+    LOG_WARN("WARN: script $%06X outside every loaded script bank (ent=%d)\n",
+             (unsigned)rom_addr, entity_offset);
+    scripts.pc[script_offset] = 0;
+    scripts.pc_bank[script_offset] = 0xFF;
+    scripts.sleep_frames[script_offset] = -1;
+    scripts.stack_offset[script_offset] = 0;
+}
+
+/*
  * Read a byte from the script bank at the given PC offset.
  * Uses the generalized script bank system.
  */

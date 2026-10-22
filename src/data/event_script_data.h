@@ -467,6 +467,10 @@ int register_script_bank(const uint8_t *data, uint32_t size,
  * Returns true on success, false if script ID is out of range or bank not loaded. */
 bool resolve_script_id(uint16_t script_id, int *out_bank_idx, uint16_t *out_offset);
 
+/* Same as resolve_script_id, for a script referenced directly by its 24-bit
+ * ROM address (a LOADPTR'd label with no EVENT_SCRIPT_POINTERS entry). */
+bool resolve_script_rom_addr(uint32_t rom_addr, int *out_bank_idx, uint16_t *out_offset);
+
 /* Read a byte from a loaded script bank at the given offset */
 uint8_t script_bank_read_byte(int bank_idx, uint16_t offset);
 

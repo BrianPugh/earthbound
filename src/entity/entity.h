@@ -576,6 +576,7 @@ int16_t find_entity_by_npc_id(uint16_t npc_id);
 /* Reassign a new event script to an existing entity (INIT_ENTITY_UNKNOWN1/2) */
 /* Frees old scripts, allocates new script slot, inits PC from ESP table. */
 void reassign_entity_script(int16_t entity_slot, uint16_t script_id);
+void reassign_entity_script_rom(int16_t entity_slot, uint32_t rom_addr);
 
 /* Find entity slot for a character ID (FIND_ENTITY_FOR_CHARACTER, C4608C).
  * char_id 0xFF = leader entity. Otherwise searches party_order[]. */

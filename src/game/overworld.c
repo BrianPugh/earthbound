@@ -807,11 +807,10 @@ void deactivate_npc_entity(uint16_t npc_id, uint16_t fade_param) {
     ow.entity_prepared_x = entities.abs_x[offset];
     ow.entity_prepared_y = entities.abs_y[offset];
     ow.entity_prepared_direction = entities.directions[offset];
-    /* Assembly uses BRIEF_PAUSE_END_TASK (pause + jump to EVENT_DESPAWN) for non-6 params,
-     * or EVENT_DESPAWN directly for param 6. BRIEF_PAUSE_END_TASK is a 1/15s delay before
-     * deallocation — intended to overlap with fade effect. Since we don't have
-     * the delay script as a numbered event, use EVENT_DESPAWN for both. */
-    reassign_entity_script(offset, EVENT_SCRIPT_DESPAWN);
+    if (fade_param == 6)
+        reassign_entity_script(offset, EVENT_SCRIPT_DESPAWN);
+    else
+        reassign_entity_script_rom(offset, ROM_ADDR_BRIEF_PAUSE_END_TASK);
 }
 
 /* ---- DEACTIVATE_SPRITE_ENTITY (port of C46125) ----
@@ -824,7 +823,10 @@ void deactivate_sprite_entity(uint16_t sprite_id, uint16_t fade_param) {
     ow.entity_prepared_x = entities.abs_x[slot];
     ow.entity_prepared_y = entities.abs_y[slot];
     ow.entity_prepared_direction = entities.directions[slot];
-    reassign_entity_script(slot, EVENT_SCRIPT_DESPAWN);
+    if (fade_param == 6)
+        reassign_entity_script(slot, EVENT_SCRIPT_DESPAWN);
+    else
+        reassign_entity_script_rom(slot, ROM_ADDR_BRIEF_PAUSE_END_TASK);
 }
 
 /* ---- DISABLE_ALL_ENTITIES (port of C0943C) ----

@@ -16,6 +16,11 @@
 void event_script_init(uint16_t script_id, int16_t entity_offset,
                        int16_t script_offset);
 
+/* Initialize a script's PC from a 24-bit ROM address inside a registered
+ * script bank (scripts with no EVENT_SCRIPT_POINTERS entry). */
+void event_script_init_rom(uint32_t rom_addr, int16_t entity_offset,
+                           int16_t script_offset);
+
 /* Execute one frame of a movement script (EXECUTE_MOVEMENT_SCRIPT). */
 void execute_movement_script(int16_t script_offset);
 

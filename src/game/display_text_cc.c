@@ -912,18 +912,24 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x1E: {
         /* DELETE_TPT_INSTANCE: 3 args (npc_id_word, fade_param_byte).
          * Port of CC_1F_1E (asm/text/ccs/delete_entity_tpt.asm).
-         * Finds entity by NPC ID, saves position, reassigns to deactivation script. */
+         * FIND_ENTITY_BY_NPC_ID → INIT_ENTITY_FADE_STATE → DEACTIVATE_NPC_ENTITY. */
         uint16_t npc_id = script_read_word(r);
         uint8_t fade_param = script_read_byte(r);
+        int16_t entity_slot = find_entity_by_npc_id(npc_id);
+        if (entity_slot >= 0)
+            init_entity_fade_state((uint16_t)entity_slot, (uint16_t)fade_param);
         deactivate_npc_entity(npc_id, (uint16_t)fade_param);
         break;
     }
     case 0x1F: {
         /* DELETE_GENERATED_SPRITE: 3 args (sprite_id_word, fade_param_byte).
          * Port of CC_1F_1F (asm/text/ccs/delete_entity_sprite.asm).
-         * Finds entity by sprite ID, saves position, reassigns to deactivation script. */
+         * FIND_ENTITY_BY_SPRITE_ID → INIT_ENTITY_FADE_STATE → DEACTIVATE_SPRITE_ENTITY. */
         uint16_t sprite_id = script_read_word(r);
         uint8_t fade_param = script_read_byte(r);
+        int16_t entity_slot = find_entity_by_sprite_id(sprite_id);
+        if (entity_slot >= 0)
+            init_entity_fade_state((uint16_t)entity_slot, (uint16_t)fade_param);
         deactivate_sprite_entity(sprite_id, (uint16_t)fade_param);
         break;
     }

@@ -681,13 +681,13 @@ int16_t find_entity_by_npc_id(uint16_t npc_id) {
  *   entity_slot: slot number (0-based, NOT entity offset)
  *   script_id:   new event script ID
  */
-void reassign_entity_script(int16_t entity_slot, uint16_t script_id) {
-    int16_t ent_offset = ENT(entity_slot);
-
+/* Shared body of reassign_entity_script / reassign_entity_script_rom:
+ * returns the newly allocated script offset, or -1. */
+static int16_t reassign_entity_script_slot(int16_t ent_offset) {
     /* Assembly debug trap: infinite loop if script_table is negative.
      * In port, just return. */
     if (entities.script_table[ent_offset] < 0)
-        return;
+        return -1;
 
     /* Free old scripts */
     free_entity_scripts(ent_offset);
@@ -695,16 +695,36 @@ void reassign_entity_script(int16_t entity_slot, uint16_t script_id) {
     /* Allocate new script slot */
     int16_t script_offset;
     if (!allocate_script_slot(&script_offset))
-        return;
+        return -1;
 
     entities.script_index[ent_offset] = script_offset;
     scripts.next_script[script_offset] = ENTITY_NONE;
 
     /* Clear tick callback (CLEAR_SPRITE_TICK_CALLBACK) */
     clear_sprite_tick_callback(ent_offset);
+    return script_offset;
+}
+
+void reassign_entity_script(int16_t entity_slot, uint16_t script_id) {
+    int16_t ent_offset = ENT(entity_slot);
+    int16_t script_offset = reassign_entity_script_slot(ent_offset);
+    if (script_offset < 0)
+        return;
 
     /* Initialize script PC/bank from event script pointer table */
     event_script_init(script_id, ent_offset, script_offset);
+}
+
+/*
+ * REASSIGN_ENTITY_SCRIPT_FAR with a script the assembly LOADPTRs by label
+ * (no event number), e.g. BRIEF_PAUSE_END_TASK.
+ */
+void reassign_entity_script_rom(int16_t entity_slot, uint32_t rom_addr) {
+    int16_t ent_offset = ENT(entity_slot);
+    int16_t script_offset = reassign_entity_script_slot(ent_offset);
+    if (script_offset < 0)
+        return;
+    event_script_init_rom(rom_addr, ent_offset, script_offset);
 }
 
 /*
