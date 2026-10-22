@@ -1332,7 +1332,9 @@ StepResult mode_step_ending(ModeState *st) {
                         &photographer_cfg_data[s->photo_idx * PHOTOGRAPHER_CFG_ENTRY_SIZE];
                     uint8_t direction = cfg[PHOTOGRAPHER_CFG_SLIDE_DIRECTION];
                     uint8_t distance  = cfg[PHOTOGRAPHER_CFG_SLIDE_DISTANCE];
-                    calculate_velocity_components(direction, 1024, &s->slide_dx, &s->slide_dy);
+                    /* LDX #256; direction * 1024 (MULT16) is the angle. */
+                    calculate_velocity_components((uint16_t)(direction * 1024), 256,
+                                                  &s->slide_dx, &s->slide_dy);
                     s->slide_total_frames = distance;
                 } else {
                     s->slide_total_frames = 0;
@@ -1360,11 +1362,14 @@ StepResult mode_step_ending(ModeState *st) {
                 s->phase = EN_CR_SCROLLWAIT;
                 continue;
             }
-            s->slide_accum_x += s->slide_dy;  /* assembly swaps X/Y components */
-            s->slide_accum_y += s->slide_dx;
+            /* VIRTUAL02 += X component (LOCAL06 = LOCAL00+2), VIRTUAL04 += Y
+             * component (LOCAL05 = LOCAL00); both are 16-bit accumulators,
+             * divided by 256 with the signed DIVISION16 (truncates). */
+            s->slide_accum_x = (int16_t)(s->slide_accum_x + s->slide_dx);
+            s->slide_accum_y = (int16_t)(s->slide_accum_y + s->slide_dy);
             {
-                int16_t offset_x = (int16_t)(s->slide_accum_x / 256);
-                int16_t offset_y = (int16_t)(s->slide_accum_y / 256);
+                int16_t offset_x = (int16_t)((int16_t)s->slide_accum_x / 256);
+                int16_t offset_y = (int16_t)((int16_t)s->slide_accum_y / 256);
                 ppu.bg_hofs[0] = s->slide_start_x + offset_x;
                 ppu.bg_vofs[0] = s->slide_start_y + offset_y;
                 ppu.bg_hofs[1] = offset_x;

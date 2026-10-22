@@ -50,7 +50,6 @@
 #include "include/binary.h"
 #include "data/assets.h"
 #include "game_main.h"
-#include <math.h>
 #include <stdlib.h>
 #include "data/text_refs.h"
 
@@ -300,36 +299,70 @@ static void update_teleport_beta_input(void) {
 
 /* ---- CALCULATE_VELOCITY_COMPONENTS (port of asm/misc/calculate_velocity_components.asm) ----
  *
- * Computes signed X and Y velocity components from an angle and speed.
- * The assembly uses VELOCITY_X/Y_TABLE (sine/cosine LUTs scaled by 256).
- * We compute equivalent values using trig functions.
+ * Splits a speed along a 16-bit angle (0x0000 = up, clockwise) into signed
+ * X and Y components, in the same units as `speed`. Callers scale the
+ * result themselves (e.g. take the high byte for whole pixels).
  *
- * angle: 16-bit, high byte represents 0-360 degrees in 256 steps.
- * speed: radius/progress value.
- * Returns signed pixel displacements matching the assembly's high-byte extraction. */
+ * The angle's high byte AND $FC, LSR selects one of 64 word entries. The
+ * magnitudes come from VELOCITY_X_TABLE (asm/data/math/velocity_x_table.asm,
+ * 48 words) and VELOCITY_Y_TABLE (asm/data/math/velocity_y_table.asm,
+ * 65 words), which sit back to back in ROM: X entries 48-63 read past the
+ * end of VELOCITY_X_TABLE into the first 16 words of VELOCITY_Y_TABLE. Both
+ * are |sin| / |cos| scaled to $0100. The combined array below mirrors that
+ * layout (index 0-47 = X table, 48-112 = Y table).
+ *
+ * Each magnitude is speed * table >> 8 (MULTIPLY_16BIT_HARDWARE), or exactly
+ * `speed` when the entry is $0100. The asm returns X in $08 (high word of the
+ * caller's VIRTUAL06) and Y in $06 (low word). */
+static const uint16_t velocity_tables[48 + 65] = {
+    /* VELOCITY_X_TABLE */
+    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
+    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
+    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00ED, 0x00E2, 0x00D5, 0x00C6,
+    0x00B5, 0x00A2, 0x008E, 0x0079, 0x0062, 0x004A, 0x0032, 0x0019,
+    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
+    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
+    /* VELOCITY_Y_TABLE */
+    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00EC, 0x00E2, 0x00D5, 0x00C6,
+    0x00B5, 0x00A3, 0x008E, 0x0079, 0x0062, 0x004B, 0x0032, 0x0019,
+    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
+    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
+    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00EC, 0x00E2, 0x00D5, 0x00C6,
+    0x00B5, 0x00A2, 0x008E, 0x0079, 0x0062, 0x004A, 0x0032, 0x0019,
+    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
+    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
+    0x0100,
+};
+#define VELOCITY_Y_TABLE_START 48
+
+/* MULTIPLY_16BIT_HARDWARE with CALCULATE_VELOCITY_COMPONENTS' $0100 bypass.
+ * The hardware routine computes (t_lo * s_lo >> 8) + t_lo * s_hi, which is
+ * (t * s) >> 8 for the sub-$0100 table entries it is used on. */
+static uint16_t scale_velocity(uint16_t table_val, uint16_t speed) {
+    if (table_val == 0x0100)
+        return speed;
+    return (uint16_t)(((uint32_t)table_val * speed) >> 8);
+}
+
 void calculate_velocity_components(uint16_t angle, int16_t speed,
                                    int16_t *out_x, int16_t *out_y) {
-    /* Discretize to 64 steps matching the assembly table indexing:
-     * angle_hi & 0xFC → clear low 2 bits, LSR → byte offset, /2 → entry */
-    int entry = ((angle >> 8) & 0xFC) >> 2;  /* 0..63 */
-    double angle_rad = entry * (2.0 * M_PI / 64.0);
+    /* XBA; AND #$00FC; LSR -> word byte offset 0x00..0x7E */
+    uint16_t byte_off = (uint16_t)(((angle >> 8) & 0xFC) >> 1);
+    uint16_t entry = byte_off >> 1;
 
-    /* Assembly chain: table_val (|trig|*256) × speed >> 8 → 16-bit,
-     * then extract high byte → signed pixel displacement.
-     * Net effect: speed × |trig(angle)| / 256, truncated. */
-    double abs_sin = fabs(sin(angle_rad));
-    double abs_cos = fabs(cos(angle_rad));
+    uint16_t x = scale_velocity(velocity_tables[entry], (uint16_t)speed);
+    uint16_t y = scale_velocity(velocity_tables[VELOCITY_Y_TABLE_START + entry],
+                                (uint16_t)speed);
 
-    int16_t x_mag = (int16_t)((abs_sin * (uint16_t)speed) / 256.0);
-    int16_t y_mag = (int16_t)((abs_cos * (uint16_t)speed) / 256.0);
+    /* Y negated when byte_off < $20 or >= $62 (upward half of the circle). */
+    if (byte_off < 0x20 || byte_off >= 0x62)
+        y = (uint16_t)(0u - y);
+    /* X negated when $42 <= byte_off < $80 (leftward half). */
+    if (byte_off >= 0x42 && byte_off < 0x80)
+        x = (uint16_t)(0u - x);
 
-    /* Apply quadrant signs (matching assembly byte_offset comparisons):
-     * X negated for entries 33-63 (sin < 0, byte_offset >= 0x42)
-     * Y negated for entries 0-15 and 49-63 (cos > 0, byte_offset < 0x20 or >= 0x62)
-     * Result: dx = speed*sin(angle)/256, dy = -speed*cos(angle)/256
-     * (screen coords: +Y = down) */
-    *out_x = (entry >= 33) ? (int16_t)-x_mag : x_mag;
-    *out_y = (entry < 16 || entry >= 49) ? (int16_t)-y_mag : y_mag;
+    *out_x = (int16_t)x;
+    *out_y = (int16_t)y;
 }
 
 /* ---- UPDATE_TELEPORT_PARTY_VISIBILITY (port of asm/overworld/teleport/update_teleport_party_visibility.asm) ----
@@ -498,11 +531,12 @@ void psi_teleport_beta_tick(int16_t entity_offset) {
                                   (int16_t)ow.psi_teleport_beta_progress,
                                   &vel_x, &vel_y);
 
-    /* Set predicted next position from components + adjustment */
-    int16_t next_x = vel_x + (int16_t)ow.psi_teleport_beta_x_adjustment;
+    /* Set predicted next position: high byte of each component
+     * (AND #$FF00; XBA; sign-extend) + adjustment */
+    int16_t next_x = (int16_t)((vel_x >> 8) + (int16_t)ow.psi_teleport_beta_x_adjustment);
     ow.psi_teleport_next_x = (int32_t)next_x << 16;
 
-    int16_t next_y = vel_y + (int16_t)ow.psi_teleport_beta_y_adjustment;
+    int16_t next_y = (int16_t)((vel_y >> 8) + (int16_t)ow.psi_teleport_beta_y_adjustment);
     ow.psi_teleport_next_y = (int32_t)next_y << 16;
 
     /* For non-BETTER: check surface and NPC collisions */

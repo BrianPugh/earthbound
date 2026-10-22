@@ -1074,19 +1074,19 @@ int16_t cr_update_mini_ghost_position(int16_t entity_offset, int16_t script_offs
         return 0;
     }
 
-    /* Calculate orbit position using angle and radius 0x3000 */
+    /* Orbit offset from angle at radius $3000. The asm copies VIRTUAL06
+     * into LOCAL00, so LOCAL00+2 holds the X component and LOCAL00 the Y. */
     int16_t vel_x, vel_y;
     calculate_velocity_components(ow.mini_ghost_angle, 0x3000, &vel_x, &vel_y);
 
-    /* X position: high byte of vel_y (sign-extended) + leader_x
-     * Assembly: LDA @LOCAL00+2; AND #$FF00; XBA; sign-extend; ADC leader_x */
-    int16_t x_offset = vel_y >> 8;
+    /* X: LDA LOCAL00+2; AND #$FF00; XBA; sign-extend; ADC leader_x
+     * (high byte of the X component, up to +-0x30 px). */
+    int16_t x_offset = (int16_t)(vel_x >> 8);
     entities.abs_x[entity_offset] =
         (int16_t)(game_state.leader_x_coord + (uint16_t)x_offset);
 
-    /* Y position: vel_x >> 10 (ASR16 with Y=10) + leader_y - 8
-     * Assembly: LDA @LOCAL00; JSL ASR16(Y=10); ADC leader_y - 8 */
-    int16_t y_offset = vel_x >> 10;
+    /* Y: LDA LOCAL00; ASR16 by 10; + leader_y - 8 (up to +-0x0C px). */
+    int16_t y_offset = (int16_t)(vel_y >> 10);
     entities.abs_y[entity_offset] =
         (int16_t)(game_state.leader_y_coord - 8 + (uint16_t)y_offset);
 

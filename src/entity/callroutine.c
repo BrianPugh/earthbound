@@ -2464,19 +2464,17 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t vel_x, vel_y;
         calculate_velocity_components((uint16_t)bf_angle, 0x1000, &vel_x, &vel_y);
 
-        /* The assembly extracts integer and fraction parts of the velocity,
-         * then does ASR8 (arithmetic shift right by 8) on each 32-bit value.
-         * vel_x (integer part) → LOCAL03, vel_y (fraction part) → LOCAL04
-         * After ASR8, these become the orbit offsets from center. */
-        int16_t orbit_x = vel_x >> 8;
-        int16_t orbit_y = vel_y >> 8;
+        /* LOCAL00 = VIRTUAL06: integer word = X component, fraction word = Y.
+         * Each becomes the integer word of a 16.16 value (LOCAL03 / LOCAL04)
+         * and is then ASR8_INT'd, so the orbit offset is component / 256 px
+         * with an 8-bit fraction kept. */
+        int32_t orbit_x32 = (int32_t)vel_x * 256;
+        int32_t orbit_y32 = (int32_t)vel_y * 256;
 
         /* Compute delta: (center + orbit_offset) - current_position
          * All in 16.16 fixed-point */
         int32_t center_x32 = (int32_t)entities.var[6][entity_offset] << 16;
         int32_t center_y32 = (int32_t)entities.var[7][entity_offset] << 16;
-        int32_t orbit_x32 = (int32_t)orbit_x << 16;
-        int32_t orbit_y32 = (int32_t)orbit_y << 16;
         int32_t cur_x32 = ((int32_t)entities.abs_x[entity_offset] << 16) |
                            entities.frac_x[entity_offset];
         int32_t cur_y32 = ((int32_t)entities.abs_y[entity_offset] << 16) |

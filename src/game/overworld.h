@@ -620,9 +620,10 @@ int16_t get_party_member_sprite_id(int16_t char_id, uint16_t walking_style,
                                     int16_t entity_offset, int16_t party_idx);
 
 /* CALCULATE_VELOCITY_COMPONENTS — Port of asm/misc/calculate_velocity_components.asm.
- * Decomposes a speed/angle pair into X/Y displacement components.
- * angle: 16-bit angle (high byte used, 0=north), speed: magnitude.
- * Returns dx and dy in screen coordinates (+Y = down). */
+ * Decomposes a speed/angle pair into X/Y components (+Y = down).
+ * angle: 16-bit angle (high byte used, 0=north, clockwise), speed: magnitude.
+ * Components are in the same units as `speed` (not pre-shifted to pixels):
+ * |out| = speed * |sin|cos| table / 256. Callers apply their own scaling. */
 void calculate_velocity_components(uint16_t angle, int16_t speed,
                                    int16_t *out_x, int16_t *out_y);
 
