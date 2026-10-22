@@ -1851,27 +1851,29 @@ StepResult mode_step_selection_menu(ModeState *ms) {
         return sm_move_tick(w, st);
 
     case SM_PAGE2:
-        /* Second half of an overflow page-flip (assembly): redraw items for the
-         * new page and reset the cursor to its first item, then one window_tick
-         * yield. The following SM_MAIN render-only frame reproduces the blocking
-         * version's trailing render before input resumes. */
+        /* Second half of an overflow page-flip. Assembly @HANDLE_PAGINATION
+         * (asm/text/selection_menu.asm; selection_menu-jp.asm is the same)
+         * redraws the items with PRINT_MENU_ITEMS, then JMPs to
+         * @SETUP_CURRENT_OPTION without touching @VIRTUAL04 (the current option
+         * pointer; OPTIMIZED_MULT by 45 is a MULT168 call that leaves it alone)
+         * or @LOCAL08. So the cursor stays on the page-0 "..." indicator, and
+         * pressing A again flips to the next page. @SETUP_CURRENT_OPTION runs the
+         * option's hover script and cursor_move_callback, then one WINDOW_TICK;
+         * that is the same tail as a cursor move. The following SM_MAIN
+         * render-only frame reproduces the trailing render before input. */
         print_menu_items();
         set_instant_printing();
-        for (uint16_t i = 0; i < w->menu_count; i++) {
-            if (w->menu_items[i].page == w->menu_page_number) {
-                w->current_option = i;
-                break;
+        if (w->cursor_move_callback && w->current_option < w->menu_count) {
+            MenuItem *ci = &w->menu_items[w->current_option];
+            uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
+            w->cursor_move_callback(val);
+            if (sm_pending_cursor_text) {
+                st->phase = SM_MOVE_RESUME;
+                return sm_push_pending_text();
             }
+            set_window_focus(w->id);
         }
-        clear_instant_printing();
-        if (window_tick_work_step()) {
-            st->sm_flush = SMF_PAGE2;
-            return actionscript_frame_take_push();
-        }
-        st->redraw_cursor = 1;
-        st->primed        = 0;
-        st->phase         = SM_MAIN;
-        return STEP_RESULT_CONTINUE();
+        return sm_move_tick(w, st);
 
     case SM_MAIN:
     default:
