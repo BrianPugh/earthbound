@@ -21,7 +21,8 @@ static inline uint16_t sw(uint16_t pc) {
 }
 
 /* ---- Movement helpers (callroutine_movement.c) ---- */
-void set_velocity_from_direction(int16_t ent, int16_t direction);
+uint16_t set_entity_velocity_from_direction(int16_t ent, uint16_t direction);
+int16_t set_entity_direction_velocity(int16_t ent, int16_t direction);
 int16_t quantize_direction(int16_t raw_dir);
 int16_t quantize_fine_direction(uint16_t fine_dir);
 int16_t quantize_entity_direction(int16_t entity_offset, uint16_t fine_dir);

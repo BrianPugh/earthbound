@@ -27,7 +27,6 @@
 #include "core/memory.h"
 #include "data/assets.h"
 #include "game_main.h"
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,41 +38,82 @@ static const uint8_t *footstep_sound_table;
 /* ---- Movement helpers ---- */
 
 /*
- * Set entity velocity from 8-way direction and movement speed.
+ * SET_ENTITY_VELOCITY_FROM_DIRECTION (C47044)
  *
- * Port of SET_ENTITY_VELOCITY_FROM_DIRECTION (C47044).
- * The ROM uses CALCULATE_VELOCITY_COMPONENTS which does a sin/cos table lookup and
- * multiplies by speed. We approximate with fixed-point sin/cos.
+ * Port of asm/overworld/entity/set_entity_velocity_from_direction.asm.
+ * Splits the entity's movement speed along a fine 16-bit angle
+ * (0x0000 = up, clockwise) with CALCULATE_VELOCITY_COMPONENTS. Each
+ * component is in the speed's 8.8 units: its high byte becomes the integer
+ * delta word (sign-extended) and its low byte the high byte of the fraction
+ * word. For a negative component the asm ORs $00FF into the fraction (the
+ * ORA #$00FF it uses to mirror the integer word's ORA #$FF00), so the
+ * fraction's low byte is $FF instead of $00.
  *
- * Speed is in 8.8 fixed-point (e.g., 0x0140 = 1.25 pixels/frame).
- * The velocity is split into integer (delta_x) and fractional (delta_frac_x).
+ * Returns the direction, like the asm (LDA @VIRTUAL04).
  */
-void set_velocity_from_direction(int16_t ent, int16_t direction) {
-    int32_t speed = entities.movement_speeds[ent];
-    uint16_t fine_dir;
+uint16_t set_entity_velocity_from_direction(int16_t ent, uint16_t direction) {
+    int16_t comp_x, comp_y;
+    calculate_velocity_components(direction, (int16_t)entities.movement_speeds[ent],
+                                  &comp_x, &comp_y);
 
-    /* Accept both 8-way (0-7) and fine (0x0000-0xFFFF) directions.
-     * Values 0-7 are converted to fine direction (0x2000 per step). */
-    if ((uint16_t)direction <= 7)
-        fine_dir = (uint16_t)direction * 0x2000;
-    else
-        fine_dir = (uint16_t)direction;
+    uint16_t ux = (uint16_t)comp_x;
+    uint16_t uy = (uint16_t)comp_y;
+    if (ux & 0x8000) {
+        entities.delta_x[ent] = (int16_t)((ux >> 8) | 0xFF00);
+        entities.delta_frac_x[ent] = (uint16_t)((ux << 8) | 0x00FF);
+    } else {
+        entities.delta_x[ent] = (int16_t)((ux >> 8) & 0x00FF);
+        entities.delta_frac_x[ent] = (uint16_t)((ux << 8) & 0xFF00);
+    }
+    if (uy & 0x8000) {
+        entities.delta_y[ent] = (int16_t)((uy >> 8) | 0xFF00);
+        entities.delta_frac_y[ent] = (uint16_t)((uy << 8) | 0x00FF);
+    } else {
+        entities.delta_y[ent] = (int16_t)((uy >> 8) & 0x00FF);
+        entities.delta_frac_y[ent] = (uint16_t)((uy << 8) & 0xFF00);
+    }
+    return direction;
+}
 
-    /* Fine direction: 0=UP, CW, 0x2000 per 45°.
-     * vx = speed * sin(angle), vy = -speed * cos(angle)
-     * where angle = fine_dir * 2π / 65536 */
-    double angle = (double)fine_dir * (2.0 * M_PI / 65536.0);
-    int32_t vx = (int32_t)(sin(angle) * (double)speed);
-    int32_t vy = (int32_t)(-cos(angle) * (double)speed);
+/*
+ * SET_ENTITY_DIRECTION_VELOCITY (C0C83B)
+ *
+ * Port of asm/overworld/entity/set_entity_direction_velocity.asm.
+ * Stores an 8-way direction (0 = up, clockwise) to ENTITY_MOVING_DIRECTIONS
+ * and sets the 16.16 velocity: speed * scale >> 8, where scale is $10000
+ * for cardinal (even) directions and $B505 (1/sqrt 2) for diagonals.
+ * MULT32 keeps the low 32 bits and ASR8_INT is an arithmetic shift.
+ *
+ * Returns the Y delta's integer word, the last value the asm loads into A.
+ * Directions above 7 fall out of the asm's compare chain and store its
+ * uninitialised locals; the port leaves the velocity unchanged for them.
+ */
+int16_t set_entity_direction_velocity(int16_t ent, int16_t direction) {
+    entities.moving_directions[ent] = direction;
 
-    /* Split into integer (delta) and fractional (delta_frac) parts.
-     * Assembly's CALCULATE_VELOCITY_COMPONENTS returns 16-bit where
-     * high byte = integer, low byte = fraction. SET_ENTITY_VELOCITY_FROM_DIRECTION
-     * does ASR 8 for integer part and ASL16 8 for fraction. */
-    entities.delta_x[ent] = (int16_t)(vx >> 8);
-    entities.delta_frac_x[ent] = (uint16_t)((vx & 0xFF) << 8);
-    entities.delta_y[ent] = (int16_t)(vy >> 8);
-    entities.delta_frac_y[ent] = (uint16_t)((vy & 0xFF) << 8);
+    uint32_t scale = (direction & 1) ? 0xB505u : 0x10000u;
+    /* STORE_INT1632 zero-extends the speed. */
+    int32_t v = (int32_t)((uint32_t)entities.movement_speeds[ent] * scale) >> 8;
+
+    int32_t vx, vy;
+    switch (direction) {
+    case 0: vx = 0;  vy = -v; break;
+    case 1: vx = v;  vy = -v; break;
+    case 2: vx = v;  vy = 0;  break;
+    case 3: vx = v;  vy = v;  break;
+    case 4: vx = 0;  vy = v;  break;
+    case 5: vx = -v; vy = v;  break;
+    case 6: vx = -v; vy = 0;  break;
+    case 7: vx = -v; vy = -v; break;
+    default:
+        return entities.delta_y[ent];
+    }
+
+    entities.delta_x[ent] = (int16_t)((uint32_t)vx >> 16);
+    entities.delta_frac_x[ent] = (uint16_t)vx;
+    entities.delta_y[ent] = (int16_t)((uint32_t)vy >> 16);
+    entities.delta_frac_y[ent] = (uint16_t)vy;
+    return entities.delta_y[ent];
 }
 
 /*
@@ -149,57 +189,13 @@ void update_bubble_monkey_mode(int16_t char_id, uint16_t position_index) {
 
 /* ---- cr_* callroutine functions ---- */
 
-/*
- * SET_ENTITY_DIRECTION_VELOCITY (C0C83B)
- *
- * Port of SET_ENTITY_DIRECTION_VELOCITY / C0C83B.
- * Sets velocity from movement speed and direction (cardinal or diagonal).
- * Diagonal directions (odd) scale by 1/√2 = $B505/$10000.
- * Math: result = (speed * scale) >> 8, giving 16.16 fixed-point velocity.
- */
+/* Callroutine entry for SET_ENTITY_DIRECTION_VELOCITY (C0C83B): A = tempvar,
+ * acts on CURRENT_ENTITY_SLOT. */
 int16_t cr_set_entity_direction_velocity(int16_t ent, int16_t scr,
                                                  uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
-    int16_t direction = scripts.tempvar[scr];
-    int16_t offset = ENT(ert.current_entity_slot);
-
-    /* Store moving direction (ENTITY_MOVING_DIRECTIONS, NOT ENTITY_DIRECTIONS).
-     * Assembly: STA ENTITY_MOVING_DIRECTIONS,X — this is the movement direction
-     * used for velocity computation and battle initiative calculation.
-     * ENTITY_DIRECTIONS (visual/sprite direction) is set separately by
-     * UPDATE_ENTITY_ANIMATION or callroutines like SET_DIRECTION. */
-    entities.moving_directions[offset] = direction;
-
-    /* Compute scale: diagonal (odd dir) = 1/√2, cardinal (even) = 1.0 */
-    uint32_t scale = (direction & 1) ? 0xB505 : 0x10000;
-
-    /* speed × scale >> 8 → 16.16 fixed-point */
-    uint32_t speed = (uint32_t)entities.movement_speeds[offset];
-    uint32_t result = (speed * scale) >> 8;
-
-    /* Direction-to-velocity switch (SNES convention, from assembly):
-     * 0=UP: dx=0, dy=-result; 1=UP_RIGHT: dx=+result, dy=-result
-     * 2=RIGHT: dx=+result, dy=0; 3=DOWN_RIGHT: dx=+result, dy=+result
-     * 4=DOWN: dx=0, dy=+result; 5=DOWN_LEFT: dx=-result, dy=+result
-     * 6=LEFT: dx=-result, dy=0; 7=UP_LEFT: dx=-result, dy=-result */
-    int32_t dx32 = 0, dy32 = 0;
-    switch (direction & 7) {
-    case 0: dy32 = -(int32_t)result; break;
-    case 1: dx32 = (int32_t)result; dy32 = -(int32_t)result; break;
-    case 2: dx32 = (int32_t)result; break;
-    case 3: dx32 = (int32_t)result; dy32 = (int32_t)result; break;
-    case 4: dy32 = (int32_t)result; break;
-    case 5: dx32 = -(int32_t)result; dy32 = (int32_t)result; break;
-    case 6: dx32 = -(int32_t)result; break;
-    case 7: dx32 = -(int32_t)result; dy32 = -(int32_t)result; break;
-    }
-
-    /* Store as 16.16 fixed-point (integer + fraction) */
-    entities.delta_x[offset] = (int16_t)(dx32 >> 16);
-    entities.delta_frac_x[offset] = (uint16_t)(dx32 & 0xFFFF);
-    entities.delta_y[offset] = (int16_t)(dy32 >> 16);
-    entities.delta_frac_y[offset] = (uint16_t)(dy32 & 0xFFFF);
-    return 0;
+    return set_entity_direction_velocity(ENT(ert.current_entity_slot),
+                                         scripts.tempvar[scr]);
 }
 
 /*
@@ -389,14 +385,11 @@ int16_t cr_movement_cmd_set_dir_velocity(int16_t entity_offset, int16_t script_o
      * Reads 1 byte (direction) from script stream, then calls
      * SET_ENTITY_DIRECTION_VELOCITY (C0C83B) to set moving_directions
      * and velocity from the entity's movement_speed.
-     * Assembly: STY $94 / JSL SET_ENTITY_DIRECTION_VELOCITY.
-     * SET_ENTITY_DIRECTION_VELOCITY stores direction to
-     * ENTITY_MOVING_DIRECTIONS before computing velocity. */
+     * Assembly: STY $94 / JSL SET_ENTITY_DIRECTION_VELOCITY, whose A
+     * (the Y delta's integer word) becomes the tempvar. */
     uint8_t dir = sb(pc);
     *out_pc = pc + 1;
-    entities.moving_directions[entity_offset] = (int16_t)dir;
-    set_velocity_from_direction(entity_offset, (int16_t)dir);
-    return 0;
+    return set_entity_direction_velocity(entity_offset, (int16_t)dir);
 }
 
 int16_t cr_get_entity_obstacle_flags(int16_t entity_offset, int16_t script_offset,
@@ -429,9 +422,8 @@ int16_t cr_set_entity_velocity_from_dir(int16_t entity_offset, int16_t script_of
     /* Port of C47044: set velocity from direction (in A/tempvar) and speed.
      * Direction is passed as the return value from CALCULATE_DIRECTION_TO_TARGET. */
     *out_pc = pc;
-    int16_t dir = scripts.tempvar[script_offset];
-    set_velocity_from_direction(entity_offset, dir);
-    return dir;
+    return (int16_t)set_entity_velocity_from_direction(
+        entity_offset, (uint16_t)scripts.tempvar[script_offset]);
 }
 
 int16_t cr_move_entity_distance(int16_t entity_offset, int16_t script_offset,
@@ -928,7 +920,7 @@ int16_t cr_move_toward_no_sprite_cb(int16_t entity_offset, int16_t script_offset
     uint16_t mt_fine = calculate_direction_fine(
         entities.abs_x[entity_offset], entities.abs_y[entity_offset],
         target_x, target_y);
-    set_velocity_from_direction(entity_offset, (int16_t)mt_fine);
+    set_entity_velocity_from_direction(entity_offset, mt_fine);
     return 0;  /* FALSE = still moving */
 }
 
@@ -955,7 +947,7 @@ int16_t cr_move_toward_reversed_cb(int16_t entity_offset, int16_t script_offset,
     uint16_t rdir_fine = calculate_direction_fine(
         entities.abs_x[entity_offset], entities.abs_y[entity_offset], tx, ty);
     /* Velocity is toward target (fine direction for smooth movement) */
-    set_velocity_from_direction(entity_offset, (int16_t)rdir_fine);
+    set_entity_velocity_from_direction(entity_offset, rdir_fine);
     /* Sprite direction is reversed (entity faces away from target) */
     {
         int16_t qdir = quantize_direction((int16_t)rdir_fine);
@@ -981,7 +973,7 @@ int16_t cr_update_dir_velocity_cb(int16_t entity_offset, int16_t script_offset,
     *out_pc = pc;
     uint16_t fine_dir = (uint16_t)entities.var[0][entity_offset];
     /* Set velocity from fine direction FIRST (smooth movement) */
-    set_velocity_from_direction(entity_offset, (int16_t)fine_dir);
+    set_entity_velocity_from_direction(entity_offset, fine_dir);
     /* THEN quantize to 8-way for sprite direction */
     int16_t snes_dir = quantize_fine_direction(fine_dir);
     int16_t old_dir = entities.directions[entity_offset];
@@ -1003,7 +995,7 @@ int16_t cr_update_dir_velocity_reversed_cb(int16_t entity_offset, int16_t script
     *out_pc = pc;
     uint16_t fine_dir = (uint16_t)entities.var[0][entity_offset];
     /* Set velocity from fine direction FIRST */
-    set_velocity_from_direction(entity_offset, (int16_t)fine_dir);
+    set_entity_velocity_from_direction(entity_offset, fine_dir);
     /* THEN quantize and reverse for sprite */
     int16_t snes_dir = quantize_fine_direction(fine_dir);
     int16_t rev = (snes_dir + 4) & 7;
@@ -1039,7 +1031,7 @@ int16_t cr_move_toward_target_cb(int16_t entity_offset, int16_t script_offset,
     uint16_t met_fine = calculate_direction_fine(
         entities.abs_x[entity_offset], entities.abs_y[entity_offset],
         tx, ty);
-    set_velocity_from_direction(entity_offset, (int16_t)met_fine);
+    set_entity_velocity_from_direction(entity_offset, met_fine);
     /* Update sprite if direction sprite group changed */
     {
         int16_t qdir = quantize_direction((int16_t)met_fine);

@@ -26,7 +26,6 @@
 #include "game_main.h"
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 /* ---- Static cr_* functions moved from callroutine.c ---- */
 
@@ -311,10 +310,9 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
         if (ert.entity_path_point_counts[ent] > 0) {
             /* Set direction and velocity toward target */
             uint16_t fine_dir = calculate_direction_fine(from_x, from_y, target_x, target_y);
-            set_velocity_from_direction(ent, (int16_t)fine_dir);
-            int16_t dir = quantize_direction((int16_t)fine_dir);
-            entities.moving_directions[ent] = dir;
-            entities.directions[ent] = dir;
+            set_entity_velocity_from_direction(ent, fine_dir);
+            /* QUANTIZE_ENTITY_DIRECTION stores ENTITY_MOVING_DIRECTIONS. */
+            entities.directions[ent] = quantize_entity_direction(ent, fine_dir);
         } else {
             /* Pathfinding complete — clear state, set obstacle bit 7 */
             entities.pathfinding_states[ent] = 0;

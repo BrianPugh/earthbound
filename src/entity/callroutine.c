@@ -47,7 +47,6 @@
 #include "entity/pathfinding.h"
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 #include "game_main.h"
 
