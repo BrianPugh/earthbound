@@ -77,12 +77,17 @@
 #define BUF_TEXT_LAYER2_TILES    0x2000  /* 0x1800 bytes → TEXT_LAYER_TILES+0x1000 */
 
 /* ===== Your Sanctuary (map_loader.c) ===== */
-/* Intentional divergence: assembly pre-caches all 8 sanctuaries (20 KB).
- * C port loads on demand into a single slot (~2.2 KB), trading CPU for RAM.
+/* Like the assembly, each of the 8 locations is loaded once into its own slot
+ * and its tiles appended to VRAM, so redisplaying a location is a copy.
+ * Assembly: tilemaps at BUFFER + idx*$800, palettes at BUFFER+$4000 + idx*$200.
+ * Palettes are packed at a $100 stride here (only 256 bytes of each $200 slot
+ * are used) so the transient LOADED_MAP_BLOCKS scratch fits in BUFFER_SIZE.
  * Arrangement/GFX decomp uses arrangement_buffer (not ert.buffer). */
-#define BUF_SANCTUARY_TILEMAPS   0x0000  /* Single tilemap: 30×32×2 = 0x780 bytes */
-#define BUF_SANCTUARY_PALETTES   0x0800  /* Single palette: 256 bytes */
-#define BUF_SANCTUARY_MAP_BLOCKS 0x0900  /* 1024 × uint16 = 0x800 bytes (transient during load) */
+#define BUF_SANCTUARY_TILEMAPS   0x0000  /* 8 × 0x800 (30×32×2 = 0x780 bytes used) */
+#define BUF_SANCTUARY_TILEMAP_STRIDE 0x0800
+#define BUF_SANCTUARY_PALETTES   0x4000  /* 8 × 256 bytes */
+#define BUF_SANCTUARY_PALETTE_STRIDE 0x0100
+#define BUF_SANCTUARY_MAP_BLOCKS 0x4800  /* 1024 × uint16 = 0x800 bytes (transient during load) */
 
 /* ===== Naming Screen (callroutine.c) ===== */
 /* Naming screen is an exclusive phase. Tiles at 0x0000, tilemap right after.

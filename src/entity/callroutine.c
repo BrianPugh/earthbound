@@ -2331,33 +2331,38 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
     case ROM_ADDR_DISPLAY_YOUR_SANCTUARY_LOCATION: {
         /* C4E2D7: DISPLAY_YOUR_SANCTUARY_LOCATION
-         * Loads sanctuary location graphics/palette into VRAM if not already loaded,
-         * then copies tilemap data and palette from BUFFER to VRAM/CGRAM.
-         * Parameter is tempvar (sanctuary index, 0-7).
-         *
-         * Intentional divergence: assembly pre-caches all 8 sanctuaries in BUFFER
-         * (20 KB). We load on demand into slot 0 (~2.2 KB), trading CPU for RAM. */
+         * Loads the sanctuary location's graphics/palette if not already
+         * loaded, then copies its cached tilemap and palette to VRAM/CGRAM.
+         * Parameter is tempvar (sanctuary index, 0-7). */
         *out_pc = pc;
         uint16_t sanctuary_idx = scripts.tempvar[script_offset] & 0x0007;
 
-        /* Always reload — single-slot, no caching */
-        load_your_sanctuary_location(sanctuary_idx);
-        /* Assembly RENDER_FRAME_TICK: flush a frame before swapping the tilemap
-         * into VRAM. This callroutine runs inside run_actionscript_frame() with
-         * ert.disable_actionscript set, so the nested actionscript frame is a
-         * guaranteed no-op (run_actionscript_frame_step() returns false) — the
-         * render work runs inline with no park and no host yield (the dropped
-         * intermediate present is imperceptible; the next root yield shows the
-         * final state). Run-to-completion: no blocking render_frame_tick(). */
-        (void)render_frame_tick_work_step();
+        if (!ml.loaded_your_sanctuary_locations[sanctuary_idx]) {
+            load_your_sanctuary_location(sanctuary_idx);
+            /* Assembly WAIT_UNTIL_NEXT_FRAME (after a fresh load only). This
+             * callroutine runs inside run_actionscript_frame() with
+             * ert.disable_actionscript set, so the nested actionscript frame is
+             * a guaranteed no-op (run_actionscript_frame_step() returns false) —
+             * the render work runs inline with no park and no host yield (the
+             * dropped intermediate present is imperceptible; the next root
+             * yield shows the final state). Run-to-completion: no blocking
+             * render_frame_tick(). */
+            (void)render_frame_tick_work_step();
+        }
 
-        /* Copy tilemap from BUFFER slot 0 to VRAM at $3800
+        /* Copy tilemap from BUFFER + idx*$800 to VRAM at $3800
          * (0x780 bytes = 30 rows x 32 words = 960 tilemap entries) */
-        memcpy(&ppu.vram[0x3800 * 2], &ert.buffer[BUF_SANCTUARY_TILEMAPS], 0x0780);
+        memcpy(&ppu.vram[0x3800 * 2],
+               &ert.buffer[BUF_SANCTUARY_TILEMAPS
+                           + (size_t)sanctuary_idx * BUF_SANCTUARY_TILEMAP_STRIDE],
+               0x0780);
 
-        /* Copy palette from BUFFER slot 0 to CGRAM.
+        /* Copy palette from the sanctuary's palette slot to CGRAM.
          * Assembly: LDX #BPP4PALETTE_SIZE * 8 = 256 bytes (8 BG sub-palettes). */
-        memcpy(ert.palettes, &ert.buffer[BUF_SANCTUARY_PALETTES], BPP4PALETTE_SIZE * 8);
+        memcpy(ert.palettes,
+               &ert.buffer[BUF_SANCTUARY_PALETTES
+                           + (size_t)sanctuary_idx * BUF_SANCTUARY_PALETTE_STRIDE],
+               BPP4PALETTE_SIZE * 8);
         ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
 
         /* Reset scroll positions */

@@ -1673,7 +1673,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
  *
  * Results:
  *   ert.buffer[sanctuary_idx * 0x800]             : 30×32 tilemap (960 uint16 words = 0x780 bytes)
- *   ert.buffer[0x4000 + sanctuary_idx * 0x200]    : 8 BG sub-palettes (256 bytes)
+ *   ert.buffer[0x4000 + sanctuary_idx * 0x100]    : 8 BG sub-palettes (256 bytes)
  *   ppu.vram[0xC000 + tile_index * 32]            : packed 4bpp tile graphics for used tiles
  *   ml.next_your_sanctuary_location_tile_index    : updated for next sanctuary
  *   ml.total_your_sanctuary_loaded_tileset_tiles  : updated count
@@ -1694,6 +1694,8 @@ static const uint16_t your_sanctuary_tile_data[8][2] = {
 
 void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     if (sanctuary_idx >= 8) return;
+    /* LOAD_YOUR_SANCTUARY_LOCATION: @ALREADY_LOADED check */
+    if (ml.loaded_your_sanctuary_locations[sanctuary_idx]) return;
     if (!tilesetpalette_data || !tileset_table_data) return;
 
     uint16_t v0 = your_sanctuary_tile_data[sanctuary_idx][0];
@@ -1726,7 +1728,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
      * --- Step 2: Load and save palette (PREPARE_YOUR_SANCTUARY_LOCATION_PALETTE_DATA) ---
      * Prepare sprite-palette averages, load map palette, adjust sprite palettes,
      * then copy 8 sub-palettes (256 bytes) from ert.palettes to
-     * ert.buffer[0x4000 + sanctuary_idx * 0x200].
+     * ert.buffer[0x4000 + sanctuary_idx * 0x100 (asm stride $200)].
      */
     prepare_average_for_sprite_palettes();
     reload_sprite_group_palettes();
@@ -1734,11 +1736,11 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     adjust_sprite_palettes_by_average();
     ert.palette_upload_mode = PALETTE_UPLOAD_NONE;
 
-    /* Copy 8 BG sub-palettes (= BPP4PALETTE_SIZE * 8 = 256 bytes) to sanctuary palette slot.
-     * Always uses slot 0 — sanctuaries are loaded on demand, not pre-cached.
-     * Intentional divergence from assembly, which caches all 8 in BUFFER. */
+    /* Copy 8 BG sub-palettes (= BPP4PALETTE_SIZE * 8 = 256 bytes) to this
+     * sanctuary's palette slot. */
     {
-        size_t pal_dst_offset = BUF_SANCTUARY_PALETTES;
+        size_t pal_dst_offset = BUF_SANCTUARY_PALETTES
+                              + (size_t)sanctuary_idx * BUF_SANCTUARY_PALETTE_STRIDE;
         /* BPP4PALETTE_SIZE * 8 = 256 bytes = 128 uint16 colors */
         memcpy(&ert.buffer[pal_dst_offset], ert.palettes,
                (size_t)BPP4PALETTE_SIZE * 8);
@@ -1789,9 +1791,9 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     int16_t start_tile_x = (int16_t)v0 - 16;
     int16_t start_tile_y = (int16_t)v1 - 14;
 
-    /* Tilemap destination: 30 rows × 32 cols × 2 bytes.
-     * Always slot 0 — sanctuaries loaded on demand, not pre-cached. */
-    size_t tilemap_base = BUF_SANCTUARY_TILEMAPS;
+    /* Tilemap destination: 30 rows × 32 cols × 2 bytes, in this sanctuary's slot. */
+    size_t tilemap_base = BUF_SANCTUARY_TILEMAPS
+                        + (size_t)sanctuary_idx * BUF_SANCTUARY_TILEMAP_STRIDE;
 
     /* Ensure chunk data is loaded (needed for get_block_id lookups) */
     load_chunks();
@@ -1890,14 +1892,12 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
         size_t src_off = (size_t)tile_idx * 32;
         if (src_off + 32 > gfx_size) continue;
 
-        /* Destination in VRAM: word addr = 0x6000 + next_tile_index * 16
-         * Byte addr = (0x6000 + next_tile_index * 16) * 2
-         *           = 0xC000 + next_tile_index * 32 */
+        /* Destination in VRAM: word addr = ($6000 + next_tile_index * 16) & $7FFF
+         * (the asm's AND #$7FFF wraps past the end of VRAM). Tile indices keep
+         * accumulating across the 8 locations, as in the assembly. */
         uint16_t next_idx = ml.next_your_sanctuary_location_tile_index;
-        uint32_t vram_byte = (uint32_t)0xC000 + (uint32_t)next_idx * 32;
-        if (vram_byte + 32 <= sizeof(ppu.vram)) {
-            memcpy(&ppu.vram[vram_byte], &decomp_staging[src_off], 32);
-        }
+        uint16_t vram_word = (uint16_t)((0x6000 + next_idx * 16) & 0x7FFF);
+        memcpy(&ppu.vram[(uint32_t)vram_word * 2], &decomp_staging[src_off], 32);
 
         /* Record the new VRAM tile index in loaded_map_blocks for remapping */
         loaded_map_blocks[tile_idx] = next_idx;

@@ -265,11 +265,10 @@ typedef struct {
  * YOUR SANCTUARY TILEMAP BUILDER (map_loader.c)
  *   Assembly: display_your_sanctuary_location.asm
  *   Active during: sanctuary screen loading (exclusive phase)
- *   BUF_SANCTUARY_TILEMAPS   0x0000  Single tilemap (0x780 B)    ~2 KB
- *   BUF_SANCTUARY_PALETTES   0x0800  Single palette (256 B)      ~0.3 KB
- *   BUF_SANCTUARY_MAP_BLOCKS 0x0900  Tile usage map (2 KB)       transient during load
- *   Intentional divergence: assembly pre-caches all 8 (20 KB).
- *   C port loads on demand into slot 0, trading CPU for RAM.
+ *   BUF_SANCTUARY_TILEMAPS   0x0000  8 tilemaps (8 × 0x800)      16 KB
+ *   BUF_SANCTUARY_PALETTES   0x4000  8 palettes (8 × 256 B)      2 KB
+ *   BUF_SANCTUARY_MAP_BLOCKS 0x4800  Tile usage map (2 KB)       transient during load
+ *   Caches all 8 locations like the assembly (the tiles accumulate in VRAM).
  *   Arrangement/GFX decomp uses arrangement_buffer (not ert.buffer).
  *
  * SANCTUARY FLASH FADE (map_loader.c)
@@ -313,7 +312,7 @@ typedef struct {
  *             + BUF_BATTLE_PALETTE_SAVE [during desaturate]
  *             (PSI arrangements use bundled format in PsiAnimationState, not ert.buffer)
  * Naming:     BUF_NAME_TILES + BUF_NAME_TILEMAP [exclusive]
- * Sanctuary:  BUF_SANCTUARY_TILEMAPS + BUF_SANCTUARY_PALETTES + BUF_SANCTUARY_MAP_BLOCKS (~4.3 KB)
+ * Sanctuary:  BUF_SANCTUARY_TILEMAPS + BUF_SANCTUARY_PALETTES + BUF_SANCTUARY_MAP_BLOCKS (20 KB)
  *             + BUF_FLASH_* [exclusive] (decomp uses arrangement_buffer)
  * Intro:      BUF_FADE_* only (GFX decompresses directly to ppu.vram)
  * Ending:     BUF_CREDITS_* [exclusive]

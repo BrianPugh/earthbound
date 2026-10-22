@@ -256,7 +256,7 @@ void map_loader_savestate_rebind(void);
  *        LOAD_YOUR_SANCTUARY_LOCATION_DATA  (asm/overworld/load_your_sanctuary_location_data.asm).
  * sanctuary_idx: 0-7, selects which sanctuary to load.
  * After this call, ert.buffer[sanctuary_idx * 0x800] holds the 30×32 tilemap,
- * ert.buffer[0x4000 + sanctuary_idx * 0x200] holds 8 sub-palettes (256 bytes),
+ * ert.buffer[0x4000 + sanctuary_idx * 0x100] holds 8 sub-palettes (256 bytes),
  * and ppu.vram[$C000 + tile_index * 32] holds the packed tile graphics. */
 void load_your_sanctuary_location(uint16_t sanctuary_idx);
 
