@@ -37,6 +37,12 @@ _NUM_PALETTES = 8
 _SPRITE_BANK_FIRST = 0x11
 _SPRITE_BANK_COUNT = 5
 
+# Non-sprite data tables that ``ebtools extract`` writes into the same
+# ``overworld_sprites/`` directory as the spritesheets. They are packed by
+# pack-all's simple-table packers, so pack_sprites must not treat them as
+# spritesheet metadata.
+NON_SPRITE_JSON_FILES = frozenset({"entity_overlay_data.json", "spritemap_config.json"})
+
 # Direction labels for JSON metadata (memory pointer order)
 _DIR_LABELS_4 = ["up", "right", "down", "left"]
 _DIR_LABELS_8 = [
@@ -451,7 +457,7 @@ def pack_sprites(
     groupings = parse_sprite_groupings(ptr_table, bytes(grouping_data))
 
     # Find all PNG files with matching JSON
-    json_files = sorted(png_dir.glob("*.json"))
+    json_files = sorted(p for p in png_dir.glob("*.json") if p.name not in NON_SPRITE_JSON_FILES)
     if not json_files:
         print("No sprite JSON files found in", png_dir)
         return

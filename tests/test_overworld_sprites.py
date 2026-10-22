@@ -17,6 +17,7 @@ from ebtools.parsers._tiles import (
     write_jasc_pal,
 )
 from ebtools.parsers.overworld_sprites import (
+    NON_SPRITE_JSON_FILES,
     Hitbox,
     SpriteGrouping,
     SpriteMetadata,
@@ -604,6 +605,20 @@ class TestPackSpritesValidation:
 
         # No files → should print warning and return, not raise
         pack_sprites(png_dir, bin_dir, tmp_path / "out")
+
+    def test_non_sprite_data_json_ignored(self, tmp_path):
+        """Data tables that extract writes next to the spritesheets are not sprite metadata."""
+        bin_dir, sprite_id = self._setup_bin_dir(tmp_path)
+        png_dir = tmp_path / "custom"
+        png_dir.mkdir()
+
+        _make_valid_png_and_json(png_dir, sprite_id=sprite_id)
+        for name in NON_SPRITE_JSON_FILES:
+            (png_dir / name).write_text(json.dumps({"entries": []}))
+
+        out_dir = tmp_path / "out"
+        pack_sprites(png_dir, bin_dir, out_dir)
+        assert (out_dir / "sprite_grouping_data.bin").exists()
 
     def test_valid_sprite_packs_successfully(self, tmp_path):
         """A correctly formatted sprite should pack without errors."""
