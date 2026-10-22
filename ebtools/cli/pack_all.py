@@ -797,6 +797,17 @@ def _validate_dialogue(
     return errors
 
 
+def _original_dialogue_label_addrs(doc: DumpDoc) -> dict[str, int]:
+    """Map each dialogue label to its original SNES address from the dump config."""
+    original_label_addrs: dict[str, int] = {}
+    for entry in doc.dumpEntries:
+        if entry.extension == "ebtxt":
+            block_base = entry.offset + 0xC00000
+            for label_offset, label_name in doc.renameLabels.get(entry.name, {}).items():
+                original_label_addrs[label_name] = block_base + label_offset
+    return original_label_addrs
+
+
 def _pack_dialogue(
     dialogue_dir: Path,
     output_dir: Path,
@@ -820,13 +831,7 @@ def _pack_dialogue(
     # Build reverse name lookup for symbolic names in dialogue YAML.
     reverse_names = build_reverse_names(common_data) if common_data is not None else None
 
-    # Build label→original SNES address map from dump config.
-    original_label_addrs: dict[str, int] = {}
-    for entry in doc.dumpEntries:
-        if entry.extension == "ebtxt":
-            block_base = entry.offset + 0xC00000
-            for label_offset, label_name in doc.renameLabels.get(entry.name, {}).items():
-                original_label_addrs[label_name] = block_base + label_offset
+    original_label_addrs = _original_dialogue_label_addrs(doc)
 
     yaml_files = sorted(dialogue_dir.glob("*.yaml")) + sorted(dialogue_dir.glob("*.yml"))
 

@@ -138,26 +138,18 @@ def pack_npcs(
         buf.extend(struct.pack("<I", ptr))
         # Secondary data (bytes 13-16)
         if npc.type == "OBJECT" and npc.secondary_pointer:
-            buf.extend(struct.pack("<I", int(npc.secondary_pointer, 16)))
+            # OBJECT NPCs' "use item on me" text pointer: remap like the
+            # primary text pointer, or resolve_text_addr() can't find it.
+            ptr2 = int(npc.secondary_pointer, 16)
+            if addr_remap and ptr2 in addr_remap:
+                ptr2 = addr_remap[ptr2]
+            buf.extend(struct.pack("<I", ptr2))
         else:
             # Non-OBJECT NPCs' bytes 13-16 are usually opaque (padding, a
-            # money amount, etc.), BUT get_npc_config_text_pointer2() (the
-            # C port's map_loader.c) reads this field unconditionally for
-            # BOTH npc_type 1 (PERSON) and 3 (OBJECT) -- the export/pack
-            # split above only ever treated OBJECT as carrying a real
-            # pointer here, missing PERSON entries that also use it as a
-            # second text address. Confirmed live: NPC 436 (type PERSON,
-            # the jail cell guard's "use item on me" response for Key to
-            # the Cabin) has a real pre-repack SNES address in these 4
-            # bytes that resolve_text_addr() couldn't resolve, so using
-            # the key at the door silently did nothing -- same failure
-            # class as the OBJECT case above, just not gated on type here.
-            # Only remaps when the raw bytes actually match a known
-            # pre-repack dialogue address (addr_remap is keyed by the
-            # specific SNES addresses that exist in the dialogue banks),
-            # so a genuinely opaque 4-byte value (money, padding) is
-            # essentially never mistaken for one and passes through
-            # unchanged, exactly as before this fix.
+            # money amount, etc.), but get_npc_config_text_pointer2() reads
+            # them for PERSON (type 1) NPCs too, e.g. NPC 436's Key to the
+            # Cabin response. Remap only when the raw value is a known
+            # pre-repack dialogue address; anything else passes through.
             if addr_remap and len(npc.secondary_bytes) == 4:
                 raw_val = (
                     npc.secondary_bytes[0]

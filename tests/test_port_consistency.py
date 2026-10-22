@@ -198,3 +198,49 @@ def test_timed_delivery_pack_remaps_text_pointers(tmp_path):
     success = struct.unpack_from("<H", packed, 10)[0] | packed[12] << 16
     failure = struct.unpack_from("<H", packed, 13)[0] | packed[15] << 16
     assert (success, failure) == (0x14D015, 0x14D40C)
+
+
+NPC_CONFIG_JSON = ROOT / "src" / "assets" / "data" / "npc_config.json"
+
+
+@pytest.mark.skipif(
+    not NPC_CONFIG_JSON.exists(), reason="src/assets/data/npc_config.json missing (run ebtools extract)"
+)
+def test_npc_pack_remaps_secondary_text_pointers(tmp_path):
+    """No PERSON/OBJECT secondary pointer may stay a raw pre-repack dialogue address.
+
+    resolve_text_addr() only understands the flat dialogue offsets that
+    pack-all assigns, so an unremapped "use item on me" pointer makes the
+    item use close silently (e.g. Eraser eraser on NPC 671).
+    """
+    from ebtools.cli.pack_all import _original_dialogue_label_addrs
+    from ebtools.config import load_common_data, load_dump_doc
+    from ebtools.parsers.npc import NPC_TYPE_IDS, RECORD_SIZE, pack_npcs
+
+    doc = load_dump_doc(ROOT / "earthbound.yml")
+    common_data = load_common_data(ROOT / "commondefs.yml")
+    original = set(_original_dialogue_label_addrs(doc).values())
+    # Any flat offset below the SNES ROM range stands in for the compiled one.
+    addr_remap = {addr: i for i, addr in enumerate(sorted(original))}
+
+    out = tmp_path / "npc_config_table.bin"
+    pack_npcs(NPC_CONFIG_JSON, common_data, out, addr_remap=addr_remap)
+    packed = out.read_bytes()
+    assert len(packed) % RECORD_SIZE == 0
+
+    checked_types = {NPC_TYPE_IDS["PERSON"], NPC_TYPE_IDS["OBJECT"]}
+    unresolved = []
+    remapped = 0
+    for npc_id in range(len(packed) // RECORD_SIZE):
+        rec = packed[npc_id * RECORD_SIZE : (npc_id + 1) * RECORD_SIZE]
+        if rec[0] not in checked_types:
+            continue
+        for offset in (9, 13):
+            ptr = struct.unpack_from("<I", rec, offset)[0]
+            if ptr in original:
+                unresolved.append((npc_id, offset, f"0x{ptr:06X}"))
+            elif offset == 13 and 0 < ptr < 0xC00000:
+                remapped += 1
+    assert not unresolved, f"raw dialogue addresses left in NPC table: {unresolved[:10]}"
+    # Sanity: the table really carries secondary text pointers (Eraser eraser NPC 671 etc.).
+    assert remapped > 0
