@@ -11,7 +11,7 @@ The harness is `playtest/pt.py` (interactive sessions) and `playtest/run.py` (ba
 
 ```zsh
 cmake -S port/unix -B port/unix/build-NAME -DCMAKE_BUILD_TYPE=Release && cmake --build port/unix/build-NAME
-pt(){ EB_BIN=port/unix/build-NAME/earthbound uv run --no-sync python playtest/pt.py "$@"; }   # a PT="..." variable won't word-split in zsh
+pt(){ EB_BIN=$PWD/port/unix/build-NAME/earthbound uv run --no-sync python playtest/pt.py "$@"; }   # EB_BIN must be absolute; a PT="..." variable won't word-split in zsh
 pt start NAME1 --save playtest/saves/NN-Name.srm
 ```
 
@@ -47,6 +47,7 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **Area triggers are strict:** `TEST_PLAYER_IN_AREA` passes only for |d| < radius, so standing exactly on the edge fails. Approach from the side the script expects. The Runaway Five bus, for example, only boards from below.
 - **Walk away and NPCs despawn:** roughly 300+ px off-screen, tasks like EVENT_8's free the entity. When it respawns it has its *default* script, so any armed script is lost. Re-talk to re-arm it.
 - **Budget frames realistically:** the bus ride is ~5000 frames, the Magicant exit montage ~1100, and the credits ~20000. A `TIMEOUT` mid-cutscene is usually not a hang. Check STATE `modes`/`idle` and the screenshot before you call it a bug.
+- **`until` only sees text printed while it runs:** in `press A; wait 1; until said:Ready`, "@Rea" already printed during the press, so it times out. Put the `until` right after the action that starts the text, and wait for a word further along (`press A; until said:Voy 600 advance`).
 - **Holding a direction through a cutscene** (`until text 600 UP`) keeps the button held inside it and can disturb scripts. Use the default `-` pattern to wait.
 - **Enemy count:** `ow_enemies=65535`/`65534` after `teleport` or a door is the asm's own wraparound, and spawning still works. Don't report it.
 - **Blinking party:** `blink=N` after a battle means the party sprites blink, so a shot may miss them. Use `wait 1; shot`.
