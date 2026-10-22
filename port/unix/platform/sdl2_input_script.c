@@ -306,24 +306,32 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
         return;
     int y = w->text_y;
     int x = w->cursor_pixel_x;
+    int span_from = -1; /* the previous character's pixels: (span_from, x) */
     if (tt_pos[slot].valid && tt_pos[slot].y == y && w->cursor_pixel_x == vwf_x) {
         int adv = (int)vwf_x - tt_pos[slot].vwf;
         if (adv < 0)
             adv += VWF_BUFFER_TILES * 8;
         x = tt_pos[slot].x + adv;
+        span_from = tt_pos[slot].x;
     }
     tt_pos[slot].y = y;
     tt_pos[slot].x = x;
     tt_pos[slot].vwf = vwf_x;
     tt_pos[slot].valid = true;
 
-    /* Grid copy: overwrite whatever glyph sat at this x, keep sorted by x */
+    /* Grid copy: overwrite whatever glyph sat at this x, keep sorted by x.
+     * Glyphs inside the previous character's span were drawn over too: when
+     * a menu row is blanked without a trace event and dialogue prints there
+     * ("Yes  No" then "@Ready!"), the old glyphs fall between the new ones. */
     if (y >= 0 && y < TT_LINES) {
         TextLine *ln = &tt_lines[slot][y];
         int j = 0;
-        for (int i = 0; i < ln->n; i++)
-            if (ln->g[i].x + 1 < x || ln->g[i].x > x + 1)
+        for (int i = 0; i < ln->n; i++) {
+            int gx = ln->g[i].x;
+            bool covered = (gx + 1 >= x && gx <= x + 1) || (span_from >= 0 && gx > span_from && gx < x);
+            if (!covered)
                 ln->g[j++] = ln->g[i];
+        }
         ln->n = (uint8_t)j;
         if (ln->n < TT_GLYPHS) {
             int at = ln->n;
