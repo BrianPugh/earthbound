@@ -121,9 +121,9 @@ Instant (no frame passes):
 | `state [LABEL]` / `text` | print STATE/PARTY/FOLLOW/NEAR/ENEMIES lines / WIN+MENU lines |
 | `flag N [0\|1]` | read / set an event flag |
 | `give ITEM [CHAR]` | give item id to char 1-6 (default: first with room). Prints `GIVE item N (Name) -> char C Name`, or `FAILED` when the inventory (or every inventory) is full |
-| `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula |
+| `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula. In a battle it also sets the member's battler, which the battle copies back over the char afflictions |
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
-| `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party |
+| `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |

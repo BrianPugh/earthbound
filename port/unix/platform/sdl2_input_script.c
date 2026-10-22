@@ -51,11 +51,13 @@
  *                    with room); prints who got it, or FAILED if full
  *   status CHAR GROUP VALUE
  *                    set afflictions[GROUP-1] = VALUE (GROUP 1-7, numbered as
- *                    the text CCs; 0 clears), or party_status if GROUP is 8
+ *                    the text CCs; 0 clears), or party_status if GROUP is 8.
+ *                    In a battle, also sets the member's battler
  *   debug on|off     set ow.debug_flag (no debug menu, unlike aux F5)
  *   money N          set money on hand
- *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP
- *   heal             restore every party member's HP/PP to max
+ *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP; in a
+ *                    battle, also the member's battler HP/PP (and its target)
+ *   heal             restore every party member's HP/PP to max (as hp/pp)
  *   aux NAME         pulse an aux key for one frame: F1 F5 F6 F7
  *
  * Root-boundary commands (applied between frames, at the main loop root):
@@ -353,13 +355,35 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
     }
 }
 
-/* Render one captured line as ASCII, spacing out column gaps. */
-static void line_text(const TextLine *ln, char *out, size_t cap) {
+/* Whether the window still shows something where a captured glyph went.
+ * Some game paths blank a window's tilemap (or a row of it) without a trace
+ * event; a glyph whose tile cells are all blank is no longer on screen. A text
+ * line is 2 tile rows; a glyph (<= 8 px wide) touches tile columns x/8 and
+ * (x+7)/8. */
+static bool glyph_visible(const WindowInfo *w, int y, int x) {
+    if (!w->content_tilemap || w->width < 3)
+        return false;
+    int cw = w->width - 2;
+    for (int col = x / 8; col <= (x + 7) / 8 && col < cw; col++) {
+        int upper = y * cw * 2 + col, lower = upper + cw;
+        if (lower < w->content_tilemap_size && (w->content_tilemap[upper] || w->content_tilemap[lower]))
+            return true;
+    }
+    return false;
+}
+
+/* Render one captured line as ASCII, spacing out column gaps. Glyphs whose
+ * tiles have since been blanked are skipped. */
+static void line_text(const WindowInfo *w, int y, const TextLine *ln, char *out, size_t cap) {
     size_t n = 0;
+    int prev_x = -1;
     for (int i = 0; i < ln->n && n + 3 < cap; i++) {
-        if (i > 0 && ln->g[i].x > ln->g[i - 1].x + 14)
+        if (!glyph_visible(w, y, ln->g[i].x))
+            continue;
+        if (prev_x >= 0 && ln->g[i].x > prev_x + 14)
             out[n++] = ' ', out[n++] = ' ';
         out[n++] = ln->g[i].c;
+        prev_x = ln->g[i].x;
     }
     while (n > 0 && out[n - 1] == ' ')
         n--;
@@ -376,7 +400,7 @@ static void print_windows(void) {
         bool any = false;
         for (int y = 0; y < TT_LINES; y++) {
             char buf[256];
-            line_text(&tt_lines[s][y], buf, sizeof(buf));
+            line_text(w, y, &tt_lines[s][y], buf, sizeof(buf));
             if (!buf[0])
                 continue;
             printf("WIN w%u%s%s%s%s| %s\n", w->id, w->id == win.current_focus_window ? "*" : "",
@@ -978,6 +1002,38 @@ static CharStruct *party_char(int id) {
     return &party_characters[id - 1];
 }
 
+/* During a battle, the battler for party member CHAR_INDEX (0-based), or
+ * NULL. The battler keeps its own HP/PP targets and afflictions: damage is
+ * taken from battler.hp_target (REDUCE_HP), which SET_HP then copies to the
+ * char_struct's current_hp_target, and the afflictions are copied back to the
+ * char_struct after each action. So a poke to the char_struct alone is
+ * overwritten (or undone by the next hit) until the battle ends. */
+static Battler *party_battler(int char_index) {
+    if (!mode_on_stack(GAME_MODE_BATTLE))
+        return NULL;
+    for (int i = 0; i < FIRST_ENEMY_INDEX; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness && b->ally_or_enemy == 0 && b->npc_id == 0 && b->row == char_index)
+            return b;
+    }
+    return NULL;
+}
+
+/* Set a party member's HP / PP (current and roller target), and its battler's */
+static void poke_hp(CharStruct *c, uint16_t hp) {
+    c->current_hp = c->current_hp_target = hp;
+    Battler *b = party_battler((int)(c - party_characters));
+    if (b)
+        b->hp = b->hp_target = hp;
+}
+
+static void poke_pp(CharStruct *c, uint16_t pp) {
+    c->current_pp = c->current_pp_target = pp;
+    Battler *b = party_battler((int)(c - party_characters));
+    if (b)
+        b->pp = b->pp_target = pp;
+}
+
 /* Run one instant/deferred command. Returns false if the command must end
  * this frame's command processing (it waits on the root boundary). */
 static bool run_command(const char *cmd, const char *arg, const char *line, uint16_t *aux) {
@@ -1033,14 +1089,14 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
     } else if (strcmp(cmd, "hp") == 0 || strcmp(cmd, "pp") == 0) {
         CharStruct *c = nv >= 2 ? party_char(v1) : NULL;
         if (c && cmd[0] == 'h')
-            c->current_hp = c->current_hp_target = (uint16_t)v2;
+            poke_hp(c, (uint16_t)v2);
         else if (c)
-            c->current_pp = c->current_pp_target = (uint16_t)v2;
+            poke_pp(c, (uint16_t)v2);
     } else if (strcmp(cmd, "heal") == 0) {
         for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
             CharStruct *c = &party_characters[i];
-            c->current_hp = c->current_hp_target = c->max_hp;
-            c->current_pp = c->current_pp_target = c->max_pp;
+            poke_hp(c, c->max_hp);
+            poke_pp(c, c->max_pp);
         }
     } else if (strcmp(cmd, "status") == 0) {
         /* GROUP 1-7 = afflictions[GROUP-1] (as the text CCs number them),
@@ -1053,6 +1109,9 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             printf("STATUS party_status=%d\n", v3);
         } else if (c) {
             c->afflictions[v2 - 1] = (uint8_t)v3;
+            Battler *b = party_battler(v1 - 1);
+            if (b)
+                b->afflictions[v2 - 1] = (uint8_t)v3;
             printf("STATUS char %d group %d = %d", v1, v2, v3);
             if (v3 < 8 && status_names[v2 - 1][v3])
                 printf(" (%s)", status_names[v2 - 1][v3]);

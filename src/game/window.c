@@ -215,6 +215,8 @@ WindowInfo *create_window(uint16_t window_id) {
      * Assembly (create_window.asm @UNKNOWN8): always resets text cursor, font,
      * tile attributes, menu state, tilemap ert.buffer, and cursor_move_callback,
      * even when the window was already open. */
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_CLEAR, window_id, 0);
     win.current_focus_window = window_id;
     w->text_x = 0;
     w->text_y = 0;
