@@ -37,14 +37,22 @@
  * Instant commands (take no frame; they act on the state after all earlier
  * input):
  *
- *   shot [PATH|LABEL]  write the current frame as a PNG (PATH if it ends in
+ *   shot [--crop W H] [--zoom N] [PATH|LABEL]
+ *                    write the current frame as a PNG (PATH if it ends in
  *                    .png, else shots/NNNN[-LABEL].png). Prints SHOT path.
- *   state [LABEL]    print STATE/PARTY(/ENEMY) lines
+ *                    --crop: a WxH box centred on the leader; --zoom: scale up
+ *   state [LABEL]    print STATE/PARTY/FOLLOW(/NEAR/ENEMIES) lines
  *   text             print the text in every open window (WIN) and the
  *                    active menu (MENU)
  *   sync ID          print "SYNC ID" (the session driver waits for it)
+ *   note TEXT        print "> TEXT" verbatim (pt.py logs each command batch)
  *   flag N [0|1]     read / write event flag N
- *   give ITEM [CHAR] give item id to party member CHAR (1-4; default first free)
+ *   give ITEM [CHAR] give item id to party member CHAR (1-6; default first
+ *                    with room); prints who got it, or FAILED if full
+ *   status CHAR GROUP VALUE
+ *                    set afflictions[GROUP-1] = VALUE (GROUP 1-7, numbered as
+ *                    the text CCs; 0 clears), or party_status if GROUP is 8
+ *   debug on|off     set ow.debug_flag (no debug menu, unlike aux F5)
  *   money N          set money on hand
  *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP
  *   heal             restore every party member's HP/PP to max
@@ -53,8 +61,10 @@
  * Root-boundary commands (applied between frames, at the main loop root):
  *
  *   teleport X Y [DIR]  move the party to world pixel (X,Y), reloading the
- *                    map/NPCs/music (initialize_map, as the debug teleport).
- *                    DIR 0-7 (0=up, clockwise; default 4=down). Needs idle.
+ *                    map/NPCs/music (initialize_map, as the debug teleport),
+ *                    then respawn Buzz Buzz and pending deliveries as the PSI
+ *                    Teleport arrival does. DIR 0-7 (0=up, clockwise; default
+ *                    4=down). Needs idle (prints ERR otherwise).
  *   warp NAME|N      teleport to a PSI Teleport destination (town), by index
  *                    or name prefix; 'warps' lists them
  *   snap NAME | restore NAME
@@ -401,6 +411,17 @@ static const char *not_idle_reason(void) {
         return "input-disabled";
     if (entities.tick_callback_hi[PARTY_LEADER_ENTITY_INDEX] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
         return "leader-frozen";
+    /* The leader moves by itself: an escalator ride, a stairs walk, a
+     * camera_mode auto-move, or a replayed auto-movement (door/escalator
+     * approach). UPDATE_LEADER_MOVEMENT ignores the pad meanwhile. */
+    if (game_state.walking_style == WALKING_STYLE_ESCALATOR)
+        return "escalator";
+    if (game_state.walking_style == WALKING_STYLE_STAIRS)
+        return "stairs";
+    if (game_state.camera_mode)
+        return "auto-move";
+    if (ow.demo_frames_left || (ow.player_movement_flags & 0x02))
+        return "auto-walk";
     if ((ppu.inidisp & 0x80) || (ppu.inidisp & 0x0F) != 0x0F)
         return "fade";
     return NULL;
@@ -440,6 +461,57 @@ static void print_eb(const uint8_t *s, int max) {
         putchar(eb_char_to_ascii(s[i]));
 }
 
+/* Affliction names by group (0-based) and value; NULL = print the number */
+static const char *const status_names[7][8] = {
+    { NULL, "unconscious", "diamondized", "paralyzed", "nauseous", "poisoned", "sunstroke", "cold" },
+    { NULL, "mushroomized", "possessed" },
+    { NULL, "asleep", "crying", "immobilized", "solidified" },
+    { NULL, "strange" },
+    { NULL, "cant-concentrate", NULL, NULL, "cant-concentrate4" },
+    { NULL, "homesick" },
+    { NULL, "psi-shield-power", "psi-shield", "shield-power", "shield" },
+};
+
+/* " st=G:NAME,..." for every nonzero affliction group (1-based, as `status`) */
+static void print_afflictions(const CharStruct *c) {
+    bool any = false;
+    for (int g = 0; g < 7; g++) {
+        uint8_t v = c->afflictions[g];
+        if (!v)
+            continue;
+        printf("%s%d:", any ? "," : " st=", g + 1);
+        if (v < 8 && status_names[g][v])
+            printf("%s", status_names[g][v]);
+        else
+            printf("%u", v);
+        any = true;
+    }
+}
+
+/* Surface flags (SURFACE_FLAGS in include/enums.asm) as words */
+static void print_surface(uint16_t sf) {
+    printf(" surface=0x%02X", sf & 0xFF);
+    if (!(sf & 0xFF))
+        return;
+    printf("(");
+    const char *sep = "";
+    if ((sf & 0x0C) == 0x0C)
+        printf("%sdeep-water", sep), sep = ",";
+    else if (sf & 0x08)
+        printf("%sshallow-water", sep), sep = ",";
+    else if (sf & 0x04)
+        printf("%ssunstroke", sep), sep = ",";
+    if (sf & 0x10)
+        printf("%sladder-stairs", sep), sep = ",";
+    if (sf & 0x01)
+        printf("%shide-lower", sep), sep = ",";
+    if (sf & 0x02)
+        printf("%shide-upper", sep), sep = ",";
+    if (sf & 0x80)
+        printf("%ssolid", sep), sep = ",";
+    printf(")");
+}
+
 static void print_state(const char *label) {
     said_flush();
     printf("STATE %s frame=%u modes=[", label[0] ? label : "-", (unsigned)core.frame_counter);
@@ -454,6 +526,13 @@ static void print_state(const char *label) {
     /* Post-battle invulnerability: the party sprites blink every other frame */
     if (ow.player_intangibility_frames)
         printf(" blink=%u", ow.player_intangibility_frames);
+    print_surface(game_state.trodden_tile_type);
+    if (game_state.walking_style)
+        printf(" walk=%u", game_state.walking_style);
+    if (game_state.party_status)
+        printf(" party_status=%u", game_state.party_status);
+    if (ow.debug_flag)
+        printf(" debug=1");
     printf("\n");
 
     printf("PARTY");
@@ -465,10 +544,29 @@ static void print_state(const char *label) {
         printf("%s %u:", i ? " |" : "", id);
         print_eb(c->name, 5);
         printf(" L%u HP %u/%u PP %u/%u", c->level, c->current_hp, c->max_hp, c->current_pp, c->max_pp);
-        if (c->afflictions[0])
-            printf(" st%u", c->afflictions[0]);
+        print_afflictions(c);
     }
     printf("\n");
+
+    /* Followers: (dx,dy) of each party entity from the leader entity, in
+     * party order. A hidden follower (spacing / no sprite) is marked. */
+    if (!mode_on_stack(GAME_MODE_BATTLE) && (game_state.party_count > 1 || ow.mini_ghost_entity_id >= 0)) {
+        int lead = game_state.current_party_members;
+        printf("FOLLOW");
+        for (int i = 0; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
+            int e = read_u16_le(&game_state.party_entity_slots[i * 2]);
+            if (e == lead || e < 0 || e >= MAX_ENTITIES || entities.script_table[e] == ENTITY_NONE)
+                continue;
+            printf(" %u:(%+d,%+d)%s", game_state.party_order[i], entities.abs_x[e] - entities.abs_x[lead],
+                   entities.abs_y[e] - entities.abs_y[lead], entities.animation_frame[e] == -1 ? "hidden" : "");
+        }
+        if (ow.mini_ghost_entity_id >= 0 && ow.mini_ghost_entity_id < MAX_ENTITIES) {
+            int g = ow.mini_ghost_entity_id;
+            printf(" ghost:(%+d,%+d)%s", entities.abs_x[g] - entities.abs_x[lead],
+                   entities.abs_y[g] - entities.abs_y[lead], entities.animation_frame[g] == -1 ? "hidden" : "");
+        }
+        printf("\n");
+    }
 
     /* Nearby overworld entities (not the party), relative to the leader */
     if (!mode_on_stack(GAME_MODE_BATTLE)) {
@@ -606,13 +704,42 @@ static bool write_png(const char *path, const pixel_t *fb, int w, int h) {
     return fclose(f) == 0;
 }
 
-static void take_shot(const char *arg) {
+/* shot [--crop W H] [--zoom N] [LABEL|PATH.png]
+ * --crop cuts a WxH box centred on the party leader (clamped to the frame);
+ * --zoom scales the result up N times (nearest neighbour). */
+static void take_shot(const char *line) {
     /* The frame just rendered shows the state after all earlier input. If
      * frame-skip dropped this frame's render, render it now. */
     if (!frame_was_rendered) {
         platform_render_frame(NULL);
         frame_was_rendered = true;
     }
+    char buf[256], arg[128] = "";
+    int cw = 0, ch = 0, zoom = 1;
+    snprintf(buf, sizeof(buf), "%s", line);
+    char *save = NULL;
+    strtok_r(buf, " \t\r\n", &save); /* "shot" */
+    for (char *tok = strtok_r(NULL, " \t\r\n", &save); tok; tok = strtok_r(NULL, " \t\r\n", &save)) {
+        if (strcmp(tok, "--crop") == 0) {
+            char *w = strtok_r(NULL, " \t\r\n", &save), *h = w ? strtok_r(NULL, " \t\r\n", &save) : NULL;
+            cw = w ? atoi(w) : 0;
+            ch = h ? atoi(h) : 0;
+            if (cw <= 0 || ch <= 0) {
+                script_error("usage: shot --crop W H [--zoom N] [LABEL]%s", "");
+                return;
+            }
+        } else if (strcmp(tok, "--zoom") == 0) {
+            char *z = strtok_r(NULL, " \t\r\n", &save);
+            zoom = z ? atoi(z) : 0;
+            if (zoom < 1 || zoom > 16) {
+                script_error("usage: shot ... --zoom N (1-16)%s", "");
+                return;
+            }
+        } else {
+            snprintf(arg, sizeof(arg), "%s", tok);
+        }
+    }
+
     const pixel_t *fb = video_last_frame();
     char path[256];
     size_t len = strlen(arg);
@@ -623,10 +750,42 @@ static void take_shot(const char *arg) {
         snprintf(path, sizeof(path), "shots/%04d%s%s.png", shot_counter, arg[0] ? "-" : "", arg);
     }
     shot_counter++;
-    if (fb && write_png(path, fb, EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT))
-        printf("SHOT %s frame=%u\n", path, (unsigned)core.frame_counter);
-    else
+
+    int x0 = 0, y0 = 0, w = EB_VIEWPORT_WIDTH, h = EB_VIEWPORT_HEIGHT;
+    if (cw > 0) {
+        int lead = game_state.current_party_members;
+        /* screen_x/y are already viewport pixels (BG scroll includes the pad) */
+        int cx = entities.screen_x[lead];
+        int cy = entities.screen_y[lead] - 8; /* feet -> body */
+        w = cw < EB_VIEWPORT_WIDTH ? cw : EB_VIEWPORT_WIDTH;
+        h = ch < EB_VIEWPORT_HEIGHT ? ch : EB_VIEWPORT_HEIGHT;
+        x0 = cx - w / 2;
+        y0 = cy - h / 2;
+        x0 = x0 < 0 ? 0 : (x0 > EB_VIEWPORT_WIDTH - w ? EB_VIEWPORT_WIDTH - w : x0);
+        y0 = y0 < 0 ? 0 : (y0 > EB_VIEWPORT_HEIGHT - h ? EB_VIEWPORT_HEIGHT - h : y0);
+    }
+    bool ok = false;
+    if (fb && x0 == 0 && y0 == 0 && w == EB_VIEWPORT_WIDTH && h == EB_VIEWPORT_HEIGHT && zoom == 1) {
+        ok = write_png(path, fb, w, h);
+    } else if (fb) {
+        int ow_ = w * zoom, oh = h * zoom;
+        pixel_t *out = malloc(sizeof(pixel_t) * (size_t)ow_ * (size_t)oh);
+        if (out) {
+            for (int y = 0; y < oh; y++)
+                for (int x = 0; x < ow_; x++)
+                    out[y * ow_ + x] = fb[(y0 + y / zoom) * EB_VIEWPORT_WIDTH + x0 + x / zoom];
+            ok = write_png(path, out, ow_, oh);
+            free(out);
+        }
+    }
+    if (ok) {
+        printf("SHOT %s frame=%u", path, (unsigned)core.frame_counter);
+        if (cw > 0 || zoom > 1)
+            printf(" box=%d,%d,%dx%d zoom=%d", x0, y0, w, h, zoom);
+        printf("\n");
+    } else {
         script_error("cannot write screenshot %s", path);
+    }
     fflush(stdout);
 }
 
@@ -826,7 +985,7 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
     int nv = sscanf(line, "%*s %d %d %d", &v1, &v2, &v3);
 
     if (strcmp(cmd, "shot") == 0) {
-        take_shot(arg);
+        take_shot(line);
     } else if (strcmp(cmd, "state") == 0) {
         print_state(arg);
     } else if (strcmp(cmd, "text") == 0) {
@@ -848,12 +1007,25 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             printf("FLAG %d = %d\n", v1, event_flag_get((uint16_t)v1));
         }
     } else if (strcmp(cmd, "give") == 0) {
-        if (nv < 1) {
-            script_error("usage: give ITEM [CHAR]%s", "");
+        const ItemConfig *item = nv >= 1 && v1 >= 1 && v1 <= 0xFF ? get_item_entry((uint16_t)v1) : NULL;
+        if (!item) {
+            script_error("usage: give ITEM [CHAR] (ITEM = item id 1-253)%s", "");
+        } else if (nv >= 2 && !party_char(v2)) {
+            /* party_char printed the error */
         } else {
             uint16_t who = nv >= 2 ? (uint16_t)v2 : 0xFF;
             uint16_t got = give_item_to_character(who, (uint16_t)v1);
-            printf("GIVE item %d -> %s%u\n", v1, got ? "char " : "FAILED (full?) ", got);
+            printf("GIVE item %d (", v1);
+            print_eb(item->name, ITEM_NAME_LEN);
+            if (got) {
+                printf(") -> char %u ", got);
+                print_eb(party_characters[got - 1].name, 5);
+                printf("\n");
+            } else if (nv >= 2) {
+                printf(") FAILED: char %d's inventory is full\n", v2);
+            } else {
+                printf(") FAILED: every party inventory is full\n");
+            }
         }
     } else if (strcmp(cmd, "money") == 0) {
         game_state.money_carried = (uint32_t)v1;
@@ -870,6 +1042,32 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             c->current_hp = c->current_hp_target = c->max_hp;
             c->current_pp = c->current_pp_target = c->max_pp;
         }
+    } else if (strcmp(cmd, "status") == 0) {
+        /* GROUP 1-7 = afflictions[GROUP-1] (as the text CCs number them),
+         * 8 = party_status. VALUE is the stored value (0 clears). */
+        CharStruct *c = nv >= 3 ? party_char(v1) : NULL;
+        if (nv < 3 || v2 < 1 || v2 > 8 || v3 < 0 || v3 > 255) {
+            script_error("usage: status CHAR GROUP VALUE (GROUP 1-7 affliction, 8 party_status)%s", "");
+        } else if (v2 == 8) {
+            game_state.party_status = (uint8_t)v3;
+            printf("STATUS party_status=%d\n", v3);
+        } else if (c) {
+            c->afflictions[v2 - 1] = (uint8_t)v3;
+            printf("STATUS char %d group %d = %d", v1, v2, v3);
+            if (v3 < 8 && status_names[v2 - 1][v3])
+                printf(" (%s)", status_names[v2 - 1][v3]);
+            printf("\n");
+        }
+    } else if (strcmp(cmd, "debug") == 0) {
+        /* Set ow.debug_flag directly. Unlike `aux F5` (AUX_DEBUG_TOGGLE in
+         * game_main.c), this doesn't also request the debug menu. */
+        if (strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0)
+            ow.debug_flag = 1;
+        else if (strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0)
+            ow.debug_flag = 0;
+        else if (arg[0])
+            script_error("usage: debug [on|off]%s", "");
+        printf("DEBUG %s\n", ow.debug_flag ? "on" : "off");
     } else if (strcmp(cmd, "aux") == 0) {
         if (strcmp(arg, "F1") == 0) *aux |= AUX_DEBUG_DUMP;
         else if (strcmp(arg, "F5") == 0) *aux |= AUX_DEBUG_TOGGLE;
@@ -912,6 +1110,11 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             teleport_x = (uint16_t)v1;
             teleport_y = (uint16_t)v2;
             teleport_dir = nv >= 3 ? (uint16_t)(v3 & 7) : 4;
+        }
+        if (!player_idle()) {
+            printf("ERR %s needs the player idle on the overworld (not idle: %s)\n", cmd, not_idle_reason());
+            fflush(stdout);
+            return true;
         }
         teleport_pending = true;
         return false;
@@ -995,6 +1198,15 @@ uint16_t input_script_next(uint16_t *aux) {
             return 0;
         }
         script_line_no++;
+        if (strncmp(line, "note ", 5) == 0) {
+            /* Echo a driver note verbatim ('#' included) into the output log */
+            said_flush();
+            printf("> %s", line + 5);
+            if (!strchr(line + 5, '\n'))
+                printf("\n");
+            fflush(stdout);
+            continue;
+        }
         char *hash = strchr(line, '#');
         if (hash)
             *hash = '\0';
@@ -1050,6 +1262,11 @@ void input_script_root_boundary(void) {
     /* The party reload leaves its entities disabled; the incoming screen
      * transition re-enables them (door.c), so do the same. */
     enable_all_entities();
+    /* load_map_at_position's CLEAR_ALL_ENEMIES removed every non-party entity,
+     * including the Buzz Buzz follower and the pending timed-delivery entities.
+     * Respawn them as the PSI Teleport arrival does (door.c TT_FINALIZE). */
+    ow.stairs_direction = (uint16_t)-1;
+    spawn_buzz_buzz();
     in_root_action = false;
     printf("TELEPORT (%u,%u) dir=%s\n", teleport_x, teleport_y, dir_names[teleport_dir & 7]);
     fflush(stdout);

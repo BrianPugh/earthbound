@@ -5,6 +5,8 @@ Usage (from the repo root)::
     uv run --no-sync python playtest/pt.py start NAME --save playtest/saves/24-Museum.srm
     uv run --no-sync python playtest/pt.py do NAME "press A; wait 20; 30 DOWN"
     uv run --no-sync python playtest/pt.py stop NAME
+    uv run --no-sync python playtest/pt.py history NAME > repro.play
+    uv run --no-sync python playtest/pt.py replay NAME NEWNAME
 
 The game runs with ``--session FIFO``: it executes the commands it is sent and
 then blocks (no frame advances) until the next ``do``. Every ``do`` ends with
@@ -13,7 +15,10 @@ resulting lines (window text, state, screenshot path). The command language is
 documented in port/unix/platform/sdl2_input_script.c and playtest/README.md.
 
 The binary is ``$EB_BIN`` (default port/unix/build/earthbound). Session files
-live in playtest/out/sessions/NAME/ (log.txt, shots/, snaps/, save.srm).
+live in playtest/out/sessions/NAME/ (log.txt, history.play, shots/, snaps/,
+debug/, save.srm, start.srm). log.txt echoes each ``do`` batch as a ``> ...``
+line; history.play holds every command sent, so ``replay`` can rebuild the
+session from start.srm.
 """
 
 import argparse
@@ -55,6 +60,10 @@ KEEP = (
     "SNAP",
     "RESTORE",
     "WARP",
+    "FOLLOW",
+    "STATUS",
+    "DEBUG",
+    ">",
 )
 PROBLEM = re.compile(r"error|halt|assert|abort|unknown script", re.IGNORECASE)
 
@@ -120,7 +129,27 @@ def make_sheet(paths, out, cols=4):
     return out
 
 
-def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False):
+def shot_command(crop=None, zoom=1):
+    """Build the automatic final ``shot`` command."""
+    cmd = "shot"
+    if crop:
+        w, h = crop
+        cmd += f" --crop {w} {h}"
+    if zoom > 1:
+        cmd += f" --zoom {zoom}"
+    return cmd
+
+
+def parse_crop(text):
+    """Parse ``WxH`` (or a single ``N`` for a square) into a (w, h) tuple."""
+    m = re.fullmatch(r"(\d+)(?:[xX,](\d+))?", text)
+    if not m:
+        raise argparse.ArgumentTypeError("expected WxH, e.g. 96x96")
+    w = int(m.group(1))
+    return w, int(m.group(2) or w)
+
+
+def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, crop=None, zoom=1, tag=None):
     d = session_dir(name)
     pid = read_pid(d)
     if pid is None:
@@ -129,11 +158,18 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False):
     seq = int(seq_file.read_text()) + 1 if seq_file.exists() else 1
     seq_file.write_text(str(seq))
 
-    lines = split_commands(cmds)
+    user = split_commands(cmds)
+    with (d / "history.play").open("a") as f:
+        f.write(f"# {tag or f'do {seq}'}\n" + "".join(f"{c}\n" for c in user))
+    # The game reads 255-byte lines: keep the echoed note short
+    note = "; ".join(user)
+    if len(note) > 200:
+        note = note[:197] + "..."
+    lines = ([f"note {note}"] if user else []) + user
     if not quiet:
         lines += ["text", "state"]
     if shot:
-        lines.append("shot")
+        lines.append(shot_command(crop, zoom))
     lines.append(f"sync {seq}")
 
     log = d / "log.txt"
@@ -175,7 +211,7 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False):
         print(f"SHEET {out}")
 
 
-def start(name, save, boot=True, scale=1):
+def start(name, save, boot=True, scale=1, history=None):
     d = session_dir(name)
     if read_pid(d) is not None:
         sys.exit(f"session {name} is already running (stop it first)")
@@ -184,6 +220,8 @@ def start(name, save, boot=True, scale=1):
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
     shutil.copy(save, d / "save.srm")
+    shutil.copy(save, d / "start.srm")
+    (d / "history.play").write_text(f"# pt.py session {name} from {save}\n")
     os.mkfifo(d / "cmd.fifo")
     with (d / "log.txt").open("wb") as log:
         p = subprocess.Popen(  # noqa: S603
@@ -205,7 +243,38 @@ def start(name, save, boot=True, scale=1):
                 sys.exit(f"game exited: see {d / 'log.txt'}")
             time.sleep(0.01)
     print(f"SESSION {name} pid={p.pid} dir={d}")
-    do(name, BOOT if boot else "", scale=scale)
+    if history is not None:
+        do(name, history, scale=scale, timeout=3600.0, tag="replay")
+    else:
+        do(name, BOOT if boot else "", scale=scale, tag="boot")
+
+
+def history_commands(name, boot=True):
+    """The commands sent to session NAME, one per line, as a .play script."""
+    f = session_dir(name) / "history.play"
+    if not f.exists():
+        sys.exit(f"no history for session {name}")
+    text = f.read_text()
+    if not boot:
+        # Drop the boot batch so run.py, which boots by itself, can play it
+        blocks = re.split(r"(?m)^(?=# )", text)
+        text = "".join(b for b in blocks if not b.startswith("# boot\n"))
+    return text
+
+
+def replay(name, new):
+    """Start session NEW from NAME's start.srm and resend NAME's whole history."""
+    src = session_dir(name)
+    if not (src / "start.srm").exists():
+        sys.exit(f"session {name} has no start.srm (started before replay support?)")
+    cmds = [ln for ln in history_commands(name).splitlines() if ln.strip() and not ln.startswith("#")]
+    tmp = SESSIONS / f".replay-{new}.srm"
+    SESSIONS.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src / "start.srm", tmp)
+    try:
+        start(new, tmp, history="\n".join(cmds))
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def stop(name):
@@ -240,17 +309,39 @@ def main():
     s.add_argument("--sheet", action="store_true", help="tile this step's screenshots into one image")
     s.add_argument("--scale", type=int, default=1, help="upscale screenshots by this factor")
     s.add_argument("--timeout", type=float, default=300.0)
+    s.add_argument("--crop", type=parse_crop, help="crop the final screenshot to WxH around the leader")
+    s.add_argument("--zoom", type=int, default=1, help="scale the final screenshot N times (in the game)")
     s = sub.add_parser("stop", help="quit a session")
     s.add_argument("name")
+    s = sub.add_parser("history", help="print every command sent to a session, as a .play script")
+    s.add_argument("name")
+    s.add_argument("--no-boot", action="store_true", help="drop the boot batch (for run.py, which boots itself)")
+    s = sub.add_parser("replay", help="start NEW from NAME's starting save and resend NAME's history")
+    s.add_argument("name")
+    s.add_argument("new")
     sub.add_parser("list", help="list sessions")
     a = ap.parse_args()
 
     if a.cmd == "start":
         start(a.name, a.save, boot=not a.no_boot, scale=a.scale)
     elif a.cmd == "do":
-        do(a.name, a.commands, shot=not a.no_shot, sheet=a.sheet, scale=a.scale, timeout=a.timeout, quiet=a.quiet)
+        do(
+            a.name,
+            a.commands,
+            shot=not a.no_shot,
+            sheet=a.sheet,
+            scale=a.scale,
+            timeout=a.timeout,
+            quiet=a.quiet,
+            crop=a.crop,
+            zoom=a.zoom,
+        )
     elif a.cmd == "stop":
         stop(a.name)
+    elif a.cmd == "history":
+        sys.stdout.write(history_commands(a.name, boot=not a.no_boot))
+    elif a.cmd == "replay":
+        replay(a.name, a.new)
     else:
         for d in sorted(SESSIONS.glob("*")):
             print(d.name, "running" if read_pid(d) else "stopped")
