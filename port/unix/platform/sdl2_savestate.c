@@ -11,8 +11,18 @@
 #include <stdio.h>
 #include <unistd.h>
 
+/* Slot files are "<prefix>.0" / "<prefix>.1". The playtest harness points the
+ * prefix at a named snapshot (snaps/NAME) around a snap/restore. */
+static char slot_prefix[200] = "savestate.bin";
+
+void platform_savestate_set_path(const char *prefix) {
+    snprintf(slot_prefix, sizeof(slot_prefix), "%s", prefix ? prefix : "savestate.bin");
+}
+
 static const char *slot_path(int slot) {
-    return slot == 0 ? "savestate.bin.0" : "savestate.bin.1";
+    static char path[sizeof(slot_prefix) + 4];
+    snprintf(path, sizeof(path), "%s.%d", slot_prefix, slot);
+    return path;
 }
 
 /* In-progress writers, one per slot (NULL when no write is open). */

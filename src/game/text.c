@@ -55,6 +55,8 @@ uint16_t vwf_x;        /* current pixel X position */
 uint16_t vwf_tile;     /* current tile index in ert.buffer */
 uint16_t vwf_pixels_rendered; /* tracks how many pixels rendered (savestate-captured) */
 
+void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
+
 /* VWF save/restore aliases into the tail of ert.buffer (BUF_VWF_SAVE).
  * Phase-exclusive with pathfinding — see buffer_layout.h for details. */
 _Static_assert(VWF_BUFFER_SIZE == BUF_VWF_SAVE_SIZE,
@@ -3336,6 +3338,9 @@ void print_eb_string(const uint8_t *eb_str, int len) {
         if (eb >= 0x50)
             dt.last_printed_character = eb;
 
+        if (text_trace_hook)
+            text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
+
         /* VWF render + flush to VRAM + write to per-window tilemap.
          * vwf_render_character handles @PRINT_SPECIAL internally for
          * chars 0x20, 0x22, 0x2F. */
@@ -3402,6 +3407,8 @@ void print_string(const char *str) {
         if (eb >= 0x50)
             dt.last_printed_character = eb;
 
+        if (text_trace_hook)
+            text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
         vwf_render_character(eb, font_id);
 
         /* Skip flush for special chars — same guard as print_eb_string */
@@ -3450,6 +3457,8 @@ void print_number(int value, int min_digits) {
 void clear_window_text(uint16_t window_id) {
     WindowInfo *w = get_window(window_id);
     if (!w) return;
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_CLEAR, window_id, 0);
 
     /* Free all tiles in per-window content_tilemap and fill with 0 */
     uint16_t content_width = w->width - 2;

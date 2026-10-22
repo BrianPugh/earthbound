@@ -83,6 +83,15 @@ void print_number(int value, int min_digits);
 /* Clear the text area of a window */
 void clear_window_text(uint16_t window_id);
 
+/* Text-trace hook for the desktop playtest harness (port/unix sdl2_input_script.c),
+ * which turns printed window text back into ASCII for scripted/AI playtests.
+ * NULL everywhere else; it only observes and never changes game state.
+ * CHAR fires before each character is drawn (the focus window's text_y and
+ * cursor_pixel_x are its position); SCROLL/CLEAR/CLOSE fire as a window's text
+ * scrolls up a line, is cleared, or the window closes. */
+enum { TEXT_TRACE_CHAR, TEXT_TRACE_SCROLL, TEXT_TRACE_CLEAR, TEXT_TRACE_CLOSE };
+extern void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
+
 /* Convert an EarthBound internal character code to ASCII. */
 char eb_char_to_ascii(uint8_t eb_char);
 

@@ -13,6 +13,8 @@
 void platform_save_set_path(const char *path);
 /* Unix-specific: scripted input playback (defined in sdl2_input_script.c) */
 bool input_script_open(const char *path);
+bool input_script_open_session(const char *path);
+void input_script_root_boundary(void);
 #include "verify/verify.h"
 
 /* Cleanup handler registered with atexit() — runs on any exit() call. */
@@ -45,6 +47,10 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) {
             if (!input_script_open(argv[++i]))
                 return 1;
+        } else if (strcmp(argv[i], "--session") == 0 && i + 1 < argc) {
+            /* Interactive playtest: read commands from a FIFO, block when idle */
+            if (!input_script_open_session(argv[++i]))
+                return 1;
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -55,7 +61,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
                     argv[0]);
             return 1;
         }
@@ -128,6 +134,7 @@ int main(int argc, char *argv[]) {
         game_loop_step();
         host_process_frame();
         host_root_boundary(); /* root boundary: perform any pending torn-safe capture */
+        input_script_root_boundary();
     }
 
 #ifdef EB_ENABLE_VERIFY

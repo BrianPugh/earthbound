@@ -1,0 +1,260 @@
+"""Drive a long-lived headless game session, one step at a time.
+
+Usage (from the repo root)::
+
+    uv run --no-sync python playtest/pt.py start NAME --save playtest/saves/24-Museum.srm
+    uv run --no-sync python playtest/pt.py do NAME "press A; wait 20; 30 DOWN"
+    uv run --no-sync python playtest/pt.py stop NAME
+
+The game runs with ``--session FIFO``: it executes the commands it is sent and
+then blocks (no frame advances) until the next ``do``. Every ``do`` ends with
+``text``, ``state`` and a screenshot unless told otherwise, and prints the
+resulting lines (window text, state, screenshot path). The command language is
+documented in port/unix/platform/sdl2_input_script.c and playtest/README.md.
+
+The binary is ``$EB_BIN`` (default port/unix/build/earthbound). Session files
+live in playtest/out/sessions/NAME/ (log.txt, shots/, snaps/, save.srm).
+"""
+
+import argparse
+import errno
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from PIL import Image, ImageDraw
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+SESSIONS = HERE / "out" / "sessions"
+BIN = os.environ.get("EB_BIN", str(ROOT / "port/unix/build/earthbound"))
+
+# Title screen -> file select -> file 1 -> Continue, then wait for control.
+BOOT = "300 -; 1 START; 200 -; 1 A; 120 -; 1 A; 120 -; 1 A; until idle 900"
+
+KEEP = (
+    "STATE",
+    "PARTY",
+    "ENEMIES",
+    "NEAR",
+    "TEXT",
+    "WIN",
+    "MENU",
+    "SHOT",
+    "UNTIL",
+    "ERR",
+    "FLAG",
+    "GIVE",
+    "MONEY",
+    "TELEPORT",
+    "SNAP",
+    "RESTORE",
+    "WARP",
+)
+PROBLEM = re.compile(r"error|halt|assert|abort|unknown script", re.IGNORECASE)
+
+
+def session_dir(name):
+    return SESSIONS / name
+
+
+def read_pid(d):
+    try:
+        pid = int((d / "pid").read_text())
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return None
+    return pid
+
+
+def send(d, text):
+    """Write command text to the session FIFO (the game holds it open)."""
+    try:
+        fd = os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK)
+    except OSError as e:
+        if e.errno in (errno.ENXIO, errno.ENOENT):
+            sys.exit(f"session {d.name} is not running")
+        raise
+    data = text.encode()
+    try:
+        while data:
+            try:
+                n = os.write(fd, data)
+                data = data[n:]
+            except BlockingIOError:
+                time.sleep(0.01)
+    finally:
+        os.close(fd)
+
+
+def split_commands(cmds):
+    out = []
+    for part in re.split(r"[;\n]", cmds):
+        part = part.strip()
+        if part:
+            out.append(part)
+    return out
+
+
+def scale_png(path, factor):
+    im = Image.open(path)
+    im.resize((im.width * factor, im.height * factor), Image.NEAREST).save(path)
+
+
+def make_sheet(paths, out, cols=4):
+    tiles = [Image.open(p).convert("RGB") for p in paths]
+    w, h = tiles[0].size
+    rows = (len(tiles) + cols - 1) // cols
+    sheet = Image.new("RGB", (w * min(cols, len(tiles)), (h + 12) * rows), "white")
+    draw = ImageDraw.Draw(sheet)
+    for i, (im, p) in enumerate(zip(tiles, paths)):
+        x, y = (i % cols) * w, (i // cols) * (h + 12)
+        sheet.paste(im, (x, y + 12))
+        draw.text((x + 2, y), Path(p).stem, fill="black")
+    sheet.save(out)
+    return out
+
+
+def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False):
+    d = session_dir(name)
+    pid = read_pid(d)
+    if pid is None:
+        sys.exit(f"session {name} is not running (start it first)")
+    seq_file = d / "seq"
+    seq = int(seq_file.read_text()) + 1 if seq_file.exists() else 1
+    seq_file.write_text(str(seq))
+
+    lines = split_commands(cmds)
+    if not quiet:
+        lines += ["text", "state"]
+    if shot:
+        lines.append("shot")
+    lines.append(f"sync {seq}")
+
+    log = d / "log.txt"
+    start = log.stat().st_size
+    send(d, "\n".join(lines) + "\n")
+
+    marker = f"SYNC {seq} "
+    deadline = time.time() + timeout
+    buf = ""
+    while True:
+        with log.open("rb") as f:
+            f.seek(start)
+            buf = f.read().decode(errors="replace")
+        if marker in buf:
+            break
+        if read_pid(d) is None:
+            print(buf[-3000:])
+            sys.exit(f"session {name}: game exited")
+        if time.time() > deadline:
+            print(buf[-3000:])
+            sys.exit(f"session {name}: timed out after {timeout:.0f}s waiting for sync {seq}")
+        time.sleep(0.02)
+
+    shots = []
+    for ln in buf.splitlines():
+        if ln.startswith(marker):
+            break
+        if ln.startswith("SHOT "):
+            rel = ln.split()[1]
+            p = d / rel
+            shots.append(p)
+            if scale > 1:
+                scale_png(p, scale)
+            print(f"SHOT {p} {' '.join(ln.split()[2:])}")
+        elif ln.startswith(KEEP) or PROBLEM.search(ln):
+            print(ln)
+    if sheet and len(shots) > 1:
+        out = make_sheet(shots, d / "shots" / f"sheet-{seq:04d}.png")
+        print(f"SHEET {out}")
+
+
+def start(name, save, boot=True, scale=1):
+    d = session_dir(name)
+    if read_pid(d) is not None:
+        sys.exit(f"session {name} is already running (stop it first)")
+    if not Path(BIN).exists():
+        sys.exit(f"game binary not found: {BIN} (set EB_BIN)")
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True)
+    shutil.copy(save, d / "save.srm")
+    os.mkfifo(d / "cmd.fifo")
+    with (d / "log.txt").open("wb") as log:
+        p = subprocess.Popen(  # noqa: S603
+            [BIN, "--headless", "--save", "save.srm", "--session", "cmd.fifo"],
+            cwd=d,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    (d / "pid").write_text(str(p.pid))
+    # Wait until the game has opened the FIFO
+    for _ in range(500):
+        try:
+            os.close(os.open(d / "cmd.fifo", os.O_WRONLY | os.O_NONBLOCK))
+            break
+        except OSError:
+            if p.poll() is not None:
+                sys.exit(f"game exited: see {d / 'log.txt'}")
+            time.sleep(0.01)
+    print(f"SESSION {name} pid={p.pid} dir={d}")
+    do(name, BOOT if boot else "", scale=scale)
+
+
+def stop(name):
+    d = session_dir(name)
+    pid = read_pid(d)
+    if pid is None:
+        print(f"session {name} is not running")
+        return
+    send(d, "quit\n")
+    for _ in range(200):
+        if read_pid(d) is None:
+            break
+        time.sleep(0.02)
+    else:
+        os.kill(pid, signal.SIGKILL)
+    print(f"stopped {name}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("start", help="launch a session from a save")
+    s.add_argument("name")
+    s.add_argument("--save", required=True, help=".srm save file (booted as file 1 -> Continue)")
+    s.add_argument("--no-boot", action="store_true", help="stay on the title screen")
+    s.add_argument("--scale", type=int, default=1, help="upscale screenshots by this factor")
+    s = sub.add_parser("do", help="run commands, then print text/state and a screenshot")
+    s.add_argument("name")
+    s.add_argument("commands", help="';' or newline separated commands")
+    s.add_argument("--no-shot", action="store_true", help="skip the automatic final screenshot")
+    s.add_argument("--quiet", action="store_true", help="skip the automatic text/state lines")
+    s.add_argument("--sheet", action="store_true", help="tile this step's screenshots into one image")
+    s.add_argument("--scale", type=int, default=1, help="upscale screenshots by this factor")
+    s.add_argument("--timeout", type=float, default=300.0)
+    s = sub.add_parser("stop", help="quit a session")
+    s.add_argument("name")
+    sub.add_parser("list", help="list sessions")
+    a = ap.parse_args()
+
+    if a.cmd == "start":
+        start(a.name, a.save, boot=not a.no_boot, scale=a.scale)
+    elif a.cmd == "do":
+        do(a.name, a.commands, shot=not a.no_shot, sheet=a.sheet, scale=a.scale, timeout=a.timeout, quiet=a.quiet)
+    elif a.cmd == "stop":
+        stop(a.name)
+    else:
+        for d in sorted(SESSIONS.glob("*")):
+            print(d.name, "running" if read_pid(d) else "stopped")
+
+
+if __name__ == "__main__":
+    main()

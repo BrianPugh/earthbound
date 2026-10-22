@@ -263,6 +263,8 @@ WindowInfo *create_window(uint16_t window_id) {
 
 void close_window(uint16_t window_id) {
     if (window_id == WINDOW_ID_NONE) return;
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_CLOSE, window_id, 0);
 
     for (int i = 0; i < MAX_WINDOWS; i++) {
         if (win.windows[i].active && win.windows[i].id == window_id) {
@@ -2834,6 +2836,8 @@ void update_hppp_meter_tiles(void) {
  */
 void scroll_window_up(WindowInfo *w) {
     if (!w) return;
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_SCROLL, w->id, 0);
 
     uint16_t content_width = w->width - 2;
     uint16_t interior_tile_rows = w->height - 2;
@@ -3106,6 +3110,8 @@ void window_savestate_rebind(void) {
 void clear_window_tilemap(uint16_t window_id) {
     WindowInfo *w = get_window(window_id);
     if (!w) return;
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_CLEAR, window_id, 0);
 
     /* Free all tiles in content_tilemap and fill with 0.
      * Assembly (clear_window_tilemap.asm): iterates width*height, frees via

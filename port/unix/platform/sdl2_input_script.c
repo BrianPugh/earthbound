@@ -1,51 +1,200 @@
 /*
- * Scripted input playback for automated playtests (--input FILE).
+ * Scripted input for automated / AI-driven playtests.
  *
- * The script replaces keyboard input frame by frame. One command per line,
- * '#' starts a comment:
+ *   --input FILE     batch: play FILE, quit the game when it runs out
+ *   --session FIFO   interactive: read commands from FIFO forever. When no
+ *                    command is pending the game blocks (no frame advances),
+ *                    so a driver (playtest/pt.py) can step it deterministically
+ *                    across separate invocations.
  *
- *   N BUTTONS     hold BUTTONS for N frames. BUTTONS is '-' (nothing) or a
- *                 '+'-joined list: A B X Y L R START SELECT UP DOWN LEFT RIGHT
- *   shot LABEL    dump the PPU on this frame (debug/screenshot_NNN.bmp)
- *   state LABEL   print a one-line game-state summary to stdout
- *   aux NAME      pulse an aux key for one frame: F1 F5 F6 F7
- *   until COND MAX PATTERN
- *                 play PATTERN until COND holds or MAX frames pass. COND is
- *                 in:M / out:M (mode M is / isn't on the mode stack). PATTERN
- *                 is '|'-separated BUTTONS cycled every 48 frames; a trailing
- *                 '*' on a segment taps it (pressed every other frame)
- *   end           quit (also implied at end of file)
+ * One command per line, '#' starts a comment. Frame-taking commands:
  *
- * shot/state/aux take no frames of their own; they apply to the next held
- * frame. Playback quits the game when the script runs out.
+ *   N BUTTONS        hold BUTTONS for N frames. BUTTONS is '-' (nothing) or a
+ *                    '+'-joined list: A B X Y L R START SELECT UP DOWN LEFT RIGHT
+ *   wait N           N frames with nothing held
+ *   press BUTTONS [COUNT]
+ *                    tap BUTTONS COUNT times (2 frames down, 4 up each)
+ *   until COND [MAX] [PATTERN]
+ *                    play PATTERN until COND holds or MAX frames pass (default
+ *                    3600); in/out/idle/input must hold 3 frames in a row
+ *                    (buttons released meanwhile) so the next press lands.
+ *                    PATTERN is '|'-separated BUTTONS cycled every 48
+ *                    frames; a trailing '*' on a segment taps it (pressed every
+ *                    other frame). Default PATTERN is '-'. PATTERN 'advance'
+ *                    taps A only while a text prompt waits for a button (it
+ *                    never opens a menu or picks a menu item). COND is one of
+ *                      in:M / out:M  mode M (name or number) is / isn't on the
+ *                                    mode stack
+ *                      idle          player can walk: mode stack is just
+ *                                    OVERWORLD, no battle/interaction/fade
+ *                      input         idle, or a menu / text prompt / target
+ *                                    select is waiting for a button
+ *                      text          any window text was printed
+ *                      said:WORD     printed text contained WORD
+ *                      battle        an enemy was touched / a battle started
+ *   end | quit       stop playback and quit the game
+ *
+ * Instant commands (take no frame; they act on the state after all earlier
+ * input):
+ *
+ *   shot [PATH|LABEL]  write the current frame as a PNG (PATH if it ends in
+ *                    .png, else shots/NNNN[-LABEL].png). Prints SHOT path.
+ *   state [LABEL]    print STATE/PARTY(/ENEMY) lines
+ *   text             print the text in every open window (WIN) and the
+ *                    active menu (MENU)
+ *   sync ID          print "SYNC ID" (the session driver waits for it)
+ *   flag N [0|1]     read / write event flag N
+ *   give ITEM [CHAR] give item id to party member CHAR (1-4; default first free)
+ *   money N          set money on hand
+ *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP
+ *   heal             restore every party member's HP/PP to max
+ *   aux NAME         pulse an aux key for one frame: F1 F5 F6 F7
+ *
+ * Root-boundary commands (applied between frames, at the main loop root):
+ *
+ *   teleport X Y [DIR]  move the party to world pixel (X,Y), reloading the
+ *                    map/NPCs/music (initialize_map, as the debug teleport).
+ *                    DIR 0-7 (0=up, clockwise; default 4=down). Needs idle.
+ *   warp NAME|N      teleport to a PSI Teleport destination (town), by index
+ *                    or name prefix; 'warps' lists them
+ *   snap NAME | restore NAME
+ *                    save / load an in-process savestate at snaps/NAME.*
+ *
+ * Window text is captured as it is printed (text_trace_hook) and echoed as
+ * "TEXT w<id>| ..." lines when each line completes.
  */
 #include "platform/platform.h"
 #include "include/pad.h"
+#include "include/constants.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
+#include "entity/entity.h"
+#include "game/battle.h"
+#include "game/display_text.h"
+#include "game/display_text_internal.h"
 #include "game/game_state.h"
+#include "game/inventory.h"
+#include "game/map_loader.h"
 #include "game/overworld.h"
+#include "game/text.h"
+#include "game/window.h"
+#include "game_main.h"
+#include "snes/ppu.h"
 
 #include <ctype.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 
-extern int debug_auto_dump_requested;
+/* sdl2_video.c */
+extern int video_frames_rendered;
+const pixel_t *video_last_frame(void);
+/* sdl2_savestate.c */
+void platform_savestate_set_path(const char *prefix);
 
 static FILE *script_file;
 static int script_line_no;
 static uint16_t hold_pad;
 static int hold_frames;
 static int shot_counter;
+static int last_poll_render_count = -1;
+static bool frame_was_rendered;  /* this poll's frame reached the framebuffer */
+
+/* press: remaining taps and the frame within the current tap */
+static uint16_t press_pad;
+static int press_left;
+static int press_phase;
 
 /* Active 'until' command */
+enum { UC_IN, UC_OUT, UC_IDLE, UC_INPUT, UC_TEXT, UC_SAID, UC_BATTLE };
 static bool until_active;
-static bool until_want_in;
+static int until_kind;
 static int until_mode;
 static int until_left;
 static int until_elapsed;
 static char until_pattern[128];
+static char until_word[64];
+
+/* Deferred work */
+static bool capture_waiting;     /* snap/restore issued, waiting for the root boundary */
+static bool capture_is_load;
+static char capture_name[64];
+static bool teleport_pending;
+static uint16_t teleport_x, teleport_y, teleport_dir;
+static bool in_root_action;      /* nested frames from a root action: don't read commands */
+
+static const char *const mode_names[GAME_MODE_COUNT] = {
+    [GAME_MODE_NONE] = "NONE", [GAME_MODE_FADE_WAIT] = "FADE_WAIT",
+    [GAME_MODE_NUMBER_SELECT] = "NUMBER_SELECT", [GAME_MODE_CHAR_SELECT] = "CHAR_SELECT",
+    [GAME_MODE_TEXT_DELAY] = "TEXT_DELAY", [GAME_MODE_ACTIONSCRIPT_WAIT] = "ACTIONSCRIPT_WAIT",
+    [GAME_MODE_TEXT_PROMPT] = "TEXT_PROMPT", [GAME_MODE_SELECTION_MENU] = "SELECTION_MENU",
+    [GAME_MODE_TOWN_MAP] = "TOWN_MAP", [GAME_MODE_SOUND_STONE] = "SOUND_STONE",
+    [GAME_MODE_DEBUG_YMENU] = "DEBUG_YMENU", [GAME_MODE_BATTLE_WAIT] = "BATTLE_WAIT",
+    [GAME_MODE_BATTLE_ROW_SELECT] = "BATTLE_ROW_SELECT",
+    [GAME_MODE_BATTLE_ENEMY_SELECT] = "BATTLE_ENEMY_SELECT",
+    [GAME_MODE_NAMING_EVENTS] = "NAMING_EVENTS", [GAME_MODE_TEXT_INPUT] = "TEXT_INPUT",
+    [GAME_MODE_NAMING_PROMPT] = "NAMING_PROMPT", [GAME_MODE_SCREEN_TRANSITION] = "SCREEN_TRANSITION",
+    [GAME_MODE_PALETTE_FADE] = "PALETTE_FADE", [GAME_MODE_MAP_PALETTE_FADE] = "MAP_PALETTE_FADE",
+    [GAME_MODE_MOSAIC_FADE] = "MOSAIC_FADE", [GAME_MODE_FLYOVER] = "FLYOVER",
+    [GAME_MODE_INTRO_LOGO] = "INTRO_LOGO", [GAME_MODE_GAS_STATION] = "GAS_STATION",
+    [GAME_MODE_TITLE_SCREEN] = "TITLE_SCREEN", [GAME_MODE_ATTRACT] = "ATTRACT",
+    [GAME_MODE_FILE_MENU] = "FILE_MENU", [GAME_MODE_INIT_INTRO] = "INIT_INTRO",
+    [GAME_MODE_DISPLAY_TEXT] = "DISPLAY_TEXT", [GAME_MODE_ENTITY_FADE_WAIT] = "ENTITY_FADE_WAIT",
+    [GAME_MODE_TEXT_WAIT_FADE] = "TEXT_WAIT_FADE",
+    [GAME_MODE_PROCESS_INTERACTION] = "PROCESS_INTERACTION",
+    [GAME_MODE_DOOR_TRANSITION] = "DOOR_TRANSITION", [GAME_MODE_QUICK_CHECKTALK] = "QUICK_CHECKTALK",
+    [GAME_MODE_PAUSE_MENU] = "PAUSE_MENU", [GAME_MODE_EQUIP_MENU] = "EQUIP_MENU",
+    [GAME_MODE_STATUS_MENU] = "STATUS_MENU", [GAME_MODE_HPPP_DISPLAY] = "HPPP_DISPLAY",
+    [GAME_MODE_PSI_MENU] = "PSI_MENU", [GAME_MODE_USE_ITEM] = "USE_ITEM",
+    [GAME_MODE_TELEPORT_MENU] = "TELEPORT_MENU",
+    [GAME_MODE_DETERMINE_TARGETING] = "DETERMINE_TARGETING", [GAME_MODE_LEVEL_UP] = "LEVEL_UP",
+    [GAME_MODE_BATTLE_PSI_MENU] = "BATTLE_PSI_MENU", [GAME_MODE_BATTLE_MENU] = "BATTLE_MENU",
+    [GAME_MODE_BATTLE] = "BATTLE", [GAME_MODE_INSTANT_WIN] = "INSTANT_WIN",
+    [GAME_MODE_BATTLE_ENTRY] = "BATTLE_ENTRY", [GAME_MODE_BATTLE_SCRIPTED] = "BATTLE_SCRIPTED",
+    [GAME_MODE_BATTLE_ACTION] = "BATTLE_ACTION", [GAME_MODE_BATTLE_CALC] = "BATTLE_CALC",
+    [GAME_MODE_BATTLE_REVIVE] = "BATTLE_REVIVE", [GAME_MODE_BATTLE_APPLY] = "BATTLE_APPLY",
+    [GAME_MODE_BATTLE_KO] = "BATTLE_KO", [GAME_MODE_CHECK_DEAD_PLAYERS] = "CHECK_DEAD_PLAYERS",
+    [GAME_MODE_ACTIONSCRIPT_FRAME] = "ACTIONSCRIPT_FRAME",
+    [GAME_MODE_PP_RECOVERY_FLASH] = "PP_RECOVERY_FLASH", [GAME_MODE_TELEPORT] = "TELEPORT",
+    [GAME_MODE_BICYCLE_DISMOUNT] = "BICYCLE_DISMOUNT", [GAME_MODE_HP_ALERT] = "HP_ALERT",
+    [GAME_MODE_GAME_OVER] = "GAME_OVER", [GAME_MODE_OVERWORLD] = "OVERWORLD",
+    [GAME_MODE_DEBUG_GOODS] = "DEBUG_GOODS", [GAME_MODE_DEBUG_MENU] = "DEBUG_MENU",
+    [GAME_MODE_TELEPORT_TO] = "TELEPORT_TO", [GAME_MODE_NEW_GAME_NAMING] = "NEW_GAME_NAMING",
+    [GAME_MODE_SPECIAL_EVENT] = "SPECIAL_EVENT", [GAME_MODE_ENTER_NAME] = "ENTER_NAME",
+    [GAME_MODE_LOAD_BATTLE_SCENE] = "LOAD_BATTLE_SCENE", [GAME_MODE_STORE_MENU] = "STORE_MENU",
+    [GAME_MODE_ESCARGO_MENU] = "ESCARGO_MENU", [GAME_MODE_TELEPHONE_MENU] = "TELEPHONE_MENU",
+    [GAME_MODE_WAIT_FRAMES] = "WAIT_FRAMES", [GAME_MODE_ENDING] = "ENDING",
+    [GAME_MODE_WINDOW_BORDER_ANIM] = "WINDOW_BORDER_ANIM",
+};
+
+static const char *const dir_names[8] = {
+    "UP", "UP_RIGHT", "RIGHT", "DOWN_RIGHT", "DOWN", "DOWN_LEFT", "LEFT", "UP_LEFT",
+};
+
+static void script_error(const char *fmt, const char *arg) {
+    printf("ERR line %d: ", script_line_no);
+    printf(fmt, arg);
+    printf("\n");
+    fflush(stdout);
+}
+
+static const char *mode_name(int mode) {
+    if (mode >= 0 && mode < GAME_MODE_COUNT && mode_names[mode])
+        return mode_names[mode];
+    return "?";
+}
+
+static int parse_mode(const char *s) {
+    if (isdigit((unsigned char)s[0]))
+        return atoi(s);
+    for (int i = 0; i < GAME_MODE_COUNT; i++)
+        if (mode_names[i] && strcmp(mode_names[i], s) == 0)
+            return i;
+    return -1;
+}
 
 static bool mode_on_stack(int mode) {
     for (int i = 0; i < g_mode_stack.depth; i++)
@@ -54,17 +203,462 @@ static bool mode_on_stack(int mode) {
     return false;
 }
 
-bool input_script_open(const char *path) {
-    script_file = fopen(path, "r");
+static int top_mode(void) {
+    return g_mode_stack.depth ? g_mode_stack.mode[g_mode_stack.depth - 1] : GAME_MODE_NONE;
+}
+
+/* ---- Window text capture (text_trace_hook) ---- */
+
+#define TT_LINES  16
+#define TT_GLYPHS 72
+
+typedef struct {
+    uint16_t x;
+    char c;
+} Glyph;
+
+typedef struct {
+    uint8_t n;
+    Glyph g[TT_GLYPHS];
+} TextLine;
+
+static TextLine tt_lines[MAX_WINDOWS][TT_LINES];
+
+/* Per window: where the previous character went. After a character the game
+ * sets cursor_pixel_x = vwf_x (VWF-buffer relative); an explicit reposition
+ * sets it window-relative. So "cursor_pixel_x == vwf_x" means "continues the
+ * previous character", advanced by however far vwf_x moved. */
+static struct {
+    int y;
+    int x;          /* window-relative pixel x of the previous character */
+    int vwf;        /* vwf_x when it was printed */
+    bool valid;
+} tt_pos[MAX_WINDOWS];
+
+/* Transcript: the line currently being printed, echoed as TEXT when done */
+static char said_line[160];
+static int said_len;
+static int said_slot = -1, said_y = -1, said_last_x;
+static uint8_t said_window_id;
+static unsigned text_chars_printed;
+static char until_said[2048];
+static int until_said_len;
+
+static int window_slot(uint16_t window_id) {
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (win.windows[i].active && win.windows[i].id == window_id)
+            return i;
+    return -1;
+}
+
+static void said_flush(void) {
+    while (said_len > 0 && said_line[said_len - 1] == ' ')
+        said_len--;
+    if (said_len > 0) {
+        said_line[said_len] = '\0';
+        printf("TEXT w%u| %s\n", said_window_id, said_line);
+        fflush(stdout);
+    }
+    said_len = 0;
+    said_slot = -1;
+    said_y = -1;
+}
+
+static void tt_clear_slot(int slot) {
+    memset(tt_lines[slot], 0, sizeof(tt_lines[slot]));
+    tt_pos[slot].valid = false;
+}
+
+static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
+    int slot = window_slot(window_id);
+    if (slot < 0)
+        return;
+    WindowInfo *w = &win.windows[slot];
+
+    if (event != TEXT_TRACE_CHAR) {
+        if (slot == said_slot)
+            said_flush();
+        if (event == TEXT_TRACE_SCROLL) {
+            memmove(&tt_lines[slot][0], &tt_lines[slot][1], sizeof(TextLine) * (TT_LINES - 1));
+            memset(&tt_lines[slot][TT_LINES - 1], 0, sizeof(TextLine));
+            tt_pos[slot].y--;
+        } else {
+            tt_clear_slot(slot);
+        }
+        return;
+    }
+
+    char c = (eb_char >= 0x50 && eb_char <= 0xAF) ? eb_char_to_ascii(eb_char) : 0;
+    if (!c)
+        return;
+    int y = w->text_y;
+    int x = w->cursor_pixel_x;
+    if (tt_pos[slot].valid && tt_pos[slot].y == y && w->cursor_pixel_x == vwf_x) {
+        int adv = (int)vwf_x - tt_pos[slot].vwf;
+        if (adv < 0)
+            adv += VWF_BUFFER_TILES * 8;
+        x = tt_pos[slot].x + adv;
+    }
+    tt_pos[slot].y = y;
+    tt_pos[slot].x = x;
+    tt_pos[slot].vwf = vwf_x;
+    tt_pos[slot].valid = true;
+
+    /* Grid copy: overwrite whatever glyph sat at this x, keep sorted by x */
+    if (y >= 0 && y < TT_LINES) {
+        TextLine *ln = &tt_lines[slot][y];
+        int j = 0;
+        for (int i = 0; i < ln->n; i++)
+            if (ln->g[i].x + 1 < x || ln->g[i].x > x + 1)
+                ln->g[j++] = ln->g[i];
+        ln->n = (uint8_t)j;
+        if (ln->n < TT_GLYPHS) {
+            int at = ln->n;
+            while (at > 0 && ln->g[at - 1].x > x) {
+                ln->g[at] = ln->g[at - 1];
+                at--;
+            }
+            ln->g[at] = (Glyph){ (uint16_t)x, c };
+            ln->n++;
+        }
+    }
+
+    /* Transcript, in print order; a '@' bullet starts a new statement */
+    if (slot != said_slot || y != said_y || x < said_last_x || c == '@')
+        said_flush();
+    if (said_len > 0 && x > said_last_x + 14 && said_len < (int)sizeof(said_line) - 3) {
+        said_line[said_len++] = ' ';
+        said_line[said_len++] = ' ';
+    }
+    if (said_len < (int)sizeof(said_line) - 1)
+        said_line[said_len++] = c;
+    said_slot = slot;
+    said_y = y;
+    said_window_id = (uint8_t)window_id;
+    said_last_x = x;
+    text_chars_printed++;
+    if (until_active && until_said_len < (int)sizeof(until_said) - 1) {
+        until_said[until_said_len++] = c;
+        until_said[until_said_len] = '\0';
+    }
+}
+
+/* Render one captured line as ASCII, spacing out column gaps. */
+static void line_text(const TextLine *ln, char *out, size_t cap) {
+    size_t n = 0;
+    for (int i = 0; i < ln->n && n + 3 < cap; i++) {
+        if (i > 0 && ln->g[i].x > ln->g[i - 1].x + 14)
+            out[n++] = ' ', out[n++] = ' ';
+        out[n++] = ln->g[i].c;
+    }
+    while (n > 0 && out[n - 1] == ' ')
+        n--;
+    out[n] = '\0';
+}
+
+static void print_windows(void) {
+    said_flush();
+    /* Walk the draw-order list bottom to top */
+    for (int s = win.window_head; s >= 0 && s < MAX_WINDOWS; s = win.windows[s].next) {
+        WindowInfo *w = &win.windows[s];
+        if (!w->active)
+            continue;
+        bool any = false;
+        for (int y = 0; y < TT_LINES; y++) {
+            char buf[256];
+            line_text(&tt_lines[s][y], buf, sizeof(buf));
+            if (!buf[0])
+                continue;
+            printf("WIN w%u%s%s%s%s| %s\n", w->id, w->id == win.current_focus_window ? "*" : "",
+                   w->title[0] ? " [" : "", w->title, w->title[0] ? "]" : "", buf);
+            any = true;
+        }
+        if (!any && w->title[0])
+            printf("WIN w%u| [%s]\n", w->id, w->title);
+    }
+    /* The focused menu (if a menu is being driven) */
+    WindowInfo *f = win.current_focus_window != WINDOW_ID_NONE ? get_window(win.current_focus_window) : NULL;
+    if (f && f->menu_count > 0) {
+        printf("MENU w%u|", f->id);
+        for (int i = 0; i < f->menu_count && i < 24; i++)
+            printf(" %s%s%s", i == f->current_option ? ">[" : "[", f->menu_items[i].label, "]");
+        printf("\n");
+    }
+    fflush(stdout);
+}
+
+/* ---- State queries ---- */
+
+/* Why the player can't walk right now, or NULL if they can. */
+static const char *not_idle_reason(void) {
+    if (g_mode_stack.depth != 1 || g_mode_stack.mode[0] != GAME_MODE_OVERWORLD)
+        return "modes";
+    if (ow.battle_mode || ow.battle_swirl_countdown || ow.enemy_has_been_touched)
+        return "battle";
+    if (ow.pending_interactions)
+        return "interaction";
+    if (ow.input_disable_frame_counter)
+        return "input-disabled";
+    if (entities.tick_callback_hi[PARTY_LEADER_ENTITY_INDEX] & (OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED))
+        return "leader-frozen";
+    if ((ppu.inidisp & 0x80) || (ppu.inidisp & 0x0F) != 0x0F)
+        return "fade";
+    return NULL;
+}
+
+static bool player_idle(void) {
+    return not_idle_reason() == NULL;
+}
+
+/* A text prompt is waiting for a button (TP_TEXTSPEED advances by itself) */
+static bool text_prompt_waiting(void) {
+    if (top_mode() != GAME_MODE_TEXT_PROMPT)
+        return false;
+    uint8_t phase = g_mode_stack.state[g_mode_stack.depth - 1].text_prompt.phase;
+    return phase == TP_WAIT_BUTTON || phase == TP_TRIANGLE;
+}
+
+static bool waiting_for_input(void) {
+    if (player_idle() || text_prompt_waiting())
+        return true;
+    switch (top_mode()) {
+    case GAME_MODE_SELECTION_MENU:
+    case GAME_MODE_CHAR_SELECT:
+    case GAME_MODE_NUMBER_SELECT:
+    case GAME_MODE_TEXT_INPUT:
+    case GAME_MODE_NAMING_PROMPT:
+    case GAME_MODE_BATTLE_ENEMY_SELECT:
+    case GAME_MODE_BATTLE_ROW_SELECT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static void print_eb(const uint8_t *s, int max) {
+    for (int i = 0; i < max && s[i]; i++)
+        putchar(eb_char_to_ascii(s[i]));
+}
+
+static void print_state(const char *label) {
+    said_flush();
+    printf("STATE %s frame=%u modes=[", label[0] ? label : "-", (unsigned)core.frame_counter);
+    for (int i = 0; i < g_mode_stack.depth; i++)
+        printf("%s%s", i ? ">" : "", mode_name(g_mode_stack.mode[i]));
+    uint16_t dir = game_state.leader_direction;
+    const char *why = not_idle_reason();
+    printf("] idle=%s input=%d pos=(%u,%u) dir=%s music=%u money=%u battle=%u ow_enemies=%u",
+           why ? why : "yes", waiting_for_input(), game_state.leader_x_coord, game_state.leader_y_coord,
+           dir < 8 ? dir_names[dir] : "?", ml.current_map_music_track, (unsigned)game_state.money_carried,
+           ow.battle_mode, ow.overworld_enemy_count);
+    /* Post-battle invulnerability: the party sprites blink every other frame */
+    if (ow.player_intangibility_frames)
+        printf(" blink=%u", ow.player_intangibility_frames);
+    printf("\n");
+
+    printf("PARTY");
+    for (int i = 0; i < game_state.party_count && i < 6; i++) {
+        uint8_t id = game_state.party_members[i];
+        if (id < 1 || id > TOTAL_PARTY_COUNT)
+            continue;
+        const CharStruct *c = &party_characters[id - 1];
+        printf("%s %u:", i ? " |" : "", id);
+        print_eb(c->name, 5);
+        printf(" L%u HP %u/%u PP %u/%u", c->level, c->current_hp, c->max_hp, c->current_pp, c->max_pp);
+        if (c->afflictions[0])
+            printf(" st%u", c->afflictions[0]);
+    }
+    printf("\n");
+
+    /* Nearby overworld entities (not the party), relative to the leader */
+    if (!mode_on_stack(GAME_MODE_BATTLE)) {
+        bool any = false;
+        for (int e = entities.first_entity; e >= 0 && e < MAX_ENTITIES; e = entities.next_entity[e]) {
+            if (e >= PARTY_LEADER_ENTITY_INDEX || entities.script_table[e] == ENTITY_NONE ||
+                entities.npc_ids[e] == 0xFFFF)
+                continue;
+            int dx = entities.abs_x[e] - (int)game_state.leader_x_coord;
+            int dy = entities.abs_y[e] - (int)game_state.leader_y_coord;
+            bool enemy = (entities.npc_ids[e] & 0x8000) != 0;
+            if (!enemy && (dx < -160 || dx > 160 || dy < -128 || dy > 128))
+                continue;
+            printf(any ? " |" : "NEAR");
+            any = true;
+            if (enemy && enemy_config_table && entities.enemy_ids[e] >= 0) {
+                printf(" enemy ");
+                print_eb(enemy_config_table[entities.enemy_ids[e]].name, ENEMY_NAME_SIZE);
+            } else {
+                printf(" npc%u", entities.npc_ids[e]);
+            }
+            printf(" (%+d,%+d)", dx, dy);
+        }
+        if (any)
+            printf("\n");
+    }
+
+    if (mode_on_stack(GAME_MODE_BATTLE) && enemy_config_table) {
+        printf("ENEMIES");
+        for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
+            const Battler *b = &bt.battlers_table[i];
+            if (!b->consciousness)
+                continue;
+            printf(" [%d] ", i - FIRST_ENEMY_INDEX);
+            print_eb(enemy_config_table[b->id].name, ENEMY_NAME_SIZE);
+            printf(" hp=%u/%u", b->hp, b->hp_max);
+        }
+        printf("\n");
+    }
+    fflush(stdout);
+}
+
+/* ---- Screenshot (uncompressed PNG) ---- */
+
+static uint32_t crc_table[256];
+
+static uint32_t crc32_update(uint32_t crc, const uint8_t *p, size_t n) {
+    if (!crc_table[1])
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; k++)
+                c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            crc_table[i] = c;
+        }
+    crc = ~crc;
+    while (n--)
+        crc = crc_table[(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+    return ~crc;
+}
+
+static void put_be32(uint8_t *p, uint32_t v) {
+    p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = (uint8_t)v;
+}
+
+static void png_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t len) {
+    uint8_t hdr[8];
+    put_be32(hdr, len);
+    memcpy(hdr + 4, type, 4);
+    fwrite(hdr, 1, 8, f);
+    if (len)
+        fwrite(data, 1, len, f);
+    uint32_t crc = crc32_update(0, (const uint8_t *)type, 4);
+    crc = crc32_update(crc, data, len);
+    put_be32(hdr, crc);
+    fwrite(hdr, 1, 4, f);
+}
+
+static bool write_png(const char *path, const pixel_t *fb, int w, int h) {
+    size_t row = (size_t)w * 3 + 1, raw_len = row * (size_t)h;
+    size_t nblocks = (raw_len + 65534) / 65535;
+    size_t z_len = 2 + raw_len + nblocks * 5 + 4;
+    uint8_t *raw = malloc(raw_len), *z = malloc(z_len);
+    FILE *f = fopen(path, "wb");
+    if (!raw || !z || !f) {
+        free(raw);
+        free(z);
+        if (f)
+            fclose(f);
+        return false;
+    }
+    for (int y = 0; y < h; y++) {
+        uint8_t *r = raw + row * (size_t)y;
+        *r++ = 0; /* filter: none */
+        for (int x = 0; x < w; x++) {
+            uint32_t px = pixel_to_rgb888(fb[y * w + x]);
+            *r++ = (uint8_t)(px >> 16);
+            *r++ = (uint8_t)(px >> 8);
+            *r++ = (uint8_t)px;
+        }
+    }
+    /* zlib stream of stored deflate blocks */
+    size_t o = 0;
+    z[o++] = 0x78;
+    z[o++] = 0x01;
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < raw_len; i += 65535) {
+        size_t n = raw_len - i < 65535 ? raw_len - i : 65535;
+        z[o++] = (i + n == raw_len);
+        z[o++] = (uint8_t)n;
+        z[o++] = (uint8_t)(n >> 8);
+        z[o++] = (uint8_t)~n;
+        z[o++] = (uint8_t)(~n >> 8);
+        memcpy(z + o, raw + i, n);
+        o += n;
+    }
+    for (size_t i = 0; i < raw_len; i++) {
+        a = (a + raw[i]) % 65521;
+        b = (b + a) % 65521;
+    }
+    put_be32(z + o, (b << 16) | a);
+    o += 4;
+
+    static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+    uint8_t ihdr[13] = { 0 };
+    put_be32(ihdr, (uint32_t)w);
+    put_be32(ihdr + 4, (uint32_t)h);
+    ihdr[8] = 8; /* bit depth */
+    ihdr[9] = 2; /* RGB */
+    fwrite(sig, 1, 8, f);
+    png_chunk(f, "IHDR", ihdr, 13);
+    png_chunk(f, "IDAT", z, (uint32_t)o);
+    png_chunk(f, "IEND", NULL, 0);
+    free(raw);
+    free(z);
+    return fclose(f) == 0;
+}
+
+static void take_shot(const char *arg) {
+    /* The frame just rendered shows the state after all earlier input. If
+     * frame-skip dropped this frame's render, render it now. */
+    if (!frame_was_rendered) {
+        platform_render_frame(NULL);
+        frame_was_rendered = true;
+    }
+    const pixel_t *fb = video_last_frame();
+    char path[256];
+    size_t len = strlen(arg);
+    if (len > 4 && strcmp(arg + len - 4, ".png") == 0) {
+        snprintf(path, sizeof(path), "%s", arg);
+    } else {
+        mkdir("shots", 0755);
+        snprintf(path, sizeof(path), "shots/%04d%s%s.png", shot_counter, arg[0] ? "-" : "", arg);
+    }
+    shot_counter++;
+    if (fb && write_png(path, fb, EB_VIEWPORT_WIDTH, EB_VIEWPORT_HEIGHT))
+        printf("SHOT %s frame=%u\n", path, (unsigned)core.frame_counter);
+    else
+        script_error("cannot write screenshot %s", path);
+    fflush(stdout);
+}
+
+/* ---- Script input ---- */
+
+static bool open_script(const char *path, bool session) {
+    if (session) {
+        /* O_RDWR keeps a writer open ourselves, so the FIFO never reports EOF
+         * between driver writes; reads simply block until a command arrives. */
+        int fd = open(path, O_RDWR);
+        script_file = fd >= 0 ? fdopen(fd, "r") : NULL;
+    } else {
+        script_file = fopen(path, "r");
+    }
     if (!script_file) {
         fprintf(stderr, "input script: cannot open %s\n", path);
         return false;
     }
+    text_trace_hook = text_trace;
     return true;
 }
 
+bool input_script_open(const char *path) {
+    return open_script(path, false);
+}
+
+bool input_script_open_session(const char *path) {
+    return open_script(path, true);
+}
+
 bool input_script_active(void) {
-    return script_file != NULL || hold_frames > 0 || until_active;
+    return script_file != NULL || hold_frames > 0 || until_active || press_left > 0;
 }
 
 static uint16_t parse_buttons(char *s) {
@@ -74,9 +668,12 @@ static uint16_t parse_buttons(char *s) {
         {"UP", PAD_UP}, {"DOWN", PAD_DOWN}, {"LEFT", PAD_LEFT}, {"RIGHT", PAD_RIGHT},
     };
     uint16_t pad = 0;
-    if (strcmp(s, "-") == 0)
+    if (strcmp(s, "-") == 0 || !s[0])
         return 0;
-    for (char *tok = strtok(s, "+"); tok; tok = strtok(NULL, "+")) {
+    char *save = NULL;
+    for (char *tok = strtok_r(s, "+", &save); tok; tok = strtok_r(NULL, "+", &save)) {
+        for (char *p = tok; *p; p++)
+            *p = (char)toupper((unsigned char)*p);
         size_t i;
         for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
             if (strcmp(tok, names[i].name) == 0) {
@@ -85,34 +682,54 @@ static uint16_t parse_buttons(char *s) {
             }
         }
         if (i == sizeof(names) / sizeof(names[0]))
-            fprintf(stderr, "input script:%d: unknown button '%s'\n", script_line_no, tok);
+            script_error("unknown button '%s'", tok);
     }
     return pad;
 }
 
-static void print_state(const char *label) {
-    printf("STATE %-24s frame=%u modes=[", label, (unsigned)core.frame_counter);
-    for (int i = 0; i < g_mode_stack.depth; i++)
-        printf(i ? ",%u" : "%u", g_mode_stack.mode[i]);
-    printf("] pos=(%u,%u) dir=%u battle=%u party=",
-           game_state.leader_x_coord, game_state.leader_y_coord,
-           game_state.leader_direction, ow.battle_mode);
-    for (int i = 0; i < game_state.party_count && i < 6; i++) {
-        uint8_t id = game_state.party_members[i];
-        if (id >= 1 && id <= TOTAL_PARTY_COUNT)
-            printf("%s%u:%uhp", i ? "," : "", id, party_characters[id - 1].current_hp);
+/* in/out/idle/input must hold this many frames in a row (with buttons
+ * released meanwhile): a menu or prompt ignores input on its first frame, so
+ * a press sent at once would be lost */
+#define UNTIL_STABLE_FRAMES 3
+static int until_stable;
+
+static bool until_settled(bool cond) {
+    until_stable = cond ? until_stable + 1 : 0;
+    return until_stable >= UNTIL_STABLE_FRAMES;
+}
+
+static bool until_met(void) {
+    switch (until_kind) {
+    case UC_IN: return until_settled(mode_on_stack(until_mode));
+    case UC_OUT: return until_settled(!mode_on_stack(until_mode));
+    case UC_IDLE: return until_settled(player_idle());
+    case UC_INPUT: return until_settled(waiting_for_input());
+    case UC_TEXT: return until_said_len > 0;
+    case UC_SAID: return strstr(until_said, until_word) != NULL;
+    case UC_BATTLE:
+        return ow.battle_mode || ow.battle_swirl_countdown || ow.enemy_has_been_touched ||
+               mode_on_stack(GAME_MODE_BATTLE);
+    default: return true;
     }
-    printf("\n");
-    fflush(stdout);
 }
 
 /* One frame of an 'until' command. Returns false once it has finished. */
 static bool until_step(uint16_t *pad) {
-    if (mode_on_stack(until_mode) == until_want_in || until_left <= 0) {
-        printf("UNTIL %s:%d %s frame=%u\n", until_want_in ? "in" : "out", until_mode,
-               until_left <= 0 ? "TIMEOUT" : "met", (unsigned)core.frame_counter);
+    bool met = until_met();
+    if (met || until_left <= 0) {
+
+        printf("UNTIL %s after %d frames (frame=%u)\n", met ? "met" : "TIMEOUT", until_elapsed,
+               (unsigned)core.frame_counter);
+        fflush(stdout);
         until_active = false;
         return false;
+    }
+    if (strcmp(until_pattern, "advance") == 0) {
+        /* Tap A only while a text prompt waits for it */
+        *pad = (text_prompt_waiting() && !(until_elapsed & 1)) ? PAD_A : 0;
+        until_elapsed++;
+        until_left--;
+        return true;
     }
     char buf[128];
     int nseg = 1;
@@ -129,20 +746,245 @@ static bool until_step(uint16_t *pad) {
     if (tap)
         buf[len - 1] = '\0';
     *pad = parse_buttons(buf);
-    if (tap && (until_elapsed & 1))
-        *pad = 0;
+    if ((tap && (until_elapsed & 1)) || until_stable > 0)
+        *pad = 0; /* release while an idle/input condition settles */
     until_elapsed++;
     until_left--;
     return true;
+}
+
+static bool start_until(const char *line) {
+    char cond[96] = "", a2[128] = "", a3[128] = "";
+    int n = sscanf(line, "%*s %95s %127s %127s", cond, a2, a3);
+    if (n < 1) {
+        script_error("bad until%s", "");
+        return false;
+    }
+    int max = 3600;
+    const char *pattern = "-";
+    if (n >= 2 && isdigit((unsigned char)a2[0])) {
+        max = atoi(a2);
+        if (n >= 3)
+            pattern = a3;
+    } else if (n >= 2) {
+        pattern = a2;
+    }
+    if (strncmp(cond, "in:", 3) == 0 || strncmp(cond, "out:", 4) == 0) {
+        until_kind = cond[0] == 'i' ? UC_IN : UC_OUT;
+        until_mode = parse_mode(strchr(cond, ':') + 1);
+        if (until_mode < 0) {
+            script_error("unknown mode in '%s'", cond);
+            return false;
+        }
+    } else if (strncmp(cond, "said:", 5) == 0) {
+        until_kind = UC_SAID;
+        snprintf(until_word, sizeof(until_word), "%s", cond + 5);
+    } else if (strcmp(cond, "idle") == 0) {
+        until_kind = UC_IDLE;
+    } else if (strcmp(cond, "input") == 0) {
+        until_kind = UC_INPUT;
+    } else if (strcmp(cond, "text") == 0) {
+        until_kind = UC_TEXT;
+    } else if (strcmp(cond, "battle") == 0) {
+        until_kind = UC_BATTLE;
+    } else {
+        script_error("unknown until condition '%s'", cond);
+        return false;
+    }
+    until_left = max;
+    until_elapsed = 0;
+    until_stable = 0;
+    until_said_len = 0;
+    until_said[0] = '\0';
+    snprintf(until_pattern, sizeof(until_pattern), "%s", pattern);
+    until_active = true;
+    return true;
+}
+
+/* PSI Teleport destination table entry i (from 1; entry 0 is a sentinel),
+ * or NULL past the end */
+static const uint8_t *psi_teleport_entry(int i) {
+    size_t off = (size_t)i * PSI_TELEPORT_DEST_ENTRY_SIZE;
+    if (i < 1 || off + PSI_TELEPORT_DEST_ENTRY_SIZE > psi_teleport_dest_size)
+        return NULL;
+    const uint8_t *e = psi_teleport_dest_data + off;
+    return e[0] ? e : NULL;
+}
+
+static CharStruct *party_char(int id) {
+    if (id < 1 || id > TOTAL_PARTY_COUNT) {
+        script_error("bad character id%s", "");
+        return NULL;
+    }
+    return &party_characters[id - 1];
+}
+
+/* Run one instant/deferred command. Returns false if the command must end
+ * this frame's command processing (it waits on the root boundary). */
+static bool run_command(const char *cmd, const char *arg, const char *line, uint16_t *aux) {
+    int v1 = 0, v2 = 0, v3 = 0;
+    int nv = sscanf(line, "%*s %d %d %d", &v1, &v2, &v3);
+
+    if (strcmp(cmd, "shot") == 0) {
+        take_shot(arg);
+    } else if (strcmp(cmd, "state") == 0) {
+        print_state(arg);
+    } else if (strcmp(cmd, "text") == 0) {
+        print_windows();
+    } else if (strcmp(cmd, "sync") == 0) {
+        said_flush();
+        printf("SYNC %s frame=%u\n", arg, (unsigned)core.frame_counter);
+        fflush(stdout);
+    } else if (strcmp(cmd, "flag") == 0) {
+        if (nv < 1 || v1 < 1 || v1 >= EVENT_FLAG_COUNT) {
+            script_error("usage: flag N [0|1]%s", "");
+        } else {
+            if (nv >= 2) {
+                if (v2)
+                    event_flag_set((uint16_t)v1);
+                else
+                    event_flag_clear((uint16_t)v1);
+            }
+            printf("FLAG %d = %d\n", v1, event_flag_get((uint16_t)v1));
+        }
+    } else if (strcmp(cmd, "give") == 0) {
+        if (nv < 1) {
+            script_error("usage: give ITEM [CHAR]%s", "");
+        } else {
+            uint16_t who = nv >= 2 ? (uint16_t)v2 : 0xFF;
+            uint16_t got = give_item_to_character(who, (uint16_t)v1);
+            printf("GIVE item %d -> %s%u\n", v1, got ? "char " : "FAILED (full?) ", got);
+        }
+    } else if (strcmp(cmd, "money") == 0) {
+        game_state.money_carried = (uint32_t)v1;
+        printf("MONEY %u\n", (unsigned)game_state.money_carried);
+    } else if (strcmp(cmd, "hp") == 0 || strcmp(cmd, "pp") == 0) {
+        CharStruct *c = nv >= 2 ? party_char(v1) : NULL;
+        if (c && cmd[0] == 'h')
+            c->current_hp = c->current_hp_target = (uint16_t)v2;
+        else if (c)
+            c->current_pp = c->current_pp_target = (uint16_t)v2;
+    } else if (strcmp(cmd, "heal") == 0) {
+        for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+            CharStruct *c = &party_characters[i];
+            c->current_hp = c->current_hp_target = c->max_hp;
+            c->current_pp = c->current_pp_target = c->max_pp;
+        }
+    } else if (strcmp(cmd, "aux") == 0) {
+        if (strcmp(arg, "F1") == 0) *aux |= AUX_DEBUG_DUMP;
+        else if (strcmp(arg, "F5") == 0) *aux |= AUX_DEBUG_TOGGLE;
+        else if (strcmp(arg, "F6") == 0) *aux |= AUX_SAVESTATE;
+        else if (strcmp(arg, "F7") == 0) *aux |= AUX_LOAD_STATE;
+        else script_error("unknown aux '%s'", arg);
+    } else if (strcmp(cmd, "warps") == 0) {
+        for (int i = 1; psi_teleport_entry(i); i++) {
+            const uint8_t *e = psi_teleport_entry(i);
+            printf("WARP %d ", i);
+            print_eb(e, PSI_TELEPORT_DEST_NAME_LEN);
+            printf(" (%u,%u)\n", read_u16_le(e + PSI_TELEPORT_DEST_NAME_LEN + 2) * 8,
+                   read_u16_le(e + PSI_TELEPORT_DEST_NAME_LEN + 4) * 8);
+        }
+    } else if (strcmp(cmd, "teleport") == 0 || strcmp(cmd, "warp") == 0) {
+        if (cmd[0] == 'w') {
+            /* PSI Teleport destination by index or (case-insensitive) name prefix */
+            const uint8_t *e = NULL;
+            for (int i = 1; arg[0] && psi_teleport_entry(i); i++) {
+                char name[PSI_TELEPORT_DEST_NAME_LEN + 1];
+                eb_to_ascii_buf(psi_teleport_entry(i), PSI_TELEPORT_DEST_NAME_LEN, name);
+                if ((isdigit((unsigned char)arg[0]) && atoi(arg) == i) ||
+                    strncasecmp(name, arg, strlen(arg)) == 0) {
+                    e = psi_teleport_entry(i);
+                    break;
+                }
+            }
+            if (!e) {
+                script_error("unknown warp '%s' (see 'warps')", arg);
+                return true;
+            }
+            teleport_x = read_u16_le(e + PSI_TELEPORT_DEST_NAME_LEN + 2) * 8;
+            teleport_y = read_u16_le(e + PSI_TELEPORT_DEST_NAME_LEN + 4) * 8;
+            teleport_dir = 4;
+        } else {
+            if (nv < 2) {
+                script_error("usage: teleport X Y [DIR]%s", "");
+                return true;
+            }
+            teleport_x = (uint16_t)v1;
+            teleport_y = (uint16_t)v2;
+            teleport_dir = nv >= 3 ? (uint16_t)(v3 & 7) : 4;
+        }
+        teleport_pending = true;
+        return false;
+    } else if (strcmp(cmd, "snap") == 0 || strcmp(cmd, "restore") == 0) {
+        if (!arg[0] || strchr(arg, '/')) {
+            script_error("usage: snap|restore NAME%s", "");
+            return true;
+        }
+        char prefix[128];
+        mkdir("snaps", 0755);
+        snprintf(prefix, sizeof(prefix), "snaps/%s", arg);
+        snprintf(capture_name, sizeof(capture_name), "%s", arg);
+        capture_is_load = cmd[0] == 'r';
+        platform_savestate_set_path(prefix);
+        if (capture_is_load)
+            host_request_load();
+        else
+            host_request_capture();
+        capture_waiting = true;
+        return false;
+    } else if (strcmp(cmd, "end") == 0 || strcmp(cmd, "quit") == 0) {
+        fclose(script_file);
+        script_file = NULL;
+        platform_request_quit();
+        return false;
+    } else {
+        script_error("unknown command '%s'", cmd);
+    }
+    fflush(stdout);
+    return true;
+}
+
+/* One frame of a 'press': 2 frames down, 4 up per tap. */
+static uint16_t press_step(void) {
+    uint16_t pad = press_phase < 2 ? press_pad : 0;
+    if (++press_phase == 6) {
+        press_phase = 0;
+        press_left--;
+    }
+    return pad;
 }
 
 /* Advance the script by one frame. Returns the pad state for this frame and
  * ORs any one-frame aux pulses into *aux. */
 uint16_t input_script_next(uint16_t *aux) {
     char line[256];
-    uint16_t pad;
+    uint16_t pad = 0;
+    frame_was_rendered = video_frames_rendered != last_poll_render_count;
+    last_poll_render_count = video_frames_rendered;
+
+    if (in_root_action || teleport_pending)
+        return 0;
+    if (capture_waiting) {
+        HostCaptureStatus st = host_capture_status();
+        if (st == HOST_CAPTURE_PENDING)
+            return 0;
+        capture_waiting = false;
+        platform_savestate_set_path(NULL);
+        printf("%s %s %s\n", capture_is_load ? "RESTORE" : "SNAP", capture_name,
+               st == HOST_CAPTURE_COMMITTED ? "ok" : "FAILED");
+        fflush(stdout);
+        if (capture_is_load) {
+            /* The loaded game has other windows; forget the captured text */
+            said_len = 0;
+            said_slot = -1;
+            memset(tt_lines, 0, sizeof(tt_lines));
+            memset(tt_pos, 0, sizeof(tt_pos));
+        }
+    }
     if (until_active && until_step(&pad))
         return pad;
+    if (press_left > 0)
+        return press_step();
     while (hold_frames == 0) {
         if (!script_file || !fgets(line, sizeof(line), script_file)) {
             if (script_file) {
@@ -163,40 +1005,52 @@ uint16_t input_script_next(uint16_t *aux) {
         if (isdigit((unsigned char)cmd[0])) {
             hold_frames = atoi(cmd);
             hold_pad = parse_buttons(arg[0] ? arg : "-");
-        } else if (strcmp(cmd, "shot") == 0) {
-            printf("SHOT %03d %s frame=%u\n", shot_counter++, arg, (unsigned)core.frame_counter);
-            debug_auto_dump_requested = 1;
-        } else if (strcmp(cmd, "state") == 0) {
-            print_state(arg);
-        } else if (strcmp(cmd, "aux") == 0) {
-            if (strcmp(arg, "F1") == 0) *aux |= AUX_DEBUG_DUMP;
-            else if (strcmp(arg, "F5") == 0) *aux |= AUX_DEBUG_TOGGLE;
-            else if (strcmp(arg, "F6") == 0) *aux |= AUX_SAVESTATE;
-            else if (strcmp(arg, "F7") == 0) *aux |= AUX_LOAD_STATE;
-            else fprintf(stderr, "input script:%d: unknown aux '%s'\n", script_line_no, arg);
+        } else if (strcmp(cmd, "wait") == 0) {
+            hold_frames = atoi(arg);
+            hold_pad = 0;
+        } else if (strcmp(cmd, "press") == 0) {
+            int count = 1;
+            sscanf(line, "%*s %*s %d", &count);
+            press_pad = parse_buttons(arg);
+            press_left = count > 0 ? count : 1;
+            press_phase = 0;
+            return press_step();
         } else if (strcmp(cmd, "until") == 0) {
-            char cond[32] = "", pattern[128] = "-";
-            int max = 0;
-            if (sscanf(line, "%*s %31s %d %127s", cond, &max, pattern) < 2 ||
-                (strncmp(cond, "in:", 3) != 0 && strncmp(cond, "out:", 4) != 0)) {
-                fprintf(stderr, "input script:%d: bad until\n", script_line_no);
-                continue;
-            }
-            until_want_in = cond[0] == 'i';
-            until_mode = atoi(strchr(cond, ':') + 1);
-            until_left = max;
-            until_elapsed = 0;
-            strcpy(until_pattern, pattern);
-            until_active = true;
-            if (until_step(&pad))
+            if (start_until(line) && until_step(&pad))
                 return pad;
-        } else if (strcmp(cmd, "end") == 0) {
-            fclose(script_file);
-            script_file = NULL;
-        } else {
-            fprintf(stderr, "input script:%d: unknown command '%s'\n", script_line_no, cmd);
+        } else if (!run_command(cmd, arg, line, aux)) {
+            return 0;
         }
     }
     hold_frames--;
     return hold_pad;
+}
+
+/* Called by the main loop at the root boundary, after host_root_boundary():
+ * perform a pending teleport while no mode step is mid-execution. */
+void input_script_root_boundary(void) {
+    if (!teleport_pending)
+        return;
+    teleport_pending = false;
+    if (!player_idle()) {
+        printf("ERR teleport needs the player idle on the overworld (not idle: %s)\n",
+               not_idle_reason());
+        fflush(stdout);
+        return;
+    }
+    in_root_action = true;
+    /* As the PSI Teleport arrival (overworld_teleport.c): force a full map
+     * reload, then map + party + music, and spawn the NPCs. */
+    ml.current_map_music_track = (uint16_t)-1;
+    ow.loaded_map_palette = -1;
+    ow.loaded_map_tile_combo = -1;
+    initialize_map(teleport_x, teleport_y, teleport_dir);
+    ow.player_has_moved_since_map_load = 0;
+    flush_entity_creation_queue();
+    /* The party reload leaves its entities disabled; the incoming screen
+     * transition re-enables them (door.c), so do the same. */
+    enable_all_entities();
+    in_root_action = false;
+    printf("TELEPORT (%u,%u) dir=%s\n", teleport_x, teleport_y, dir_names[teleport_dir & 7]);
+    fflush(stdout);
 }
