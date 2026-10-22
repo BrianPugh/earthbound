@@ -468,6 +468,18 @@ StepResult mode_step_palette_fade(ModeState *st) {
         update_screen();
         s->remaining--;
         return STEP_RESULT_CONTINUE();
+
+    case PF_ANIMATE_TO_MAP:
+        /* ANIMATE_PALETTE_FADE_TO_MAP: UPDATE_MAP_PALETTE_ANIMATION +
+         * WAIT_UNTIL_NEXT_FRAME per iteration, then FINALIZE_PALETTE_FADE
+         * (which also sets palette upload mode 24) with no further wait. */
+        if (s->remaining == 0) {
+            finalize_palette_fade();
+            return STEP_RESULT_POP(0);
+        }
+        update_map_palette_animation();
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
     }
 
     return STEP_RESULT_POP(0);   /* unreachable */

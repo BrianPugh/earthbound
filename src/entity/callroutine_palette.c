@@ -163,11 +163,15 @@ uint16_t fade_palette_color(uint16_t color, uint8_t style) {
     return r | (g << 5) | (b << 10);
 }
 
-void load_palette_to_fade_buffer(uint8_t fade_style) {
+void load_palette_to_fade_buffer_from(const uint16_t *src, uint8_t fade_style) {
     PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
     for (int i = 0; i < 256; i++) {
-        fade->target[i] = fade_palette_color(ert.palettes[i], fade_style);
+        fade->target[i] = fade_palette_color(src[i], fade_style);
     }
+}
+
+void load_palette_to_fade_buffer(uint8_t fade_style) {
+    load_palette_to_fade_buffer_from(ert.palettes, fade_style);
 }
 
 /* ---- FINALIZE_PALETTE_FADE (port of C49740) ----

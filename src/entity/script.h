@@ -43,6 +43,12 @@ void actionscript_request_mosaic_fade(uint8_t step, uint16_t delay,
 void actionscript_request_flyover(uint16_t id, uint16_t saved_ent23_tick_hi,
                                   uint32_t script_size);
 
+/* ANIMATE_PALETTE_FADE_TO_MAP's per-frame loop + finalize (GAME_MODE_PALETTE_
+ * FADE child, PF_ANIMATE_TO_MAP). The fade target and slopes must already be
+ * prepared; `frames` is the number of update+wait iterations (0 = finalize
+ * only). */
+void actionscript_request_palette_fade(uint16_t frames);
+
 /* INSTANT_WIN_PP_RECOVERY (GAME_MODE_PP_RECOVERY_FLASH child). The recovery
  * SFX must already have been played at the request point. */
 void actionscript_request_pp_recovery(void);

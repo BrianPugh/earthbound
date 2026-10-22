@@ -1668,6 +1668,13 @@ typedef struct {
  *                        actionscript_frame()+update_screen(); not skippable; on
  *                        completion calls finalize_palette_fade() and pops 0 with
  *                        no extra yield. (animate_palette_fade_with_rendering)
+ *   PF_ANIMATE_TO_MAP  - body update_map_palette_animation() only (no entity
+ *                        rendering: the script is blocked mid-frame); not
+ *                        skippable; on completion calls finalize_palette_fade()
+ *                        and pops 0 with no extra yield. Pushed by
+ *                        GAME_MODE_ACTIONSCRIPT_FRAME (AS_CHILD_PALETTE_FADE)
+ *                        for MOVEMENT_CMD_ANIMATE_PALETTE_FADE.
+ *                        (ANIMATE_PALETTE_FADE_TO_MAP)
  *
  * Each kind follows the blocking loop's ordering: test "done" (remaining==0)
  * first, then (skippable kinds) the pad, else run the body, decrement, and yield.
@@ -1677,6 +1684,7 @@ typedef enum {
     PF_MAP_CHANGE,
     PF_TO_WHITE,
     PF_WITH_RENDERING,
+    PF_ANIMATE_TO_MAP,
 } PaletteFadeKind;
 
 typedef struct {
@@ -2200,6 +2208,7 @@ typedef enum {
     AS_CHILD_MOSAIC,      /* GAME_MODE_MOSAIC_FADE   (FADE_OUT_WITH_MOSAIC, MF_OUT+final_hdma) */
     AS_CHILD_FLYOVER,     /* GAME_MODE_FLYOVER       (cr_play_flyover_script, FO_SCRIPT) */
     AS_CHILD_PP_RECOVERY, /* GAME_MODE_PP_RECOVERY_FLASH (INSTANT_WIN_PP_RECOVERY) */
+    AS_CHILD_PALETTE_FADE,/* GAME_MODE_PALETTE_FADE PF_ANIMATE_TO_MAP (ANIMATE_PALETTE_FADE_TO_MAP) */
 } AsChildKind;
 
 typedef enum {
@@ -2231,6 +2240,8 @@ typedef struct {
     int16_t  script_offset;    /* interrupted script slot */
     int16_t  entity_offset;    /* interrupted entity (chain/tick continuation) */
     uint16_t pc;               /* the interrupted script's continuation pc */
+    uint16_t pf_frames;        /* AS_CHILD_PALETTE_FADE: fade loop length (fills
+                                * former padding; the struct size is unchanged) */
     uint32_t text_addr;        /* AS_CHILD_TEXT: text address */
     uint8_t  mf_step;          /* AS_CHILD_MOSAIC: brightness step */
     uint8_t  mf_mosaic_bgs;    /* AS_CHILD_MOSAIC: mosaic BG mask (low nibble) */

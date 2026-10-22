@@ -82,6 +82,7 @@ typedef struct {
     int16_t  script_offset;    /* filled at the abort point (ems_run) */
     int16_t  entity_offset;    /* filled at the abort point (phase-1 loops) */
     uint16_t pc;               /* filled at the abort point (ems_run) */
+    uint16_t pf_frames;
     uint32_t text_addr;
     uint8_t  mf_step, mf_mosaic_bgs;
     uint16_t mf_delay;
@@ -115,6 +116,12 @@ void actionscript_request_flyover(uint16_t id, uint16_t saved_ent23_tick_hi,
     as_req.fo_script_size = script_size;
 }
 
+void actionscript_request_palette_fade(uint16_t frames) {
+    as_req.child_kind = AS_CHILD_PALETTE_FADE;
+    as_req.epilogue = AS_EPI_NONE;
+    as_req.pf_frames = frames;
+}
+
 void actionscript_request_pp_recovery(void) {
     as_req.child_kind = AS_CHILD_PP_RECOVERY;
     as_req.epilogue = AS_EPI_NONE;
@@ -128,6 +135,7 @@ static void as_state_from_request(ActionscriptFrameState *st) {
     st->script_offset    = as_req.script_offset;
     st->entity_offset    = as_req.entity_offset;
     st->pc               = as_req.pc;
+    st->pf_frames        = as_req.pf_frames;
     st->text_addr        = as_req.text_addr;
     st->mf_step          = as_req.mf_step;
     st->mf_mosaic_bgs    = as_req.mf_mosaic_bgs;
@@ -398,6 +406,10 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &init);
             case AS_CHILD_PP_RECOVERY:
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_PP_RECOVERY_FLASH, &init);
+            case AS_CHILD_PALETTE_FADE:
+                init.palette_fade.kind      = PF_ANIMATE_TO_MAP;
+                init.palette_fade.remaining = st->pf_frames;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &init);
             default:
                 break;
             }

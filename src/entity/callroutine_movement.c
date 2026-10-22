@@ -770,67 +770,28 @@ int16_t cr_movement_cmd_set_npc_id(int16_t entity_offset, int16_t script_offset,
 
 int16_t cr_movement_cmd_animate_pal_fade(int16_t entity_offset, int16_t script_offset,
                                           uint16_t pc, uint16_t *out_pc) {
-    /* Port of C0AAB5 MOVEMENT_CMD_ANIMATE_PALETTE_FADE.
-     * Reads 4 bytes: 16-bit palette mask, 8-bit fade_type, 8-bit frames.
-     * Calls ANIMATE_PALETTE_FADE_TO_MAP which:
-     *   1. LOAD_PALETTE_TO_FADE_BUFFER — applies brightness transform
-     *      (fade_type: 0=black, 1-49=dim, 50=normal, 51+=white) to
-     *      MAP_PALETTE_BACKUP and stores result in ert.buffer[].
-     *   2. PREPARE_PALETTE_FADE — computes per-color fade slopes from
-     *      current ert.palettes[] to ert.buffer[] target.
-     *   3. Loops `frames` times calling UPDATE_MAP_PALETTE_ANIMATION.
-     *   4. FINALIZE_PALETTE_FADE — copies ert.buffer[] to ert.palettes[].
-     *
-     * Since this is blocking in assembly (internal WAIT_UNTIL_NEXT_FRAME
-     * loop), we fast-forward the entire fade: load target to ert.buffer,
-     * run the slope iterations, then finalize. */
+    /* Port of MOVEMENT_CMD_ANIMATE_PALETTE_FADE (C0AAB5) ->
+     * ANIMATE_PALETTE_FADE_TO_MAP (asm/system/palette/animate_palette_fade_to_map.asm).
+     * Reads 4 bytes: 16-bit palette mask, 8-bit fade style, 8-bit frames.
+     *   1. LOAD_PALETTE_TO_FADE_BUFFER(MAP_PALETTE_BACKUP, style) — target.
+     *   2. PREPARE_PALETTE_FADE(frames, mask) — per-color slopes.
+     *   3. Unless frames == 1: loop `frames` times UPDATE_MAP_PALETTE_ANIMATION
+     *      + WAIT_UNTIL_NEXT_FRAME, blocking the script.
+     *   4. FINALIZE_PALETTE_FADE + SET_PALETTE_UPLOAD_MODE(24).
+     * Steps 1-2 run here; the per-frame loop and the finalize run as a
+     * GAME_MODE_PALETTE_FADE (PF_ANIMATE_TO_MAP) child pushed by
+     * GAME_MODE_ACTIONSCRIPT_FRAME, which parks this frame and resumes the
+     * script after the fade. */
+    (void)entity_offset;
+    (void)script_offset;
     uint16_t mask = sw(pc);
-    uint8_t fade_type = sb(pc + 2);
+    uint8_t fade_style = sb(pc + 2);
     uint8_t frames = sb(pc + 3);
     *out_pc = pc + 4;
 
-    /* Step 1: LOAD_PALETTE_TO_FADE_BUFFER — transform MAP_PALETTE_BACKUP
-     * by fade_type brightness and store into ert.buffer[].
-     * Port of FADE_PALETTE_COLOR (C49496):
-     *   type < 50: channel_out = min((channel * type * 5) >> 8, 31)
-     *   type == 50: no change
-     *   type > 50: white (0x7FFF) */
-    for (int i = 0; i < 256; i++) {
-        uint16_t color = ml.map_palette_backup[i];
-        uint16_t out_color;
-        if (fade_type == 50) {
-            out_color = color;
-        } else if (fade_type > 50) {
-            out_color = 0x7FFF;
-        } else {
-            uint16_t mult = (uint16_t)fade_type * 5;
-            uint16_t r = (((color & 0x1F) * mult) >> 8);
-            uint16_t g = ((((color >> 5) & 0x1F) * mult) >> 8);
-            uint16_t b = ((((color >> 10) & 0x1F) * mult) >> 8);
-            if (r > 31) r = 31;
-            if (g > 31) g = 31;
-            if (b > 31) b = 31;
-            out_color = r | (g << 5) | (b << 10);
-        }
-        ert.buffer[i * 2]     = (uint8_t)(out_color & 0xFF);
-        ert.buffer[i * 2 + 1] = (uint8_t)(out_color >> 8);
-    }
-
-    /* Step 2: PREPARE_PALETTE_FADE — compute slopes from ert.palettes[] to
-     * ert.buffer[] target, then fast-forward by running the animation. */
+    load_palette_to_fade_buffer_from(ml.map_palette_backup, fade_style);
     prepare_palette_fade_slopes((int16_t)frames, mask);
-
-    /* Step 3: Fast-forward the fade — run update_map_palette_animation
-     * `frames` times to reach the target palette state. */
-    if (frames > 1) {
-        for (int f = 0; f < (int)frames; f++) {
-            update_map_palette_animation();
-        }
-    }
-
-    /* Step 4: FINALIZE_PALETTE_FADE — copy ert.buffer[] (target) to ert.palettes[]. */
-    memcpy(ert.palettes, ert.buffer, 512);
-    ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+    actionscript_request_palette_fade(frames == 1 ? 0 : frames);
     return 0;
 }
 

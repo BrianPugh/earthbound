@@ -521,6 +521,10 @@ void update_map_palette_animation(void);
  * fade_style: 0=black, 50=identity, >50=white. */
 void load_palette_to_fade_buffer(uint8_t fade_style);
 
+/* Same, with an explicit 256-color source (the asm's 32-bit pointer param),
+ * e.g. ml.map_palette_backup for ANIMATE_PALETTE_FADE_TO_MAP. */
+void load_palette_to_fade_buffer_from(const uint16_t *src, uint8_t fade_style);
+
 /* Copy buffer[0..511] to palettes[0..255] and trigger palette upload.
  * Port of FINALIZE_PALETTE_FADE (C49740). */
 void finalize_palette_fade(void);
