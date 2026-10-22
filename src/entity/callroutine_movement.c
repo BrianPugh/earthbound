@@ -87,6 +87,10 @@ uint16_t set_entity_velocity_from_direction(int16_t ent, uint16_t direction) {
  * Returns the Y delta's integer word, the last value the asm loads into A.
  * Directions above 7 fall out of the asm's compare chain and store its
  * uninitialised locals; the port leaves the velocity unchanged for them.
+ *
+ * Diagonals checked in game: the Summers sailor (EVENT_291, speed $80,
+ * DOWN_LEFT) moves $5A82/65536 = 0.354 px per axis per frame, 53 px over
+ * its 150 frames, as the asm predicts.
  */
 int16_t set_entity_direction_velocity(int16_t ent, int16_t direction) {
     entities.moving_directions[ent] = direction;
@@ -916,6 +920,12 @@ static void set_direction_and_rerender(int16_t slot, int16_t direction) {
  * (V6, V7) with SET_ENTITY_VELOCITY_FROM_DIRECTION and, unless
  * skip_sprite_update, faces the QUANTIZE_ENTITY_DIRECTION result (which also
  * stores ENTITY_MOVING_DIRECTIONS), reversed when reverse is set.
+ *
+ * reverse does not move the entity away: it still heads for (V6, V7) and
+ * only faces backward, so it walks backward to the target (its one caller is
+ * MOVE_BACKWARD_FROM_TARGET, asm/data/events/C3AB67.asm). ENTITY_MOVING_DIRECTIONS
+ * keeps the unreversed direction. Checked in game against EVENT_56 (Lier into
+ * his basement hole) and EVENT_700 (Monotoli in his office).
  */
 static int16_t move_entity_toward_target(int16_t reverse, int16_t skip_sprite_update) {
     int16_t slot = ert.current_entity_slot;

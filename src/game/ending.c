@@ -1332,7 +1332,10 @@ StepResult mode_step_ending(ModeState *st) {
                         &photographer_cfg_data[s->photo_idx * PHOTOGRAPHER_CFG_ENTRY_SIZE];
                     uint8_t direction = cfg[PHOTOGRAPHER_CFG_SLIDE_DIRECTION];
                     uint8_t distance  = cfg[PHOTOGRAPHER_CFG_SLIDE_DISTANCE];
-                    /* LDX #256; direction * 1024 (MULT16) is the angle. */
+                    /* LDX #256; direction * 1024 (MULT16) is the angle.
+                     * Verified on all 32 photos: an 85-frame slide ends at
+                     * +-85 px straight or +-60 px per axis diagonally
+                     * (85 * $B5 >> 8), BG1 and BG2 moving together. */
                     calculate_velocity_components((uint16_t)(direction * 1024), 256,
                                                   &s->slide_dx, &s->slide_dy);
                     s->slide_total_frames = distance;

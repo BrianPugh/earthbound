@@ -756,7 +756,11 @@ int16_t cr_test_player_in_area(int16_t entity_offset, int16_t script_offset,
     /* Port of C46E74: test if leader is within bounding box.
      * var[0]=center_x, var[1]=center_y, var[2]=x_radius, var[3]=y_radius.
      * Returns TRUE (-1) if within, FALSE (0) if outside.
-     * Assembly lines 9-12: if PSI_TELEPORT_DESTINATION != 0, return FALSE immediately. */
+     * Assembly lines 9-12: if PSI_TELEPORT_DESTINATION != 0, return FALSE immediately.
+     * The test is strict (|d| < radius), so standing exactly on the box edge
+     * fails. E.g. the Runaway Five bus (EVENT_181, radius (24,8) around
+     * bus+(0,8)) only boards from below: walking along y = bus_y+16 gives
+     * dy == 8 and never passes. Matches the asm; not a port bug. */
     *out_pc = pc;
     if (ow.psi_teleport_destination != 0)
         return 0;  /* FALSE — player is teleporting */

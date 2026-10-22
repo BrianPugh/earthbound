@@ -136,7 +136,11 @@ void update_map_palette_animation(void) {
  *   0      -> all black
  *   1-49   -> darken (component * fade_style * 5 / 256)
  *   50     -> identity (original color unchanged)
- *   >50    -> all white (0x7FFF) */
+ *   >50    -> all white (0x7FFF)
+ *
+ * Each 5-bit channel is floored separately, so at low styles colors can
+ * shift hue (e.g. Magicant's purple turns brownish one step before black
+ * in EVENT_768). Matches FADE_PALETTE_COLOR exactly; not a port bug. */
 uint16_t fade_palette_color(uint16_t color, uint8_t style) {
     if (style == 50) return color;
     if (style > 50) return 0x7FFF;  /* white */
