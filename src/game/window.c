@@ -570,9 +570,10 @@ void open_window_and_print_menu(uint16_t columns, uint16_t start_index) {
     uint16_t interior_w = w->width - 2;
     uint16_t col_width = interior_w / columns;
 
-    /* Assembly LAYOUT_MENU_OPTIONS (line 155-156): max_rows = height / 2.
-     * Uses raw height (LSR), not border-adjusted. */
-    uint16_t max_rows = w->height / 2;
+    /* Assembly LAYOUT_MENU_OPTIONS (line 154-156): max_rows = height / 2,
+     * where window_stats::height is the interior height (CREATE_WINDOW
+     * stores the config height minus 2), as in FIND_NEXT_MENU_OPTION. */
+    uint16_t max_rows = (uint16_t)((w->height - 2) / 2);
     uint16_t total_items = w->menu_count;
     uint16_t rows_needed = (total_items + columns - 1) / columns;
     bool needs_pagination = (rows_needed > max_rows);
