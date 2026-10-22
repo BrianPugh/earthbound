@@ -253,6 +253,7 @@ static int said_len;
 static int said_slot = -1, said_y = -1, said_last_x;
 static uint8_t said_window_id;
 static unsigned text_chars_printed;
+#define UNTIL_SAID_KEEP 512
 static char until_said[2048];
 static int until_said_len;
 
@@ -349,7 +350,13 @@ static void text_trace(int event, uint16_t window_id, uint8_t eb_char) {
     said_window_id = (uint8_t)window_id;
     said_last_x = x;
     text_chars_printed++;
-    if (until_active && until_said_len < (int)sizeof(until_said) - 1) {
+    if (until_active) {
+        /* A sliding window over the printed text: said:WORD is checked every
+         * frame, so when it fills, only the most recent text is kept */
+        if (until_said_len >= (int)sizeof(until_said) - 1) {
+            memmove(until_said, until_said + until_said_len - UNTIL_SAID_KEEP, UNTIL_SAID_KEEP);
+            until_said_len = UNTIL_SAID_KEEP;
+        }
         until_said[until_said_len++] = c;
         until_said[until_said_len] = '\0';
     }
