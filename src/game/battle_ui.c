@@ -861,6 +861,14 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
         /* Mode 1 / 2bpp path (assembly lines 439-480 for @SETUP_MODE1) */
         ppu.bgmode = 0x08; /* mode 0 + priority (assembly line 442) */
 
+        /* This layout moves the text layer to BG1 and the battle backgrounds to
+         * BG2-BG4, so only those fill the wide viewport; BG1 stays centered or
+         * the battle windows wrap into the gutters. */
+        ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
+        ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
+        ppu.bg_viewport_fill[2] = BG_VIEWPORT_FILL;
+        ppu.bg_viewport_fill[3] = BG_VIEWPORT_FILL;
+
         /* SET_BG1_VRAM_LOCATION(Y=$6000, X=$7C00, A=normal) (line 443-446) */
         ppu.bg_sc[0] = 0x7C;
         ppu.bg_nba[0] = (ppu.bg_nba[0] & 0xF0) | 0x06;

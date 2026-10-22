@@ -123,6 +123,7 @@ void overworld_setup_vram(void) {
     ppu_clear_effects();
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
+    ppu.bg_viewport_fill[3] = BG_VIEWPORT_CENTER; /* Mode 0 battles fill BG4 */
     ppu.sprite_x_offset = 0;
     ppu.sprite_y_offset = 0;
 }
