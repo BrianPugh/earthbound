@@ -841,8 +841,12 @@ int16_t cr_is_entity_near_leader(int16_t entity_offset, int16_t script_offset,
                                  uint16_t pc, uint16_t *out_pc) {
     /* Port of C0C6B6: check if current entity is on screen.
      * Returns -1 (TRUE) if within extended screen bounds on both axes,
-     * 0 (FALSE) otherwise. Screen center is at (leader_x-CENTER, leader_y-CENTER). */
+     * 0 (FALSE) otherwise. Screen center is at (leader_x-CENTER, leader_y-CENTER).
+     * asm lines 7-11: while PSI Teleport runs at speed >= 4, every entity
+     * counts as near (so EVENT_8-style despawn tasks keep their NPCs). */
     *out_pc = pc;
+    if (ow.psi_teleport_speed_int >= 4)
+        return -1;
     int16_t ent_off = ENT(ert.current_entity_slot);
     int16_t rel_x = entities.abs_x[ent_off] -
                      ((int16_t)game_state.leader_x_coord - EB_VIEWPORT_CENTER_X);
