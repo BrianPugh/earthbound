@@ -2704,6 +2704,15 @@ dumpEntries:
   size: 44
   extension: bin
   compressed: false
+# VELOCITY_X_TABLE (48 words) + VELOCITY_Y_TABLE (65 words), contiguous at
+# $C4205D. One asset so CALCULATE_VELOCITY_COMPONENTS' X reads past entry 47
+# land in the Y table as in ROM.
+- subdir: data
+  name: 'velocity_tables'
+  offset: 0x04205D
+  size: 226
+  extension: bin
+  compressed: false
 # VERTICAL_SHAKE_AMPLITUDE_TABLE — 61 signed bytes, indexed by (60 - shake_duration)
 - subdir: data
   name: 'vertical_shake_amplitude_table'

@@ -308,32 +308,19 @@ static void update_teleport_beta_input(void) {
  * 48 words) and VELOCITY_Y_TABLE (asm/data/math/velocity_y_table.asm,
  * 65 words), which sit back to back in ROM: X entries 48-63 read past the
  * end of VELOCITY_X_TABLE into the first 16 words of VELOCITY_Y_TABLE. Both
- * are |sin| / |cos| scaled to $0100. The combined array below mirrors that
- * layout (index 0-47 = X table, 48-112 = Y table).
+ * are |sin| / |cos| scaled to $0100. The data/velocity_tables.bin asset
+ * extracts both tables as one blob to preserve that overrun (word 0-47 = X
+ * table, 48-112 = Y table, little-endian).
  *
  * Each magnitude is speed * table >> 8 (MULTIPLY_16BIT_HARDWARE), or exactly
  * `speed` when the entry is $0100. The asm returns X in $08 (high word of the
  * caller's VIRTUAL06) and Y in $06 (low word). */
-static const uint16_t velocity_tables[48 + 65] = {
-    /* VELOCITY_X_TABLE */
-    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
-    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
-    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00ED, 0x00E2, 0x00D5, 0x00C6,
-    0x00B5, 0x00A2, 0x008E, 0x0079, 0x0062, 0x004A, 0x0032, 0x0019,
-    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
-    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
-    /* VELOCITY_Y_TABLE */
-    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00EC, 0x00E2, 0x00D5, 0x00C6,
-    0x00B5, 0x00A3, 0x008E, 0x0079, 0x0062, 0x004B, 0x0032, 0x0019,
-    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
-    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
-    0x0100, 0x00FE, 0x00FB, 0x00F5, 0x00EC, 0x00E2, 0x00D5, 0x00C6,
-    0x00B5, 0x00A2, 0x008E, 0x0079, 0x0062, 0x004A, 0x0032, 0x0019,
-    0x0000, 0x0019, 0x0032, 0x004A, 0x0062, 0x0079, 0x008E, 0x00A2,
-    0x00B5, 0x00C6, 0x00D5, 0x00E2, 0x00EC, 0x00F5, 0x00FB, 0x00FE,
-    0x0100,
-};
 #define VELOCITY_Y_TABLE_START 48
+
+static uint16_t velocity_table_entry(uint16_t index) {
+    const uint8_t *tables = ASSET_DATA(ASSET_DATA_VELOCITY_TABLES_BIN);
+    return read_u16_le(tables + index * 2);
+}
 
 /* MULTIPLY_16BIT_HARDWARE with CALCULATE_VELOCITY_COMPONENTS' $0100 bypass.
  * The hardware routine computes (t_lo * s_lo >> 8) + t_lo * s_hi, which is
@@ -350,8 +337,8 @@ void calculate_velocity_components(uint16_t angle, int16_t speed,
     uint16_t byte_off = (uint16_t)(((angle >> 8) & 0xFC) >> 1);
     uint16_t entry = byte_off >> 1;
 
-    uint16_t x = scale_velocity(velocity_tables[entry], (uint16_t)speed);
-    uint16_t y = scale_velocity(velocity_tables[VELOCITY_Y_TABLE_START + entry],
+    uint16_t x = scale_velocity(velocity_table_entry(entry), (uint16_t)speed);
+    uint16_t y = scale_velocity(velocity_table_entry(VELOCITY_Y_TABLE_START + entry),
                                 (uint16_t)speed);
 
     /* Y negated when byte_off < $20 or >= $62 (upward half of the circle). */
