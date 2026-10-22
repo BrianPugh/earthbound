@@ -117,38 +117,30 @@ int16_t set_entity_direction_velocity(int16_t ent, int16_t direction) {
 }
 
 /*
- * Quantize a direction to 8-way (0-7).
- * Accepts both 8-way (0-7) and fine 16-bit directions.
- */
-int16_t quantize_direction(int16_t raw_dir) {
-    if ((uint16_t)raw_dir <= 7)
-        return raw_dir;
-    return (int16_t)(((uint16_t)raw_dir + 0x1000) / 0x2000) & 7;
-}
-
-/*
- * Quantize a fine direction (0x0000-0xFFFF, 0x2000 per step) to 8-way SNES direction.
- * Port of QUANTIZE_DIRECTION (C46B51).
+ * QUANTIZE_DIRECTION (C46B51)
  *
- * Fine direction convention: 0x0000=RIGHT, counter-clockwise in 0x2000 steps.
- * SNES direction convention: 0=UP, 1=UP_RIGHT, 2=RIGHT, etc.
- * The QUANTIZED_ANGLE_TO_DIRECTION_TABLE (C46B41) maps between them.
+ * Port of asm/misc/quantize_direction.asm. (fine_dir + $1000) / $2000 through
+ * QUANTIZED_ANGLE_TO_DIRECTION_TABLE (C46B41). The asm enters the divide at
+ * DIVISION16S_DIVISOR_POSITIVE, past DIVISION16S's sign fix-ups, so it is an
+ * unsigned 16-bit divide and the index is always 0-7.
  */
 int16_t quantize_fine_direction(uint16_t fine_dir) {
-    static const int16_t angle_to_dir[8] = {2, 3, 4, 5, 6, 7, 7, 1};
+    static const int16_t quantized_angle_to_direction[8] = {2, 3, 4, 5, 6, 7, 7, 1};
     uint16_t index = (uint16_t)(fine_dir + 0x1000) / 0x2000;
-    return angle_to_dir[index & 7];
+    return quantized_angle_to_direction[index];
 }
 
 /*
- * Quantize a fine direction to raw index (0-7) and store to moving_directions.
- * Port of QUANTIZE_ENTITY_DIRECTION (C46B0A).
- * Unlike quantize_fine_direction(), this does NOT apply the angle-to-SNES table.
+ * QUANTIZE_ENTITY_DIRECTION (C46B0A)
+ *
+ * Port of asm/overworld/entity/quantize_entity_direction.asm. The same
+ * unsigned (fine_dir + $1000) / $2000 without the table (0 = up, clockwise),
+ * stored to ENTITY_MOVING_DIRECTIONS of CURRENT_ENTITY_SLOT and returned.
  */
-int16_t quantize_entity_direction(int16_t entity_offset, uint16_t fine_dir) {
-    int16_t raw = (int16_t)((uint16_t)(fine_dir + 0x1000) / 0x2000);
-    entities.moving_directions[entity_offset] = raw;
-    return raw;
+int16_t quantize_entity_direction(uint16_t fine_dir) {
+    int16_t direction = (int16_t)((uint16_t)(fine_dir + 0x1000) / 0x2000);
+    entities.moving_directions[ert.current_entity_slot] = direction;
+    return direction;
 }
 
 /* Clamp a signed value to [0, max]. Port of CLAMP_VALUE_TO_RANGE. */
@@ -478,10 +470,7 @@ int16_t cr_quantize_entity_direction(int16_t entity_offset, int16_t script_offse
     /* Port of C46B0A QUANTIZE_ENTITY_DIRECTION.
      * Quantizes fine direction to 8-way and stores in ENTITY_MOVING_DIRECTIONS. */
     *out_pc = pc;
-    int16_t qoff = ENT(ert.current_entity_slot);
-    int16_t qdir = quantize_entity_direction(qoff,
-        (uint16_t)scripts.tempvar[script_offset]);
-    return qdir;
+    return quantize_entity_direction((uint16_t)scripts.tempvar[script_offset]);
 }
 
 int16_t cr_calculate_direction_to_target(int16_t entity_offset, int16_t script_offset,
@@ -896,154 +885,117 @@ int16_t cr_movement_cmd_print_cast_party(int16_t entity_offset, int16_t script_o
     return 0;
 }
 
+/* MAP_DIRECTION_TO_SPRITE_GROUP (asm/overworld/entity/map_direction_to_sprite_group.asm):
+ * DIRECTION_TO_SPRITE_GROUP_TABLE lookup. */
+static int16_t map_direction_to_sprite_group(int16_t direction) {
+    static const int16_t direction_to_sprite_group[8] = {0, 0, 2, 4, 4, 4, 6, 0};
+    return direction_to_sprite_group[direction & 7];
+}
+
+/* REVERSE_DIRECTION_8 (asm/misc/reverse_direction_8.asm). */
+static int16_t reverse_direction_8(int16_t direction) {
+    return (int16_t)((direction + 4) & 7);
+}
+
+/* Shared tail of MOVE_ENTITY_TOWARD_TARGET and UPDATE_ENTITY_DIRECTION_AND_VELOCITY:
+ * store the new facing to ENTITY_DIRECTIONS and re-render the sprite
+ * (RENDER_ENTITY_SPRITE_ENTRY2) when its sprite group changes. */
+static void set_direction_and_rerender(int16_t slot, int16_t direction) {
+    int16_t old_dir = entities.directions[slot];
+    entities.directions[slot] = direction;
+    if (map_direction_to_sprite_group(old_dir) != map_direction_to_sprite_group(direction))
+        render_entity_sprite(slot);
+}
+
+/*
+ * MOVE_ENTITY_TOWARD_TARGET (C47143)
+ *
+ * Port of asm/overworld/entity/move_entity_toward_target.asm.
+ * Arrived (TRUE) when |V6 - abs_x| and |V7 - abs_y| are both below V5
+ * (unsigned CMP/BCS); the deltas are left as they are. Otherwise heads for
+ * (V6, V7) with SET_ENTITY_VELOCITY_FROM_DIRECTION and, unless
+ * skip_sprite_update, faces the QUANTIZE_ENTITY_DIRECTION result (which also
+ * stores ENTITY_MOVING_DIRECTIONS), reversed when reverse is set.
+ */
+static int16_t move_entity_toward_target(int16_t reverse, int16_t skip_sprite_update) {
+    int16_t slot = ert.current_entity_slot;
+    uint16_t dist_x = (uint16_t)(entities.var[6][slot] - entities.abs_x[slot]);
+    if (dist_x & 0x8000)
+        dist_x = (uint16_t)-dist_x;
+    if (dist_x < (uint16_t)entities.var[5][slot]) {
+        uint16_t dist_y = (uint16_t)(entities.var[7][slot] - entities.abs_y[slot]);
+        if (dist_y & 0x8000)
+            dist_y = (uint16_t)-dist_y;
+        if (dist_y < (uint16_t)entities.var[5][slot])
+            return 1;
+    }
+
+    /* CALCULATE_DIRECTION_TO_TARGET */
+    uint16_t fine_dir = calculate_direction_fine(entities.abs_x[slot], entities.abs_y[slot],
+                                                 entities.var[6][slot], entities.var[7][slot]);
+    set_entity_velocity_from_direction(slot, fine_dir);
+    if (skip_sprite_update)
+        return 0;
+    int16_t direction = quantize_entity_direction(fine_dir);
+    if (reverse)
+        direction = reverse_direction_8(direction);
+    set_direction_and_rerender(slot, direction);
+    return 0;
+}
+
+/*
+ * UPDATE_ENTITY_DIRECTION_AND_VELOCITY (C472A8)
+ *
+ * Port of asm/overworld/entity/update_entity_direction_and_velocity.asm.
+ * Sets the velocity from V0's fine angle, then faces QUANTIZE_DIRECTION(V0)
+ * (the table-mapped direction; ENTITY_MOVING_DIRECTIONS is not written),
+ * reversed when reverse is set.
+ */
+static void update_entity_direction_and_velocity(int16_t reverse) {
+    int16_t slot = ert.current_entity_slot;
+    uint16_t fine_dir = (uint16_t)entities.var[0][slot];
+    set_entity_velocity_from_direction(slot, fine_dir);
+    int16_t direction = quantize_fine_direction(fine_dir);
+    if (reverse)
+        direction = reverse_direction_8(direction);
+    set_direction_and_rerender(slot, direction);
+}
+
+/* MOVE_TOWARD_TARGET_NO_SPRITE_CALLBACK (A=0, X=1) */
 int16_t cr_move_toward_no_sprite_cb(int16_t entity_offset, int16_t script_offset,
                                      uint16_t pc, uint16_t *out_pc) {
-    /* Port of MOVE_ENTITY_TOWARD_TARGET (C47143) with no-sprite-callback flag.
-     * Checks if entity is close enough to target (V6,V7).
-     * Returns 0 if still moving (loop continues), non-zero if arrived.
-     * V5 = proximity threshold, V6 = target X, V7 = target Y. */
     *out_pc = pc;
-    int16_t target_x = entities.var[6][entity_offset];  /* V6 = target X */
-    int16_t target_y = entities.var[7][entity_offset];  /* V7 = target Y */
-    int16_t threshold = entities.var[5][entity_offset];  /* V5 = threshold */
-    int dx = abs((int)entities.abs_x[entity_offset] - (int)target_x);
-    int dy = abs((int)entities.abs_y[entity_offset] - (int)target_y);
-    if (dx < threshold && dy < threshold) {
-        /* Reached target — stop movement */
-        entities.delta_x[entity_offset] = 0;
-        entities.delta_frac_x[entity_offset] = 0;
-        entities.delta_y[entity_offset] = 0;
-        entities.delta_frac_y[entity_offset] = 0;
-        return 1;  /* TRUE = arrived */
-    }
-    /* Still moving — update direction and velocity toward target */
-    uint16_t mt_fine = calculate_direction_fine(
-        entities.abs_x[entity_offset], entities.abs_y[entity_offset],
-        target_x, target_y);
-    set_entity_velocity_from_direction(entity_offset, mt_fine);
-    return 0;  /* FALSE = still moving */
+    return move_entity_toward_target(0, 1);
 }
 
+/* MOVE_TOWARD_TARGET_REVERSED_CALLBACK (A=1, X=0) */
 int16_t cr_move_toward_reversed_cb(int16_t entity_offset, int16_t script_offset,
                                     uint16_t pc, uint16_t *out_pc) {
-    /* Port of MOVE_ENTITY_TOWARD_TARGET(A=1 reverse, X=0 update sprite).
-     * Moves entity TOWARD target (velocity = normal direction),
-     * but SPRITE faces the opposite direction (walking backward).
-     * Also updates sprite if sprite group changes. */
-    static const int16_t rev_dir_to_sg[8] = {0,0,2,4,4,4,6,0};
     *out_pc = pc;
-    int16_t tx = entities.var[6][entity_offset];
-    int16_t ty = entities.var[7][entity_offset];
-    int16_t thr = entities.var[5][entity_offset];
-    int rdx = abs((int)entities.abs_x[entity_offset] - (int)tx);
-    int rdy = abs((int)entities.abs_y[entity_offset] - (int)ty);
-    if (rdx < thr && rdy < thr) {
-        entities.delta_x[entity_offset] = 0;
-        entities.delta_frac_x[entity_offset] = 0;
-        entities.delta_y[entity_offset] = 0;
-        entities.delta_frac_y[entity_offset] = 0;
-        return 1;
-    }
-    uint16_t rdir_fine = calculate_direction_fine(
-        entities.abs_x[entity_offset], entities.abs_y[entity_offset], tx, ty);
-    /* Velocity is toward target (fine direction for smooth movement) */
-    set_entity_velocity_from_direction(entity_offset, rdir_fine);
-    /* Sprite direction is reversed (entity faces away from target) */
-    {
-        int16_t qdir = quantize_direction((int16_t)rdir_fine);
-        int16_t rev = (qdir + 4) & 7;
-        int16_t old_dir = entities.directions[entity_offset];
-        int16_t old_group = rev_dir_to_sg[old_dir & 7];
-        int16_t new_group = rev_dir_to_sg[rev & 7];
-        entities.directions[entity_offset] = rev;
-        if (old_group != new_group) {
-            render_entity_sprite(entity_offset);
-        }
-    }
-    return 0;
+    return move_entity_toward_target(1, 0);
 }
 
+/* UPDATE_DIRECTION_VELOCITY_CALLBACK (C0A8E7): A=0. */
 int16_t cr_update_dir_velocity_cb(int16_t entity_offset, int16_t script_offset,
                                    uint16_t pc, uint16_t *out_pc) {
-    /* Port of UPDATE_DIRECTION_VELOCITY_CALLBACK (C0A8E7).
-     * Calls UPDATE_ENTITY_DIRECTION_AND_VELOCITY(A=0).
-     * Reads var0 as fine direction, sets velocity, then quantizes to 8-way for sprite.
-     * Assembly: C472A8 reads ENTITY_SCRIPT_VAR0 as fine direction. */
-    static const int16_t udv_dir_to_sg[8] = {0,0,2,4,4,4,6,0};
     *out_pc = pc;
-    uint16_t fine_dir = (uint16_t)entities.var[0][entity_offset];
-    /* Set velocity from fine direction FIRST (smooth movement) */
-    set_entity_velocity_from_direction(entity_offset, fine_dir);
-    /* THEN quantize to 8-way for sprite direction */
-    int16_t snes_dir = quantize_fine_direction(fine_dir);
-    int16_t old_dir = entities.directions[entity_offset];
-    int16_t old_group = udv_dir_to_sg[old_dir & 7];
-    int16_t new_group = udv_dir_to_sg[snes_dir & 7];
-    entities.directions[entity_offset] = snes_dir;
-    if (old_group != new_group) {
-        render_entity_sprite(entity_offset);
-    }
+    update_entity_direction_and_velocity(0);
     return 0;
 }
 
+/* UPDATE_DIRECTION_VELOCITY_REVERSED_CALLBACK (C0A8EF): A=1. */
 int16_t cr_update_dir_velocity_reversed_cb(int16_t entity_offset, int16_t script_offset,
                                             uint16_t pc, uint16_t *out_pc) {
-    /* Port of UPDATE_DIRECTION_VELOCITY_REVERSED_CALLBACK (C0A8EF).
-     * Calls UPDATE_ENTITY_DIRECTION_AND_VELOCITY(A=1).
-     * Same as above but reverses the sprite direction (entity faces away). */
-    static const int16_t udv_rev_sg[8] = {0,0,2,4,4,4,6,0};
     *out_pc = pc;
-    uint16_t fine_dir = (uint16_t)entities.var[0][entity_offset];
-    /* Set velocity from fine direction FIRST */
-    set_entity_velocity_from_direction(entity_offset, fine_dir);
-    /* THEN quantize and reverse for sprite */
-    int16_t snes_dir = quantize_fine_direction(fine_dir);
-    int16_t rev = (snes_dir + 4) & 7;
-    int16_t old_dir = entities.directions[entity_offset];
-    int16_t old_group = udv_rev_sg[old_dir & 7];
-    int16_t new_group = udv_rev_sg[rev & 7];
-    entities.directions[entity_offset] = rev;
-    if (old_group != new_group) {
-        render_entity_sprite(entity_offset);
-    }
+    update_entity_direction_and_velocity(1);
     return 0;
 }
 
+/* MOVE_TOWARD_TARGET_CALLBACK (C0A8C6): A=0, X=0. */
 int16_t cr_move_toward_target_cb(int16_t entity_offset, int16_t script_offset,
                                   uint16_t pc, uint16_t *out_pc) {
-    /* Port of C0A8C6 MOVE_TOWARD_TARGET_CALLBACK.
-     * Calls MOVE_ENTITY_TOWARD_TARGET(A=0, X=0):
-     *   reverse=0, skip_sprite_update=0.
-     * Same proximity check as NO_SPRITE but also updates sprite
-     * when direction sprite group changes. */
-    static const int16_t dir_to_sprite_group[8] = {0,0,2,4,4,4,6,0};
     *out_pc = pc;
-    int16_t tx = entities.var[6][entity_offset];
-    int16_t ty = entities.var[7][entity_offset];
-    int16_t thr = entities.var[5][entity_offset];
-    int dx = abs((int)entities.abs_x[entity_offset] - (int)tx);
-    int dy = abs((int)entities.abs_y[entity_offset] - (int)ty);
-    if (dx < thr && dy < thr) {
-        /* Assembly (MOVE_ENTITY_TOWARD_TARGET line 73): LDA #TRUE; BRA @RETURN
-         * — returns TRUE without zeroing deltas. */
-        return 1;
-    }
-    uint16_t met_fine = calculate_direction_fine(
-        entities.abs_x[entity_offset], entities.abs_y[entity_offset],
-        tx, ty);
-    set_entity_velocity_from_direction(entity_offset, met_fine);
-    /* Update sprite if direction sprite group changed */
-    {
-        int16_t qdir = quantize_direction((int16_t)met_fine);
-        int16_t old_dir = entities.directions[entity_offset];
-        int16_t old_group = dir_to_sprite_group[old_dir & 7];
-        int16_t new_group = dir_to_sprite_group[qdir & 7];
-        entities.directions[entity_offset] = qdir;
-        if (old_group != new_group) {
-            render_entity_sprite(entity_offset);
-        }
-    }
-    return 0;
+    return move_entity_toward_target(0, 0);
 }
 
 /*

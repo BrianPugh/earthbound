@@ -1540,8 +1540,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         }
 
         /* Quantize old and new directions (QUANTIZE_ENTITY_DIRECTION stores to moving_dirs) */
-        int16_t old_q = quantize_entity_direction(entity_offset, cur_dir);
-        int16_t new_q = quantize_entity_direction(entity_offset, new_dir);
+        int16_t old_q = quantize_entity_direction(cur_dir);
+        int16_t new_q = quantize_entity_direction(new_dir);
         if (old_q != new_q) {
             /* Sprite group changed — re-render sprite.
              * RENDER_ENTITY_SPRITE_ENTRY2 takes slot, uses animation_frame. */

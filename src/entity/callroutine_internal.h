@@ -23,9 +23,8 @@ static inline uint16_t sw(uint16_t pc) {
 /* ---- Movement helpers (callroutine_movement.c) ---- */
 uint16_t set_entity_velocity_from_direction(int16_t ent, uint16_t direction);
 int16_t set_entity_direction_velocity(int16_t ent, int16_t direction);
-int16_t quantize_direction(int16_t raw_dir);
 int16_t quantize_fine_direction(uint16_t fine_dir);
-int16_t quantize_entity_direction(int16_t entity_offset, uint16_t fine_dir);
+int16_t quantize_entity_direction(uint16_t fine_dir);
 int16_t clamp_to_range(int16_t val, int16_t max);
 void update_bubble_monkey_mode(int16_t char_id, uint16_t position_index);
 

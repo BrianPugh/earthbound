@@ -312,7 +312,7 @@ void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
             uint16_t fine_dir = calculate_direction_fine(from_x, from_y, target_x, target_y);
             set_entity_velocity_from_direction(ent, fine_dir);
             /* QUANTIZE_ENTITY_DIRECTION stores ENTITY_MOVING_DIRECTIONS. */
-            entities.directions[ent] = quantize_entity_direction(ent, fine_dir);
+            entities.directions[ent] = quantize_entity_direction(fine_dir);
         } else {
             /* Pathfinding complete — clear state, set obstacle bit 7 */
             entities.pathfinding_states[ent] = 0;
