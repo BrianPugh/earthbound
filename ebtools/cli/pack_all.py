@@ -1321,14 +1321,9 @@ def _pack_all_sprites(assets_dir: Path, bin_dir: Path, output_dir: Path) -> int:
 
     # pack_sprites writes to output_dir/{banks,palettes,sprite_grouping_*.bin}
     # which matches the overworld_sprites/ layout in the manifest.
-    try:
-        pack_sprites(sprites_dir, bin_dir, output_dir / "overworld_sprites")
-    except Exception as e:
-        print(f"  Warning: sprite packing failed: {e}", file=sys.stderr)
-        return 0
-    else:
-        print(f"  Packed {len(pngs)} overworld sprites")
-        return 1
+    pack_sprites(sprites_dir, bin_dir, output_dir / "overworld_sprites")
+    print(f"  Packed {len(pngs)} overworld sprites")
+    return 1
 
 
 def _pack_all_battle_sprites(assets_dir: Path, bin_dir: Path, output_dir: Path) -> int:
@@ -1342,14 +1337,9 @@ def _pack_all_battle_sprites(assets_dir: Path, bin_dir: Path, output_dir: Path) 
     # pack_battle_sprites writes common sprites to output_dir/
     # and locale-specific to output_dir.parent/"US"/"battle_sprites"/
     # So pass output_dir/battle_sprites — locale files go to output_dir/US/battle_sprites/
-    try:
-        pack_battle_sprites(sprites_dir, bin_dir, output_dir / "battle_sprites")
-    except Exception as e:
-        print(f"  Warning: battle sprite packing failed: {e}", file=sys.stderr)
-        return 0
-    else:
-        print(f"  Packed {len(pngs)} battle sprites")
-        return 1
+    pack_battle_sprites(sprites_dir, bin_dir, output_dir / "battle_sprites")
+    print(f"  Packed {len(pngs)} battle sprites")
+    return 1
 
 
 def _pack_all_town_maps(assets_dir: Path, output_dir: Path) -> int:
