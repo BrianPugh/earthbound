@@ -18,6 +18,13 @@
 
 #include <string.h>
 
+/* include/config.asm: screen-shake durations (frames) when a party member
+ * takes damage; MILLISECONDS is the asm's 6-frame unit. */
+#define DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR     (1 * FRAMES_PER_SECOND)
+#define DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL      (7 * 6)
+#define DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL      (1 * FRAMES_PER_SECOND)
+#define DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD (FRAMES_PER_SECOND / 5)
+
 /* ======================================================================
  * GAME_MODE_BATTLE_CALC plumbing
  *
@@ -620,15 +627,15 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
                 if (tgt->hp_target == 0) {
                     /* Mortal blow: stronger screen shake */
                     st->local[0] |= 0x08;
-                    bt.vertical_shake_duration = 8; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL */
-                    bt.vertical_shake_hold_duration = 16; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD */
+                    bt.vertical_shake_duration = DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL;
+                    bt.vertical_shake_hold_duration = DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_MORTAL_HOLD;
                     msg = MSG_BTL4_RESULT_MORTAL_DAMAGE;
                 } else if (bt.is_smaaaash_attack) {
                     st->local[0] |= 0x04;
-                    bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR */
+                    bt.vertical_shake_duration = DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_REGULAR;
                     msg = MSG_BTL4_RESULT_HP_DAMAGE_SMASH;
                 } else {
-                    bt.vertical_shake_duration = 4; /* DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL */
+                    bt.vertical_shake_duration = DAMAGE_TAKEN_SCREEN_SHAKE_DURATION_NORMAL;
                     msg = MSG_BTL4_RESULT_HP_DAMAGE;
                 }
             }

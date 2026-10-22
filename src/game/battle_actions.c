@@ -288,7 +288,7 @@ static StepResult btlact_level_1_attack_step(BattleActionState *st) {
 
 /*
  * BTLACT_LEVEL_3_ATK / BTLACT_LEVEL_4_ATK steppers: full attacks with the
- * miss/smaaaash/dodge prologue, the raw > 1 variance gate (asm/battle/actions/
+ * miss/smaaaash/dodge prologue, the raw > 0 variance gate (asm/battle/actions/
  * level_3_attack.asm and level_4_attack.asm both use the identical
  * `CLC; SBC #0; BRANCHLTEQS` idiom as level_1/2 -- raw_damage - 1 <= 0, i.e.
  * skip variance only when raw <= 1, same threshold as every other level; a
@@ -309,7 +309,7 @@ static StepResult btlact_level_4_attack_step(BattleActionState *st) {
 /*
  * BTLACT_LEVEL_2_ATK tail (the bare battle_level_2_attack table row,
  * 0xC28523 — no miss/smaaaash/dodge prologue): offense*2 - defense with
- * the raw > 1 variance gate, straight into CALC_RESIST_DAMAGE.
+ * the raw > 0 variance gate, straight into CALC_RESIST_DAMAGE.
  */
 static StepResult btlact_level_2_attack_step(BattleActionState *st) {
     static ModeState child;  /* outlives the dispatch (the pump copies it) */
