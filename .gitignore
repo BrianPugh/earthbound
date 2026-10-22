@@ -43,3 +43,7 @@ docs/plans/
 *.sav.*
 *.srm
 *.srm.*
+
+# Playtest story saves (third-party, see playtest/README.md)
+playtest/saves/
+playtest/out/

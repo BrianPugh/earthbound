@@ -1,6 +1,7 @@
 #include "platform/platform.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -35,9 +36,11 @@ static void write_bmp(const char *path, const uint32_t *fb, int w, int h) {
 
     fwrite(hdr, 1, 54, f);
 
-    /* Max row: 256 pixels * 3 bytes + 3 padding = 771 bytes */
-    uint8_t row[772];
-    memset(row, 0, row_size);
+    uint8_t *row = calloc(1, row_size);
+    if (!row) {
+        fclose(f);
+        return;
+    }
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             uint32_t px = fb[y * w + x];
@@ -47,6 +50,7 @@ static void write_bmp(const char *path, const uint32_t *fb, int w, int h) {
         }
         fwrite(row, 1, row_size, f);
     }
+    free(row);
     fclose(f);
 }
 

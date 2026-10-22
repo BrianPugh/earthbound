@@ -8,6 +8,10 @@ static uint16_t pad_prev;
 static uint16_t aux_state;
 static volatile sig_atomic_t quit_requested;
 
+/* Scripted playback (sdl2_input_script.c) */
+bool input_script_active(void);
+uint16_t input_script_next(uint16_t *aux);
+
 /* Global mode flags */
 bool platform_headless = false;
 bool platform_skip_intro = false;
@@ -79,6 +83,12 @@ void platform_input_poll(void) {
             break;
         }
         }
+    }
+
+    if (input_script_active()) {
+        uint16_t aux = 0;
+        pad_state = input_script_next(&aux);
+        aux_state = aux;
     }
 }
 

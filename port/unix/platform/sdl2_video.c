@@ -15,6 +15,9 @@ static SDL_Texture *texture;
 static pixel_t *locked_pixels;
 static int locked_pitch;
 
+/* Headless render target, so debug dumps (scripted playtests) have pixels */
+static pixel_t headless_fb[EB_VIEWPORT_WIDTH * EB_VIEWPORT_HEIGHT];
+
 bool platform_video_init(void) {
     if (platform_headless)
         return true;  /* No window needed */
@@ -59,7 +62,8 @@ void platform_video_shutdown(void) {
 
 void platform_video_begin_frame(void) {
     if (platform_headless) {
-        locked_pixels = NULL;
+        locked_pixels = headless_fb;
+        locked_pitch = EB_VIEWPORT_WIDTH * sizeof(pixel_t);
         return;
     }
     void *pixels;
@@ -84,7 +88,7 @@ pixel_t *platform_video_get_framebuffer(void) {
 
 void platform_video_end_frame(void) {
     if (platform_headless)
-        return;
+        return; /* headless_fb stays readable for the debug dump */
     if (locked_pixels) {
         SDL_UnlockTexture(texture);
         locked_pixels = NULL;

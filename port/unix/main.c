@@ -11,6 +11,8 @@
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
+/* Unix-specific: scripted input playback (defined in sdl2_input_script.c) */
+bool input_script_open(const char *path);
 #include "verify/verify.h"
 
 /* Cleanup handler registered with atexit() — runs on any exit() call. */
@@ -40,6 +42,9 @@ int main(int argc, char *argv[]) {
             platform_max_frames = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--save") == 0 && i + 1 < argc) {
             platform_save_set_path(argv[++i]);
+        } else if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) {
+            if (!input_script_open(argv[++i]))
+                return 1;
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -50,7 +55,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
                     argv[0]);
             return 1;
         }

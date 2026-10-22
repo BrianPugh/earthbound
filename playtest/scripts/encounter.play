@@ -1,0 +1,27 @@
+until in:45 5000 LEFT|UP|RIGHT|DOWN|UP+LEFT|DOWN+RIGHT|LEFT|LEFT|UP|UP|RIGHT|RIGHT|DOWN|DOWN
+state battle_start
+shot battle_start
+40 -
+shot b40
+100 -
+shot b140
+until out:45 8000 A*
+state battle_end
+shot after0
+30 -
+shot after30
+until in:61 600 A*
+60 -
+state settle
+shot settle
+60 RIGHT
+shot walkR
+60 LEFT
+state walked
+shot walkL
+1 A
+30 -
+shot menu
+1 B
+40 -
+state end
