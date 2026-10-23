@@ -141,6 +141,21 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Summers museum Omar guard | 24-Museum | `teleport 7528 9550 0; 10 UP`, L, Yes; `until text 400 UP` into the hieroglyph room |
 | 4-member battle | 24-Museum | `teleport 5128 216 0`, walk LEFT out of the cave: Mighty Bear Seven + Cave Boy |
 | Giygas final battle (Pokey, redirect, speeches 1–2) | 36-CavePast | `flag 11 1; teleport 192 6056 0; 30 UP` (door 943 → lair, hotspot 14); `teleport 4224 1000 0; wait 20; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance`. Hits on the 9999-HP Giygas are redirected onto the party, so target Pokey (`press A; press DOWN; press A`) |
+| Sphinx star → pyramid opens | 28-Scaraba | stepping plates are doors 775-779 (Sphinx text 774 at 1792,4960). Step plate 1 (1792,5000) once for the Sphinx text (sets flag 152), step off and on again, then plates 2 (1744,5088), 3 (1848,5032), 4 (1728,5032), 5 (1832,5088), then 1; flags 2-6 track progress. Pyramid door ~1792,4884 |
+| Pyramid route (Guardian General, Hawk eye) | 28-Scaraba | doors in order: 786 → 788 (560,1352) → 790 (4272,4552) → stairs → 791 → casket room → 794 (976,3688) → stairs → 801 → 803 (4272,5064) → stairs → boss npc1180 at 4296,8944 (Check) → 805 → switch at 4136,5352 (flag 347) → back to casket room, hole 795 (892,3700) → Hawk eye (Check at 4208,5592) → 807 → 809 → hole 811 → 812 → 814 exits at 1728,5472. Stairs need the direction held (`until idle 900 RIGHT`). Dump doors with `door_config_table`/`door_pointer_table` |
+| Dungeon Man entry | 28-Scaraba | after the pyramid: Star Master takes Poo at 1726,5514; Yariman npc1149 (1624,5408) gives the key (needs a free slot); use it facing npc1150 from 1346,4992 → inside at 4552,912 |
+
+## Viewport and visual review (every shot)
+
+Correct game logic isn't enough: report anything ugly or not adapted to the wide viewport, even when it matches the asm. For every screenshot, look at the whole 320×240 frame, gutters included (x<32, x≥288, y<8, y≥232):
+
+- gutters that are black, empty, garbage, stale tilemap, or a layer that stops at the 256-px band edge
+- scenes, windows, sprites or effects off-centre or stuck to one side
+- NPCs/objects popping in, out or half-drawn at the gutter edge
+- full-screen effects (fades, flashes, darkness/lighting, battle BGs, swirls, mosaic, palette effects, parallax) confined to the band
+- anything a player would call ugly: seams, flicker, misaligned layers, wrong priority
+
+Put these in their own "Viewport/visual" section of the report, with shot paths and the pixel region. If unsure, report it and mark it "unsure". Pixel differences from the original inside the band are fine.
 
 ## Reporting
 
