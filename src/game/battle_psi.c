@@ -44,8 +44,10 @@
 /* PSI category name size (from config.asm, US version) */
 #define PSI_CATEGORY_NAME_SIZE  8
 
-/* Number of PSI categories in the menu */
-#define PSI_CATEGORY_COUNT  4
+/* Number of PSI categories in the battle menu (asm: CMP #$0003 at
+ * @CATEGORY_LOOP_CHECK). PSI_CATEGORIES holds a 4th name ("Other") that the
+ * battle menu never shows. */
+#define PSI_CATEGORY_COUNT  3
 
 static size_t battle_psi_table_size = 0;
 
@@ -516,9 +518,8 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
         case BP_OPEN:
             /* @OPEN_CATEGORY_WINDOW: create the category window
              * (WINDOW::BATTLE_PSI_CATEGORY = 0x10) and add the category menu
-             * items (Offense, Recover, Assist, Other). Assembly: loops 0..2
-             * adding categories 1-3, then adds the 4th; userdata = category
-             * (1-based). */
+             * items (Offense, Recover, Assist) with ADD_MENU_ITEM_NO_POSITION;
+             * userdata = category (1-based). The 3 rows fit the window. */
             create_window(WINDOW_PSI_CATEGORY);
             for (uint16_t i = 0; i < PSI_CATEGORY_COUNT; i++) {
                 /* Decode EB-encoded category name from ROM data to ASCII */
@@ -528,7 +529,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
                 for (int j = 0; j < PSI_CATEGORY_NAME_SIZE && eb[j] != 0; j++)
                     ascii_buf[len++] = eb_char_to_ascii(eb[j]);
                 ascii_buf[len] = '\0';
-                add_menu_item(ascii_buf, i + 1, 0, i * 2);
+                add_menu_item_no_position(ascii_buf, i + 1);
             }
             win.current_focus_window = WINDOW_PSI_CATEGORY;
             /* Layout and print (assembly: OPEN_WINDOW_AND_PRINT_MENU, :57) */
