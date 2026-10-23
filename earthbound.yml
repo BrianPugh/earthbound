@@ -2713,6 +2713,97 @@ dumpEntries:
   size: 226
   extension: bin
   compressed: false
+# DIRECTION_OFFSET_TABLE — 13 words, base angle per quadrant code (CALCULATE_DIRECTION_FROM_POSITIONS)
+- subdir: data
+  name: 'direction_offset_table'
+  offset: 0x041FC5
+  size: 26
+  extension: bin
+  compressed: false
+# ATAN2_LOOKUP_TABLE — 16 words, Y/X ratio thresholds per 1/64 turn (CALCULATE_DIRECTION_FROM_POSITIONS)
+- subdir: data
+  name: 'atan2_lookup_table'
+  offset: 0x041FDF
+  size: 32
+  extension: bin
+  compressed: false
+# OVAL_ARC_TABLE — 256 bytes, ellipse half-width per row (GENERATE_OVAL_WINDOW_DATA)
+- subdir: data
+  name: 'oval_arc_table'
+  offset: 0x00B2FF
+  size: 256
+  extension: bin
+  compressed: false
+# SWIRL_PRIMARY_TABLE — 7 entries x 4 bytes: speed, HDMA table id, frames, unused
+- subdir: data
+  name: 'swirl_primary_table'
+  offset: 0x0EDD41
+  size: 28
+  extension: bin
+  compressed: false
+# DIRECTION_QUANTIZE_TABLE — 63-byte spiral walk (CHECK_ENTITY_COLLISION_PATH)
+- subdir: data
+  name: 'direction_quantize_table'
+  offset: 0x00CF58
+  size: 63
+  extension: bin
+  compressed: false
+# PSI_BLOCK_BY_AFFLICTION_TABLE — 7 groups x 7 words (CHECK_PSI_AFFLICTION_BLOCK)
+- subdir: data
+  name: 'psi_block_by_affliction_table'
+  offset: 0x03F0B0
+  size: 98
+  extension: bin
+  compressed: false
+# COLOR_MATH_REGISTER_TABLE — TM[11], TD[10], CGWSEL[10], CGADSUB[10] (SET_COLOR_MATH_FROM_TABLE)
+- subdir: data
+  name: 'color_math_register_table'
+  offset: 0x00AFF1
+  size: 41
+  extension: bin
+  compressed: false
+# BATTLE_SPRITE_BUFFER_OFFSETS — 32 words, decompression scatter offsets (LOAD_BATTLE_SPRITE)
+- subdir: data
+  name: 'battle_sprite_buffer_offsets'
+  offset: 0x03F871
+  size: 64
+  extension: bin
+  compressed: false
+# BATTLE_SPRITE_TILE_GRID — 32 words, OAM tile per spritemap slot (LOAD_BATTLE_SPRITE)
+- subdir: data
+  name: 'battle_sprite_tile_grid'
+  offset: 0x03F8B1
+  size: 64
+  extension: bin
+  compressed: false
+# ENTITY_HDMA_SCANLINE_WIDTH_TABLE — 11 bytes (RENDER_ENTITY_HDMA_WINDOW)
+- subdir: data
+  name: 'entity_hdma_scanline_width_table'
+  offset: 0x0474F6
+  size: 11
+  extension: bin
+  compressed: false
+# HPPP_WINDOW_TILE_DATA — 14 bytes: HP/PP label tiles + selection-menu tiles
+- subdir: data
+  name: 'hppp_window_tile_data'
+  offset: 0x03E3F8
+  size: 14
+  extension: bin
+  compressed: false
+# USED_BG2_TILE_MAP_DEFAULTS — 32 words (INIT_USED_BG2_TILE_MAP)
+- subdir: data
+  name: 'used_bg2_tile_map_defaults'
+  offset: 0x020958
+  size: 64
+  extension: bin
+  compressed: false
+# MAP_PALETTE_PTR_TABLE — 32 far pointers to MAP_DATA_PALETTE_N (LOAD_MAP_PAL)
+- subdir: data
+  name: 'map_palette_ptr_table'
+  offset: 0x2F10FB
+  size: 128
+  extension: bin
+  compressed: false
 # VERTICAL_SHAKE_AMPLITUDE_TABLE — 61 signed bytes, indexed by (60 - shake_duration)
 - subdir: data
   name: 'vertical_shake_amplitude_table'

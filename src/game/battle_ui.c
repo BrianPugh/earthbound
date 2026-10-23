@@ -575,22 +575,17 @@ bool force_blank_and_wait_vblank_work_step(void) {
 }
 
 
-/* COLOR_MATH_REGISTER_TABLE (asm/system/palette/color_math_register_table.asm)
+/* COLOR_MATH_REGISTER_TABLE (asm/data/system/color_math_register_table.asm),
+ * loaded from the donor ROM:
  *   [0..10]  = TM (main screen designation)
  *   [11..20] = TD (sub screen designation)
  *   [21..30] = CGWSEL (color math control)
  *   [31..40] = CGADSUB (color math designation)
  */
-static const uint8_t color_math_register_table[] = {
-    /* TM */
-    0x17, 0x1F, 0x17, 0x17, 0x17, 0x17, 0x15, 0x15, 0x15, 0x15, 0x15,
-    /* TD */
-    0x00, 0x00, 0x08, 0x08, 0x08, 0x08, 0x02, 0x02, 0x02, 0x02,
-    /* CGWSEL */
-    0x00, 0x00, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-    /* CGADSUB */
-    0x00, 0x00, 0x24, 0x64, 0xA4, 0xE4, 0x21, 0x61, 0xA1, 0xE1,
-};
+#define COLOR_MATH_TM_OFFSET      0
+#define COLOR_MATH_TD_OFFSET      11
+#define COLOR_MATH_CGWSEL_OFFSET  21
+#define COLOR_MATH_CGADSUB_OFFSET 31
 
 /*
  * SET_COLOR_MATH_FROM_TABLE (asm/system/palette/set_color_math_from_table.asm)
@@ -599,13 +594,17 @@ static const uint8_t color_math_register_table[] = {
  * index: layer configuration mode (0-10).
  */
 void set_color_math_from_table(uint16_t index) {
-    /* TM has 11 entries (0-10), TD/CGWSEL/CGADSUB have 10 entries (0-9).
-     * Callers use index 0-7 in practice; clamp to prevent OOB. */
-    if (index > 10) return;
-    ppu.tm      = color_math_register_table[index];
-    ppu.ts      = color_math_register_table[11 + (index <= 9 ? index : 9)];
-    ppu.cgwsel  = color_math_register_table[21 + (index <= 9 ? index : 9)];
-    ppu.cgadsub = color_math_register_table[31 + (index <= 9 ? index : 9)];
+    /* The asm reads TABLE+{0,11,21,31}+index unchecked. TD/CGWSEL/CGADSUB
+     * have 10 entries; callers only pass 1, 3 and 7, so reject anything that
+     * would read past the 41-byte table. */
+    const uint8_t *table = ASSET_DATA(ASSET_DATA_COLOR_MATH_REGISTER_TABLE_BIN);
+    if (COLOR_MATH_CGADSUB_OFFSET + index >=
+        ASSET_SIZE(ASSET_DATA_COLOR_MATH_REGISTER_TABLE_BIN))
+        return;
+    ppu.tm      = table[COLOR_MATH_TM_OFFSET + index];
+    ppu.ts      = table[COLOR_MATH_TD_OFFSET + index];
+    ppu.cgwsel  = table[COLOR_MATH_CGWSEL_OFFSET + index];
+    ppu.cgadsub = table[COLOR_MATH_CGADSUB_OFFSET + index];
 }
 
 
@@ -1110,16 +1109,9 @@ void load_battle_sprite(uint16_t sprite_id) {
     /* Initialize all 16 spritemap entries with defaults (lines 49-132) */
     uint8_t *smap = &bt.battle_spritemaps[bt.current_battle_sprites_allocated * 80];
 
-    static const uint16_t tile_grid[32] = {
-        0x0000, 0x0004, 0x0008, 0x000C,
-        0x0040, 0x0044, 0x0048, 0x004C,
-        0x0080, 0x0084, 0x0088, 0x008C,
-        0x00C0, 0x00C4, 0x00C8, 0x00CC,
-        0x0100, 0x0104, 0x0108, 0x010C,
-        0x0140, 0x0144, 0x0148, 0x014C,
-        0x0180, 0x0184, 0x0188, 0x018C,
-        0x01C0, 0x01C4, 0x01C8, 0x01CC
-    };
+    /* BATTLE_SPRITE_TILE_GRID (asm/data/battle/battle_sprite_tile_grid.asm),
+     * 32 words loaded from the donor ROM. */
+    const uint8_t *tile_grid = ASSET_DATA(ASSET_DATA_BATTLE_SPRITE_TILE_GRID_BIN);
 
     for (uint16_t i = 0; i < 16; i++) {
         uint16_t off = i * 5;
@@ -1128,7 +1120,7 @@ void load_battle_sprite(uint16_t sprite_id) {
         smap[off + 4] = 1;     /* special_flags */
 
         uint16_t grid_index = i + bt.current_battle_spritemaps_allocated;
-        uint16_t tile_val = (grid_index < 32) ? tile_grid[grid_index] : 0;
+        uint16_t tile_val = (grid_index < 32) ? read_u16_le(tile_grid + grid_index * 2) : 0;
         smap[off + 1] = (uint8_t)(tile_val & 0xFF);        /* tile */
         smap[off + 2] = (uint8_t)(bt.current_battle_sprites_allocated * 2
                                    + (tile_val >> 8) + 32); /* flags */
@@ -1196,16 +1188,10 @@ void load_battle_sprite(uint16_t sprite_id) {
     bt.current_battle_sprites_allocated++;
 
     /* Decompress sprite graphics (lines 367-392) */
-    static const uint16_t buffer_offsets[32] = {
-        0x0000, 0x0080, 0x0100, 0x0180,
-        0x0800, 0x0880, 0x0900, 0x0980,
-        0x1000, 0x1080, 0x1100, 0x1180,
-        0x1800, 0x1880, 0x1900, 0x1980,
-        0x2000, 0x2080, 0x2100, 0x2180,
-        0x2800, 0x2880, 0x2900, 0x2980,
-        0x3000, 0x3080, 0x3100, 0x3180,
-        0x3800, 0x3880, 0x3900, 0x3980
-    };
+    /* BATTLE_SPRITE_BUFFER_OFFSETS (asm/data/battle/
+     * battle_sprite_buffer_offsets.asm), 32 words loaded from the donor ROM. */
+    const uint8_t *buffer_offsets =
+        ASSET_DATA(ASSET_DATA_BATTLE_SPRITE_BUFFER_OFFSETS_BIN);
 
     const uint8_t *compressed = ASSET_DATA(ASSET_BATTLE_SPRITES(sprite_id - 1));
     size_t compressed_size = ASSET_SIZE(ASSET_BATTLE_SPRITES(sprite_id - 1));
@@ -1227,7 +1213,8 @@ void load_battle_sprite(uint16_t sprite_id) {
     const uint8_t *src = decompressed;
     for (uint16_t t = 0; t < total_tiles; t++) {
         if (bt.current_battle_spritemaps_allocated >= 32) break;
-        uint16_t dest_base = buffer_offsets[bt.current_battle_spritemaps_allocated];
+        uint16_t dest_base = read_u16_le(buffer_offsets
+                                         + bt.current_battle_spritemaps_allocated * 2);
         bt.current_battle_spritemaps_allocated++;
         for (uint16_t row = 0; row < 4; row++) {
             memcpy(&ert.buffer[dest_base + row * 0x200], src, 128);

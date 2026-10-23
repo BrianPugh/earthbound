@@ -5678,7 +5678,8 @@ static void iw_fill_palettes(uint16_t color) {
 }
 
 /* The instant-win screen flash: green, red, blue twice, then black — each
- * entry one fill_palettes_with_color() frame in the blocking original. */
+ * entry one fill_palettes_with_color() frame in the blocking original.
+ * Port-authored: the asm passes these as LDA immediates, not a ROM table. */
 static const uint16_t iw_flash_colors[7] = {
     0x03E0, 0x001F, 0x7C00, 0x03E0, 0x001F, 0x7C00, 0x0000
 };

@@ -78,10 +78,11 @@ int16_t cr_show_entity_sprite(int16_t ent, int16_t scr,
 }
 
 /* ENTITY_HDMA_SCANLINE_WIDTH_TABLE (C474F6) — half-width of oval window
- * at each of the 11 scanline rows around an entity sprite. */
-static const uint8_t entity_hdma_scanline_width[11] = {
-    0x10, 0x10, 0x0F, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x09, 0x06, 0x03
-};
+ * at each of the 11 scanline rows around an entity sprite. Loaded from the
+ * donor ROM (asm/data/overworld/entity_hdma_scanline_width_table.asm). */
+static const uint8_t *entity_hdma_scanline_width(void) {
+    return ASSET_DATA(ASSET_DATA_ENTITY_HDMA_SCANLINE_WIDTH_TABLE_BIN);
+}
 
 /* render_entity_hdma_window — Port of RENDER_ENTITY_HDMA_WINDOW.
  * Builds per-scanline window tables creating a vertical beam above the entity
@@ -155,7 +156,7 @@ void render_entity_hdma_window(int16_t entity_offset,
         if (s < 0 || s >= EB_VIEWPORT_HEIGHT)
             continue;
 
-        int half_w = entity_hdma_scanline_width[table_start + i];
+        int half_w = entity_hdma_scanline_width()[table_start + i];
         int16_t left  = screen_x - half_w;
         int16_t right = screen_x + half_w - 1;
 

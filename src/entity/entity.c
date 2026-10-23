@@ -793,16 +793,10 @@ uint16_t calculate_direction_fine(int16_t from_x, int16_t from_y,
     /* Exact C41EFF arithmetic and C41FC5/C41FDF tables. The original
      * quantizes before its eight-way rounding; continuous atan2 changes
      * ordinary facing and encounter initiative near sector boundaries.
-     * Values from asm/data/math/direction_offset_table.asm and
-     * asm/data/math/atan2_lookup_table.asm. */
-    static const uint16_t offsets[13] = {
-        0x4000, 0x8000, 0x0000, 0xC000, 0x8000, 0xFFFF, 0x0000,
-        0xFFFF, 0x4000, 0xC000, 0xFFFF, 0xFFFF, 0x0000
-    };
-    static const uint16_t atan_thresholds[16] = {
-        0x000D, 0x0026, 0x0040, 0x005C, 0x0079, 0x0099, 0x00BE, 0x00E8,
-        0x011A, 0x0159, 0x01AB, 0x021D, 0x02CB, 0x03FD, 0x06BB, 0x143D
-    };
+     * DIRECTION_OFFSET_TABLE (13 words) and ATAN2_LOOKUP_TABLE (16 words)
+     * come from the donor ROM (asm/data/math/). */
+    const uint8_t *offsets = ASSET_DATA(ASSET_DATA_DIRECTION_OFFSET_TABLE_BIN);
+    const uint8_t *atan_thresholds = ASSET_DATA(ASSET_DATA_ATAN2_LOOKUP_TABLE_BIN);
     uint16_t dx = (uint16_t)((uint16_t)from_x - (uint16_t)to_x);
     uint16_t dy = (uint16_t)((uint16_t)from_y - (uint16_t)to_y);
     uint16_t abs_x = (dx & 0x8000) ? (uint16_t)(0u - dx) : dx;
@@ -818,7 +812,7 @@ uint16_t calculate_direction_fine(int16_t from_x, int16_t from_y,
     else if (!(dx & 0x8000))
         quadrant |= 1;
     if (quadrant & 0x000C)
-        return offsets[quadrant];  /* Coincident positions return UP, too. */
+        return read_u16_le(offsets + quadrant * 2);  /* Coincident positions return UP, too. */
 
     /* XBA/BIT saturates the dividend if normalized Y does not fit a byte.
      * WRDIVL/WRDIVB then performs unsigned integer division. abs_x cannot
@@ -826,11 +820,11 @@ uint16_t calculate_direction_fine(int16_t from_x, int16_t from_y,
     uint16_t dividend = abs_y >= 0x0100 ? 0xFFFF : (uint16_t)(abs_y << 8);
     uint16_t ratio = (uint16_t)(dividend / abs_x);
     uint16_t bin = 0;
-    while (bin < 16 && ratio >= atan_thresholds[bin])
+    while (bin < 16 && ratio >= read_u16_le(atan_thresholds + bin * 2))
         bin++;
     if (quadrant != 0 && quadrant != 3)
         bin = (uint16_t)(16 - bin);
-    return (uint16_t)(offsets[quadrant] + (bin << 10));
+    return (uint16_t)(read_u16_le(offsets + quadrant * 2) + (bin << 10));
 }
 
 /*

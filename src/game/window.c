@@ -14,6 +14,7 @@
 #include "include/pad.h"
 #include "include/constants.h"
 #include "data/assets.h"
+#include "include/binary.h"
 #include <stdbool.h>
 #include <string.h>
 #include <assert.h>
@@ -2496,15 +2497,12 @@ void draw_hp_pp_window(uint16_t char_id) {
     /* --- Rows 3-4: HP section (assembly lines 462-556) ---
      * Fill HP digit ert.buffer, then write 2 rows of: edge + 2 header + 3 digits + edge.
      *
-     * HPPP_WINDOW_TILE_DATA (asm/data/unknown/C3E3F8.asm):
+     * HPPP_WINDOW_TILE_DATA (asm/data/text/hppp_window_tile_data.asm,
+     * loaded from the donor ROM):
      *   HP row 1: 0x08, 0x09; HP row 2: 0x18, 0x19
      *   PP row 1: 0x0A, 0x09; PP row 2: 0x1A, 0x19 */
-    static const uint8_t hppp_header_tiles[8] = {
-        0x08, 0x09,  /* HP top */
-        0x18, 0x19,  /* HP bottom */
-        0x0A, 0x09,  /* PP top */
-        0x1A, 0x19   /* PP bottom */
-    };
+    const uint8_t *hppp_header_tiles =
+        ASSET_DATA(ASSET_DATA_HPPP_WINDOW_TILE_DATA_BIN);
 
     fill_character_hp_tile_buffer(char_id, ch->current_hp, ch->current_hp_fraction);
 
@@ -3031,17 +3029,11 @@ uint16_t alloc_bg2_tilemap_entry(void) {
 }
 
 void init_used_bg2_tile_map(void) {
-    static const uint16_t defaults[USED_BG2_TILE_MAP_SIZE] = {
-        0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
-        0x8FFF, 0x801F, 0x03FF, 0x03FF,
-        0x0001, 0x0001, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000,
-    };
-    memcpy(win.used_bg2_tile_map, defaults, sizeof(win.used_bg2_tile_map));
+    /* USED_BG2_TILE_MAP_DEFAULTS (asm/data/system/used_bg2_tile_map_defaults.asm),
+     * 32 words loaded from the donor ROM. */
+    const uint8_t *defaults = ASSET_DATA(ASSET_DATA_USED_BG2_TILE_MAP_DEFAULTS_BIN);
+    for (int i = 0; i < USED_BG2_TILE_MAP_SIZE; i++)
+        win.used_bg2_tile_map[i] = read_u16_le(defaults + i * 2);
 }
 
 /*

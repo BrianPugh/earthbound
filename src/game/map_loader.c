@@ -774,24 +774,27 @@ static size_t load_and_decompress(AssetId id, uint8_t *dst, size_t dst_max) {
     return decompressed_size;
 }
 
-/* ROM low-word addresses of each MAP_DATA_PALETTE_N file (from linker map).
- * Used to resolve event-flag palette overrides, which encode ROM addresses
- * in the palette data itself (assembly lines 42-63 of LOAD_MAP_PAL). */
-static const uint16_t palette_file_rom_low[32] = {
-    0x7CA7, 0x7FA7, 0x81E7, 0x84E7, 0x8667, 0x87E7, 0x8AE7, 0x9027,
-    0x90E7, 0x9267, 0x96E7, 0x9CE7, 0xA2E7, 0xA8E7, 0xABE7, 0xB1E7,
-    0xB7E7, 0xBAE7, 0xC0E7, 0xC1A7, 0xC6E7, 0xCCE7, 0xD0A7, 0xD467,
-    0xD767, 0xDB27, 0xE127, 0xE5A7, 0xE967, 0xEDE7, 0xF267, 0xF4A7,
-};
+/* MAP_PALETTE_PTR_TABLE (asm/data/map/tileset_palette_pointer_table.asm):
+ * 32 far pointers to the MAP_DATA_PALETTE_N files, loaded from the donor ROM.
+ * Event-flag palette overrides encode ROM addresses in the palette data
+ * itself (assembly lines 42-63 of LOAD_MAP_PAL); their low words are mapped
+ * back to (file, offset) through this table. */
+#define MAP_PALETTE_FILE_COUNT 32
+
+static uint16_t palette_file_rom_low(int file_num) {
+    const uint8_t *ptrs = ASSET_DATA(ASSET_DATA_MAP_PALETTE_PTR_TABLE_BIN);
+    return read_u16_le(ptrs + file_num * 4);
+}
 
 /* Resolve a palette ROM low-word address to (file_number, byte_offset).
  * Returns false if the address doesn't fall within any known palette file. */
 static bool resolve_palette_rom_address(uint16_t rom_low, int *file_num,
                                          size_t *byte_offset) {
-    for (int i = 31; i >= 0; i--) {
-        if (palette_file_rom_low[i] <= rom_low) {
+    for (int i = MAP_PALETTE_FILE_COUNT - 1; i >= 0; i--) {
+        uint16_t file_low = palette_file_rom_low(i);
+        if (file_low <= rom_low) {
             *file_num = i;
-            *byte_offset = rom_low - palette_file_rom_low[i];
+            *byte_offset = rom_low - file_low;
             return true;
         }
     }
@@ -3167,19 +3170,10 @@ uint16_t check_player_collision_at_position(int16_t x, int16_t y,
     return temp_entity_surface_flags;
 }
 
-/* DIRECTION_QUANTIZE_TABLE (asm/data/unknown/C0CF58.asm).
- * 63-byte spiral pattern: 7R,7D,7L,6U,6R,5D,5L,4U,4R,3D,3L,2U,2R,1D,1L.
+/* DIRECTION_QUANTIZE_TABLE (asm/data/overworld/direction_quantize_table.asm),
+ * loaded from the donor ROM. 63-byte spiral pattern:
+ * 7R,7D,7L,6U,6R,5D,5L,4U,4R,3D,3L,2U,2R,1D,1L.
  * Values: 1=UP, 2=RIGHT, 3=DOWN, 4=LEFT. */
-static const uint8_t direction_quantize_table[63] = {
-    2, 2, 2, 2, 2, 2, 2,  3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4,  1, 1, 1, 1, 1, 1,
-    2, 2, 2, 2, 2, 2,     3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4,         1, 1, 1, 1,
-    2, 2, 2, 2,            3, 3, 3,
-    4, 4, 4,               1, 1,
-    2, 2,                  3,
-    4,
-};
 
 /* ---- CHECK_ENTITY_COLLISION_PATH (port of C0CF97) ----
  *
@@ -3216,6 +3210,8 @@ int16_t check_entity_collision_path(int16_t entity_slot, uint8_t collision_mask,
     int16_t tile_x_unmasked = start_tile_x;
     int16_t tile_y_unmasked = start_tile_y;
 
+    const uint8_t *direction_quantize_table =
+        ASSET_DATA(ASSET_DATA_DIRECTION_QUANTIZE_TABLE_BIN);
     int16_t table_pos = 0;
 
     for (int16_t step = 0; step < max_steps; step++) {

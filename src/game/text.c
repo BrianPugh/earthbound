@@ -585,36 +585,31 @@ void display_money_window(void) {
  * 0 if an affliction blocks PSI.
  *
  * Checks each of the 7 affliction groups against PSI_BLOCK_BY_AFFLICTION_TABLE
- * (asm/data/unknown/C3F0B0.asm). Blocking afflictions:
+ * (asm/data/battle/psi_block_by_affliction_table.asm). Blocking afflictions:
  *   Group 0: Unconscious (1), Diamondized (2)
  *   Group 2: Asleep (1), Solidified (4)
  *   Group 4: Can't concentrate (1)
  */
 static uint16_t check_psi_affliction_block(uint16_t char_id) {
-    /* PSI_BLOCK_BY_AFFLICTION_TABLE: 7 groups × 7 entries.
-     * Entry = 1 means that affliction blocks PSI.
-     * Indexed as [group * 7 + (affliction_value - 1)].
-     * From asm/data/unknown/C3F0B0.asm. */
-    static const uint8_t psi_block_table[7 * 7] = {
-        /* Group 0 */ 1, 1, 0, 0, 0, 0, 0,  /* Unconscious, Diamondized block */
-        /* Group 1 */ 0, 0, 0, 0, 0, 0, 0,
-        /* Group 2 */ 1, 0, 0, 1, 0, 0, 0,  /* Asleep, Solidified block */
-        /* Group 3 */ 0, 0, 0, 0, 0, 0, 0,
-        /* Group 4 */ 1, 0, 0, 0, 0, 0, 0,  /* Can't concentrate blocks */
-        /* Group 5 */ 0, 0, 0, 0, 0, 0, 0,
-        /* Group 6 */ 0, 0, 0, 0, 0, 0, 0,
-    };
+    /* PSI_BLOCK_BY_AFFLICTION_TABLE (asm/data/battle/
+     * psi_block_by_affliction_table.asm), loaded from the donor ROM:
+     * 7 groups x 7 words, nonzero = that affliction blocks PSI.
+     * Byte offset = group * 14 + (affliction_value - 1) * 2. */
+    const uint8_t *psi_block_table =
+        ASSET_DATA(ASSET_DATA_PSI_BLOCK_BY_AFFLICTION_TABLE_BIN);
+    size_t psi_block_table_size =
+        ASSET_SIZE(ASSET_DATA_PSI_BLOCK_BY_AFFLICTION_TABLE_BIN);
 
     uint16_t char_idx = char_id - 1;
     for (int group = 0; group < AFFLICTION_GROUP_COUNT; group++) {
         uint8_t affliction = party_characters[char_idx].afflictions[group];
         if (affliction == 0) continue;
         /* Assembly returns on the FIRST non-zero affliction group */
-        int idx = group * 7 + (affliction - 1);
-        if (idx < 0 || idx >= (int)sizeof(psi_block_table))
+        int idx = group * 14 + (affliction - 1) * 2;
+        if (idx < 0 || (size_t)idx + 2 > psi_block_table_size)
             FATAL("check_psi_affliction_block: idx=%d out of range (group=%d, affliction=%u)\n",
                   idx, group, affliction);
-        if (psi_block_table[idx])
+        if (read_u16_le(psi_block_table + idx))
             return 0;  /* blocked */
         return 1;  /* non-zero affliction but not blocking — still return */
     }
@@ -3520,7 +3515,8 @@ uint8_t ascii_to_eb_char(char ascii) {
     uint8_t c = (uint8_t)ascii;
     if (c < 0x20 || c > 0x7E) return 0x50; /* space for unmapped */
 
-    /* 95-entry table: ASCII 0x20-0x7E → EB codes */
+    /* 95-entry table: ASCII 0x20-0x7E → EB codes. Port-authored inverse of
+     * the EBTEXT charmap (include/macros.asm); no such table is in the ROM. */
     static const uint8_t table[95] = {
         0x50,       /* 0x20 ' '  */
         0x51,       /* 0x21 '!'  */
