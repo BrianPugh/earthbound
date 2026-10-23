@@ -2287,6 +2287,7 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          *
          * CC_1A_06 pre-processing (US path):
          *   CLEAR_INSTANT_PRINTING, CREATE_WINDOW(current), WINDOW_TICK
+         *   (run by GAME_MODE_STORE_MENU's STM_ENTER phase).
          *   If shop_id==0, reads shop from argument_memory.
          * Then calls OPEN_STORE_MENU which builds item list with prices. */
         uint8_t shop_arg = script_read_byte(r);

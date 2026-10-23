@@ -574,15 +574,19 @@ typedef struct {
 
 /* GAME_MODE_STORE_MENU phases. Port of open_store_menu()
  * (src/inventory/store/open_store_menu.asm): the shop item-purchase list.
- * STM_ENTER builds the window (money window, store item list with prices,
+ * STM_ENTER runs CC_1A_06's US prologue (CLEAR_INSTANT_PRINTING,
+ * CREATE_WINDOW(CURRENT_FOCUS_WINDOW), which clears the dialogue window, and one
+ * WINDOW_TICK frame); STM_BUILD builds the window (money window, store item list with prices,
  * HPPP equip-preview cursor callback) and STEP_PUSHes SELECTION_MENU; the
  * cleanup runs in STM_RESULT after it pops. An empty item list skips the
  * push and pops 0 after the same cleanup. Pushed by CC 1A 0x06; result
  * stored to working memory via DT_RESUME_MENU_RESULT.
  * Pops the selected item id, or 0 if cancelled/empty. */
 typedef enum {
-    STM_ENTER = 0,  /* build the shop menu; push SELECTION_MENU */
+    STM_ENTER = 0,  /* CC_1A_06 prologue: re-create the focus window, window_tick */
     STM_RESULT,     /* cleanup, POP the selected item id */
+    STM_BUILD,      /* build the shop menu; push SELECTION_MENU */
+    STM_TICK_FLUSH, /* resume after a parked actionscript frame in the prologue tick */
 } StoreMenuPhase;
 
 typedef struct {

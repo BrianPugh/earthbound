@@ -823,7 +823,27 @@ StepResult mode_step_store_menu(ModeState *ms) {
 
     switch ((StoreMenuPhase)st->phase) {
 
-    case STM_ENTER: {
+    case STM_ENTER:
+        /* CC_1A_06's US prologue (asm/text/ccs/display_shop_menu.asm:13-17):
+         * CLEAR_INSTANT_PRINTING, CREATE_WINDOW(CURRENT_FOCUS_WINDOW) (re-creating
+         * the open dialogue window clears its text, so the clerk's "Can I get
+         * you anything?" is gone once the item list closes), then one
+         * WINDOW_TICK frame before OPEN_STORE_MENU. JPN skips all of it. */
+        clear_instant_printing();
+        create_window(win.current_focus_window);
+        st->phase = STM_BUILD;
+        if (window_tick_work_step()) {
+            st->phase = STM_TICK_FLUSH;
+            return actionscript_frame_take_push();
+        }
+        return STEP_RESULT_CONTINUE();
+
+    case STM_TICK_FLUSH:
+        window_tick_work_flush();
+        st->phase = STM_BUILD;
+        /* fall through: the asm continues straight into OPEN_STORE_MENU */
+
+    case STM_BUILD: {
         /* Assembly lines 14-20: display money window, enable instant printing,
          * save text attributes, create shop window, set padding to 5 digits. */
         display_money_window();
@@ -902,6 +922,8 @@ StepResult mode_step_store_menu(ModeState *ms) {
     close_focus_window();
     restore_window_text_attributes();
     clear_instant_printing();
+    /* CC_1A_06's epilogue SET_WINDOW_FOCUS(CURRENT_FOCUS_WINDOW) stores the
+     * value it read, so it changes nothing. */
 
     return STEP_RESULT_POP(result);
 }
