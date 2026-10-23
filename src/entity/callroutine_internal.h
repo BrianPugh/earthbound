@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 #include "data/event_script_data.h"
+#include "core/types.h"
+#include "snes/ppu.h"
 
 /* Bank index for script read helpers (sb/sw).
  * Set by callroutine_dispatch() before each callroutine invocation. */
@@ -18,6 +20,22 @@ static inline uint8_t sb(uint16_t pc) {
 }
 static inline uint16_t sw(uint16_t pc) {
     return script_bank_read_word(cr_bank_idx, pc);
+}
+
+/* World coordinates of the SNES screen's top-left corner: the asm's BG1_X_POS /
+ * BG1_Y_POS, for scripts that place entities in SNES screen coordinates
+ * (ENTITY_SCREEN_TO_WORLD, SET_ENTITY_RANDOM_SCREEN_X). An entity draws at
+ * viewport x = abs_x - bg_hofs[0] + sprite_x_offset, and the SNES 256x224 band
+ * sits at viewport (PAD_LEFT, PAD_TOP). The overworld camera centres on
+ * EB_VIEWPORT_CENTER_X/Y with sprite offsets 0, so the band starts PAD_LEFT/
+ * PAD_TOP into the scroll; scenes that centre sprites with sprite_x/y_offset
+ * (battle backgrounds) have it at the scroll itself. Equal to BG1_X/Y_POS at
+ * native resolution. */
+static inline int16_t snes_screen_origin_x(void) {
+    return (int16_t)((int16_t)ppu.bg_hofs[0] + EB_VIEWPORT_PAD_LEFT - ppu.sprite_x_offset);
+}
+static inline int16_t snes_screen_origin_y(void) {
+    return (int16_t)((int16_t)ppu.bg_vofs[0] + EB_VIEWPORT_PAD_TOP - ppu.sprite_y_offset);
 }
 
 /* ---- Movement helpers (callroutine_movement.c) ---- */

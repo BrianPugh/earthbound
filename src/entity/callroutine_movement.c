@@ -734,12 +734,14 @@ int16_t cr_movement_set_pos_from_screen(int16_t entity_offset, int16_t script_of
      * Reads screen_x(16) and screen_y(16), converts to world coords:
      *   abs_x = screen_x + BG1_X_POS
      *   abs_y = screen_y + BG1_Y_POS
-     *   frac_x = frac_y = 0x8000 */
+     *   frac_x = frac_y = 0x8000
+     * BG1_X/Y_POS is the SNES screen corner, which a wide viewport moves
+     * (snes_screen_origin_x/y). */
     int16_t scr_x = (int16_t)sw(pc);
     int16_t scr_y = (int16_t)sw(pc + 2);
     *out_pc = pc + 4;
-    entities.abs_x[entity_offset] = scr_x + (int16_t)ppu.bg_hofs[0];
-    entities.abs_y[entity_offset] = scr_y + (int16_t)ppu.bg_vofs[0];
+    entities.abs_x[entity_offset] = scr_x + snes_screen_origin_x();
+    entities.abs_y[entity_offset] = scr_y + snes_screen_origin_y();
     entities.frac_x[entity_offset] = 0x8000;
     entities.frac_y[entity_offset] = 0x8000;
     return 0;

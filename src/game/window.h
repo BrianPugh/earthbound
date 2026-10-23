@@ -387,14 +387,13 @@ void upload_battle_screen_to_vram(void);
 #define HPPP_WINDOW_HEIGHT 8
 #define HPPP_WINDOW_WIDTH  7
 
-/* HPPP horizontal centering tile: center of the 32-tile BG3 tilemap (16),
- * shifted right by EB_VIEWPORT_PAD_LEFT/8 so the windows appear more centered
- * in the expanded viewport during battle. At native 256px this is 16.
- * Clamped to 18 so 4 party members (28 tiles) still fit in the 32-tile tilemap. */
-#define HPPP_CENTER_TILE_IDEAL (16 + EB_VIEWPORT_PAD_LEFT / 8)
-#define HPPP_CENTER_TILE_MAX   (32 - (4 * HPPP_WINDOW_WIDTH) / 2)
-#define HPPP_CENTER_TILE (HPPP_CENTER_TILE_IDEAL < HPPP_CENTER_TILE_MAX \
-                          ? HPPP_CENTER_TILE_IDEAL : HPPP_CENTER_TILE_MAX)
+/* HPPP horizontal centering tile: the centre of the 32-tile BG3 tilemap, as
+ * the asm's LDA #16 (asm/text/hp_pp_window/draw.asm, undraw.asm). The text
+ * layer already renders at viewport x [PAD_LEFT, PAD_LEFT+256) in a wide
+ * viewport (CENTER, or FILL with the PAD_LEFT x_pad), so tile 16 is the
+ * viewport centre there too; adding PAD_LEFT/8 here shifted the windows right
+ * a second time. */
+#define HPPP_CENTER_TILE 16
 
 /* SELECT_BATTLE_MENU_CHARACTER: Port of asm/battle/select_battle_menu_character.asm.
  * Shows the battle menu indicator below the HPPP window for the given party slot.

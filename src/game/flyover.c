@@ -527,6 +527,14 @@ void load_background_animation(uint16_t bg1_layer, uint16_t bg2_layer) {
     /* LOAD_BATTLE_BG(bg1_layer, bg2_layer, letterbox=4) */
     load_battle_bg(bg1_layer, bg2_layer, 4);
 
+    /* Entities stay on screen over these backgrounds (MOVEMENT_LOAD_BATTLEBG:
+     * Poo's Mu training spirit fight), placed in SNES screen coordinates
+     * with BG1 scroll at 0 (EVENT_340 SET_X/SET_Y $80,$70, EVENT_342's
+     * ENTITY_SCREEN_TO_WORLD). load_battle_bg centers sprites vertically
+     * (sprite_y_offset); center them horizontally too, as the Sound Stone
+     * does. No-op at native res; overworld_setup_vram() (RELOAD_MAP) resets it. */
+    ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
+
     blank_screen_and_wait_vblank();
 }
 

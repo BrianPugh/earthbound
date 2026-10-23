@@ -1474,9 +1474,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * Sets abs_x = RAND() + BG1_X_POS + 112, abs_y = BG1_Y_POS. */
         *out_pc = pc;
         int16_t rx = (int16_t)((uint16_t)rng_next_byte()
-                     + (uint16_t)ppu.bg_hofs[0] + 112);
+                     + (uint16_t)snes_screen_origin_x() + 112);
         entities.abs_x[entity_offset] = rx;
-        entities.abs_y[entity_offset] = (int16_t)ppu.bg_vofs[0];
+        entities.abs_y[entity_offset] = snes_screen_origin_y();
         return 0;
     }
 
