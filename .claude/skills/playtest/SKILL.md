@@ -63,7 +63,9 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **`debug on` + SELECT+START wins skip the victory text**, exp and drops. Play a battle out (Auto Fight: `press RIGHT 2; press A; until idle 6000 advance`) when you need those.
 - **Doors locked by story flags do nothing:** a door whose flag isn't set runs its text (if any) and stays shut, e.g. the Monotoli lobby door needs flag 143. Check the door's event flag before reporting a dead door.
 - **Deep Darkness is meant to be mostly black** until the Hawk Eye is used (flag 288); only some blocks stay lit.
-- **Towns have no overworld enemies.** Look for enemies on routes, in caves and in dungeons. `teleport`/`warp` clear enemies, so walk a little before expecting new spawns.
+- **Towns have no overworld enemies, and spawning needs movement.** Enemies only spawn when the camera crosses a 64 px boundary, only from tiles with encounter placements, and ones placed far off screen despawn within frames (all asm behaviour). Walk back and forth on a route, cave or dungeon; `teleport`/`warp` clear enemies first.
+- **Finding an NPC's coordinates:** look up its id in `sprite_placement.json` through the sector pointer table: `pt[(sy*32+sx)*2] - 0x6BE7` indexes `placement_data`, entries are (id16, y8, x8), world x = `sx*256 + x8` (y likewise with the sector row).
+- **Menus can drop an early press:** `until input` / `in:SELECTION_MENU` can fire while a menu still prints its last item; add `wait 10` before the next press.
 - **Enemy count:** `ow_enemies=65535`/`65534` after `teleport` or a door is the asm's own wraparound, and spawning still works. Don't report it.
 - **Blinking party:** `blink=N` after a battle means the party sprites blink, so a shot may miss them. Use `wait 1; shot`.
 - **Before calling something a port bug, rule out how you walked.** Check the asm's conditions, such as the area box, flags, and facing, against what you actually did.
@@ -112,6 +114,20 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Dungeon Man robots | 29-DungeonM | from the start, `until battle 1500 RIGHT\|RIGHT\|UP\|RIGHT\|DOWN` |
 | Monotoli lobby door | 21-Monotoli | `flag 143 1; teleport 5656 5984 0; 40 UP` |
 | Giygas prayer phase (speech 2 → Pray) | 36-CavePast | Giygas recipe below to the 2000-HP stage, then each round `heal; status 2 1 0; status 3 1 0; status 4 1 0` and everyone attacks (~7 rounds); Pray is `press RIGHT; press RIGHT; press A` in Paula's menu. Fastest: `pt.py replay p6g NEW` if that session still exists |
+| Threed zombies | 12-Zombies | `debug on; teleport 5894 8704 6` (road south of the cemetery); `100 LEFT` ×3 then `100 RIGHT` ×6, repeat; ~1 spawn per 100–150 frames. Not at the `warp threed` point |
+| Plague Rat → Magnet Hill melody | 25-Sewer | `flag 11 1; teleport 3552 3240 0; 20 UP`, talk to npc995 (dy about −12), win; then `teleport 3840 4152 6; until text 300 LEFT` |
+| Pink Cloud melody | 26-Dalaam | after Thunder and Storm: `teleport 2072 5512 6; until text 300 LEFT` |
+| Kraken voyage | 27-Kraken | `teleport 7264 2940 0`, talk to npc1065, Yes, `until said:Kraken 3000 advance`; after the battle `until idle 4000 advance` lands in Scaraba |
+| Scaraba arms dealer | 28-Scaraba | `teleport 7512 7016 4; 14 LEFT; 30 UP`, talk to npc1125 |
+| Escargo Express delivery | 29-DungeonM | talk to the phone at the start, Escargo → Delivery → item; courier ~600 frames later, $18 |
+| Submarine → Deep Darkness | 30-DeepDark | `flag 11 1; teleport 4168 120 0; 20 UP`, Check npc1197; `until idle 3000 advance` (~3300 frames) |
+| Enter Moonside (cafe bottles) | 19-Moonside | `teleport 5520 6584 0; 10 UP; press L` |
+| Moonside → Evil Mani-Mani | 19-Moonside | `teleport 5490 4458 2`, talk, No; `teleport 7720 4616 0; 10 DOWN; 30 UP`, L; `teleport 7624 4730 0; 20 UP`, L |
+| Talah Rama gift (slot-14 item name) | 20-TarahRama | `teleport 7984 5716 0`, use the Pencil eraser, `40 UP`; drop 1 item; `teleport 7568 6811 6`, L |
+| Monotoli confession, Paula rejoins | 21-Monotoli | `teleport 5632 6040 0` (Stop! scene), then `teleport 5620 6010 2`, L |
+| Shrooom! → Rainy Circle | 22-RainyCircle | `teleport 5128 186 0; 20 UP`, L; after the win `until text 600 UP+RIGHT\|RIGHT\|UP\|UP+RIGHT` |
+| Summers museum Omar guard | 24-Museum | `teleport 7528 9550 0; 10 UP`, L, Yes; `until text 400 UP` into the hieroglyph room |
+| 4-member battle | 24-Museum | `teleport 5128 216 0`, walk LEFT out of the cave: Mighty Bear Seven + Cave Boy |
 | Giygas final battle (Pokey, redirect, speeches 1–2) | 36-CavePast | `flag 11 1; teleport 192 6056 0; 30 UP` (door 943 → lair, hotspot 14); `teleport 4224 1000 0; wait 20; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance`. Hits on the 9999-HP Giygas are redirected onto the party, so target Pokey (`press A; press DOWN; press A`) |
 
 ## Reporting
