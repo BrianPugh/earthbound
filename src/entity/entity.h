@@ -275,10 +275,13 @@ typedef struct {
  *   Active during: sanctuary screen (exclusive phase, shares buffer with above)
  *   BUF_FLASH_TARGET/SLOPE_R/G/B/ACCUM_R/G/B  compact 96-color layout
  *
- * NAMING SCREEN RENDERER (callroutine.c)
- *   Active during: naming screen (exclusive phase)
- *   BUF_NAME_TILES    0x2000  VWF staging area                  ~8 KB
- *   BUF_NAME_TILEMAP  0x4000  Name display tilemap              ~2 KB
+ * LUMINE HALL WALL TEXT (callroutine.c, EVENT_353)
+ *   Assembly: load_character_portrait_screen.asm, advance_tilemap_animation_frame.asm
+ *   Active during: the scrolling wall text (overworld, no other user active)
+ *   BUF_PORTRAIT_GLYPHS   0x0000  VWF glyph staging (transient)    7 KB
+ *   BUF_PORTRAIT_SCROLL   0x0000  half-step columns (overlay)      <=7 KB
+ *   BUF_PORTRAIT_COLUMNS  0x1C00  whole columns                    7.5 KB
+ *   1 byte per cell; the asm's 16-bit words at $0000-$7AB0 would need 31 KB.
  *
  * ENDING / CREDITS (ending.c)
  *   Assembly: ending/ directory
@@ -287,11 +290,6 @@ typedef struct {
  *   Credits init decomps: ~10 KB transient at 0x0000 (immediate VRAM upload)
  *   BUF_CREDITS_PALETTE  0x0E00  Special cast palette data (256 B)
  *   BUF_CREDITS_TILEMAP  0x0F00  Cast name scroll workspace (128 B)
- *
- * TILEMAP ANIMATION (callroutine.c)
- *   Assembly: advance_tilemap_animation_frame.asm
- *   BUF_TILEMAP_ANIM_LOWER  0x1000  Lower animation buffer
- *   BUF_TILEMAP_ANIM_UPPER  0x4000  Upper animation buffer
  *
  * INTRO/TITLE SCREEN (logo_screen.c, title_screen.c, gas_station.c)
  *   GFX and arrangements decompress directly to ppu.vram — no ert.buffer
@@ -311,7 +309,8 @@ typedef struct {
  * Battle:     BUF_FADE_TARGET + decomp scratch [transient]
  *             + BUF_BATTLE_PALETTE_SAVE [during desaturate]
  *             (PSI arrangements use bundled format in PsiAnimationState, not ert.buffer)
- * Naming:     BUF_NAME_TILES + BUF_NAME_TILEMAP [exclusive]
+ * Lumine Hall wall text: BUF_PORTRAIT_* (0x0000-0x39D8); clobbers the
+ *             palette fade and entity fade areas, which are idle then
  * Sanctuary:  BUF_SANCTUARY_TILEMAPS + BUF_SANCTUARY_PALETTES + BUF_SANCTUARY_MAP_BLOCKS (20 KB)
  *             + BUF_FLASH_* [exclusive] (decomp uses arrangement_buffer)
  * Intro:      BUF_FADE_* only (GFX decompresses directly to ppu.vram)
@@ -376,7 +375,8 @@ typedef struct {
  *   Battle:      ~4 KB (palette fade + scatter-copy to ~0x3A00 in ert.buffer,
  *                decomp uses arrangement_buffer; PSI uses bundled format)
  *   Sanctuary:   ~2.3 KB (single-slot on-demand; decomp uses arrangement_buffer)
- *   Naming:      ~10 KB (relocated from 0x4000 to 0x2000)
+ *   Lumine Hall wall text: 14.4 KB (ends at 0x39D8; staging 0x0000-0x1C00
+ *                then scroll columns overlay it, columns 0x1C00-0x39D8)
  *   Ending:      ~10 KB transient (cast tile GFX direct to ppu.vram)
  *   Intro:       3.5 KB (palette fade only — GFX direct to ppu.vram)
  *   Game-over:   0 KB (GFX direct to ppu.vram)
@@ -395,6 +395,16 @@ typedef struct {
  * data must survive across text reloads during overworld gameplay.
  * See the comment in text_load_window_gfx() for optimization notes. */
 #define BUFFER_SIZE 0x5000
+
+/* Debug-build bounds check for ert.buffer accesses at [off, off + len).
+ * Compiled out with NDEBUG (Release). Use in helpers that compute offsets. */
+#ifndef NDEBUG
+#include <assert.h>
+#define BUFFER_BOUNDS_CHECK(off, len) \
+    assert((size_t)(off) + (size_t)(len) <= (size_t)BUFFER_SIZE)
+#else
+#define BUFFER_BOUNDS_CHECK(off, len) ((void)0)
+#endif
 
 /* DELIVERY_PATHS — persistent path waypoint storage (C port substitute for
  * PATHFINDING_BUFFER in WRAM). Sized to match assembly ($C00 = 3072 bytes). */

@@ -47,6 +47,7 @@
 #include "entity/pathfinding.h"
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include "game_main.h"
 
@@ -179,259 +180,267 @@ static int16_t cr_spawn_entity(int16_t ent, int16_t scr,
 /* dispatch_tick_callback and render_entity_hdma_window moved to callroutine_screen.c */
 
 /* =========================================================================
- * LOAD_CHARACTER_PORTRAIT_SCREEN helpers
+ * Lumine Hall wall text (EVENT_353): LOAD_CHARACTER_PORTRAIT_SCREEN,
+ * ADVANCE_TILEMAP_ANIMATION_FRAME and their helpers, US version:
+ *   asm/misc/load_character_portrait_screen.asm
+ *   asm/intro/render_character_name_display.asm
+ *   asm/system/dma/decode_planar_tilemap.asm
+ *   asm/system/dma/advance_tilemap_animation_frame.asm
+ *   asm/battle/update_tilemap_region.asm, asm/battle/copy_tilemap_rows_to_vram.asm
  *
- * Port of asm/misc/load_character_portrait_screen.asm (US) and the
- * dependent subroutines RENDER_CHARACTER_NAME_DISPLAY (US) and
- * DECODE_PLANAR_TILEMAP (bank04).
+ * The text is drawn on BG1 in "big pixels": each BG1 tile ($0C10 + v, i.e.
+ * map tiles $10-$1F, palette 3) shows a 2x2 block of font pixels, v holding
+ * one bit per pixel. A glyph tile (8x16 px) becomes 4 columns of 8 cells.
+ * The wall shows 30 columns; odd frames show whole columns, even frames show
+ * columns shifted by one font pixel (half a cell), so the text scrolls 1 px
+ * per frame.
  *
- * The C port uses the JP ADVANCE_TILEMAP_ANIMATION_FRAME which reads from
- * ert.buffer+$2000 / ert.buffer+$4000.  The US version writes to
- * ert.buffer+$1000, so the interleave step here writes to $2000 instead.
+ * BUFFER usage. The asm stages glyph tiles at BUFFER+$0000, writes whole
+ * columns at BUFFER+$4000 and half-step columns at BUFFER+$1000, both as
+ * 16-bit tilemap words (cell + $0C10); peak about BUFFER+$7AB0 (31 KB). The
+ * C port stores one byte per cell (the cell value 0-15) and adds the $0C10
+ * when the frame is written to VRAM, which halves the persistent data and
+ * fits BUFFER_SIZE (see BUF_PORTRAIT_* in buffer_layout.h). The asm also adds
+ * $0C10 to each whole column while building the half-step ones; every whole
+ * column a frame displays has had it added, so the VRAM words are identical.
  * ========================================================================= */
 
-/*
- * LUMINE_HALL_TEXT — EBTEXT-encoded bytes loaded from donor ROM.
- * Prefix = [0..3], name-suffix = [4..9], body = [10..214].
- * Total 215 bytes, locale-specific (US/JP differ).
- */
-#define LUMINE_HALL_TEXT_LEN  215
-#define LUMINE_HALL_BODY_LEN  205  /* chars at index 10..214 */
+/* LUMINE_HALL_TEXT (donor ROM): prefix [0..3], suffix [4..9], body [10..214]. */
+#define LUMINE_HALL_BODY_LEN    205
+#define PORTRAIT_PREFIX_LEN     4
+#define PORTRAIT_SUFFIX_LEN     6
+#define PORTRAIT_LEAD_COLUMNS   29      /* blank columns before the text */
+#define PORTRAIT_TRAIL_COLUMNS  30      /* blank columns after the text */
+#define PORTRAIT_VISIBLE_COLUMNS 30     /* columns shown on the wall */
+#define PORTRAIT_COLUMN_CELLS   8       /* cells (tile rows) per column */
+#define PORTRAIT_TILE_BASE      0x0C10  /* BG1 tilemap word for cell value 0 */
+#define PORTRAIT_REGION_X       808     /* UPDATE_TILEMAP_REGION A (tile x = 808 & 63) */
+#define PORTRAIT_REGION_Y       588     /* UPDATE_TILEMAP_REGION X (tile y = 588 & 31) */
 
-/*
- * rcnd_buf_offset — current byte offset into ert.buffer for VWF tile copy.
- * Advances by 16 per tile, skipping the lower-tile region on block boundaries.
- */
-static void rcnd_advance_offset(uint16_t *buf_offset) {
-    *buf_offset += 16;
-    if ((*buf_offset & 0xFF) == 0) {   /* divisible by 256 */
-        *buf_offset += 256;
-    }
+/* Glyph staging: a 16-tile block is 512 bytes, upper tile halves at +0,
+ * lower halves at +256 (DECODE_PLANAR_TILEMAP's source layout). */
+#define PORTRAIT_GLYPH_BLOCK_HALF 256
+
+_Static_assert(BUF_PORTRAIT_COLUMNS >= BUF_PORTRAIT_GLYPHS + BUF_PORTRAIT_GLYPHS_SIZE,
+               "portrait columns must not overlap the glyph staging");
+_Static_assert(BUF_PORTRAIT_COLUMNS + BUF_PORTRAIT_COLUMNS_SIZE <= BUFFER_SIZE,
+               "portrait columns must fit in ert.buffer");
+_Static_assert(BUF_PORTRAIT_COLUMNS_SIZE ==
+               (PORTRAIT_LEAD_COLUMNS + 4 * (PORTRAIT_PREFIX_LEN + PORTRAIT_MAX_NAME_TILES +
+                                             PORTRAIT_SUFFIX_LEN + LUMINE_HALL_BODY_LEN) +
+                PORTRAIT_TRAIL_COLUMNS) * PORTRAIT_COLUMN_CELLS,
+               "BUF_PORTRAIT_COLUMNS_SIZE out of sync");
+
+/* STRLEN over the character struct (the asm runs STRLEN on char_struct::name,
+ * which has no terminator for a 5-letter name and runs on into the level/exp
+ * bytes). Bounded by the struct. */
+static uint16_t portrait_name_strlen(void) {
+    const uint8_t *p = (const uint8_t *)&party_characters[0];
+    uint16_t n = 0;
+    while (n < sizeof(party_characters[0]) && p[n] != 0)
+        n++;
+    return n;
 }
 
-/*
- * rcnd_copy_tile — copy one completed VWF tile (32 bytes = 16 upper + 16 lower)
- * from vwf_buffer[tile_idx] into ert.buffer at [buf_offset] (upper) and
- * [buf_offset + 256] (lower).
- *
- * tile_idx: index into vwf_buffer (each tile is VWF_TILE_BYTES = 32 bytes)
- * buf_offset: destination byte offset within ert.buffer
- */
-static void rcnd_copy_tile(uint16_t tile_idx, uint16_t buf_offset) {
-    const uint8_t *src = vwf_buffer + (uint32_t)tile_idx * VWF_TILE_BYTES;
-    /* Upper 8 rows = first 16 bytes of VWF tile */
-    if ((uint32_t)buf_offset + 16 <= 0x4000)
-        memcpy(&ert.buffer[buf_offset], src, 16);
-    /* Lower 8 rows = next 16 bytes of VWF tile, at buf_offset + 256 */
-    if ((uint32_t)buf_offset + 256 + 16 <= 0x4000)
-        memcpy(&ert.buffer[buf_offset + 256], src + 16, 16);
+/* Copy one VWF tile (32 bytes) to the glyph staging area: upper half at
+ * buf_off, lower half at buf_off + 256 (two MEMCPY24 of 16 bytes). */
+static void portrait_stage_tile(uint16_t vwf_off, uint16_t buf_off) {
+    BUFFER_BOUNDS_CHECK(BUF_PORTRAIT_GLYPHS + buf_off + PORTRAIT_GLYPH_BLOCK_HALF, 16);
+    /* Staging past the region only happens for tiles far beyond what the
+     * scroll displays (tile index > 223); drop them rather than overwrite the
+     * column data. */
+    if ((uint32_t)buf_off + PORTRAIT_GLYPH_BLOCK_HALF + 16 > BUF_PORTRAIT_GLYPHS_SIZE)
+        return;
+    if ((uint32_t)vwf_off + VWF_TILE_BYTES > VWF_BUFFER_SIZE)
+        return;
+    uint8_t *dst = &ert.buffer[BUF_PORTRAIT_GLYPHS + buf_off];
+    memcpy(dst, vwf_buffer + vwf_off, 16);
+    memcpy(dst + PORTRAIT_GLYPH_BLOCK_HALF, vwf_buffer + vwf_off + 16, 16);
 }
 
-/*
- * rcnd_render_glyph — render one NORMAL-font glyph (RENDER_FONT_GLYPH equivalent)
- * into vwf_buffer at the current vwf_x position, using blit_vwf_glyph().
- *
- * eb_char: EB character code (0x50+)
- */
-static void rcnd_render_glyph(uint8_t eb_char) {
-    if (eb_char < 0x50) return;
-    uint8_t char_idx = (eb_char - 0x50) & 0x7F;
-    if (char_idx >= FONT_CHAR_COUNT) return;
-    const uint8_t *glyph = font_get_glyph(FONT_ID_NORMAL, char_idx);
-    uint8_t width = font_get_width(FONT_ID_NORMAL, char_idx);
-    uint8_t height = font_get_height(FONT_ID_NORMAL);
+/* RENDER_FONT_GLYPH with font 0 (NORMAL): blit the glyph in 8-px strips,
+ * advancing width + CHARACTER_PADDING. */
+static void portrait_render_font_glyph(uint8_t eb_char) {
+    uint8_t idx = (uint8_t)((eb_char - 0x50) & 0x7F);
+    const uint8_t *glyph = font_get_glyph(FONT_ID_NORMAL, idx);
     if (!glyph) return;
-    blit_vwf_glyph(glyph, height, width);
+    uint8_t height = font_get_height(FONT_ID_NORMAL);
+    uint16_t width = (uint16_t)font_get_width(FONT_ID_NORMAL, idx) + character_padding;
+    while (width > 8) {
+        blit_vwf_glyph(glyph, height, 8);
+        glyph += height;
+        width -= 8;
+    }
+    blit_vwf_glyph(glyph, height, (uint8_t)width);
 }
 
 /*
- * render_character_name_display — port of RENDER_CHARACTER_NAME_DISPLAY
- * (asm/intro/render_character_name_display.asm, US version).
+ * render_character_name_display — port of RENDER_CHARACTER_NAME_DISPLAY (US).
  *
- * Renders "I'm <name>....  <lumine_body>" into ert.buffer in the block tile
- * layout expected by DECODE_PLANAR_TILEMAP.
+ * Renders "I'm <name>...." + the 205-character body with the VWF renderer and
+ * stages the finished tiles at BUF_PORTRAIT_GLYPHS in 16-tile blocks. The body
+ * is rendered in groups of 17 glyphs; after each group the finished tiles are
+ * staged and the VWF buffer restarts from the partial tile.
  *
- * Returns: number of tiles copied (used to compute total_rows for var0).
+ * Returns the text width in cells: (counted_px >> 3) * 4. counted_px adds
+ * VWF_X at every restart, and the partial-tile pixels kept across a restart
+ * are counted again by the next group (asm behaviour), so it overshoots the
+ * real width by a few pixels per group.
  */
 static uint16_t render_character_name_display(void) {
-    /* Load lumine hall text from donor ROM */
-    const uint8_t *lumine_hall_text = ASSET_DATA(ASSET_DATA_TEXT_LUMINE_HALL_TEXT_BIN);
+    const uint8_t *text = ASSET_DATA(ASSET_DATA_TEXT_LUMINE_HALL_TEXT_BIN);
+    uint16_t buf_off = 0;      /* @LOCAL0A: staging offset */
+    uint16_t counted_px;       /* @LOCAL08 */
+    uint16_t group = 0;        /* @LOCAL0C: glyphs in the current group */
 
-    /* Init VWF: fill with 0xFF (opaque dark background), reset position */
-    memset(vwf_buffer, 0xFF, VWF_BUFFER_SIZE);
     vwf_tile = 0;
     vwf_x = 0;
+    memset(vwf_buffer, 0xFF, 1024);
 
-    /* Track state for tile copy to ert.buffer */
-    uint16_t buf_offset = 0;    /* current position in ert.buffer */
-    uint16_t tile_copied = 0;   /* how many tiles have been flushed to ert.buffer */
-
-    /*
-     * Helper: flush all newly completed tiles (tile_copied..vwf_tile-1) to ert.buffer.
-     * Tiles are "complete" once vwf_tile has moved past them.
-     * The buf_offset advances with boundary adjustment (like COPY_LUMINE_TILES).
-     */
-#define FLUSH_COMPLETE_TILES(do_boundary_check) \
-    do { \
-        uint16_t cur_tile = vwf_x >> 3; \
-        while (tile_copied < cur_tile) { \
-            rcnd_copy_tile(tile_copied, buf_offset); \
-            tile_copied++; \
-            if (do_boundary_check) { \
-                rcnd_advance_offset(&buf_offset); \
-            } else { \
-                buf_offset += 16; \
-            } \
-        } \
-    } while (0)
-
-    /* --- Phase 1: render prefix "I'm " (4 chars from lumine_hall_text[0..3]) --- */
-    /* Assembly: LDA #0; JSL RENDER_FONT_GLYPH for chars at LUMINE_HALL_TEXT[0..3] */
-    for (int i = 0; i < 4; i++) {
-        rcnd_render_glyph(lumine_hall_text[i]);
-    }
-
-    /* --- Phase 2: render character name (up to 5 chars, clamped to 5 in US) --- */
-    int name_len = 0;
-    while (name_len < 5 && party_characters[0].name[name_len])
-        name_len++;
+    uint16_t name_len = portrait_name_strlen();
     if (name_len > 5) name_len = 5;
-    for (int i = 0; i < name_len; i++) {
-        rcnd_render_glyph(party_characters[0].name[i]);
-    }
 
-    /* --- Phase 3: render 6-char suffix from lumine_hall_text[4..9] --- */
-    for (int i = 4; i < 10; i++) {
-        rcnd_render_glyph(lumine_hall_text[i]);
-    }
+    for (int i = 0; i < PORTRAIT_PREFIX_LEN; i++)
+        portrait_render_font_glyph(text[i]);
+    for (uint16_t i = 0; i < name_len; i++)
+        portrait_render_font_glyph(party_characters[0].name[i]);
+    for (int i = 0; i < PORTRAIT_SUFFIX_LEN; i++)
+        portrait_render_font_glyph(text[PORTRAIT_PREFIX_LEN + i]);
 
-    /* Copy initial tiles (COPY_INITIAL_TILES — no boundary check yet) */
-    {
-        uint16_t ntiles = vwf_x >> 3;
-        for (uint16_t t = tile_copied; t < ntiles; t++) {
-            rcnd_copy_tile(t, buf_offset);
-            buf_offset += 16;
+    counted_px = vwf_x;  /* VWF_X + LOCAL0B (0 here) */
+
+    /* @COPY_INITIAL_TILES: no block-boundary adjust on this run. */
+    uint16_t tiles = vwf_x >> 3;
+    for (uint16_t t = 0; t < tiles; t++) {
+        portrait_stage_tile((uint16_t)(t * VWF_TILE_BYTES), buf_off);
+        buf_off += 16;
+    }
+    /* Keep the partial tile as VWF tile 0. */
+    memmove(vwf_buffer, vwf_buffer + (uint32_t)tiles * VWF_TILE_BYTES, VWF_TILE_BYTES);
+    vwf_tile = 0;
+    vwf_x %= 8;
+
+    for (uint16_t i = 0; i < LUMINE_HALL_BODY_LEN; i++) {
+        if (group > 16) {
+            group = 0;
+            counted_px += vwf_x;
+            uint16_t n = vwf_x >> 3;
+            for (uint16_t t = 0; t < n; t++) {
+                portrait_stage_tile((uint16_t)(t * VWF_TILE_BYTES), buf_off);
+                buf_off += 16;
+                if ((int16_t)buf_off % 256 == 0)
+                    buf_off += 256;
+            }
+            if (vwf_x % 8 != 0) {
+                memmove(vwf_buffer, vwf_buffer + (uint32_t)n * VWF_TILE_BYTES, VWF_TILE_BYTES);
+                memset(vwf_buffer + VWF_TILE_BYTES, 0xFF, 480);
+                vwf_tile = 0;
+                vwf_x %= 8;
+            } else {
+                vwf_x = 0;
+                vwf_tile = 0;
+                memset(vwf_buffer, 0xFF, 512);
+            }
         }
-        tile_copied = ntiles;
+        portrait_render_font_glyph(text[PORTRAIT_PREFIX_LEN + PORTRAIT_SUFFIX_LEN + i]);
+        group++;
     }
 
-    /* Save the partial (in-progress) last tile to ert.buffer.
-     * This preserves the prefix glyph pixels in the boundary tile before VWF reset.
-     * (Assembly copies 32 bytes of VWF_BUFFER[tile_copied] to ert.buffer at buf_offset.)
-     * The lumine rendering will overwrite this when the tile completes. */
-    rcnd_copy_tile(tile_copied, buf_offset);
-    /* Don't advance buf_offset — we'll overwrite this tile when it completes */
+    uint16_t total_px = (uint16_t)(vwf_x + counted_px);
 
-    /* Save sub-pixel state: VWF_X mod 8 (partial pixel offset into current tile).
-     * Assembly does: VWF_X = VWF_X % 8; VWF_TILE = 0; MEMSET16 VWF_BUFFER with 0xFF. */
-    vwf_x = vwf_x & 7;
-    vwf_tile = 0;  /* reset tile counter for lumine text rendering */
-    /* Reset vwf_buffer for the lumine text rendering phase */
-    memset(vwf_buffer, 0xFF, VWF_BUFFER_SIZE);
-
-    /* --- Phase 4: render 205 body chars from lumine_hall_text[10..214] ---
-     * Each time a tile boundary is crossed (vwf_tile advances), flush the
-     * completed tile to ert.buffer with boundary check (COPY_LUMINE_TILES). */
-    int body_start = 10;
-    uint16_t vwf_tile_prev = 0;  /* tracks previous vwf_tile to detect tile completions */
-
-    for (int i = 0; i < LUMINE_HALL_BODY_LEN && (body_start + i) < LUMINE_HALL_TEXT_LEN; i++) {
-        uint8_t eb_char = lumine_hall_text[body_start + i];
-        rcnd_render_glyph(eb_char);
-
-        /* Flush any newly completed tiles (tiles where vwf_tile advanced past them) */
-        uint16_t new_vwf_tile = vwf_tile;
-        while (vwf_tile_prev < new_vwf_tile) {
-            rcnd_copy_tile(vwf_tile_prev, buf_offset);
-            tile_copied++;
-            vwf_tile_prev++;
-            rcnd_advance_offset(&buf_offset);
-        }
+    /* @COPY_FINAL_TILES: the finished tiles plus 16 more. */
+    uint16_t n = (uint16_t)((vwf_x >> 3) + 16);
+    for (uint16_t t = 0; t < n; t++) {
+        portrait_stage_tile((uint16_t)(t * VWF_TILE_BYTES), buf_off);
+        buf_off += 16;
+        if ((int16_t)buf_off % 256 == 0)
+            buf_off += 256;
     }
 
-    /* Flush final partial tile from the lumine text rendering */
-    {
-        rcnd_copy_tile(vwf_tile, buf_offset);
-        tile_copied++;
-        buf_offset += 16;
-    }
-
-#undef FLUSH_COMPLETE_TILES
-
-    /* Return total tiles copied = total portrait "columns" */
-    return tile_copied;
+    return (uint16_t)(((int16_t)total_px >> 3) << 2);
 }
 
 /*
- * decode_planar_tilemap — port of DECODE_PLANAR_TILEMAP
- * (asm/system/dma/decode_planar_tilemap.asm).
+ * decode_planar_tilemap — port of DECODE_PLANAR_TILEMAP.
  *
- * Reads a 16×16 pixel (2bpp) tile from ert.buffer at the offset computed
- * from char_code, extracts 2-bit pixel column values across 4 bit-pair levels,
- * and writes 32 uint16 values (64 bytes) to *dest_ptr.
- *
- * The source layout in ert.buffer (set up by render_character_name_display):
- *   Block b (tiles b*16 .. b*16+15):
- *     Upper: ert.buffer[b*512 + (k&0xF)*16 .. +15]
- *     Lower: ert.buffer[b*512 + (k&0xF)*16 + 256 .. +15]
- *   where k = char_code, b = (char_code >> 4).
- *
- * On return, *dest_ptr is advanced past the 64 bytes written.
+ * Turns staged glyph tile char_code (block char_code >> 4, slot char_code & 15)
+ * into 4 columns of 8 cells. Each cell holds a 2x2 pixel block: bits 0-1 =
+ * 2 pixels of the even row, bits 2-3 = the odd row, where a pixel is set if
+ * plane 0 is set and plane 1 clear (font colour 1). Writes 32 cells to
+ * *dest_ptr and advances it.
  */
-static void decode_planar_tilemap(uint8_t char_code, uint16_t **dest_ptr) {
-    /* Compute source offset in ert.buffer (matches assembly formula) */
-    uint16_t lo = (uint16_t)(char_code & 0x0F);
-    uint16_t up = (uint16_t)(char_code & 0xF0) << 1;  /* (char_code & 0xF0) * 2 */
-    uint16_t combined = up + lo;
-    uint32_t src_off = (uint32_t)combined << 4;        /* * 16 */
+static void decode_planar_tilemap(uint16_t char_code, uint8_t **dest_ptr) {
+    uint16_t src_off = (uint16_t)((((char_code & 0xFFF0) << 1) + (char_code & 0x000F)) << 4);
+    BUFFER_BOUNDS_CHECK(BUF_PORTRAIT_GLYPHS + src_off, PORTRAIT_GLYPH_BLOCK_HALF + 16);
+    const uint8_t *glyph = &ert.buffer[BUF_PORTRAIT_GLYPHS + src_off];
+    uint8_t *dest = *dest_ptr;
+    BUFFER_BOUNDS_CHECK((size_t)(dest - ert.buffer), 32);
 
-    /* Guard against out-of-bounds access (ert.buffer is 64KB, src_off max ~0x1EF0) */
-    if (src_off + 16 + 256 + 16 > BUFFER_SIZE) return;
-
-    uint16_t *dest = *dest_ptr;
-
-    /* 4 bit-pair levels: shift = 6, 4, 2, 0 */
-    for (int lev = 3; lev >= 0; lev--) {
-        int shift = lev * 2;  /* 6, 4, 2, 0 */
-
-        /* Upper tile: 4 groups of 4 source bytes each */
-        uint32_t src = src_off;
-        for (int grp = 0; grp < 4; grp++) {
-            /* (b0 XOR b1) AND b0 — extracts plane-0-dominant pixels */
-            uint8_t b0 = ert.buffer[src + 0];
-            uint8_t b1 = ert.buffer[src + 1];
-            uint16_t lo_val = (uint16_t)((b0 ^ b1) & b0);
-
-            uint8_t b2 = ert.buffer[src + 2];
-            uint8_t b3 = ert.buffer[src + 3];
-            uint16_t hi_val = (uint16_t)((b2 ^ b3) & b2);
-
-            /* Extract 2 bits at shift position, combine into 4-bit result */
-            uint16_t result = (uint16_t)(((hi_val >> shift) & 3) << 2)
-                            | (uint16_t)((lo_val >> shift) & 3);
-            *dest++ = result;
-            src += 4;
-        }
-
-        /* Lower tile: same but source is +256 bytes from upper */
-        src = src_off + 256;
-        for (int grp = 0; grp < 4; grp++) {
-            uint8_t b0 = ert.buffer[src + 0];
-            uint8_t b1 = ert.buffer[src + 1];
-            uint16_t lo_val = (uint16_t)((b0 ^ b1) & b0);
-
-            uint8_t b2 = ert.buffer[src + 2];
-            uint8_t b3 = ert.buffer[src + 3];
-            uint16_t hi_val = (uint16_t)((b2 ^ b3) & b2);
-
-            uint16_t result = (uint16_t)(((hi_val >> shift) & 3) << 2)
-                            | (uint16_t)((lo_val >> shift) & 3);
-            *dest++ = result;
-            src += 4;
+    for (int shift = 6; shift >= 0; shift -= 2) {
+        for (int half = 0; half < 2; half++) {
+            const uint8_t *s = glyph + half * PORTRAIT_GLYPH_BLOCK_HALF;
+            for (int grp = 0; grp < 4; grp++) {
+                uint8_t lo = (uint8_t)((s[0] ^ s[1]) & s[0]);
+                uint8_t hi = (uint8_t)((s[2] ^ s[3]) & s[2]);
+                *dest++ = (uint8_t)((((hi >> shift) & 3) << 2) | ((lo >> shift) & 3));
+                s += 4;
+            }
         }
     }
-
     *dest_ptr = dest;
+}
+
+/* COPY_TILEMAP_ROWS_TO_VRAM: `height` rows of `count` words from `src`
+ * (stride `stride` words) to the tilemap at `base`, starting at (x & 31, y),
+ * y wrapping at 32. */
+static void copy_tilemap_rows_to_vram(uint16_t base, uint16_t x, uint16_t y,
+                                      uint16_t count, uint16_t stride,
+                                      uint16_t height, const uint16_t *src) {
+    for (uint16_t row = 0; row < height; row++) {
+        uint32_t byte_addr = (uint32_t)(y * 32 + base + (x & 0x1F)) * 2;
+        const uint16_t *p = src + (uint32_t)row * stride;
+        for (uint16_t i = 0; i < count; i++) {
+            if (byte_addr + 1 < VRAM_SIZE) {
+                ppu.vram[byte_addr] = (uint8_t)(p[i] & 0xFF);
+                ppu.vram[byte_addr + 1] = (uint8_t)(p[i] >> 8);
+            }
+            byte_addr += 2;
+        }
+        y++;
+        if (y == 32) y = 0;
+    }
+}
+
+/*
+ * update_tilemap_region — port of UPDATE_TILEMAP_REGION (BG1 tilemap,
+ * 64x32 = 2 nametables). The asm picks the second nametable when
+ * (x & 31) != 0 rather than testing x & 32, and splits rows that cross a
+ * 32-column boundary; ported as is.
+ */
+static void update_tilemap_region(uint16_t x_param, uint16_t y_param,
+                                  uint16_t width, uint16_t height,
+                                  const uint16_t *tiles) {
+    uint16_t tile_x = x_param & 0x3F;
+    uint16_t tile_y = y_param & 0x1F;
+    uint16_t base = (tile_x & 0x1F) ? (uint16_t)(VRAM_OVERWORLD_LAYER_1_TILEMAP + TILEMAP_SIZE)
+                                    : VRAM_OVERWORLD_LAYER_1_TILEMAP;
+    if (((tile_x + width) & 0xFFE0) == (tile_x & 0xFFE0)) {
+        copy_tilemap_rows_to_vram(base, tile_x, tile_y, width, width, height, tiles);
+        return;
+    }
+    uint16_t cur_x = tile_x;
+    uint16_t remaining = width;
+    const uint16_t *p = tiles;
+    uint16_t count;
+    do {
+        count = (uint16_t)(((tile_x + remaining) & 0xFFE0) - cur_x);
+        copy_tilemap_rows_to_vram(base, cur_x, tile_y, count, remaining, height, p);
+        base ^= 0x0400;
+        p += count;
+        cur_x = 0;
+        remaining -= count;
+    } while (remaining >= 32);
+    copy_tilemap_rows_to_vram(base, 0, tile_y, remaining, width, height, p);
 }
 
 /*
@@ -2524,73 +2533,34 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         return 0;
 
     case ROM_ADDR_ADVANCE_TILEMAP_ANIMATION_FRAME: {
-        /* Port of ADVANCE_TILEMAP_ANIMATION_FRAME (asm/system/dma/advance_tilemap_animation_frame-jp.asm).
-         * Reads entity var1 as current frame index. Extracts an 8-row x 30-column
-         * tile region from ert.buffer+$2000 (tile data strided 16 bytes per column),
-         * copies to ert.buffer+2, then writes to BG3 tilemap VRAM.
-         * Increments var1; returns 0 if var1 <= var0 (more frames), 1 if done.
-         *
-         * The source data at BUFFER+$2000 is arranged with 16 bytes between
-         * consecutive tile columns. var1 odd/even selects between two $2000-byte
-         * halves. Each entry is a 16-bit tilemap word. */
+        /* Port of ADVANCE_TILEMAP_ANIMATION_FRAME (US,
+         * asm/system/dma/advance_tilemap_animation_frame.asm).
+         * Frame var1 shows 30 columns starting at column var1 >> 1: whole
+         * columns (asm BUFFER+$4000) on odd frames, half-step columns (asm
+         * BUFFER+$1000) on even ones, written 30x8 to the BG1 tilemap at
+         * tile (40, 12). Returns 0 while var1 (after the increment) <= var0.
+         * The asm gathers the region at BUFFER+2 behind a (8, 30) header at
+         * BUFFER+0; here it is gathered on the stack. */
         *out_pc = pc;
         int16_t ataf_slot = ert.current_entity_slot;
-        uint16_t ataf_var1 = (uint16_t)entities.var[1][ataf_slot];
+        uint16_t ataf_frame = (uint16_t)entities.var[1][ataf_slot];
+        uint16_t ataf_col = ataf_frame >> 1;
+        size_t ataf_src = (ataf_frame & 1) ? BUF_PORTRAIT_COLUMNS : BUF_PORTRAIT_SCROLL;
+        ataf_src += (size_t)ataf_col * PORTRAIT_COLUMN_CELLS;
+        BUFFER_BOUNDS_CHECK(ataf_src, PORTRAIT_VISIBLE_COLUMNS * PORTRAIT_COLUMN_CELLS);
 
-        /* Compute source offset: base = $2000 + (var1 >> 1) * 16.
-         * If var1 is odd, add another $2000. */
-        uint32_t ataf_src = 0x2000 + (uint32_t)((ataf_var1 >> 1) << 4);
-        if (ataf_var1 & 1)
-            ataf_src += 0x2000;
-
-        /* Copy 30 columns x 8 rows from strided source to contiguous ert.buffer+2.
-         * Column stride = 16 bytes. After 30 columns, assembly subtracts 478
-         * (= 30*16 - 2) to advance source by 2 bytes for the next row. */
-        uint16_t ataf_dst = 2;
-        uint32_t ataf_row_src = ataf_src;
-        for (int ataf_r = 0; ataf_r < 8; ataf_r++) {
-            uint32_t ataf_col_src = ataf_row_src;
-            for (int ataf_c = 0; ataf_c < 30; ataf_c++) {
-                if (ataf_col_src + 1 < BUFFER_SIZE && ataf_dst + 1 < BUFFER_SIZE) {
-                    ert.buffer[ataf_dst] = ert.buffer[ataf_col_src];
-                    ert.buffer[ataf_dst + 1] = ert.buffer[ataf_col_src + 1];
-                }
-                ataf_dst += 2;
-                ataf_col_src += 16;
-            }
-            ataf_row_src += 2;
-        }
-
-        /* Write the 30x8 tilemap region to BG3 VRAM.
-         * Assembly calls UPDATE_TILEMAP_REGION(A=808, X=588, ptr=BUFFER).
-         * A=808: tile_x = 808 & 0x3F = 40 (wraps in 64-wide map)
-         * X=588: tile_y = 588 & 0x1F = 12
-         * Region: 30 columns x 8 rows. */
-        {
-            uint16_t ataf_tile_x = 808 & 0x3F;  /* 40 */
-            uint16_t ataf_tile_y = 588 & 0x1F;  /* 12 */
-            uint16_t ataf_si = 2;
-            for (int ataf_r2 = 0; ataf_r2 < 8; ataf_r2++) {
-                uint16_t y = (ataf_tile_y + ataf_r2) & 0x1F;
-                for (int ataf_c2 = 0; ataf_c2 < 30; ataf_c2++) {
-                    uint16_t x = ataf_tile_x + ataf_c2;
-                    uint16_t vram_base = VRAM_TEXT_LAYER_TILEMAP;
-                    if (x >= 32) {
-                        vram_base += 0x400;  /* second tilemap half */
-                        x -= 32;
-                    }
-                    uint16_t vram_word = vram_base + y * 32 + x;
-                    uint16_t vram_byte = vram_word * 2;
-                    if (ataf_si + 1 < BUFFER_SIZE && vram_byte + 1 < VRAM_SIZE) {
-                        ppu.vram[vram_byte] = ert.buffer[ataf_si];
-                        ppu.vram[vram_byte + 1] = ert.buffer[ataf_si + 1];
-                    }
-                    ataf_si += 2;
-                }
+        uint16_t ataf_region[PORTRAIT_COLUMN_CELLS * PORTRAIT_VISIBLE_COLUMNS];
+        for (int r = 0; r < PORTRAIT_COLUMN_CELLS; r++) {
+            for (int c = 0; c < PORTRAIT_VISIBLE_COLUMNS; c++) {
+                size_t off = ataf_src + (size_t)c * PORTRAIT_COLUMN_CELLS + r;
+                uint8_t cell = off < BUFFER_SIZE ? ert.buffer[off] : 0;
+                ataf_region[r * PORTRAIT_VISIBLE_COLUMNS + c] = (uint16_t)(cell + PORTRAIT_TILE_BASE);
             }
         }
+        update_tilemap_region(PORTRAIT_REGION_X, PORTRAIT_REGION_Y,
+                              PORTRAIT_VISIBLE_COLUMNS, PORTRAIT_COLUMN_CELLS,
+                              ataf_region);
 
-        /* Increment var1, compare to var0 */
         entities.var[1][ataf_slot]++;
         if ((uint16_t)entities.var[1][ataf_slot] <= (uint16_t)entities.var[0][ataf_slot])
             return 0;
@@ -2704,135 +2674,77 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
     }
 
     case ROM_ADDR_LOAD_CHARACTER_PORTRAIT_SCREEN: {
-        /* Port of LOAD_CHARACTER_PORTRAIT_SCREEN (asm/misc/load_character_portrait_screen.asm).
-         *
-         * US version flow:
-         *   1. Call RENDER_CHARACTER_NAME_DISPLAY to render VWF tiles into ert.buffer
-         *      (tile layout: block b at ert.buffer[b*512], lower at +256 within block).
-         *   2. Clear 29×8 words at ert.buffer+$4000 (initial scroll clear).
-         *   3. Decode portrait header (4 tiles) via DECODE_PLANAR_TILEMAP → ert.buffer+$4000.
-         *   4. Decode name tiles (name_len tiles).
-         *   5. Decode stats tiles (6 tiles).
-         *   6. Decode portrait body (205 tiles).
-         *   7. Clear 30 trailing rows in ert.buffer+$4000.
-         *   8. Init ert.buffer+$2000 header (8 words = $0C10).
-         *      [NOTE: US assembly writes to $1000, but C port uses JP ADVANCE_TILEMAP
-         *       which reads from $2000, so output goes to $2000 here.]
-         *   9. Interleave ert.buffer+$4000 → ert.buffer+$2000 for all decoded rows.
-         *  10. Set entity var0 = total_rows * 2.
-         *  11. Write ert.buffer[0]=8, ert.buffer[1]=30 (tilemap header). */
+        /* Port of LOAD_CHARACTER_PORTRAIT_SCREEN (US,
+         * asm/misc/load_character_portrait_screen.asm). Builds the Lumine
+         * Hall wall text columns; see the comment above
+         * render_character_name_display() for the layout. */
         *out_pc = pc;
 
-        int16_t lcps_ent = ENT(ert.current_entity_slot);
+        /* Y: text width in columns */
+        uint16_t lcps_text_cols = render_character_name_display();
 
-        /* Step 1: Render VWF text into ert.buffer (block tile layout).
-         * render_character_name_display() fills ert.buffer[0..~0x3FFF] with
-         * 2bpp tile data in the layout expected by decode_planar_tilemap(). */
-        render_character_name_display();
+        /* 29 blank lead columns */
+        uint8_t *lcps_dest = &ert.buffer[BUF_PORTRAIT_COLUMNS];
+        memset(lcps_dest, 0, PORTRAIT_LEAD_COLUMNS * PORTRAIT_COLUMN_CELLS);
+        lcps_dest += PORTRAIT_LEAD_COLUMNS * PORTRAIT_COLUMN_CELLS;
 
-        /* Compute name length for portrait header decode count */
-        int lcps_name_len = 0;
-        while (lcps_name_len < 5 && party_characters[0].name[lcps_name_len])
-            lcps_name_len++;
-        if (lcps_name_len > 5) lcps_name_len = 5;
+        /* Decode staged tiles 0, 1, 2, ... in order: 4 prefix, name, 6 suffix,
+         * 205 body. These counts are character counts, so the tail decodes
+         * tiles past the text (never displayed). */
+        uint16_t lcps_code = 0;
+        for (int i = 0; i < PORTRAIT_PREFIX_LEN; i++)
+            decode_planar_tilemap(lcps_code++, &lcps_dest);
+        uint16_t lcps_name_len = portrait_name_strlen();
+        if (lcps_name_len == 6)
+            lcps_name_len = 5;
+        /* A 5-letter name has no terminator, so STRLEN runs on into the
+         * level/exp bytes and can exceed 6 (decoding extra undisplayed tail
+         * tiles). Cap it to what BUF_PORTRAIT_COLUMNS is sized for. */
+        if (lcps_name_len > PORTRAIT_MAX_NAME_TILES)
+            lcps_name_len = PORTRAIT_MAX_NAME_TILES;
+        for (uint16_t i = 0; i < lcps_name_len; i++)
+            decode_planar_tilemap(lcps_code++, &lcps_dest);
+        for (int i = 0; i < PORTRAIT_SUFFIX_LEN; i++)
+            decode_planar_tilemap(lcps_code++, &lcps_dest);
+        for (int i = 0; i < LUMINE_HALL_BODY_LEN; i++)
+            decode_planar_tilemap(lcps_code++, &lcps_dest);
 
-        /* Step 2: Clear 29×8 words at ert.buffer+$4000 (matches assembly clear loop).
-         * Assembly loops VIRTUAL06 through BUFFER+$4000, advancing past the 29-row region.
-         * The decode destination starts AFTER this cleared area. */
-        memset(&ert.buffer[BUF_NAME_TILEMAP], 0, 29 * 8 * 2);
+        /* 30 blank trailing columns */
+        BUFFER_BOUNDS_CHECK((size_t)(lcps_dest - ert.buffer),
+                            PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS);
+        memset(lcps_dest, 0, PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS);
+        lcps_dest += PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS;
+        uint16_t lcps_total_cols =
+            (uint16_t)((lcps_dest - &ert.buffer[BUF_PORTRAIT_COLUMNS]) / PORTRAIT_COLUMN_CELLS);
 
-        /* Set up decode destination pointer AFTER the initial 29-row clear
-         * (29 rows × 8 uint16/row × 2 bytes/uint16 = 464 bytes) */
-        uint16_t *tile_dest = (uint16_t *)&ert.buffer[BUF_NAME_TILEMAP + 29 * 8 * 2];
+        /* @VIRTUAL04: column index of the last frame */
+        uint16_t lcps_last_col = (uint16_t)(lcps_text_cols + PORTRAIT_VISIBLE_COLUMNS);
+        /* Half-step column count (@INTERLEAVE_ROW loop: < @VIRTUAL04 + 30) */
+        uint16_t lcps_steps = (uint16_t)(lcps_last_col + PORTRAIT_VISIBLE_COLUMNS);
+        /* The scroll columns overlay the (now dead) glyph staging, and each
+         * step reads whole column j + 1. */
+        assert((size_t)(lcps_steps + 1) * PORTRAIT_COLUMN_CELLS <= BUF_PORTRAIT_SCROLL_SIZE);
+        assert(lcps_steps < lcps_total_cols);
+        if ((size_t)(lcps_steps + 1) * PORTRAIT_COLUMN_CELLS > BUF_PORTRAIT_SCROLL_SIZE)
+            lcps_steps = (uint16_t)(BUF_PORTRAIT_SCROLL_SIZE / PORTRAIT_COLUMN_CELLS - 1);
+        if (lcps_steps >= lcps_total_cols)
+            lcps_steps = (uint16_t)(lcps_total_cols - 1);
 
-        /* Step 3: Decode portrait header tiles (4 tiles, sequential indices 0..3) */
-        for (int i = 0; i < 4; i++) {
-            decode_planar_tilemap((uint8_t)i, &tile_dest);
+        /* @INIT_TILEMAP_ENTRY: half-step column 0 is blank ($0C10 words) */
+        const uint8_t *lcps_cols = &ert.buffer[BUF_PORTRAIT_COLUMNS];
+        uint8_t *lcps_scroll = &ert.buffer[BUF_PORTRAIT_SCROLL];
+        memset(lcps_scroll, 0, PORTRAIT_COLUMN_CELLS);
+        /* Half-step column j + 1: the right pixel column of whole column j
+         * and the left one of column j + 1. */
+        for (uint16_t j = 0; j < lcps_steps; j++) {
+            const uint8_t *left = lcps_cols + (size_t)j * PORTRAIT_COLUMN_CELLS;
+            const uint8_t *right = left + PORTRAIT_COLUMN_CELLS;
+            uint8_t *out = lcps_scroll + (size_t)(j + 1) * PORTRAIT_COLUMN_CELLS;
+            for (int c = 0; c < PORTRAIT_COLUMN_CELLS; c++)
+                out[c] = (uint8_t)(((right[c] >> 1) & 0x05) | ((left[c] << 1) & 0x0A));
         }
 
-        /* Step 4: Decode name tiles (lcps_name_len tiles) */
-        for (int i = 0; i < lcps_name_len; i++) {
-            decode_planar_tilemap((uint8_t)(4 + i), &tile_dest);
-        }
-
-        /* Step 5: Decode stats tiles (6 tiles) */
-        for (int i = 0; i < 6; i++) {
-            decode_planar_tilemap((uint8_t)(4 + lcps_name_len + i), &tile_dest);
-        }
-
-        /* Step 6: Decode portrait body tiles (205 tiles) */
-        for (int i = 0; i < 205; i++) {
-            decode_planar_tilemap((uint8_t)(4 + lcps_name_len + 6 + i), &tile_dest);
-        }
-
-        /* Step 7: Clear 30 trailing rows (8 words per row = 16 bytes per row) */
-        int trailing_words = 30 * 8;
-        for (int i = 0; i < trailing_words; i++) {
-            *tile_dest++ = 0;
-        }
-
-        /* Compute total_scroll_rows: total interleave rows covering all data in
-         * ert.buffer+$4000.
-         *   - 29 initial clear rows (each 8 uint16 = 16 bytes)
-         *   - decoded tiles: (4 + name_len + 6 + 205) tiles × 4 rows per tile
-         *   - 30 trailing clear rows
-         * Each DECODE_PLANAR_TILEMAP call writes 32 uint16 = 4 "interleave rows" of 8.
-         * The interleave processes all rows so ADVANCE_TILEMAP can show the full scroll. */
-        int lcps_n_tiles = 4 + lcps_name_len + 6 + 205;
-        uint16_t total_scroll_rows = 29 + (uint16_t)(lcps_n_tiles * 4) + 30;
-
-        /* Step 8: Clear ert.buffer+$2000 region (2000 bytes is ample for scroll data).
-         * Assembly writes $0C10 to first 8 words, but the interleave immediately overwrites
-         * those. We clear the whole region so unwritten slots default to $0C10 offset 0. */
-        memset(&ert.buffer[BUF_NAME_TILES], 0, 0x2000);  /* clear only the $2000 region */
-
-        /* Step 9: Interleave ert.buffer+$4000 → ert.buffer+$2000.
-         * Port of the INTERLEAVE_ROW / INTERLEAVE_COLUMN loop from the US assembly
-         * (lines 179-215 of load_character_portrait_screen.asm), adapted to write
-         * to $2000 instead of $1000 for JP ADVANCE_TILEMAP compatibility.
-         *
-         * Source layout: ert.buffer+$4000, 8 uint16 per row, stride 16 bytes.
-         * Row pairs: upper = source[i], lower = source[i+16 bytes] (i.e. source[i+8]).
-         *
-         * Assembly loop condition: LOCAL04 < @VIRTUAL04 + 30 where @VIRTUAL04 is
-         * pixel-width-based; C port uses total_scroll_rows directly. */
-        uint16_t *src_base = (uint16_t *)&ert.buffer[BUF_NAME_TILEMAP];
-        uint16_t *dst_base = (uint16_t *)&ert.buffer[BUF_NAME_TILES];
-
-        /* Interleave loop: process all data rows.
-         * Stop one short of total so the last "lower" read (row j+1) stays in bounds. */
-        uint16_t interleave_rows = total_scroll_rows > 0 ? total_scroll_rows - 1 : 0;
-        for (uint16_t row = 0; row < interleave_rows; row++) {
-            for (int col = 0; col < 8; col++) {
-                /* Read two uint16 values 16 bytes (8 uint16) apart from source */
-                uint16_t upper = src_base[col];      /* src_base[col] */
-                uint16_t lower = src_base[col + 8];  /* src_base[col + 16 bytes] */
-
-                /* Interleave: LSR lower, AND #5; ASL upper, AND #0xA; OR */
-                uint16_t lbits = (lower >> 1) & 0x0005;
-                uint16_t ubits = (upper << 1) & 0x000A;
-                uint16_t combined = ubits | lbits;
-
-                /* Store combined + $0C10 to tilemap destination */
-                *dst_base++ = combined + 0x0C10;
-
-                /* Update source: src_base[col] += $0C10 (for next row's tile index) */
-                src_base[col] += 0x0C10;
-            }
-            /* Advance source by 8 uint16 (= 16 bytes, matching assembly INC *8 + INC *8) */
-            src_base += 8;
-        }
-
-        /* Step 10: Set entity var0 = (total_scroll_rows - 1) * 2.
-         * ADVANCE_TILEMAP increments var1 each call and stops when var1 > var0.
-         * var1>>1 is the frame index into ert.buffer+$2000; last useful frame =
-         * total_scroll_rows - 1 (last row with valid interleaved data). */
-        entities.var[0][lcps_ent] = (int16_t)((total_scroll_rows - 1) * 2);
-
-        /* Step 11: Write buffer header: BUFFER[0]=8 (rows), BUFFER[1]=30 (cols) */
-        ert.buffer[0] = 8;
-        ert.buffer[1] = 30;
-
+        entities.var[0][ENT(ert.current_entity_slot)] = (int16_t)(lcps_last_col * 2);
         return 0;
     }
 

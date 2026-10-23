@@ -124,6 +124,7 @@ enum TextFlavour {
 #define VRAM_TEXT_LAYER_TILES  0x6000
 #define VRAM_TEXT_LAYER_TILEMAP 0x7C00
 #define VRAM_OBJ              0x4000
+#define VRAM_OVERWORLD_LAYER_1_TILEMAP 0x3800  /* 64x32: two 32x32 nametables */
 /* Cast scene VRAM (word addresses) */
 #define VRAM_CAST_TILES         0x0000  /* = VRAM_TEXT_LAYER_TILES (USA) */
 #define VRAM_CAST_TILEMAP       VRAM_TEXT_LAYER_TILEMAP  /* 0x7C00 */

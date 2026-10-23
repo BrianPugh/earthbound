@@ -89,12 +89,18 @@
 #define BUF_SANCTUARY_PALETTE_STRIDE 0x0100
 #define BUF_SANCTUARY_MAP_BLOCKS 0x4800  /* 1024 × uint16 = 0x800 bytes (transient during load) */
 
-/* ===== Naming Screen (callroutine.c) ===== */
-/* Naming screen is an exclusive phase. Tiles at 0x0000, tilemap right after.
- * Relocated from assembly's 0x2000/0x4000 to pack tightly. */
-#define BUF_NAME_TILES           0x0000  /* VWF staging area (0x2000 bytes) */
-#define BUF_NAME_TILEMAP         0x2000  /* Tilemap for name display */
-#define BUF_NAME_TILEMAP_HEADER  0x0000  /* 2-byte tilemap header (width, height) */
+/* ===== Lumine Hall wall text (callroutine.c, EVENT_353) ===== */
+/* LOAD_CHARACTER_PORTRAIT_SCREEN / ADVANCE_TILEMAP_ANIMATION_FRAME. One byte
+ * per cell (the asm stores 16-bit tilemap words at BUFFER+$0000/$1000/$4000,
+ * peaking near $7AB0). The glyph staging is dead once the columns are
+ * decoded, so the half-step scroll columns overlay it. Peak 0x39D8. */
+#define BUF_PORTRAIT_GLYPHS       0x0000  /* VWF tiles, 16-tile blocks of 512 B (transient) */
+#define BUF_PORTRAIT_GLYPHS_SIZE  0x1C00  /* tiles 0..223 */
+#define BUF_PORTRAIT_SCROLL       0x0000  /* half-step columns, 8 B each, overlays the glyphs */
+#define BUF_PORTRAIT_SCROLL_SIZE  BUF_PORTRAIT_GLYPHS_SIZE  /* up to 896 columns */
+#define PORTRAIT_MAX_NAME_TILES   9       /* 4 + 9 + 6 + 205 = 224 decoded tiles */
+#define BUF_PORTRAIT_COLUMNS      0x1C00  /* whole columns, 8 B each */
+#define BUF_PORTRAIT_COLUMNS_SIZE ((29 + 4 * (4 + PORTRAIT_MAX_NAME_TILES + 6 + 205) + 30) * 8) /* 0x1DD8 */
 
 /* ===== PSI Animation (battle_psi.c) ===== */
 /* PSI arrangements use .arr.bundled format — decompressed per-bundle into
@@ -110,10 +116,6 @@
 #define BUF_CREDITS_LAYER2       0x0700  /* Credits init: layer 2 tiles (transient) */
 #define BUF_CREDITS_TILEMAP      0x0F00  /* Cast name scroll tilemap (128 B) */
 #define BUF_CREDITS_PALETTE      0x0E00  /* Special cast palette data (256 B) */
-
-/* ===== Tilemap Animation (callroutine.c) ===== */
-#define BUF_TILEMAP_ANIM_LOWER   0x1000  /* Lower tilemap animation buffer */
-#define BUF_TILEMAP_ANIM_UPPER   0x4000  /* Upper tilemap animation buffer */
 
 /* ===== Sanctuary Flash Fade (map_loader.c) ===== */
 /* Compact 96-color fade using sequential layout instead of 256-wide arrays. */
