@@ -1580,16 +1580,13 @@ static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
     return sm_setup_finish_tail(st);
 }
 
-/* Tail of a cursor move (assembly @SETUP_CURRENT_OPTION lines 102-122 + line 160):
- * run the option's hover script (instant), one window_tick (park-propagating), and
- * arm the render-only next frame at SM_MAIN. Runs inline after a non-deferring
- * callback, or at SM_MOVE_RESUME after a deferred DISPLAY_TEXT push pops. On a
- * parked window frame, the redraw/primed/SM_MAIN tail runs at the SMF_MOVE flush. */
-static StepResult sm_move_tick(WindowInfo *w, SelectionMenuState *st) {
-    if (w->menu_items[w->current_option].script != 0) {
-        set_instant_printing();
-        display_text_from_addr_inline(w->menu_items[w->current_option].script);
-    }
+/* Tail of @SETUP_CURRENT_OPTION after the hover script and cursor_move_callback
+ * (assembly line 160 CLEAR_INSTANT_PRINTING ... line 186 WINDOW_TICK): one
+ * window_tick (park-propagating), then arm the render-only next frame at SM_MAIN.
+ * Runs inline from sm_setup_current_option(), or at SM_MOVE_RESUME after a
+ * deferred DISPLAY_TEXT push pops. On a parked window frame, the
+ * redraw/primed/SM_MAIN tail runs at the SMF_MOVE flush. */
+static StepResult sm_move_tick(SelectionMenuState *st) {
     clear_instant_printing();
     if (window_tick_work_step()) {
         st->sm_flush = SMF_MOVE;
@@ -1599,6 +1596,38 @@ static StepResult sm_move_tick(WindowInfo *w, SelectionMenuState *st) {
     st->primed = 0;
     st->phase = SM_MAIN;
     return STEP_RESULT_CONTINUE();
+}
+
+/* Assembly @SETUP_CURRENT_OPTION (asm/text/selection_menu.asm lines 102-186;
+ * selection_menu-jp.asm lines 90+ is the same), reached by a cursor move
+ * (@OPTION_FOUND) or a page flip (@HANDLE_PAGINATION):
+ *   1. lines 103-121: if the option's script is non-NULL, SET_INSTANT_PRINTING
+ *      and DISPLAY_TEXT it (the hover script; instant, so no yield).
+ *   2. lines 123-158: if cursor_move_callback is non-NULL, call it with
+ *      (index+1) for type-1 options or userdata otherwise, then
+ *      SET_WINDOW_FOCUS(menu window).
+ *   3. line 160 onward: CLEAR_INSTANT_PRINTING ... WINDOW_TICK (sm_move_tick).
+ * A callback that requested yielding text (display_psi_description) pushes it as
+ * GAME_MODE_DISPLAY_TEXT and finishes step 2's focus restore + step 3 at
+ * SM_MOVE_RESUME; the hover script already ran, so the resume skips it. */
+static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st) {
+    if (w->current_option >= w->menu_count)
+        return sm_move_tick(st);
+    MenuItem *ci = &w->menu_items[w->current_option];
+    if (ci->script != 0) {
+        set_instant_printing();
+        display_text_from_addr_inline(ci->script);
+    }
+    if (w->cursor_move_callback) {
+        uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
+        w->cursor_move_callback(val);
+        if (sm_pending_cursor_text) {
+            st->phase = SM_MOVE_RESUME;
+            return sm_push_pending_text();
+        }
+        set_window_focus(w->id);
+    }
+    return sm_move_tick(st);
 }
 
 /* SM_MAIN input handling (assembly @CURSOR_BLINK_LOOP body after the per-frame
@@ -1674,22 +1703,7 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
         int16_t new_option = resolve_cursor_move(w, move_result);
         if (new_option >= 0) {
             w->current_option = (uint16_t)new_option;
-            if (w->cursor_move_callback) {
-                MenuItem *ci = &w->menu_items[w->current_option];
-                uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
-                w->cursor_move_callback(val);
-                /* A callback that requested yielding text defers the rest
-                 * (set_window_focus + hover script + window_tick) to SM_MOVE_RESUME
-                 * after the pushed DISPLAY_TEXT pops. */
-                if (sm_pending_cursor_text) {
-                    st->phase = SM_MOVE_RESUME;
-                    return sm_push_pending_text();
-                }
-                /* Assembly line 157-158: restore focus to this window after the
-                 * callback might have changed it. */
-                set_window_focus(w->id);
-            }
-            return sm_move_tick(w, st);
+            return sm_setup_current_option(w, st);
         }
     }
 
@@ -1846,9 +1860,10 @@ StepResult mode_step_selection_menu(ModeState *ms) {
 
     case SM_MOVE_RESUME:
         /* Resume a cursor move after its deferred description text popped:
-         * restore focus, run the hover-script tail + window_tick, back to SM_MAIN. */
+         * restore focus, then window_tick, back to SM_MAIN (the hover script
+         * already ran before the callback, as in @SETUP_CURRENT_OPTION). */
         set_window_focus(w->id);
-        return sm_move_tick(w, st);
+        return sm_move_tick(st);
 
     case SM_PAGE2:
         /* Second half of an overflow page-flip. Assembly @HANDLE_PAGINATION
@@ -1863,17 +1878,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
          * render-only frame reproduces the trailing render before input. */
         print_menu_items();
         set_instant_printing();
-        if (w->cursor_move_callback && w->current_option < w->menu_count) {
-            MenuItem *ci = &w->menu_items[w->current_option];
-            uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
-            w->cursor_move_callback(val);
-            if (sm_pending_cursor_text) {
-                st->phase = SM_MOVE_RESUME;
-                return sm_push_pending_text();
-            }
-            set_window_focus(w->id);
-        }
-        return sm_move_tick(w, st);
+        return sm_setup_current_option(w, st);
 
     case SM_MAIN:
     default:
