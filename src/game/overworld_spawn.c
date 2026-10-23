@@ -615,11 +615,13 @@ void spawn_horizontal(uint16_t new_x, uint16_t y_coord) {
             }
         }
 
-        /* Assembly lines 110-121: Attempt spawns (count down from tile_count) */
-        if (first_id != 0) {
-            for (uint16_t i = tile_count; i > 0; i--) {
-                attempt_enemy_spawn((uint16_t)x_tile_start, (uint16_t)y_grid, first_id);
-            }
+        /* Assembly lines 110-121: Attempt spawns (count down from tile_count).
+         * A tile with encounter_id 0 still gets one ATTEMPT_ENEMY_SPAWN call
+         * (tile_count stays 1): it advances ENEMY_SPAWN_COUNTER and, on every
+         * 16th call, rolls the sector's Magic Butterfly chance, so butterflies
+         * appear on tiles without an enemy placement. */
+        for (uint16_t i = tile_count; i > 0; i--) {
+            attempt_enemy_spawn((uint16_t)x_tile_start, (uint16_t)y_grid, first_id);
         }
 
         col++;
@@ -674,11 +676,13 @@ void spawn_vertical(uint16_t x_coord, uint16_t new_y) {
             }
         }
 
-        /* Assembly lines 110-121: Attempt spawns (count down from tile_count) */
-        if (first_id != 0) {
-            for (uint16_t i = tile_count; i > 0; i--) {
-                attempt_enemy_spawn((uint16_t)x_grid, (uint16_t)y_tile_start, first_id);
-            }
+        /* Assembly lines 110-121: Attempt spawns (count down from tile_count).
+         * A tile with encounter_id 0 still gets one ATTEMPT_ENEMY_SPAWN call
+         * (tile_count stays 1): it advances ENEMY_SPAWN_COUNTER and, on every
+         * 16th call, rolls the sector's Magic Butterfly chance, so butterflies
+         * appear on tiles without an enemy placement. */
+        for (uint16_t i = tile_count; i > 0; i--) {
+            attempt_enemy_spawn((uint16_t)x_grid, (uint16_t)y_tile_start, first_id);
         }
 
         row++;
