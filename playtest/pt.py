@@ -8,6 +8,7 @@ Usage (from the repo root)::
     uv run --no-sync python playtest/pt.py history NAME > repro.play
     uv run --no-sync python playtest/pt.py replay NAME NEWNAME
     uv run --no-sync python playtest/pt.py video NAME [--out PATH] [--scale N] [--skip-boot]
+    uv run --no-sync python playtest/pt.py start NAME --emu --save ...   # the original game (emu.py)
 
 The game runs with ``--session FIFO``: it executes the commands it is sent and
 then blocks (no frame advances) until the next ``do``. Every ``do`` ends with
@@ -22,6 +23,10 @@ line; history.play holds every command sent, so ``replay`` can rebuild the
 session from start.srm, and ``video`` can render it to an MP4 (a headless
 replay with ``--record-video``/``--record-audio``, piped to ffmpeg, with one
 chapter per ``do`` step).
+
+``start --emu`` runs the original game instead, in the reference emulator
+(playtest/emu.py, a snes9x libretro core), which takes the same flags and
+commands; ``do``/``stop``/``history``/``replay``/``video`` work the same on it.
 """
 
 import argparse
@@ -46,6 +51,32 @@ FFMPEG = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or "/opt/homebrew/bi
 
 # Title screen -> file select -> file 1 -> Continue, then wait for control.
 BOOT = "300 -; 1 START; 200 -; 1 A; 120 -; 1 A; 120 -; 1 A; until idle 900"
+# The same in the original (emu.py): its intro runs longer; in:/input follow the asm call chain
+EMU = HERE / "emu.py"
+EMU_BOOT = (
+    "until in:FILE_SELECT_INIT 3000 START*; until input 600; wait 10; press A; wait 30; "
+    "until input 600; wait 10; press A; until idle 1500"
+)
+
+
+def engine(d):
+    """``"emu"`` if session dir ``d`` runs the original game (emu.py), else ``"port"``."""
+    f = d / "engine"
+    return f.read_text().strip() if f.exists() else "port"
+
+
+def game_command(d):
+    """The game command line (before its arguments) for session dir ``d``'s engine."""
+    if engine(d) == "emu":
+        return [sys.executable, str(EMU)]
+    return [BIN]
+
+
+def check_binary(d):
+    """Exit with a message if session dir ``d``'s game can't run."""
+    if engine(d) == "port" and not Path(BIN).exists():
+        sys.exit(f"game binary not found: {BIN} (set EB_BIN)")
+
 
 KEEP = (
     "STATE",
@@ -216,21 +247,22 @@ def do(name, cmds, shot=True, sheet=False, scale=1, timeout=300.0, quiet=False, 
         print(f"SHEET {out}")
 
 
-def start(name, save, boot=True, scale=1, history=None):
+def start(name, save, boot=True, scale=1, history=None, emu=False):
     d = session_dir(name)
     if read_pid(d) is not None:
         sys.exit(f"session {name} is already running (stop it first)")
-    if not Path(BIN).exists():
-        sys.exit(f"game binary not found: {BIN} (set EB_BIN)")
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
+    if emu:
+        (d / "engine").write_text("emu\n")
+    check_binary(d)
     shutil.copy(save, d / "save.srm")
     shutil.copy(save, d / "start.srm")
     (d / "history.play").write_text(f"# pt.py session {name} from {save}\n")
     os.mkfifo(d / "cmd.fifo")
     with (d / "log.txt").open("wb") as log:
         p = subprocess.Popen(  # noqa: S603
-            [BIN, "--headless", "--save", "save.srm", "--session", "cmd.fifo"],
+            [*game_command(d), "--headless", "--save", "save.srm", "--session", "cmd.fifo"],
             cwd=d,
             stdin=subprocess.DEVNULL,
             stdout=log,
@@ -251,7 +283,8 @@ def start(name, save, boot=True, scale=1, history=None):
     if history is not None:
         do(name, history, scale=scale, timeout=3600.0, tag="replay")
     else:
-        do(name, BOOT if boot else "", scale=scale, tag="boot")
+        boot_cmds = (EMU_BOOT if emu else BOOT) if boot else ""
+        do(name, boot_cmds, scale=scale, tag="boot", timeout=600.0)
 
 
 def history_commands(name, boot=True):
@@ -277,7 +310,7 @@ def replay(name, new):
     SESSIONS.mkdir(parents=True, exist_ok=True)
     shutil.copy(src / "start.srm", tmp)
     try:
-        start(new, tmp, history="\n".join(cmds))
+        start(new, tmp, history="\n".join(cmds), emu=engine(src) == "emu")
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -323,8 +356,7 @@ def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, 
     src = session_dir(name)
     if not (src / "start.srm").exists():
         sys.exit(f"session {name} has no start.srm")
-    if not Path(BIN).exists():
-        sys.exit(f"game binary not found: {BIN} (set EB_BIN)")
+    check_binary(src)
     if not Path(FFMPEG).exists():
         sys.exit(f"ffmpeg not found: {FFMPEG} (set FFMPEG)")
     blocks = history_blocks(name)
@@ -349,7 +381,8 @@ def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, 
     shutil.copy(src / "start.srm", work / "save.srm")
     (work / "video.play").write_text("\n".join(lines) + "\n")
     os.mkfifo(work / "video.fifo")
-    cmd = [BIN, "--headless", "--save", "save.srm", "--input", "video.play", "--record-video", "video.fifo"]
+    cmd = [*game_command(src), "--headless", "--save", "save.srm", "--input", "video.play"]
+    cmd += ["--record-video", "video.fifo"]
     if audio:
         cmd += ["--record-audio", "audio.raw"]
     if skipping:
@@ -369,7 +402,8 @@ def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, 
             break
     if size is None:
         game.wait()
-        sys.exit(f"{BIN} did not start recording (built before --record-video? rebuild it): see {work / 'log.txt'}")
+        what = "emu.py" if engine(src) == "emu" else f"{BIN} (built before --record-video? rebuild it)"
+        sys.exit(f"{what} did not start recording: see {work / 'log.txt'}")
 
     vf = []
     if scale > 1:
@@ -454,6 +488,7 @@ def main():
     s.add_argument("--save", required=True, help=".srm save file (booted as file 1 -> Continue)")
     s.add_argument("--no-boot", action="store_true", help="stay on the title screen")
     s.add_argument("--scale", type=int, default=1, help="upscale screenshots by this factor")
+    s.add_argument("--emu", action="store_true", help="run the original game in the reference emulator (emu.py)")
     s = sub.add_parser("do", help="run commands, then print text/state and a screenshot")
     s.add_argument("name")
     s.add_argument("commands", help="';' or newline separated commands")
@@ -485,7 +520,7 @@ def main():
     a = ap.parse_args()
 
     if a.cmd == "start":
-        start(a.name, a.save, boot=not a.no_boot, scale=a.scale)
+        start(a.name, a.save, boot=not a.no_boot, scale=a.scale, emu=a.emu)
     elif a.cmd == "do":
         do(
             a.name,
@@ -508,7 +543,7 @@ def main():
         video(a.name, a.out, a.scale, a.fps, a.skip_boot, not a.no_audio, a.crf, a.keep)
     else:
         for d in sorted(SESSIONS.glob("*")):
-            print(d.name, "running" if read_pid(d) else "stopped")
+            print(d.name, "running" if read_pid(d) else "stopped", "(emu)" if engine(d) == "emu" else "")
 
 
 if __name__ == "__main__":

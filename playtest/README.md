@@ -224,6 +224,76 @@ save's story point. To recreate it, download the zips from that page and copy
 each `earthbound.srm` to `playtest/saves/NN-Name.srm`. The last zip ("End")
 holds only ZSNES savestates and is skipped.
 
+## The original game (emu mode)
+
+`pt.py start NAME --emu --save SAVE.srm` runs the ORIGINAL game instead of
+the port: `playtest/emu.py` loads a snes9x libretro core with ctypes, boots
+the retail ROM with the save in SRAM and plays the same command language.
+`do`, `stop`, `history`, `replay` and `video` work unchanged on an emu session
+(the session dir holds an `engine` file saying `emu`). Use it to check what
+the original does in a scene. The core is deterministic too, so `replay`
+rebuilds an emu session frame for frame.
+
+One-time setup:
+
+```
+playtest/emu/build.sh            # clone + build snes9x's libretro core into playtest/emu/build/ (~25 s)
+uv pip install numpy             # emu.py converts frames with numpy
+make                             # emu.py reads build/earthbound.map and build/US/*.lst
+```
+
+The ROM is `earthbound.sfc` in the repo root (or `build/earthbound.sfc`, or
+`$EB_ROM`); `$EB_EMU_CORE` overrides the core path. Symbols (the map's exports
+plus every top-level label in the listings) are cached in
+`playtest/out/emu-symbols.json` and rebuilt when the map or listings change.
+
+```
+pt start o1 --emu --save playtest/saves/05-Twoson.srm    # title -> file 1 -> Continue (~900 frames)
+pt do o1 "teleport 1352 7010 0; wait 20; 56 UP; until text 600; wait 60"
+pt do o1 "until input 300"                                # stops at the text prompt
+```
+
+What differs from the port:
+
+- `modes=[...]` in STATE is the asm call chain, outermost first
+  (`GAME_INIT>MAIN_LOOP>OPEN_MENU_BUTTON>SELECTION_MENU>...`), recovered from
+  the JSL/JSR return addresses on the 65816 stack at the end of the frame. The
+  original has no mode stack, so names are asm labels. `wait=MODE` names the
+  input loop that waits for a button (`TEXT_PROMPT` = `CC_13_14`,
+  `SELECTION_MENU`, `NUMBER_SELECT`, `CHAR_SELECT`, `BATTLE_ENEMY_SELECT`,
+  `BATTLE_ROW_SELECT`).
+- `idle` means the CPU is in one of `MAIN_LOOP`'s per-frame calls, no window is
+  open, and the same flags as the port's `idle` are clear (battle, pending
+  interaction, input disabled, leader frozen, escalator/stairs, auto-move,
+  fade). `input` is idle or a `wait=` loop. `until idle`/`input`/`in:`/`out:`
+  settle for 3 frames like the port.
+- `in:`/`out:` take the port's names above, `OVERWORLD`, `BATTLE`
+  (`BATTLE_MODE_FLAG`), or any asm function label (`in:SHOW_TITLE_SCREEN`).
+- Window text is not decoded: no `TEXT` lines, `until said:WORD` prints an ERR,
+  and `until text` fires when a window opens or a window's text cursor moves.
+  `text` prints each open window's box and title (`WIN w1*| (box 12,1 17x6)`)
+  and the focused menu's items with the cursor (`MENU w0| >[Talk to] [Goods] ...`).
+  Read the screenshot for the words.
+- STATE adds `bgm=` (`CURRENT_MUSIC_TRACK`, the track actually playing);
+  `music=` is `CURRENT_MAP_MUSIC_TRACK` as in the port. FOLLOW has no ghost.
+- Shots are 256x224 (the port's wide viewport is 320 wide: the same window sits
+  32 px further right there).
+- `teleport X Y [DIR]` / `warp` / `warps` work: while the CPU spins in
+  `WAIT_UNTIL_NEXT_FRAME` under the main loop, emu.py writes a small 65816
+  stub to unused WRAM (the bottom of the hardware stack, `$7E1F00`) and points
+  PC at it through the core's savestate. The stub does what the port's
+  teleport does (force a map reload, `INITIALIZE_MAP`,
+  `FLUSH_ENTITY_CREATION_QUEUE`, `ENABLE_ALL_ENTITIES`, `SPAWN_BUZZ_BUZZ`), then
+  resumes the wait loop. It needs `idle`, like the port.
+- `flag`, `money`, `hp`/`pp`/`heal` (also the battler in a battle), `status`,
+  `give` (first empty slot) and `debug on|off` poke WRAM directly. `aux` keys
+  don't exist (ERR).
+- `snap`/`restore` are core savestates in `snaps/` (they work across
+  processes, too).
+- Frame counts are SNES frames and the original's intro is longer, so `frame=`
+  is not comparable with the port. RNG and lag differ too: compare scenes,
+  not frames.
+
 ## Implementation
 
 The command player is `port/unix/platform/sdl2_input_script.c` (`--input FILE`
