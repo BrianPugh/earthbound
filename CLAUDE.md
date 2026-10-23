@@ -228,6 +228,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
+A fresh configure is native 256×224 (`EB_VIEWPORT_WIDTH` defaults to 256); the wide viewport the game is played in needs `-DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240`, and wide-viewport bugs (off-centre scenes, gutters) only show in that build. Check `EB_VIEWPORT_WIDTH` in `CMakeCache.txt` before judging a screenshot.
+
 For debugging specific issues, use a debug build with sanitizers:
 
 ```
@@ -262,7 +264,8 @@ The `playtest` skill (`.claude/skills/playtest/SKILL.md`) holds the workflow, de
 
 - In zsh, wrap the driver in a function (`pt(){ uv run --no-sync python playtest/pt.py "$@"; }`); a `PT="uv run ..."` variable won't word-split.
 - Several agents can play at once: give each its own build dir (`EB_BIN=port/unix/build-X/earthbound`) and session-name prefix.
-- The pre-commit hook stashes unstaged files during a commit, so with parallel agents stage and commit only your own paths, quickly.
+- The pre-commit hook (ruff only) stashes unstaged files during a commit, which yanks running agents' in-progress edits. With parallel agents, stage only your own paths or hunks (`git apply --cached` of a filtered `git diff`), run `uv run --no-sync ruff check`/`ruff format --check` on staged Python yourself, and commit with `--no-verify`.
+- `pt.py start NAME --emu --save ...` runs the original ROM (headless snes9x core) with the same commands, for checking what the original does; build the core once with `playtest/emu/build.sh` (needs `make` for `build/earthbound.map`). Emu shots are 256 px wide.
 
 ### C Port Source Organization
 

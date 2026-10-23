@@ -79,6 +79,7 @@ When a suspected divergence comes up (port behaviour that might or might not be 
 - Compare scene by scene, not frame by frame: lag, RNG and the intro length differ, so frame numbers, enemy spawns and NPC wander positions won't line up. Line up on events instead (`until input`, `until in:TEXT_PROMPT`, `until battle`), then compare the screenshots (window position and size, sprites, palette, layering) and STATE (pos, music, money, HP/PP, battle).
 - Emu window text isn't decoded (no TEXT lines, no `until said:`): read the shot. `modes=` is the asm call chain, which also tells you which asm routine the original is in at that moment.
 - Emu shots are 256 px wide; the port's are 320, so the same thing sits 32 px further right in the port.
+- The port is an extended-viewport build, so pixel differences from the original are expected and fine. Judge the port by whether things look good and extend well into the wider view: no off-centre scenes, objects or windows stranded in the gutters, empty or garbage gutters, or effects confined to the 256-px band when they should cover the screen. Report a pixel difference inside the SNES band only when it's visibly wrong (e.g. a misaligned layer), not merely different.
 - Say in the report which side you checked in emu mode, with both shot paths.
 
 ## Scene recipes (verified 2026-10-22)
