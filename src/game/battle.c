@@ -3556,7 +3556,8 @@ static void btl_reinit_scene(BattleRoutineState *st) {
     }
 
     blank_screen_and_wait_vblank();
-    fade_in(1, 0);
+    /* FADE_IN(A=step 1, X=delay 1): one brightness step every 2nd NMI. */
+    fade_in(1, 1);
 }
 
 /* The normal-mode (ow.battle_mode == 0) reinit tail (assembly lines
@@ -5978,6 +5979,19 @@ StepResult mode_step_pp_recovery_flash(ModeState *ms) {
     return STEP_RESULT_CONTINUE();
 }
 
+/* init_battle_common's FADE_OUT_WITH_MOSAIC(step=1, delay=1, mosaic=0)
+ * (asm/battle/init_common.asm) as a GAME_MODE_MOSAIC_FADE child: one brightness
+ * step per frame down to force blank, then @FADE_DONE clears HDMA and waits one
+ * more vblank (final_hdma). */
+static void battle_mosaic_fade_out_init(ModeState *child) {
+    *child = (ModeState){0};
+    child->mosaic_fade.kind       = (uint8_t)MF_OUT;
+    child->mosaic_fade.step       = 1;
+    child->mosaic_fade.delay      = 1;
+    child->mosaic_fade.mosaic_bgs = 0;
+    child->mosaic_fade.final_hdma = 1;
+}
+
 /*
  * INIT_BATTLE_OVERWORLD (asm/battle/init_overworld.asm)
  *
@@ -6029,8 +6043,13 @@ StepResult mode_step_battle_entry(ModeState *state) {
             }
 
             /* Run the battle — init_battle_common's front half:
-             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0) */
-            fade_out(1, 1);
+             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0),
+             * which blocks until the screen is black before BATTLE_ROUTINE. */
+            battle_mosaic_fade_out_init(&child_init);
+            st->phase = BE_FADE_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child_init);
+
+        case BE_FADE_DONE:
             child_init = (ModeState){0};
             child_init.battle.phase = BTL_BEGIN;
             st->phase = BE_BATTLE_DONE;
@@ -6193,8 +6212,13 @@ StepResult mode_step_battle_scripted(ModeState *state) {
 
         case BS_SWIRL_DONE:
             /* Run the actual battle — init_battle_common's front half:
-             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0) */
-            fade_out(1, 1);
+             * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0),
+             * which blocks until the screen is black before BATTLE_ROUTINE. */
+            battle_mosaic_fade_out_init(&child_init);
+            st->phase = BS_FADE_DONE;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child_init);
+
+        case BS_FADE_DONE:
             child_init = (ModeState){0};
             child_init.battle.phase = BTL_BEGIN;
             st->phase = BS_BATTLE_DONE;

@@ -860,7 +860,8 @@ typedef struct {
  * entry/exit driver, with init_battle_common() (asm/battle/init_common.asm)
  * inlined around the GAME_MODE_BATTLE push. The debug exit-button busy-wait
  * is the BE_DEBUG_WAIT phase; an instant win pushes GAME_MODE_INSTANT_WIN;
- * otherwise the mosaic fade-out starts and GAME_MODE_BATTLE is pushed.
+ * otherwise the blocking mosaic fade-out runs as a GAME_MODE_MOSAIC_FADE child
+ * (BE_FADE_DONE) and then GAME_MODE_BATTLE is pushed.
  * BE_BATTLE_DONE runs the shared post-battle tail (update_party + flags)
  * and the per-result handling; a post-battle PSI teleport STEP_PUSHes
  * GAME_MODE_TELEPORT (resume BE_RESET).
@@ -876,6 +877,7 @@ typedef enum {
     BE_IW_DONE,       /* after GAME_MODE_INSTANT_WIN pops: clear battle_mode */
     BE_BATTLE_DONE,   /* after GAME_MODE_BATTLE pops: party update + map reload */
     BE_RESET,         /* reset_entities tail: collision/pathfinding/intangibility */
+    BE_FADE_DONE,     /* after the FADE_OUT_WITH_MOSAIC child pops: push GAME_MODE_BATTLE */
 } BattleEntryPhase;
 
 typedef struct {
@@ -887,7 +889,8 @@ typedef struct {
  * battle entry/exit driver, with init_battle_common() inlined around the
  * GAME_MODE_BATTLE push (same shape as GAME_MODE_BATTLE_ENTRY). BS_ENTER
  * parses the enemy group, starts the swirl, and pushes the BW_SWIRL_UPDATE
- * wait; BS_SWIRL_DONE starts the mosaic fade-out and pushes GAME_MODE_BATTLE;
+ * wait; BS_SWIRL_DONE pushes the mosaic fade-out (GAME_MODE_MOSAIC_FADE) and
+ * BS_FADE_DONE pushes GAME_MODE_BATTLE;
  * BS_BATTLE_DONE runs the shared post-battle tail and per-result handling;
  * BS_CLEANUP/BS_FINISH split render_and_disable_entities() at its
  * render_frame_tick yield (work-then-yield, then the entity disable). A
@@ -908,6 +911,7 @@ typedef enum {
     BS_FINISH,        /* entity disable + intangibility frames; pop the result */
     BS_TELEPORT_DEFEATED, /* after a post-battle PSI teleport with the party defeated: pop 1 */
     BS_CLEANUP_FLUSH, /* D4b: resume after a parked actionscript frame popped (BS_CLEANUP) */
+    BS_FADE_DONE,     /* after the FADE_OUT_WITH_MOSAIC child pops: push GAME_MODE_BATTLE */
 } BattleScriptedPhase;
 
 typedef struct {
