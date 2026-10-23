@@ -2616,6 +2616,10 @@ StepResult mode_step_pause_menu(ModeState *ms) {
 
             /* --- Talk to (assembly lines 45-54) --- */
             case 1: {  /* MENU_OPTIONS::TALK_TO */
+                /* The command window stays open behind the talk text, as in
+                 * the asm (open_menu.asm @TALK_TO: DISPLAY_TEXT with no
+                 * CLOSE_WINDOW). The phone script MSG_GLOBAL_TELEPHONE also
+                 * opens its Call menu without closing windows. */
                 uint32_t text_ptr = talk_to();
                 if (text_ptr == 0)
                     text_ptr = MSG_SYS_TALK_NO_TARGET;

@@ -1353,6 +1353,9 @@ static StepResult btlact_psi_thunder_alpha_step(BattleActionState *st) {
     return btlact_psi_thunder_step_common(st, THUNDER_ALPHA_DAMAGE,
                                           THUNDER_ALPHA_HITS);
 }
+/* Also the enemy ELECTRIC_SHOCK action (Zap Eel): action 202 points at
+ * BTLACT_PSI_THUNDER_B, which fires THUNDER_BETA_HITS = 2 bolts
+ * (include/config.asm), so a lone target can take 2 damage lines. */
 static StepResult btlact_psi_thunder_beta_step(BattleActionState *st) {
     return btlact_psi_thunder_step_common(st, THUNDER_BETA_DAMAGE,
                                           THUNDER_BETA_HITS);

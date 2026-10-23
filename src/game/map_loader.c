@@ -1012,6 +1012,11 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
             break;
         }
 
+        /* Example: Deep Darkness (combo 6, palette 3) starts with flag 288
+         * (FLG_MAKYO_USE_TAKANOME) and redirects to palette 6 until the
+         * Hawk Eye is used. Palette 6 blacks out sub-palettes 6-7 and keeps
+         * 2-5, so the map is black except the blocks drawn with 2-5
+         * (flowers, rocks, logs). That is the ROM data. */
         uint16_t flag_num = first_word & 0x7FFF;
         bool flag_is_set = event_flag_get(flag_num);
         bool expected_set = (first_word > 0x8000);

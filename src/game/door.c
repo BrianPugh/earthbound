@@ -1131,7 +1131,9 @@ StepResult mode_step_door_transition(ModeState *ms) {
             ow.ladder_stairs_tile_y = 0;
             ow.ladder_stairs_tile_x = 0;
 
-            /* Assembly lines 23-45: check event flag */
+            /* Assembly lines 23-45: check event flag. A door whose flag
+             * doesn't match does nothing after its text: e.g. the Monotoli
+             * Building lobby double door (5648,5976) needs FLG_FOUR_OK (143). */
             if (st->event_flag_raw != 0) {
                 uint16_t flag_id = st->event_flag_raw & 0x7FFF;
                 bool flag_value = event_flag_get(flag_id);
