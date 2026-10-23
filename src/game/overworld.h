@@ -561,7 +561,7 @@ void queue_entity_creation(uint16_t sprite_id, uint16_t script_id);
 void flush_entity_creation_queue(void);
 
 /* Port of SPAWN_BUZZ_BUZZ (asm/overworld/spawn_buzz_buzz.asm).
- * Displays MSG_EVT_BUNBUNBUN text (which may spawn entities via CC codes
+ * Displays MSG_EVT0_BUZZBUZZ_CHECK text (which may spawn entities via CC codes
  * if the appropriate event flags are set), then spawns delivery entities. */
 void spawn_buzz_buzz(void);
 

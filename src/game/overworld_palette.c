@@ -140,7 +140,7 @@ static bool ow_check_low_hp(uint16_t party_index) {
 /* ---- GAME_MODE_HP_ALERT step (run-to-completion port of SHOW_HP_ALERT) ----
  * See GAME_MODE_HP_ALERT in core/mode_stack.h. Assembly: disable entities ->
  * open window -> set attacker name -> DISPLAY_TEXT_PTR
- * MSG_SYS_MAP_CRITICAL_SITUATION -> close window -> WINDOW_TICK -> enable. */
+ * MSG_SYS_HP_CRITICAL_WARNING -> close window -> WINDOW_TICK -> enable. */
 StepResult mode_step_hp_alert(ModeState *st) {
     HpAlertState *hs = &st->hp_alert;
 

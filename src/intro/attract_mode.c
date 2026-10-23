@@ -41,7 +41,7 @@ static uint16_t current_scene_index;
  * Assembly (C4D989.asm lines 64-73) uses ATTRACT_MODE_TXT, a table of
  * 10 × 4-byte far pointers to MSG_MD_* scripts within EEVENT0.
  * We load the table at runtime and derive offsets by subtracting the
- * base address (first entry, MSG_MD_TOTO at offset 0). */
+ * base address (first entry, MSG_EVT0_MD_TOTO_SETUP at offset 0). */
 static uint32_t attract_mode_text_addrs[ATTRACT_MODE_SCENE_COUNT];
 static bool attract_mode_offsets_loaded = false;
 

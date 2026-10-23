@@ -928,17 +928,17 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             s->phase = DM_AFTER;
             return STEP_RESULT_CONTINUE();
         case 4:
-            /* Apple (MSG_DEBUG_00) — assembly @CMD_MSG_00. */
+            /* Apple (MSG_DBG_MAIN_MENU) — assembly @CMD_MSG_00. */
             s->message_addr = MSG_DBG_MAIN_MENU;
             s->phase = DM_AFTER;
             return STEP_RESULT_CONTINUE();
         case 5:
-            /* Banana (MSG_DEBUG_01) — assembly @CMD_MSG_01. */
+            /* Banana (MSG_DBG_EVENT_SCENE_SELECT) — assembly @CMD_MSG_01. */
             s->message_addr = MSG_DBG_EVENT_SCENE_SELECT;
             s->phase = DM_AFTER;
             return STEP_RESULT_CONTINUE();
         case 6:
-            /* TV (MSG_DEBUG_02) — assembly @CMD_MSG_02. */
+            /* TV (MSG_DBG_MONSTER_TOGGLE) — assembly @CMD_MSG_02. */
             s->message_addr = MSG_DBG_MONSTER_TOGGLE;
             s->phase = DM_AFTER;
             return STEP_RESULT_CONTINUE();

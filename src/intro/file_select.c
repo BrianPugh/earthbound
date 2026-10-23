@@ -1692,7 +1692,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     place_leader_at_position(2112, 1768);
 
     /* Assembly lines 655-656: Freeze entities and queue prologue text.
-     * MSG_EVT_PROLOGUE_NEW = $C5E70B */
+     * MSG_EVT0_PROLOGUE_METEORITE_FALL = $C5E70B */
     freeze_and_queue_text_interaction(MSG_EVT0_PROLOGUE_METEORITE_FALL);
 
     /* Assembly lines 657-659: Disable monster spawns for prologue */

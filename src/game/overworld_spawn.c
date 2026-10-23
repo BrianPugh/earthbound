@@ -72,7 +72,7 @@ const DeliveryEntry *get_delivery_table(void) {
 }
 
 /* ---- SPAWN_BUZZ_BUZZ (port of asm/overworld/spawn_buzz_buzz.asm) ----
- * Displays MSG_EVT_BUNBUNBUN (0xC5EA35) which contains entity-spawn CC codes
+ * Displays MSG_EVT0_BUZZBUZZ_CHECK (0xC5EA35) which contains entity-spawn CC codes
  * gated by event flags, then spawns delivery entities.
  * Called after every door transition and at overworld init. */
 void spawn_buzz_buzz(void) {
