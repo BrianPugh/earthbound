@@ -412,15 +412,15 @@ static uint16_t get_stairs_movement_direction(uint16_t door_val) {
     switch (door_val) {
     case 0x0000:
         /* Variant 0: auto direction = LEFT (6).
-         * Allowed when dir != 0 && (dir & 3) == 0. */
-        if (leader_dir != 0 && (leader_dir & 0x0003) == 0)
+         * Allowed when dir == 0 || (dir & 3) != 0: only DOWN is blocked. */
+        if (leader_dir == 0 || (leader_dir & 0x0003) != 0)
             result = 0;
         ow.auto_movement_direction = 6;
         break;
     case 0x0100:
         /* Variant 1: auto direction = RIGHT (2).
-         * Allowed when dir != 0 && (dir & 3) == 0. */
-        if (leader_dir != 0 && (leader_dir & 0x0003) == 0)
+         * Allowed when dir == 0 || (dir & 3) != 0: only DOWN is blocked. */
+        if (leader_dir == 0 || (leader_dir & 0x0003) != 0)
             result = 0;
         ow.auto_movement_direction = 2;
         break;
