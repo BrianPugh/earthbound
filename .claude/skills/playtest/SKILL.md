@@ -26,6 +26,13 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - Before experimenting, `snap here`, then `restore here` to retry. Snaps only work within the same process.
 - `pt history NAME` turns a session into an exact repro script, since the game is deterministic.
 
+## Talking, menus and saving tokens
+
+- **To talk, open the menu and pick Talk to:** A opens the pause menu, and A again picks "Talk to", so the sequence is `press A; until input 60; press A`. Stand directly in front of the NPC, facing it. A NEAR offset of 18 px or more is too far, so step 4–6 px closer. Shop clerks behind counters are talked to across the counter. If "Talk to" faces nothing, it may use a phone or object in front of you instead.
+- **Close menus with `press B; wait 30`:** `until idle … advance` never closes a menu by itself. B on the plain overworld toggles the HP/PP + money window (mode `HPPP_DISPLAY`, `idle=modes`), and another B closes it. That is normal game behaviour.
+- **Horizontal menus** (Buy/Sell, Yes/No) move with LEFT/RIGHT, not DOWN.
+- **Use `--quiet` (and `--no-shot` when you don't need to look) while walking or lining up.** Full TEXT/STATE/PARTY/NEAR output on every step is most of an agent's context. Run `state`/`text` or a plain `do` when you need them.
+
 ## Finding a scene
 
 1. `playtest/saves/INDEX` lists the 36 saves by story point. Pick the closest one.
@@ -49,6 +56,10 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **Budget frames realistically:** the bus ride is ~5000 frames, the Magicant exit montage ~1100, and the credits ~20000. A `TIMEOUT` mid-cutscene is usually not a hang. Check STATE `modes`/`idle` and the screenshot before you call it a bug.
 - **`until` only sees text printed while it runs:** in `press A; wait 1; until said:Ready`, "@Rea" already printed during the press, so it times out. Put the `until` right after the action that starts the text, and wait for a word further along (`press A; until said:Voy 600 advance`).
 - **Holding a direction through a cutscene** (`until text 600 UP`) keeps the button held inside it and can disturb scripts. Use the default `-` pattern to wait.
+- **Rolling HP meter:** "mortal damage" sets the target HP to 0, but the meter rolls down over time. If the battle ends first (the last enemy dies, or a Smilin' Sphere explodes and ends it), each meter stops where it is and the character survives with that HP. Several enemy actions can still hit a member whose meter is still rolling. Both are original EarthBound behaviour. Compare the printed damage with the meter only while the battle is still running.
+- **`music=` in STATE is the map track** (`ml.current_map_music_track`). It doesn't change in battle, so battle music can't be checked from it.
+- **`debug on` + SELECT+START wins skip the victory text**, exp and drops. Play a battle out (Auto Fight: `press RIGHT 2; press A; until idle 6000 advance`) when you need those.
+- **Towns have no overworld enemies.** Look for enemies on routes, in caves and in dungeons. `teleport`/`warp` clear enemies, so walk a little before expecting new spawns.
 - **Enemy count:** `ow_enemies=65535`/`65534` after `teleport` or a door is the asm's own wraparound, and spawning still works. Don't report it.
 - **Blinking party:** `blink=N` after a battle means the party sprites blink, so a shot may miss them. Use `wait 1; shot`.
 - **Before calling something a port bug, rule out how you walked.** Check the asm's conditions, such as the area box, flags, and facing, against what you actually did.
@@ -69,7 +80,7 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 | Monotoli backs away (reversed move-toward) | 21-Monotoli | teleport to 5656,5984, then walk right out of the area |
 | Fake Monotoli dissolve (DELETE_TPT style 9) | 19-Moonside | `flag 11 1`, `teleport 7604 4714 2`, talk to npc1395 |
 | Topolla doorman (style 6 delete) | 19-Moonside | `teleport 4504 5876 0`, talk to npc840 |
-| Magicant: Nightmare → Sanctuary montage → wakeup | 34-Magicant | talk to npc1358 at 496,9136, instant-win, `until said:absorbed`. The montage runs ~1100 frames |
+| Magicant: Nightmare → Sanctuary montage → wakeup | 34-Magicant | (from a teleport, talking to npc1358 has failed once; the standing spot or a flag may be missing) talk to npc1358 at 496,9136, instant-win, `until said:absorbed`. The montage runs ~1100 frames |
 | Lier into his hole (reversed move-toward) | 03-GiantStep | `teleport 7508 1236 2`, talk to npc119 |
 | Runaway Five bus to Threed | 10-ToThreed | talk to the band at 2224,6584, Yes, then `8 DOWN; 40 LEFT; 20 UP` into the strip under the bus; ride ~5000 frames |
 | Twoson–Threed tunnel ghosts (move-toward) | 10-ToThreed | walk into the tunnel; the ghosts follow and warp you back to Twoson |
@@ -78,6 +89,24 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 | Damage screen shake | 06-ToHappy | `teleport 6112 7776`, fight Zap Eel + Even Slimier Little Pile; a mortal hit shakes ~60 frames plus 10-frame holds |
 
 When you reach a new scene that took effort to find, **add a row here** (save, exact steps) in the same commit as your work.
+
+### Added from the 2026-10-23 playthrough
+
+| Scene | Save | Steps |
+|---|---|---|
+| Onett street battle (Spiteful Crow) | 01-Start | leave the house by the east door, `teleport 2660 440 4`, `until battle 500 DOWN\|RIGHT\|LEFT` |
+| Dad's phone call (Record, Continue) | 02-Sharks | the save starts by the hotel phone: `press A; until input 300; press A`, Dad is the first entry |
+| Game over → Yes (money halved, revive at the phone) | 06-ToHappy | `teleport 6112 7776`, lose to the Zap Eel + Even Slimier Little Pile, answer Yes; revive at 7556,7248 |
+| Happy Happy drug store shop | 07-InHappy | `8 RIGHT; 2 UP` from the start, then talk across the counter; Buy/Sell is horizontal |
+| Leave Happy Happy drug store / reach east cave | 07-InHappy | `120 RIGHT; 20 DOWN; 20 UP; 30 RIGHT` exits to 4120,7616; `teleport 4184 7730 4; 30 RIGHT; 20 UP; 20 RIGHT` reaches the east cave (npc421 blocks the cliff path) |
+| Runaway Five bus via the band | 10-ToThreed | `teleport 2224 6600 0; 8 UP`, talk, Yes, `8 DOWN; 40 LEFT; 20 UP`, then `until idle 4000 advance` ×2 (about 7000 frames) |
+| Desert battle, 3-member party | 12-Zombies | `teleport 4000 9300 4; until battle 900 DOWN\|DOWN\|LEFT` |
+| Threed hotel phone | 12-Zombies | at the start, talk to the phone in front; Dad is first |
+| Desert cabin shop (buy, equip, sell old) | 15-Desert | inside the cabin, about 12 px LEFT of the start to face the clerk, then talk |
+| Desert enemies (Skelpion, Booka, Smilin' Sphere) | 20-TarahRama / 24-Museum | `teleport 1400 9400 4; wait 60; until battle 2500 LEFT\|UP\|RIGHT\|DOWN` |
+| Scaraba desert enemies (Octobot, UFOs) | 28-Scaraba | `teleport 1400 5600 4; until battle 1500 RIGHT\|DOWN\|LEFT\|UP` |
+| Dungeon Man robots | 29-DungeonM | from the start, `until battle 1500 RIGHT\|RIGHT\|UP\|RIGHT\|DOWN` |
+| Giygas final battle (Pokey, redirect, speeches 1–2) | 36-CavePast | `flag 11 1; teleport 192 6056 0; 30 UP` (door 943 → lair, hotspot 14); `teleport 4224 1000 0; wait 20; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance`. Hits on the 9999-HP Giygas are redirected onto the party, so target Pokey (`press A; press DOWN; press A`) |
 
 ## Reporting
 
