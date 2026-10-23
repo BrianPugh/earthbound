@@ -533,31 +533,11 @@ void display_money_window(void) {
     /* Assembly (display_money_window.asm:12-17): SET_INSTANT_PRINTING, print, CLEAR */
     set_instant_printing();
 
-    /* Port of PRINT_MONEY_IN_WINDOW (asm/text/window/print_money_in_window.asm).
-     * Right-aligns "$N" within the money window using pixel-level positioning. */
-    {
-        char money_buf[16];
-        snprintf(money_buf, sizeof(money_buf), "$%u", (unsigned)game_state.money_carried);
-
-        /* Calculate total pixel width of the money string */
-        uint16_t total_pixel_width = 0;
-        for (int c = 0; money_buf[c]; c++) {
-            uint8_t eb = ascii_to_eb_char(money_buf[c]);
-            uint8_t glyph_idx = (eb - 0x50) & 0x7F;
-            total_pixel_width += font_get_width(FONT_ID_NORMAL, glyph_idx) + character_padding;
-        }
-        total_pixel_width += character_padding;  /* Extra trailing padding (asm lines 114-120) */
-
-        /* Right-align: position = (window_width - 1) * 8 - total_pixel_width
-         * Assembly lines 130-137: (width-1) << 3, then subtract total width */
-        /* Assembly width is display-2 (content width); use (content_w - 1) * 8 */
-        uint16_t right_pixel = (uint16_t)((mw->width - 3) * 8);
-        uint16_t start_pixel = (right_pixel > total_pixel_width)
-                              ? (right_pixel - total_pixel_width) : 0;
-
-        set_text_pixel_position(0, start_pixel);
-        print_string(money_buf);
-    }
+    /* JSL PRINT_MONEY_IN_WINDOW: right-aligned "$N" plus the cents tile (36)
+     * at the right edge. CC_18_0A is not a CC_1C, so the letter queue isn't
+     * capturing here and the money prints immediately, as in the asm. */
+    if (mw)
+        print_money_in_window(game_state.money_carried);
 
     clear_instant_printing();
 
