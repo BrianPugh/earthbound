@@ -29,6 +29,7 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 ## Talking, menus and saving tokens
 
 - **To talk, open the menu and pick Talk to:** A opens the pause menu, and A again picks "Talk to", so the sequence is `press A; until input 60; press A`. Stand directly in front of the NPC, facing it. A NEAR offset of 18 px or more is too far, so step 4–6 px closer. Shop clerks behind counters are talked to across the counter. If "Talk to" faces nothing, it may use a phone or object in front of you instead.
+- **OBJECT NPCs need Check, not Talk to:** signs, statues and some story NPCs (e.g. Ness's Nightmare in Magicant) are type OBJECT. "Talk to" answers "Who are you talking to?" for them; use Check (`press L`), standing directly in front.
 - **Close menus with `press B; wait 30`:** `until idle … advance` never closes a menu by itself. B on the plain overworld toggles the HP/PP + money window (mode `HPPP_DISPLAY`, `idle=modes`), and another B closes it. That is normal game behaviour.
 - **Horizontal menus** (Buy/Sell, Yes/No) move with LEFT/RIGHT, not DOWN.
 - **Use `--quiet` (and `--no-shot` when you don't need to look) while walking or lining up.** Full TEXT/STATE/PARTY/NEAR output on every step is most of an agent's context. Run `state`/`text` or a plain `do` when you need them.
@@ -59,6 +60,8 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **Rolling HP meter:** "mortal damage" sets the target HP to 0, but the meter rolls down over time. If the battle ends first (the last enemy dies, or a Smilin' Sphere explodes and ends it), each meter stops where it is and the character survives with that HP. Several enemy actions can still hit a member whose meter is still rolling. Both are original EarthBound behaviour. Compare the printed damage with the meter only while the battle is still running.
 - **`music=` in STATE is the map track** (`ml.current_map_music_track`). It doesn't change in battle, so battle music can't be checked from it.
 - **`debug on` + SELECT+START wins skip the victory text**, exp and drops. Play a battle out (Auto Fight: `press RIGHT 2; press A; until idle 6000 advance`) when you need those.
+- **Doors locked by story flags do nothing:** a door whose flag isn't set runs its text (if any) and stays shut, e.g. the Monotoli lobby door needs flag 143. Check the door's event flag before reporting a dead door.
+- **Deep Darkness is meant to be mostly black** until the Hawk Eye is used (flag 288); only some blocks stay lit.
 - **Towns have no overworld enemies.** Look for enemies on routes, in caves and in dungeons. `teleport`/`warp` clear enemies, so walk a little before expecting new spawns.
 - **Enemy count:** `ow_enemies=65535`/`65534` after `teleport` or a door is the asm's own wraparound, and spawning still works. Don't report it.
 - **Blinking party:** `blink=N` after a battle means the party sprites blink, so a shot may miss them. Use `wait 1; shot`.
@@ -76,11 +79,11 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 | Level-3 attacks | 30-DeepDark | `teleport 5600 7712`: Zap Eel + Hard Crocodile (bite, tail swing) |
 | Thunder and Storm (level-4 INTERTWINE) | 26-Dalaam | `teleport 2080 5530 0`, talk to npc1118; INTERTWINE comes about enemy turn 3 |
 | Mu training (EVENT_340 fade) | 26-Dalaam | `flag 16 0; flag 273 0`; `teleport 6824 8318 0`, talk to npc1089; `teleport 4988 3840 0`, walk UP; answer Yes ×4 |
-| Paula's prayer fade-back (EVENT_766 $32,$3C) | 21-Monotoli | set flags 15, 318 and 672, then leave Monotoli Building through the door at 5648,5984 |
+| Paula's prayer fade-back (EVENT_766 $32,$3C) | 21-Monotoli | set flags 15, 318 and 672 (and 143 if the door stays shut), then leave Monotoli Building through the door at 5648,5984 |
 | Monotoli backs away (reversed move-toward) | 21-Monotoli | teleport to 5656,5984, then walk right out of the area |
 | Fake Monotoli dissolve (DELETE_TPT style 9) | 19-Moonside | `flag 11 1`, `teleport 7604 4714 2`, talk to npc1395 |
 | Topolla doorman (style 6 delete) | 19-Moonside | `teleport 4504 5876 0`, talk to npc840 |
-| Magicant: Nightmare → Sanctuary montage → wakeup | 34-Magicant | (from a teleport, talking to npc1358 has failed once; the standing spot or a flag may be missing) talk to npc1358 at 496,9136, instant-win, `until said:absorbed`. The montage runs ~1100 frames |
+| Magicant: Nightmare → Sanctuary montage → wakeup | 34-Magicant | `teleport 496 9140 0`, `press L` (Check; the Nightmare is an OBJECT, only y=9140 works), `until battle 3000 advance`; then instant-win, `until said:absorbed`. The montage runs ~1100 frames |
 | Lier into his hole (reversed move-toward) | 03-GiantStep | `teleport 7508 1236 2`, talk to npc119 |
 | Runaway Five bus to Threed | 10-ToThreed | talk to the band at 2224,6584, Yes, then `8 DOWN; 40 LEFT; 20 UP` into the strip under the bus; ride ~5000 frames |
 | Twoson–Threed tunnel ghosts (move-toward) | 10-ToThreed | walk into the tunnel; the ghosts follow and warp you back to Twoson |
@@ -106,6 +109,8 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Desert enemies (Skelpion, Booka, Smilin' Sphere) | 20-TarahRama / 24-Museum | `teleport 1400 9400 4; wait 60; until battle 2500 LEFT\|UP\|RIGHT\|DOWN` |
 | Scaraba desert enemies (Octobot, UFOs) | 28-Scaraba | `teleport 1400 5600 4; until battle 1500 RIGHT\|DOWN\|LEFT\|UP` |
 | Dungeon Man robots | 29-DungeonM | from the start, `until battle 1500 RIGHT\|RIGHT\|UP\|RIGHT\|DOWN` |
+| Monotoli lobby door | 21-Monotoli | `flag 143 1; teleport 5656 5984 0; 40 UP` |
+| Giygas prayer phase (speech 2 → Pray) | 36-CavePast | Giygas recipe below to the 2000-HP stage, then each round `heal; status 2 1 0; status 3 1 0; status 4 1 0` and everyone attacks (~7 rounds); Pray is `press RIGHT; press RIGHT; press A` in Paula's menu. Fastest: `pt.py replay p6g NEW` if that session still exists |
 | Giygas final battle (Pokey, redirect, speeches 1–2) | 36-CavePast | `flag 11 1; teleport 192 6056 0; 30 UP` (door 943 → lair, hotspot 14); `teleport 4224 1000 0; wait 20; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance`. Hits on the 9999-HP Giygas are redirected onto the party, so target Pokey (`press A; press DOWN; press A`) |
 
 ## Reporting
