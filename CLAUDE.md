@@ -266,6 +266,7 @@ The `playtest` skill (`.claude/skills/playtest/SKILL.md`) holds the workflow, de
 - Several agents can play at once: give each its own build dir (`EB_BIN=port/unix/build-X/earthbound`) and session-name prefix.
 - The pre-commit hook (ruff only) stashes unstaged files during a commit, which yanks running agents' in-progress edits. With parallel agents, stage only your own paths or hunks (`git apply --cached` of a filtered `git diff`), run `uv run --no-sync ruff check`/`ruff format --check` on staged Python yourself, and commit with `--no-verify`.
 - `pt.py start NAME --emu --save ...` runs the original ROM (headless snes9x core) with the same commands, for checking what the original does; build the core once with `playtest/emu/build.sh` (needs `make` for `build/earthbound.map`). Emu shots are 256 px wide.
+- **Regression check before committing a fix:** build the pre-fix and post-fix trees (wide-viewport flags, separate build dirs, a `git worktree` for the old one) and run `uv run --no-sync python playtest/regress.py compare OLD_BIN NEW_BIN` (~30 short replay cases, under a minute). Explain every reported diff (intended effect of the fix, or a regression) in the commit/report; see the skill's "Regression check".
 
 ### C Port Source Organization
 

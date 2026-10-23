@@ -1,0 +1,33 @@
+# save: 24-Museum
+# about: 4-member battle by hand: Ness PSI Rockin, Paula PSI Fire (row select), Jeff Big bottle rocket, Poo Bash; then Auto Fight to the end
+teleport 5128 216 0; wait 10
+until battle 600 LEFT
+until input 900
+check menu
+press DOWN; press A; until input 300; wait 10
+check ness-psi
+press A; until input 300; wait 10
+press A; until input 300; wait 10
+press DOWN; press A; until input 300; wait 10
+press A; until input 300; wait 10
+check paula-row
+press A; until input 300; wait 10
+check row-select
+press A; until input 300; wait 10
+check jeff-menu
+press RIGHT; press A; until input 300; wait 10
+check jeff-goods
+press RIGHT; press A; until input 300; wait 10
+press A; until input 300; wait 10
+check poo-menu
+press A; until input 300; wait 10
+press A
+wait 60
+check rockin
+until said:rocket 1500 advance
+check rocket
+until input 3000 advance
+check turn-2
+press RIGHT 2; press A
+until idle 8000 advance
+check after

@@ -1,0 +1,7 @@
+# save: 07-InHappy
+# about: leave the Happy Happy drug store through its door (door transition), walk outside
+120 RIGHT; 20 DOWN; 20 UP; 30 RIGHT
+until idle 600
+check outside
+40 DOWN; 40 LEFT
+check walk

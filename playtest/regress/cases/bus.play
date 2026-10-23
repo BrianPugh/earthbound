@@ -1,0 +1,18 @@
+# save: 10-ToThreed
+# about: Runaway Five bus to Threed via the band: Yes/No, boarding, the moving bus cutscene, arrival
+flag 11 1
+teleport 2224 6600 0; 12 UP
+press A; until input 60; press A
+until in:SELECTION_MENU 3000 advance; wait 10
+check band
+press A
+until idle 3000 advance
+8 DOWN; 40 LEFT; 20 UP
+until text 2000
+check boarding
+wait 1500
+check ride-1
+wait 1500
+check ride-2
+until idle 8000 advance
+check threed

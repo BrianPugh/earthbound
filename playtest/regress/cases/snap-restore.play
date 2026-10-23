@@ -1,0 +1,11 @@
+# save: 24-Museum
+# about: in-game snap/restore (state_dump save + load) mid-walk, then the same walk again
+40 DOWN
+snap rg
+60 LEFT; 30 DOWN
+check walk-1
+restore rg
+wait 2
+check restored
+60 LEFT; 30 DOWN
+check walk-2

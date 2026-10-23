@@ -1,0 +1,18 @@
+# save: 36-CavePast
+# about: Giygas lair entry: Pokey, Devil's Machine battle background and speeches, first attack round
+flag 11 1
+teleport 192 6056 0; 30 UP
+until idle 600
+check door
+teleport 4224 1000 0; wait 20; 60 UP
+until in:BATTLE 6000 advance
+wait 150
+check battle-start
+until input 900 advance
+check menu
+press A; until input 300; press DOWN; press A; until input 3000 advance   # each member bashes Pokey
+check paula-turn
+press A; until input 300; press DOWN; press A; until input 3000 advance
+press A; until input 300; press DOWN; press A; until input 3000 advance
+press A; until input 300; press DOWN; press A; until input 6000 advance
+check round-2

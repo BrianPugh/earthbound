@@ -1,0 +1,17 @@
+# save: 32-LumineHall
+# about: Lumine Hall: drop through the hole, sanctuary hotspot, scrolling wall text and flashes
+flag 196 1; flag 11 1
+teleport 3222 141; 60 LEFT
+until idle 600
+check hole
+until text 300 LEFT
+30 UP
+until in:PROCESS_INTERACTION 600 LEFT
+wait 300
+check wall-1
+wait 1200
+check wall-2
+wait 1200
+check wall-3
+until idle 6000 advance
+check after

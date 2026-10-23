@@ -1,0 +1,2 @@
+# args: --selftest-savestate
+# about: savestate save -> load -> save byte-identical round-trip self-tests

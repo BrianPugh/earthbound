@@ -1,0 +1,13 @@
+# save: 28-Scaraba
+# about: Scaraba desert encounter (Octobot/UFOs), Auto Fight to victory (victory text, present drop)
+flag 11 0
+teleport 1400 5600 4; wait 20
+check desert
+until battle 1500 RIGHT|DOWN|LEFT|UP
+wait 20
+check swirl
+until input 900
+check battle-menu
+press RIGHT 2; press A
+until idle 6000 advance
+check after

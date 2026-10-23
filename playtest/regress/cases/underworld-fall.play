@@ -1,0 +1,13 @@
+# save: 32-LumineHall
+# about: Lumine Hall floor hole: the fall into the Lost Underworld (camera parked in a void sector, wide gutters), arrival
+flag 196 1; flag 11 1
+teleport 6520 4808 6; wait 10
+check hall
+until in:DOOR_TRANSITION 600 LEFT
+until in:TEXT_DELAY 600
+wait 30
+check fall-1
+wait 200
+check fall-2
+until idle 6000 advance
+check arrived

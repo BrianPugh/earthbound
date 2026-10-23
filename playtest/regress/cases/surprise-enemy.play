@@ -1,0 +1,13 @@
+# save: 17-GoldMine
+# about: Gold Mine: stand facing away so an enemy touches the party from behind (enemy-first swirl), debug instant win
+debug on
+teleport 3424 9312 2; wait 20
+check mine
+until battle 1500
+wait 20
+check swirl
+until input 900
+check battle-menu
+4 SELECT+START
+until idle 3000 advance
+check after

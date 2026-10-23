@@ -1,0 +1,13 @@
+# save: 06-ToHappy
+# about: lose a battle (hp 1), game over screen, continue Yes, revive at the phone with half the money
+teleport 6112 7776; wait 20
+until battle 1200 LEFT|UP|RIGHT|DOWN
+hp 1 1; hp 2 1
+until input 900
+check battle
+press RIGHT 2; press A
+until in:SELECTION_MENU 6000 advance; wait 10
+check game-over
+press A
+until idle 6000 advance
+check revived

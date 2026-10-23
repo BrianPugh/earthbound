@@ -1,0 +1,14 @@
+# save: 02-Sharks
+# about: hotel phone, Dad's call: Record (save to SRAM), Continue, menus
+press A; until input 300; press A
+until in:SELECTION_MENU 1000 advance; wait 10
+check phone-menu
+press A
+until in:SELECTION_MENU 2000 advance; wait 10
+check dad
+press A
+until in:SELECTION_MENU 2000 advance; wait 10
+check recorded
+press A
+until idle 3000 advance
+check after

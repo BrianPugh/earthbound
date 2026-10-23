@@ -1,0 +1,8 @@
+# save: 19-Moonside
+# about: Fourside cafe bottles warp into Moonside (palette, music, Moonside NPC text)
+flag 11 1
+teleport 5520 6584 0; 10 UP; press L
+until idle 3000 advance
+check moonside
+60 LEFT; 40 DOWN
+check walk

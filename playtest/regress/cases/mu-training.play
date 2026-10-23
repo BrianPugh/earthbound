@@ -1,0 +1,24 @@
+# save: 26-Dalaam
+# about: Mu training: talk to the master, four Yes/No answers in a row, EVENT_340 fade
+flag 16 0; flag 273 0; flag 11 1
+teleport 6824 8318 0; 10 UP
+press A; until input 60; press A
+until idle 4000 advance
+check master
+teleport 4988 3840 0
+until text 1000 UP
+check mu
+until in:SELECTION_MENU 4000 advance; wait 10
+check yes-1
+press A
+until in:SELECTION_MENU 4000 advance; wait 10
+check yes-2
+press A
+until in:SELECTION_MENU 4000 advance; wait 10
+check yes-3
+press A
+until in:SELECTION_MENU 4000 advance; wait 10
+check yes-4
+press A
+until idle 6000 advance
+check after

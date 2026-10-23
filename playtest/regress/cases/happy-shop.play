@@ -1,0 +1,18 @@
+# save: 07-InHappy
+# about: Happy Happy drug store: talk across the counter, Buy, equip it here, sell the old weapon, No (horizontal menus)
+48 RIGHT; 20 UP; wait 10
+check counter
+press A; until input 60; press A
+until in:SELECTION_MENU 1000 advance; wait 10
+check buy-sell
+press A; until input 600 advance; wait 10
+check buy-list
+press A; until in:SELECTION_MENU 1000 advance; wait 10
+check equip-here
+press A; until in:SELECTION_MENU 2000 advance; wait 10
+check sell-old
+press A; until in:SELECTION_MENU 2000 advance; wait 10
+check anything-else
+press RIGHT; press A
+until idle 2000 advance
+check closed

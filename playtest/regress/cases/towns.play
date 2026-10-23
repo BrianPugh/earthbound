@@ -1,0 +1,63 @@
+# save: 24-Museum
+# about: PSI Teleport towns via warp, a short walk in each (map load, NPCs, gutters)
+flag 11 1
+warp onett; wait 30
+check onett
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check onett-walk
+until idle 600
+warp twoson; wait 30
+check twoson
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check twoson-walk
+until idle 600
+warp threed; wait 30
+check threed
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check threed-walk
+until idle 600
+warp saturn; wait 30
+check saturn
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check saturn-walk
+until idle 600
+warp fourside; wait 30
+check fourside
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check fourside-walk
+until idle 600
+warp winters; wait 30
+check winters
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check winters-walk
+until idle 600
+warp summers; wait 30
+check summers
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check summers-walk
+until idle 600
+warp scaraba; wait 30
+check scaraba
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check scaraba-walk
+until idle 600
+warp dalaam; wait 30
+check dalaam
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check dalaam-walk
+until idle 600
+warp deep; wait 30
+check deep
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check deep-walk
+until idle 600
+warp tenda; wait 30
+check tenda
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check tenda-walk
+until idle 600
+warp under; wait 30
+check under
+40 LEFT; 40 DOWN; 40 RIGHT; wait 10
+check under-walk
+until idle 600

@@ -1,0 +1,18 @@
+# save: 34-Magicant
+# about: Magicant Nightmare battle (debug win), Sanctuary montage, wake up in the real world
+debug on; flag 11 1
+teleport 496 9140 0; wait 10
+check magicant
+press L
+until battle 3000 advance
+until input 1500 advance
+check battle
+4 SELECT+START
+until said:powers 6000 advance
+check powers
+wait 400
+check montage-1
+wait 400
+check montage-2
+until idle 4000 advance
+check woke

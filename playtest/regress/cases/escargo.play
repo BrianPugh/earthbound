@@ -1,0 +1,29 @@
+# save: 29-DungeonM
+# about: phone -> Escargo Express -> Delivery of an item, two Yes/No confirmations, courier arrives and charges $18
+flag 11 1
+press A; until input 300; press A
+until in:SELECTION_MENU 1000 advance; wait 10
+check phone
+press DOWN 2; press A
+until in:SELECTION_MENU 2000 advance; wait 10
+check escargo
+press RIGHT; press A
+until input 2000 advance; wait 10
+check items
+press DOWN; press A
+until in:SELECTION_MENU 3000 advance; wait 10
+check anything-else
+press RIGHT; press A
+until in:SELECTION_MENU 3000 advance; wait 10
+check confirm
+press A
+until idle 3000 advance
+check ordered
+until text 3000
+wait 30
+check courier
+until in:SELECTION_MENU 3000 advance; wait 10
+check pay
+press A
+until idle 3000 advance
+check paid

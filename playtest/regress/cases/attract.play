@@ -1,0 +1,13 @@
+# save: none
+# boot: no
+# about: title screen left alone: attract-mode demo scenes through the oval (iris) window, credits text
+until in:ATTRACT 4000
+check start
+wait 90
+check oval-1
+wait 120
+check oval-2
+wait 600
+check scene-2
+wait 1200
+check scene-3

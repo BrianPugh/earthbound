@@ -1,0 +1,18 @@
+# save: 25-Sewer
+# about: Plague Rat of Doom boss swirl, Auto Fight to victory (long battle, level-up text)
+flag 11 1; debug on
+teleport 3552 3240 0; 20 UP; wait 10
+check rat
+press A; until input 60; press A
+until battle 3000 advance
+wait 30
+check boss-swirl
+wait 30
+check boss-swirl-2
+wait 30
+check boss-swirl-3
+until input 1500 advance
+check battle
+press RIGHT 2; press A
+until idle 20000 advance
+check won

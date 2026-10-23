@@ -1,0 +1,13 @@
+# save: 17-GoldMine
+# about: Gold Mine: walk LEFT into the Cute Li'l UFO group (party touches it), swirl, debug instant win
+debug on
+teleport 3424 9312; wait 20
+check mine
+until battle 900 LEFT
+wait 20
+check swirl
+until input 900
+check battle-menu
+4 SELECT+START
+until idle 3000 advance
+check after

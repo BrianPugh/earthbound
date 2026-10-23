@@ -1,0 +1,14 @@
+# save: 24-Museum
+# about: PSI Teleport alpha from the menu (run, vanish, arrive in Twoson)
+flag 11 1
+teleport 4000 9300 6; wait 10
+press A; until input 60; wait 10
+press DOWN; press A; until input 300; wait 10
+press A; until input 300; wait 10
+press DOWN 2; wait 5; press A; until input 300; wait 10
+check where
+press DOWN; press A
+wait 60
+check running
+until idle 2000
+check twoson

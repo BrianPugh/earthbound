@@ -1,0 +1,57 @@
+# save: 36-CavePast
+# about: debug STAFF: staff roll and credits photo slides
+debug on; flag 11 1
+flag 698 1
+flag 699 1
+flag 700 1
+flag 701 1
+flag 702 1
+flag 703 1
+flag 704 1
+flag 705 1
+flag 706 1
+flag 707 1
+flag 708 1
+flag 709 1
+flag 710 1
+flag 711 1
+flag 712 1
+flag 713 1
+flag 714 1
+flag 715 1
+flag 716 1
+flag 717 1
+flag 718 1
+flag 719 1
+flag 720 1
+flag 721 1
+flag 722 1
+flag 723 1
+flag 724 1
+flag 725 1
+flag 726 1
+flag 727 1
+flag 728 1
+flag 729 1
+check before
+10 B+R; until input 300; wait 10
+check debug-menu
+press DOWN 5; press A; wait 10   # page with "..."; the cursor stays on it
+press A; wait 10; press A; wait 10
+press UP 2; wait 10
+check staff-item
+press A
+wait 600
+check staff-title
+wait 1200
+check roll-1
+wait 3000
+check roll-2
+wait 6000
+check photos
+wait 600
+check photos-2
+wait 600
+check photos-3
+wait 1200
+check photos-4

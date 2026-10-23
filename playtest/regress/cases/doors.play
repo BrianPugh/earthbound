@@ -1,0 +1,12 @@
+# save: 21-Monotoli
+# about: Monotoli lobby door in, walk in the lobby, walk back into the door spot: a scripted robot event
+flag 143 1; flag 11 1
+teleport 5656 5984 0; 40 UP
+until idle 600
+check lobby
+40 DOWN
+until idle 600
+check lobby-walk
+40 UP
+until in:TEXT_PROMPT 2000
+check lobby-again

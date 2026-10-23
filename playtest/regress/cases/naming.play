@@ -1,0 +1,18 @@
+# save: none
+# boot: no
+# about: title, empty file select, text speed/sound/flavor menus, naming keyboard (type, backspace, Don't Care)
+until in:SELECTION_MENU 2000 START|-; wait 10
+check file-select
+press A; until input 300; wait 10
+press A; until input 300; wait 10
+press A; until input 300; wait 10
+check flavor
+press A; until input 600; wait 60
+press A; wait 30
+press RIGHT; press A; press DOWN; press A; wait 20
+check typed
+press B; wait 10; press DOWN 4; wait 10; press A; wait 30
+check dont-care
+press RIGHT 2; wait 5; press A; until input 300; wait 60
+press A; wait 30
+check paula-keyboard

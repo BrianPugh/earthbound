@@ -1,0 +1,10 @@
+# save: 22-RainyCircle
+# about: Winters: walk into Dr. Andonuts' lab door (snow, indoor lab, music change)
+flag 11 1
+teleport 320 4930 0; wait 10
+check outside
+until text 200 UP
+until idle 2000 advance
+check lab
+60 RIGHT; 40 UP
+check lab-walk

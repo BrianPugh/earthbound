@@ -71,6 +71,20 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **Before calling something a port bug, rule out how you walked.** Check the asm's conditions, such as the area box, flags, and facing, against what you actually did.
 - **Comment confirmed asm behaviour:** if behaviour looks wrong but matches the asm, the C site may already have a comment saying so. Read it. If you confirm a new one, add such a comment.
 
+## Regression check
+
+`playtest/regress.py` replays ~30 short cases (`playtest/regress/cases/*.play`: a save plus an input script with `check LABEL` checkpoints) covering shared systems: file select and naming, towns, doors, talk and Yes/No, shops, pause menus, phone and Escargo, swirls, battles, game over, PSI Teleport, sanctuaries, Lumine Hall, Deep Darkness, Magicant, credits, attract mode, savestates. Each checkpoint records STATE (minus `frame=`), PARTY, ENEMIES, window text, the TEXT printed since the last one, `until` met/TIMEOUT, and a screenshot. Hangs (60 s wall clock), crashes and missing checkpoints are reported.
+
+```zsh
+uv run --no-sync python playtest/regress.py compare port/unix/build-old/earthbound port/unix/build-new/earthbound   # the main use
+uv run --no-sync python playtest/regress.py record NAME --bin BIN; uv run --no-sync python playtest/regress.py check NAME --bin BIN2
+uv run --no-sync python playtest/regress.py diff RUN_DIR_A RUN_DIR_B   # re-diff finished runs; -k CASE narrows any command
+```
+
+- **Fix agents: before committing, build the pre-fix tree (`git worktree add` into your scratch dir; symlink `asm/bin`, `src/assets` and `src/vendor/tamp` from the main checkout) and the post-fix tree, both wide-viewport, run `compare`, and explain every diff in the report and commit message.** Read each diff PNG (`playtest/out/regress/diff/A-vs-B/CASE--LABEL.png`: A, B, changed pixels in red with the bbox). If unsure whether a diff is right, check the scene in emu mode.
+- Checkpoints line up by label, so a timing shift only adds a `timing:` note; everything after a real divergence (a menu cursor, an extra prompt) differs too, so explain the first diff of each case.
+- New case: copy one, keep it short (a few thousand frames), put an event `until` (`battle`, `in:MODE`, `idle`, `said:WORD`) before every `check`, and run `record` on it until every `until` is `met`.
+
 ## Checking the original
 
 When a suspected divergence comes up (port behaviour that might or might not be the original's), reproduce the scene in the original game with emu mode and compare. Setup and the differences are in `playtest/README.md` ("The original game"); once: `playtest/emu/build.sh`, `uv pip install numpy`, `make`.

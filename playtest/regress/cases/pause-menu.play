@@ -1,0 +1,40 @@
+# save: 24-Museum
+# about: pause menu: Goods (switch character, item actions, Help!), PSI, Equip, Status, closing and reopening menus (cursor resets)
+press A; until input 60; wait 10
+check menu
+press RIGHT; press A; until input 300; wait 10
+check goods-ness
+press RIGHT; wait 10
+check goods-paula
+press A; until input 300; wait 10
+check item-actions
+press DOWN 3; wait 5; press A; until input 600 advance; wait 10
+check item-help
+press B; wait 20; press B; wait 20; press B; wait 20; press B; wait 20
+check goods-closed
+press A; until input 60; wait 10
+press DOWN; press A; until input 300; wait 10
+check psi-who
+press A; until input 300; wait 10
+check psi-ness
+press DOWN; wait 10
+check psi-ness-down
+press B; wait 20; press B; wait 20; press B; wait 20
+check psi-closed
+press A; until input 60; wait 10
+press DOWN; press RIGHT; press A; until input 300; wait 10
+check equip-who
+press A; until input 300; wait 10
+check equip-slot
+press A; until input 300; wait 10
+check equip-items
+press B; wait 20; press B; wait 20; press B; wait 20; press B; wait 20
+check equip-closed
+press A; until input 60; wait 10
+press DOWN 2; press RIGHT; press A; until input 300; wait 10
+check status-who
+press RIGHT 2; press A; until input 300; wait 10
+check status-jeff
+press B; wait 20; press B; wait 20
+until idle 300
+check closed

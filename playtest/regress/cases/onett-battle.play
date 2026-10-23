@@ -1,0 +1,14 @@
+# save: 01-Start
+# about: Onett street, Spiteful Crow encounter swirl, battle menu, Auto Fight to victory (exp, level-up text)
+teleport 2660 440 4; wait 20
+check street
+until battle 500 DOWN|RIGHT|LEFT
+wait 20
+check swirl
+wait 30
+check swirl-wide
+until input 900
+check battle-menu
+press RIGHT 2; press A
+until idle 6000 advance
+check after

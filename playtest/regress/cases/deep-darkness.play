@@ -1,0 +1,20 @@
+# save: 30-DeepDark
+# about: Deep Darkness swamp darkness, Hawk Eye from Paula's Goods lights it up (lighting fade)
+flag 11 1
+teleport 6152 7598 7; wait 30
+check dark
+20 UP; 20 RIGHT
+check dark-walk
+press A; until input 60; wait 10
+press RIGHT; press A; until input 300; wait 10
+press RIGHT; wait 10; press A; until input 300; wait 10
+press DOWN 5; press RIGHT; wait 10
+check hawk-eye
+press A; until input 300; wait 10
+press A
+wait 60
+check fade
+until idle 3000 advance
+check lit
+40 UP; 40 RIGHT
+check lit-walk
