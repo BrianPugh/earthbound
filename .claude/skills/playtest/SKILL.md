@@ -25,6 +25,7 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - For motion or effects, use `--sheet` with `wait N; shot` repeated to get a contact sheet. For exact numbers, run `state` every frame (`wait 1; state`, ×N) and diff the positions. For scroll and palette, `aux F1` dumps the PPU registers and CGRAM into the session `debug/` dir.
 - Before experimenting, `snap here`, then `restore here` to retry. Snaps only work within the same process.
 - `pt history NAME` turns a session into an exact repro script, since the game is deterministic.
+- `pt video NAME [--skip-boot]` renders the session (finished or live) to an MP4 with audio and one chapter per `do`, for a person to watch.
 
 ## Talking, menus and saving tokens
 

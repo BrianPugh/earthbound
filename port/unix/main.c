@@ -15,6 +15,12 @@ void platform_save_set_path(const char *path);
 bool input_script_open(const char *path);
 bool input_script_open_session(const char *path);
 void input_script_root_boundary(void);
+/* Unix-specific: headless video/audio recording (defined in sdl2_record.c) */
+bool record_open_video(const char *path);
+bool record_open_audio(const char *path);
+void record_start_audio(void);
+void record_set_paused(bool paused);
+bool record_active(void);
 #include "verify/verify.h"
 
 /* Cleanup handler registered with atexit() — runs on any exit() call. */
@@ -51,6 +57,17 @@ int main(int argc, char *argv[]) {
             /* Interactive playtest: read commands from a FIFO, block when idle */
             if (!input_script_open_session(argv[++i]))
                 return 1;
+        } else if (strcmp(argv[i], "--record-video") == 0 && i + 1 < argc) {
+            /* Raw rgb24 frames to a file/FIFO (playtest/pt.py video) */
+            if (!record_open_video(argv[++i]))
+                return 1;
+        } else if (strcmp(argv[i], "--record-audio") == 0 && i + 1 < argc) {
+            /* Raw s16le stereo SPC700 output, 534 samples per frame */
+            if (!record_open_audio(argv[++i]))
+                return 1;
+        } else if (strcmp(argv[i], "--record-paused") == 0) {
+            /* Start recording paused; the script's 'record on' resumes it */
+            record_set_paused(true);
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -61,10 +78,15 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
                     argv[0]);
             return 1;
         }
+    }
+
+    if (record_active() && !platform_headless) {
+        fprintf(stderr, "--record-video/--record-audio need --headless\n");
+        return 1;
     }
 
     /* Initialize SDL */
@@ -112,6 +134,8 @@ int main(int argc, char *argv[]) {
     /* Initialize audio (loads audio packs from embedded assets) */
     if (!platform_headless)
         platform_audio_init();
+    else
+        record_start_audio(); /* the emulator only, when recording audio */
 
 #ifdef EB_ENABLE_VERIFY
     if (verify_rom_path) {

@@ -61,6 +61,35 @@ so `run.py` can play it, since it boots by itself). `pt.py replay NAME NEW`
 starts session NEW from NAME's `start.srm` and resends the whole history;
 the game is deterministic, so NEW ends in the same state, frame for frame.
 
+### Video
+
+```
+$PT video s1                                      # -> playtest/out/sessions/s1/s1.mp4
+$PT video s1 --out bus.mp4 --scale 4 --skip-boot  # 4x pixels, start after the boot batch
+```
+
+`pt.py video NAME` renders a session, finished or still running, to an MP4.
+It replays `history.play` from `start.srm` in a separate headless game (the
+running session is not touched), streams every frame as raw RGB through a
+FIFO to ffmpeg (H.264, nearest-neighbour `--scale N`, default 3) and records
+the SPC700 output (AAC). Each `do` batch becomes a chapter titled with its
+commands, so a player's chapter menu jumps to a step. Video frame *i* is the
+game frame shown at poll *i*, so a `SHOT ... frame=F` is video frame F (F
+minus the boot length with `--skip-boot`) until a `restore` rewinds the frame
+counter. Options: `--fps N` (output rate; the game runs at 60), `--no-audio`,
+`--crf N` (x264 quality, default 18), `--keep` (keep `video-tmp/` with the
+replay's log, raw audio and chapter file). Expect ~1000 frames/s at scale 3.
+The binary must have `--record-video` (`$EB_BIN`, built after 2026-10-23), and
+the replay only matches the session if it was played with the same game code.
+
+The binary options behind it: `--record-video PATH` writes raw rgb24 frames at
+the viewport size (printed first as `RECORD video WxH fps=60`, so the reader
+can be started before PATH, usually a FIFO, is opened), `--record-audio PATH`
+writes raw s16le stereo, 534 samples per frame (32040 Hz), and
+`--record-paused` waits for the script's `record on`. Both need `--headless`.
+Recording does not change the game: replays print the same output with or
+without it.
+
 STATE fields: `modes` is the mode stack, root first. `idle=yes` means the
 player can walk; otherwise it names the blocker (`modes`, `battle`,
 `interaction`, `input-disabled`, `leader-frozen`, `fade`, or the leader moving
@@ -127,6 +156,8 @@ Instant (no frame passes):
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |
+| `mark TEXT` | print `MARK n=FRAMES frame=F TEXT`, FRAMES = frames recorded so far (`pt.py video` chapters) |
+| `record on\|off` | resume / pause `--record-video`/`--record-audio` |
 | `end` / `quit` | quit the game |
 
 Between frames (at the main-loop root):

@@ -11,6 +11,8 @@ static volatile sig_atomic_t quit_requested;
 /* Scripted playback (sdl2_input_script.c) */
 bool input_script_active(void);
 uint16_t input_script_next(uint16_t *aux);
+/* Headless recording (sdl2_record.c) */
+void record_frame(void);
 
 /* Global mode flags */
 bool platform_headless = false;
@@ -39,6 +41,8 @@ void platform_input_shutdown(void) {
 
 void platform_input_poll(void) {
     SDL_Event event;
+
+    record_frame(); /* --record-video/--record-audio: this frame is rendered */
 
     pad_prev = pad_state;
 

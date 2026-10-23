@@ -46,6 +46,9 @@
  *                    active menu (MENU)
  *   sync ID          print "SYNC ID" (the session driver waits for it)
  *   note TEXT        print "> TEXT" verbatim (pt.py logs each command batch)
+ *   mark TEXT        print "MARK n=FRAMES frame=F TEXT": FRAMES is the number
+ *                    of frames recorded so far (pt.py video chapters)
+ *   record on|off    resume / pause --record-video/--record-audio
  *   flag N [0|1]     read / write event flag N
  *   give ITEM [CHAR] give item id to party member CHAR (1-6; default first
  *                    with room); prints who got it, or FAILED if full
@@ -106,6 +109,9 @@ extern int video_frames_rendered;
 const pixel_t *video_last_frame(void);
 /* sdl2_savestate.c */
 void platform_savestate_set_path(const char *prefix);
+/* sdl2_record.c */
+void record_set_paused(bool paused);
+uint32_t record_frames(void);
 
 static FILE *script_file;
 static int script_line_no;
@@ -1132,6 +1138,14 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
                 printf(" (%s)", status_names[v2 - 1][v3]);
             printf("\n");
         }
+    } else if (strcmp(cmd, "record") == 0) {
+        /* Pause / resume --record-video/--record-audio (no-op otherwise) */
+        if (strcmp(arg, "on") == 0)
+            record_set_paused(false);
+        else if (strcmp(arg, "off") == 0)
+            record_set_paused(true);
+        else
+            script_error("usage: record on|off%s", "");
     } else if (strcmp(cmd, "debug") == 0) {
         /* Set ow.debug_flag directly. Unlike `aux F5` (AUX_DEBUG_TOGGLE in
          * game_main.c), this doesn't also request the debug menu. */
@@ -1272,6 +1286,17 @@ uint16_t input_script_next(uint16_t *aux) {
             return 0;
         }
         script_line_no++;
+        if (strncmp(line, "mark ", 5) == 0) {
+            /* Chapter mark: n = frames recorded so far (the next frame's
+             * index in the recording), frame = core.frame_counter */
+            said_flush();
+            printf("MARK n=%u frame=%u %s", (unsigned)record_frames(), (unsigned)core.frame_counter,
+                   line + 5);
+            if (!strchr(line + 5, '\n'))
+                printf("\n");
+            fflush(stdout);
+            continue;
+        }
         if (strncmp(line, "note ", 5) == 0) {
             /* Echo a driver note verbatim ('#' included) into the output log */
             said_flush();

@@ -7,6 +7,7 @@ Usage (from the repo root)::
     uv run --no-sync python playtest/pt.py stop NAME
     uv run --no-sync python playtest/pt.py history NAME > repro.play
     uv run --no-sync python playtest/pt.py replay NAME NEWNAME
+    uv run --no-sync python playtest/pt.py video NAME [--out PATH] [--scale N] [--skip-boot]
 
 The game runs with ``--session FIFO``: it executes the commands it is sent and
 then blocks (no frame advances) until the next ``do``. Every ``do`` ends with
@@ -18,7 +19,9 @@ The binary is ``$EB_BIN`` (default port/unix/build/earthbound). Session files
 live in playtest/out/sessions/NAME/ (log.txt, history.play, shots/, snaps/,
 debug/, save.srm, start.srm). log.txt echoes each ``do`` batch as a ``> ...``
 line; history.play holds every command sent, so ``replay`` can rebuild the
-session from start.srm.
+session from start.srm, and ``video`` can render it to an MP4 (a headless
+replay with ``--record-video``/``--record-audio``, piped to ffmpeg, with one
+chapter per ``do`` step).
 """
 
 import argparse
@@ -29,6 +32,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -38,6 +42,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SESSIONS = HERE / "out" / "sessions"
 BIN = os.environ.get("EB_BIN", str(ROOT / "port/unix/build/earthbound"))
+FFMPEG = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
 # Title screen -> file select -> file 1 -> Continue, then wait for control.
 BOOT = "300 -; 1 START; 200 -; 1 A; 120 -; 1 A; 120 -; 1 A; until idle 900"
@@ -277,6 +282,154 @@ def replay(name, new):
         tmp.unlink(missing_ok=True)
 
 
+# Effective SPC700 output rate: the port generates 534 stereo samples per frame
+AUDIO_RATE = 534 * 60
+BLOCK_HEADER = re.compile(r"^# (boot|replay|do \d+)$")
+
+
+def history_blocks(name):
+    """Session NAME's history as (tag, [commands]) per ``do`` batch."""
+    f = session_dir(name) / "history.play"
+    if not f.exists():
+        sys.exit(f"no history for session {name}")
+    blocks = []
+    for ln in f.read_text().splitlines():
+        m = BLOCK_HEADER.match(ln)
+        if m:
+            blocks.append((m.group(1), []))
+        elif ln.strip() and not ln.startswith("#") and blocks:
+            blocks[-1][1].append(ln.strip())
+    return blocks
+
+
+def chapter_metadata(marks, total):
+    """Build ffmetadata text with one chapter per mark (in frames, 1/60 s units); return (text, count)."""
+
+    def esc(t):
+        return re.sub(r"([=;#\\\n])", r"\\\1", t)
+
+    out, count = [";FFMETADATA1"], 0
+    for i, (n, title) in enumerate(marks):
+        n = 0 if i == 0 else n  # the first chapter also covers the frames before its mark
+        end = marks[i + 1][0] if i + 1 < len(marks) else total
+        if end > n:  # a batch that took no frames has no chapter
+            out += ["[CHAPTER]", "TIMEBASE=1/60", f"START={n}", f"END={end}", f"title={esc(title)}"]
+            count += 1
+    return "\n".join(out) + "\n", count
+
+
+def video(name, out=None, scale=3, fps=60, skip_boot=False, audio=True, crf=18, keep=False):
+    """Replay session NAME headlessly and encode every frame (and the audio) to an MP4."""
+    src = session_dir(name)
+    if not (src / "start.srm").exists():
+        sys.exit(f"session {name} has no start.srm")
+    if not Path(BIN).exists():
+        sys.exit(f"game binary not found: {BIN} (set EB_BIN)")
+    if not Path(FFMPEG).exists():
+        sys.exit(f"ffmpeg not found: {FFMPEG} (set FFMPEG)")
+    blocks = history_blocks(name)
+    out = Path(out).resolve() if out else src / f"{name}.mp4"
+
+    # The script: each batch's commands, preceded by a chapter mark
+    lines = []
+    skipping = skip_boot and blocks and blocks[0][0] == "boot"
+    for i, (tag, cmds) in enumerate(blocks):
+        if not (skipping and i == 0):
+            title = f"{tag}: {'; '.join(cmds)}" if cmds else tag
+            lines.append("mark " + (title if len(title) <= 200 else title[:197] + "..."))
+        lines += cmds
+        if skipping and i == 0:
+            lines.append("record on")
+    if skip_boot and not skipping:
+        print("note: no '# boot' batch in the history; recording from the start", file=sys.stderr)
+
+    work = src / "video-tmp"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir()
+    shutil.copy(src / "start.srm", work / "save.srm")
+    (work / "video.play").write_text("\n".join(lines) + "\n")
+    os.mkfifo(work / "video.fifo")
+    cmd = [BIN, "--headless", "--save", "save.srm", "--input", "video.play", "--record-video", "video.fifo"]
+    if audio:
+        cmd += ["--record-audio", "audio.raw"]
+    if skipping:
+        cmd.append("--record-paused")
+
+    t0 = time.time()
+    log = (work / "log.txt").open("w")
+    game = subprocess.Popen(  # noqa: S603
+        cmd, cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    size = None
+    for ln in game.stdout:
+        log.write(ln)
+        m = re.match(r"RECORD video (\d+)x(\d+)", ln)
+        if m:
+            size = (int(m.group(1)), int(m.group(2)))
+            break
+    if size is None:
+        game.wait()
+        sys.exit(f"{BIN} did not start recording (built before --record-video? rebuild it): see {work / 'log.txt'}")
+
+    vf = []
+    if scale > 1:
+        vf.append(f"scale=iw*{scale}:ih*{scale}:flags=neighbor")
+    if fps != 60:
+        vf.append(f"fps={fps}")
+    enc = [FFMPEG, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24"]
+    enc += ["-s", f"{size[0]}x{size[1]}", "-framerate", "60", "-i", "video.fifo"]
+    enc += ["-vf", ",".join(vf)] if vf else []
+    enc += ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf), "-pix_fmt", "yuv420p", "video.mp4"]
+    encoder = subprocess.Popen(enc, cwd=work, stdin=subprocess.DEVNULL)  # noqa: S603
+
+    def watchdog():
+        # ffmpeg dying before it opens the FIFO would leave the game blocked in open()
+        if encoder.wait() != 0 and game.poll() is None:
+            game.kill()
+
+    threading.Thread(target=watchdog, daemon=True).start()
+
+    marks, total, last = [], None, 0.0
+    for ln in game.stdout:
+        log.write(ln)
+        if ln.startswith("MARK "):
+            m = re.match(r"MARK n=(\d+) frame=\d+ (.*)", ln.rstrip("\n"))
+            if m:
+                marks.append((int(m.group(1)), m.group(2)))
+                if time.time() - last > 5:
+                    last = time.time()
+                    print(f"... {m.group(2)[:60]} (video frame {m.group(1)})", file=sys.stderr)
+        elif ln.startswith("RECORD done"):
+            total = int(ln.split("frames=")[1])
+    game.wait()
+    rc = encoder.wait()
+    log.close()
+    if rc != 0 or total is None:
+        sys.exit(f"recording failed (game rc={game.returncode}, ffmpeg rc={rc}): see {work / 'log.txt'}")
+    t_render = time.time() - t0
+
+    chapters, nchapters = chapter_metadata(marks, total)
+    (work / "chapters.txt").write_text(chapters)
+    mux = [FFMPEG, "-y", "-loglevel", "error", "-i", "video.mp4"]
+    if audio:
+        mux += ["-f", "s16le", "-ar", str(AUDIO_RATE), "-ac", "2", "-i", "audio.raw"]
+    meta = 2 if audio else 1
+    mux += ["-i", "chapters.txt", "-map", "0:v"] + (["-map", "1:a"] if audio else [])
+    mux += ["-map_metadata", str(meta), "-map_chapters", str(meta), "-c:v", "copy"]
+    mux += ["-c:a", "aac", "-b:a", "160k", "-ar", "48000"] if audio else []
+    mux += ["-movflags", "+faststart", str(out)]
+    if subprocess.run(mux, cwd=work).returncode != 0:  # noqa: S603
+        sys.exit(f"muxing failed: see {work}")
+    if not keep:
+        shutil.rmtree(work, ignore_errors=True)
+    secs = total / 60
+    print(
+        f"VIDEO {out} frames={total} duration={int(secs // 60)}:{secs % 60:05.2f} "
+        f"chapters={nchapters} "
+        f"size={out.stat().st_size / 1e6:.1f}MB render={t_render:.1f}s ({total / t_render:.0f} frames/s)"
+    )
+
+
 def stop(name):
     d = session_dir(name)
     pid = read_pid(d)
@@ -319,6 +472,15 @@ def main():
     s = sub.add_parser("replay", help="start NEW from NAME's starting save and resend NAME's history")
     s.add_argument("name")
     s.add_argument("new")
+    s = sub.add_parser("video", help="render a session (finished or live) to an MP4 by replaying its history")
+    s.add_argument("name")
+    s.add_argument("--out", help="output .mp4 (default: the session dir, NAME.mp4)")
+    s.add_argument("--scale", type=int, default=3, help="nearest-neighbour upscale factor (default 3)")
+    s.add_argument("--fps", type=int, default=60, help="output frame rate (the game runs at 60)")
+    s.add_argument("--skip-boot", action="store_true", help="start the video after the boot batch")
+    s.add_argument("--no-audio", action="store_true", help="video only")
+    s.add_argument("--crf", type=int, default=18, help="x264 quality (lower is better, default 18)")
+    s.add_argument("--keep", action="store_true", help="keep the work dir (video-tmp/: log, raw audio, chapters)")
     sub.add_parser("list", help="list sessions")
     a = ap.parse_args()
 
@@ -342,6 +504,8 @@ def main():
         sys.stdout.write(history_commands(a.name, boot=not a.no_boot))
     elif a.cmd == "replay":
         replay(a.name, a.new)
+    elif a.cmd == "video":
+        video(a.name, a.out, a.scale, a.fps, a.skip_boot, not a.no_audio, a.crf, a.keep)
     else:
         for d in sorted(SESSIONS.glob("*")):
             print(d.name, "running" if read_pid(d) else "stopped")
