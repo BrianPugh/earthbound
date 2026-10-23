@@ -63,6 +63,33 @@ bool dt_make_child_init(union ModeState *init, uint32_t addr);
 void display_text_inline(const uint8_t *script, size_t script_size);
 void display_text_from_addr_inline(uint32_t addr);
 
+/* Capacity of DisplayTextState.letter_queue: the longest substitution is a
+ * battle name (30 bytes) after "The ", or a 25-byte item name with a 3-byte
+ * word-wrap op per word. */
+#define DT_LETTER_QUEUE_SIZE 128
+
+/* Letter-queue ops (bytes < 0x20; each is followed by 2 argument bytes). */
+typedef enum {
+    LQ_OP_LETTER = 0x01,        /* a: letter < 0x20 (escape; letters >= 0x20 are stored bare) */
+    LQ_OP_NEWLINE,              /* print_newline() */
+    LQ_OP_WORDWRAP,             /* a|b<<8: PRINT_STRING_WITH_WORDWRAP's newline test for that pixel width */
+    LQ_OP_CHAR_TILE,            /* a|b<<8: PRINT_CHAR_WITH_SOUND(tile), with its delay */
+    LQ_OP_SET_CURSOR,           /* set_focus_text_cursor(a, b) */
+    LQ_OP_CURSOR_RIGHT_EDGE,    /* set_focus_text_cursor(width - 1 (asm), text_y) */
+    LQ_OP_FORCE_LEFT,           /* FORCE_LEFT_TEXT_ALIGNMENT = a */
+    LQ_OP_INDENT,               /* VWF_INDENT_NEW_LINE = a */
+} LetterQueueOp;
+
+/* True while a DISPLAY_TEXT control code runs and a printed letter must go
+ * through the letter queue (it is not instant, or earlier letters are still
+ * queued). Printers then call dt_lq_push_letter / dt_lq_push_op instead of
+ * rendering. dt_lq_pending(): letters are queued, so any cursor work that
+ * follows them must be queued too. */
+bool dt_lq_capturing(void);
+bool dt_lq_pending(void);
+void dt_lq_push_letter(uint8_t eb);
+void dt_lq_push_op(uint8_t op, uint8_t a, uint8_t b);
+
 /* Battle name buffer sizes (from bankconfig/common/ram.asm). */
 #define BATTLE_NAME_ATTACKER_SIZE  30  /* sizeof(enemy_data::name) + 5 (USA) */
 #define BATTLE_NAME_TARGET_SIZE    28  /* sizeof(enemy_data::name) + 3 (USA) */
@@ -107,6 +134,14 @@ typedef struct {
     /* CNUM / CITEM: current action number and item for battle text */
     uint32_t cnum;
     uint8_t  citem;
+
+    /* SELECTED_TEXT_SPEED (ram.asm): game_state.text_speed - 1, set only when a
+     * file starts (file_select_menu_loop.asm @FINALIZE_AND_START). PRINT_LETTER
+     * waits SELECTED_TEXT_SPEED+1 WINDOW_TICKs per character (Fast = 1 frame).
+     * Zero (BSS) before a file is started. A u16 in the asm; u8 here (values
+     * 0-2) so it fills the alignment hole after citem and the savestate layout
+     * is unchanged. */
+    uint8_t  selected_text_speed;
 
     /* FORCE_LEFT_TEXT_ALIGNMENT: when non-zero, text renders left-aligned. */
     uint16_t force_left_text_alignment;
@@ -162,6 +197,18 @@ typedef struct {
 
     /* Last party member status change tracking. */
     uint16_t last_party_member_status_last_check;
+
+    /* Substituted-string letter queue (display_text.c, "letter queue"). The
+     * asm's control-code printers (PRINT_STRING / PRINT_MONEY_IN_WINDOW /
+     * PRINT_CHAR_WITH_SOUND) call PRINT_LETTER, which blocks SELECTED_TEXT_SPEED+1
+     * WINDOW_TICKs per letter. The port's printers are synchronous, so inside a
+     * DISPLAY_TEXT control code they append their letters (bytes >= 0x20) and
+     * the cursor work that follows them (LetterQueueOp, 3 bytes each) here, and
+     * DISPLAY_TEXT's DT_RUN drains the queue one letter per delay before reading
+     * the next script byte. Serialized: a save can land mid-name. */
+    uint8_t lq_len;   /* bytes queued */
+    uint8_t lq_pos;   /* next byte to run; lq_pos == lq_len means empty */
+    uint8_t letter_queue[DT_LETTER_QUEUE_SIZE];
 } DisplayTextState;
 
 extern DisplayTextState dt;

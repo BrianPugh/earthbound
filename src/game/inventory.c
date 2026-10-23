@@ -589,7 +589,7 @@ static void update_teddy_bear_party(void) {
  * Iterates through the TIMED_ITEM_TRANSFORMATION_TABLE. For each item entry,
  * checks if the item is already in anyone's inventory (FIND_ITEM_IN_INVENTORY2).
  * If found, calls start_item_transformation; if not, calls start_timed_item_transformation. */
-static void init_all_item_transformations(void) {
+void init_all_item_transformations(void) {
     if (!ensure_transform_table()) return;
 
     for (uint16_t i = 0; ; i++) {

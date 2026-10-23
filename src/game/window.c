@@ -1066,7 +1066,7 @@ void highlight_menu_item(WindowInfo *w, uint16_t item_index, uint16_t palette, b
  *   4. Call SET_WINDOW_TILE_ATTRIBUTE to write the tile
  *   5. Set ow.redraw_all_windows = 1
  *   6. Play SFX::TEXT_PRINT (id=7) unless instant mode or silent
- *   7. Wait (text_speed+1) frames if not instant
+ *   7. Wait (SELECTED_TEXT_SPEED+1) frames if not instant
  *
  * Parameters:
  *   tile_code: encoded tile value (same format as WRITE_TILE_TO_WINDOW)
@@ -1074,6 +1074,13 @@ void highlight_menu_item(WindowInfo *w, uint16_t item_index, uint16_t palette, b
 void print_char_with_sound(uint16_t tile_code) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
+
+    /* Inside a DISPLAY_TEXT control code (PRINT_MONEY_IN_WINDOW's tile 36),
+     * queue it: DT_RUN draws it and waits its SELECTED_TEXT_SPEED+1 frames. */
+    if (dt_lq_capturing()) {
+        dt_lq_push_op(LQ_OP_CHAR_TILE, (uint8_t)(tile_code & 0xFF), (uint8_t)(tile_code >> 8));
+        return;
+    }
 
     /* Free old tiles at current position from content_tilemap (assembly lines 15-55) */
     uint16_t content_w = w->width - 2;
@@ -1114,13 +1121,13 @@ void print_char_with_sound(uint16_t tile_code) {
         play_sfx(7);  /* SFX::TEXT_PRINT */
     }
 
-    /* Text speed delay (assembly lines 104-117): the asm spun text_speed+1
-     * WINDOW_TICK frames here. The only non-instant caller is DISPLAY_TEXT's
-     * VWF path (vwf_render_character) for the rare direct-tile chars
-     * (0x20/0x2F/EQUIPPED), and DT_RUN already runs its own per-char DT_DELAY
-     * for that same byte — so this loop was a redundant second delay (and a
-     * nested pump). Every other caller prints with instant_printing set. The
-     * char is already written above; no delay/render is needed here. */
+    /* Text speed delay (assembly lines 104-117): SELECTED_TEXT_SPEED+1
+     * WINDOW_TICKs. A synchronous helper can't yield, so DISPLAY_TEXT owns
+     * these frames: for the direct-tile letters (0x20/0x2F/EQUIPPED, via
+     * vwf_render_character) PRINT_LETTER's delay in DT_RUN is doubled (this
+     * loop, then PRINT_LETTER's own), and a tile queued above
+     * (LQ_OP_CHAR_TILE) gets its delay when DT_RUN draws it. Every other caller
+     * prints with instant_printing set. */
 }
 
 /* ---- Window Border Animation ---- */
@@ -3263,16 +3270,22 @@ void print_money_in_window(uint32_t amount) {
 
     /* Print the money string character by character (asm lines 138-153).
      * Assembly uses REDIRECT_PRINT_LETTER for each character, which includes
-     * VWF rendering, sound, and per-character delay via WINDOW_TICK. */
+     * VWF rendering, sound, and per-character delay via WINDOW_TICK. Inside
+     * DISPLAY_TEXT (CC_1C_0B) the letters go to the letter queue, whose drain
+     * does all three; the tail below is then queued behind them. */
     for (int c = 0; money_buf[c]; c++) {
         uint8_t eb = ascii_to_eb_char(money_buf[c]);
-        uint8_t eb_buf[2] = { eb, 0x00 };
-        print_eb_string(eb_buf, 1);
+        if (dt_lq_capturing()) {
+            dt_lq_push_letter(eb);
+            continue;
+        }
+        print_eb_letter(eb);
 
         /* PRINT_LETTER (asm lines 25-33): set REDRAW_ALL_WINDOWS if non-tail window */
         ow.redraw_all_windows = 1;
 
-        /* Sound + delay (asm lines 36-81): same as display_text's PRINT_LETTER */
+        /* Sound (asm lines 36-81): same as display_text's PRINT_LETTER. Outside
+         * DISPLAY_TEXT there is no frame to wait on, so no delay. */
         if (!dt.instant_printing) {
             bool play_sound;
             if (dt.text_sound_mode == 2) {
@@ -3285,15 +3298,17 @@ void print_money_in_window(uint32_t amount) {
             if (play_sound && eb != 0x20 && eb != 0x50) {
                 play_sfx(7);  /* SFX::TEXT_PRINT */
             }
-
-            /* The asm spun text_speed+1 WINDOW_TICK frames per money digit (a
-             * typewriter). print_money_in_window is a synchronous helper, so it
-             * cannot own a yield; driving the per-digit delay would require a
-             * DISPLAY_TEXT phase. The only non-instant caller is CC_1C_0B in
-             * dialogue — the money digits now render at once (on DISPLAY_TEXT's
-             * next frame) instead of typing out. Sound still plays per digit.
-             * COSMETIC DEVIATION: money pops in rather than typing. */
         }
+    }
+
+    if (dt_lq_pending()) {
+        /* The digits are still queued: queue the tail (asm lines 154-170). */
+        dt_lq_push_op(LQ_OP_FORCE_LEFT, 0, 0);
+        dt_lq_push_op(LQ_OP_CURSOR_RIGHT_EDGE, 0, 0);
+        dt_lq_push_op(LQ_OP_CHAR_TILE, 36, 0);
+        dt_lq_push_op(LQ_OP_SET_CURSOR, (uint8_t)saved_text_x, (uint8_t)saved_text_y);
+        dt_lq_push_op(LQ_OP_INDENT, saved_vwf_indent, 0);
+        return;
     }
 
     dt.force_left_text_alignment = 0;

@@ -77,6 +77,11 @@ void print_string(const char *str);
    Used by display_text() for script text where bytes are already EB-encoded. */
 void print_eb_string(const uint8_t *eb_str, int len);
 
+/* Render one EB-encoded letter now: the RENDER_VWF_CHARACTER half of
+ * PRINT_LETTER (no sound, no delay). print_eb_string renders through it, or
+ * queues letters for DISPLAY_TEXT's typewriter inside a control code. */
+void print_eb_letter(uint8_t eb);
+
 /* Print an integer value at the current cursor position */
 void print_number(int value, int min_digits);
 
@@ -238,6 +243,10 @@ uint16_t get_string_pixel_width(const uint8_t *str, int16_t max_len);
  * Port of PRINT_STRING_WITH_WORDWRAP (asm/text/print_string_with_wordwrap.asm).
  * max_len: max chars to print, or -1 for null-terminated. */
 void print_string_with_wordwrap(const uint8_t *str, int16_t max_len);
+
+/* PRINT_STRING_WITH_WORDWRAP's line test alone: newline + indent if a string
+ * str_width pixels wide doesn't fit after the cursor. */
+void wordwrap_newline_if_needed(uint16_t str_width);
 
 /* Print an EB-encoded string, splitting at spaces and wrapping each word.
  * Port of PRINT_TEXT_WITH_WORD_SPLITTING (asm/text/print_text_with_word_splitting.asm).

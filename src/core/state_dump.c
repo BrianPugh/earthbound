@@ -55,7 +55,7 @@
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 11 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 12 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -69,7 +69,9 @@
                                * format portable across viewport dimensions.
                                * v11: the payload (sections + terminator) is now a single
                                * tamp-compressed stream; the header's crc32/payload_len
-                               * describe the COMPRESSED bytes. Header stays uncompressed. */
+                               * describe the COMPRESSED bytes. Header stays uncompressed.
+                               * v12: DisplayTextState gained the letter queue
+                               * (lq_len, lq_pos, letter_queue[128]). */
 
 /* Section IDs */
 enum {
@@ -150,7 +152,7 @@ _Static_assert(sizeof(party_characters)     == 570,   "ABI: party_characters");
 _Static_assert(sizeof(event_flags)          == 128,   "ABI: event_flags");
 _Static_assert(sizeof(ow)                   == 392,   "ABI: ow");
 _Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
-_Static_assert(sizeof(dt)                   == 152,   "ABI: dt");
+_Static_assert(sizeof(dt)                   == 284,   "ABI: dt");
 _Static_assert(sizeof(win)                  == 12952, "ABI: win");
 _Static_assert(sizeof(ml)                   == 16970, "ABI: ml");
 /* SECTION_PPU serializes only the fixed PREFIX of PPUState — everything before the

@@ -1721,14 +1721,30 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
  * fine since only one selection menu is ever pending at a time. */
 static ModeState fm_child_init;
 
-/* Set the HP-meter rolling speed from the HP_METER_SPEEDS table by text_speed.
- * Assembly file_select_menu_loop.asm:665-678. */
-static void fm_set_hp_meter_speed(void) {
+/* @FINALIZE_AND_START (file_select_menu_loop.asm:662-689), shared by Continue
+ * and New Game: item transformations, the HP-meter rolling speed from
+ * HP_METER_SPEEDS, SELECTED_TEXT_SPEED (the per-letter delay), TEXT_SPEED_BASED_WAIT,
+ * then DISPLAY_TEXT_PTR MSG_SYS_GAME_START_INIT (which clears
+ * FLG_HOTEL_PAPERBOY_APPEAR, so a save made after a hotel night loads with the
+ * plain hotel music). The caller has already closed all windows. */
+static void fm_finalize_and_start(void) {
+    init_all_item_transformations();
+
     ensure_file_select_assets();
     int idx = (game_state.text_speed & 0xFF) - 1;
     if (idx < 0) idx = 0;
     if (idx > 2) idx = 2;
     bt.hp_meter_speed = (int32_t)read_u32_le(hp_meter_speeds_data + idx * 4);
+
+    /* STX SELECTED_TEXT_SPEED with X = text_speed - 1 */
+    dt.selected_text_speed = (uint8_t)((game_state.text_speed & 0xFF) - 1);
+
+    if ((game_state.text_speed & 0xFF) == 3)
+        dt.text_speed_based_wait = 0;
+    else
+        dt.text_speed_based_wait = (uint16_t)((game_state.text_speed & 0xFF) * 30);
+
+    display_text_from_addr_inline(MSG_SYS_GAME_START_INIT);
 }
 
 /* Push GAME_MODE_SELECTION_MENU as a child after a *_build() has laid out the
@@ -1840,12 +1856,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 reload_hotspots();
                 ow.respawn_x = game_state.leader_x_coord;
                 ow.respawn_y = game_state.leader_y_coord;
-                if (game_state.text_speed == 3)
-                    dt.text_speed_based_wait = 0;
-                else
-                    dt.text_speed_based_wait = (uint16_t)game_state.text_speed * 30;
-                fm_set_hp_meter_speed();
                 close_all_windows();
+                fm_finalize_and_start();
                 return STEP_RESULT_POP(1);
 
             case 2: /* Copy — @MENU_COPY_SELECTED: SHOW_FILE_COPY_DIALOG.
@@ -2070,7 +2082,7 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 st->phase = FM_NG_FLV;
                 continue;
             }
-            fm_set_hp_meter_speed();
+            fm_finalize_and_start();
             return STEP_RESULT_POP(1);
         }
 

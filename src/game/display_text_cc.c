@@ -2676,11 +2676,10 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
     case 0x0F: {
         /* PRINT_ACTION_AMOUNT: 0 args.
          * Port of CC_1C_0F / @PRINT_ATTACK_NUMBER (asm/text/ccs/tree_1C.asm:142-146).
-         * Calls GET_CNUM, then PRINT_NUMBER to print the current action number. */
+         * Calls GET_CNUM, then PRINT_NUMBER to print the current action number
+         * (clamped to 9999999, padded per the window's number_padding). */
         uint32_t value = get_cnum();
-        char buf[12];
-        snprintf(buf, sizeof(buf), "%u", (unsigned)value);
-        print_string(buf);
+        print_number(value > 9999999u ? 9999999 : (int)value, 0);
         break;
     }
     case 0x11: {

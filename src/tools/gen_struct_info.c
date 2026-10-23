@@ -489,6 +489,7 @@ int main(void) {
     FIELD(DisplayTextState, battle_target_name, "u8[28]"); SEP();
     FIELD(DisplayTextState, cnum, "u32"); SEP();
     FIELD(DisplayTextState, citem, "u8"); SEP();
+    FIELD(DisplayTextState, selected_text_speed, "u8"); SEP();
     FIELD(DisplayTextState, force_left_text_alignment, "u16"); SEP();
     FIELD(DisplayTextState, pagination_window, "u16"); SEP();
     FIELD(DisplayTextState, pagination_animation_frame, "i16"); SEP();
@@ -509,7 +510,10 @@ int main(void) {
     BLOB_FIELD(DisplayTextState, window_text_attrs_backup); SEP();
     FIELD(DisplayTextState, hppp_meter_flipout_mode_hp_backups, "u16[4]"); SEP();
     FIELD(DisplayTextState, hppp_meter_flipout_mode_pp_backups, "u16[4]"); SEP();
-    LAST_FIELD(DisplayTextState, last_party_member_status_last_check, "u16");
+    FIELD(DisplayTextState, last_party_member_status_last_check, "u16"); SEP();
+    FIELD(DisplayTextState, lq_len, "u8"); SEP();
+    FIELD(DisplayTextState, lq_pos, "u8"); SEP();
+    LAST_FIELD(DisplayTextState, letter_queue, "u8[128]");
     END_SECTION();
 
     SEP();

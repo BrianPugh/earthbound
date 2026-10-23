@@ -1523,6 +1523,178 @@ bool dt_make_child_init(ModeState *init, uint32_t addr) {
     return true;
 }
 
+/* ---- Letter queue: control-code strings typed out like script letters ----
+ * The asm's CC printers (PRINT_STRING, PRINT_MONEY_IN_WINDOW, ...) call
+ * PRINT_LETTER, which waits SELECTED_TEXT_SPEED+1 WINDOW_TICKs per letter, so a
+ * name, number or item name types out at the same speed as the script text
+ * around it. The port's printers are synchronous and can't yield, so while
+ * DT_RUN runs a control code that prints (s_lq_capture) they append their
+ * letters, and the cursor work behind them, to dt.letter_queue. DT_RUN drains
+ * the queue at the top of its loop, one PRINT_LETTER (render, sound, delay) per
+ * yield, before it reads the next script byte. Work a control code does before
+ * its first letter runs at once: the queue is always empty when a CC starts. */
+static bool s_lq_capture;  /* set only while DT_RUN runs CC_1C (no yield inside) */
+
+bool dt_lq_pending(void) {
+    return s_lq_capture && dt.lq_len > dt.lq_pos;
+}
+
+bool dt_lq_capturing(void) {
+    return s_lq_capture && (dt.lq_len > dt.lq_pos || !dt.instant_printing);
+}
+
+static uint16_t lq_run_next(void);
+
+static void lq_reserve(int n) {
+    if (dt.lq_len + n <= DT_LETTER_QUEUE_SIZE)
+        return;
+    /* Never expected (the longest substitution is ~60 bytes): print what is
+     * queued without its delays rather than drop letters. */
+    LOG_WARN("letter queue full: printing %d queued bytes instantly\n",
+             dt.lq_len - dt.lq_pos);
+    bool capture = s_lq_capture;
+    s_lq_capture = false;
+    while (dt.lq_len > dt.lq_pos)
+        (void)lq_run_next();
+    s_lq_capture = capture;
+}
+
+void dt_lq_push_letter(uint8_t eb) {
+    if (eb < 0x20) {
+        dt_lq_push_op(LQ_OP_LETTER, eb, 0);
+        return;
+    }
+    lq_reserve(1);
+    dt.letter_queue[dt.lq_len++] = eb;
+}
+
+void dt_lq_push_op(uint8_t op, uint8_t a, uint8_t b) {
+    lq_reserve(3);
+    dt.letter_queue[dt.lq_len++] = op;
+    dt.letter_queue[dt.lq_len++] = a;
+    dt.letter_queue[dt.lq_len++] = b;
+}
+
+/* PRINT_LETTER (asm/text/print_letter.asm) minus the delay loop: render the
+ * letter and play its sound. Returns the WINDOW_TICK frames the asm then waits:
+ * SELECTED_TEXT_SPEED+1, doubled for the direct-tile letters (0x20, 0x2F,
+ * EQUIPPED), whose RENDER_VWF_CHARACTER goes through PRINT_CHAR_WITH_SOUND and
+ * its own identical delay loop first. 0 when instant or no window is open. */
+static uint16_t dt_print_letter(uint8_t byte) {
+    /* PRINT_LETTER early-out: if no window is open (CURRENT_FOCUS_WINDOW ==
+     * -1), the routine RETURNs immediately — no VWF render and, crucially, no
+     * per-character WINDOW_TICK typewriter delay. Cutscene scripts use runs of
+     * space characters with no window open purely as control-stream padding;
+     * rendering them with the typewriter delay would step entity actionscripts
+     * (window_tick → render_frame_tick) once per space, desyncing scripted
+     * entities from the orchestrating dialogue. (Tessie-ride Lake Tess bug:
+     * Tessie froze her screen position ~243 frames early because the
+     * windowless space-runs advanced her past her SET_POSITION_CHANGE_CALLBACK
+     * freeze before DISABLE_SPRITE_MOVEMENT could park her.) */
+    if (win.current_focus_window == WINDOW_ID_NONE)
+        return 0;
+
+    print_eb_letter(byte);
+
+    /* Sound + delay only when not instant printing
+     * (assembly lines 68-70: skip to @RETURN if instant) */
+    if (dt.instant_printing)
+        return 0;
+
+    /* Sound logic (assembly lines 36-66):
+     * Mode 2: always play. Mode 3: never play.
+     * Default: play if dt.blinking_triangle_flag == 0.
+     * Skip for byte 0x20 and CHAR::SPACE (0x50). */
+    bool play_sound;
+    if (dt.text_sound_mode == 2) {
+        play_sound = true;
+    } else if (dt.text_sound_mode == 3) {
+        play_sound = false;
+    } else {
+        play_sound = (dt.blinking_triangle_flag == 0);
+    }
+    if (play_sound && byte != 0x20 && byte != 0x50) {
+        play_sfx(7);  /* SFX::TEXT_PRINT */
+    }
+
+    /* Typewriter delay (assembly lines 71-81). */
+    uint16_t delay = (uint16_t)(dt.selected_text_speed + 1);
+    if (byte == 0x20 || byte == 0x2F || byte == EB_CHAR_EQUIPPED)
+        delay *= 2;  /* PRINT_CHAR_WITH_SOUND's delay loop, then this one */
+    return delay;
+}
+
+/* Run the next queued letter or op. Returns the delay frames it owes. */
+static uint16_t lq_run_next(void) {
+    uint16_t delay = 0;
+    uint8_t b = dt.letter_queue[dt.lq_pos++];
+    if (b >= 0x20) {
+        delay = dt_print_letter(b);
+    } else {
+        uint8_t a = dt.letter_queue[dt.lq_pos++];
+        uint8_t c = dt.letter_queue[dt.lq_pos++];
+        WindowInfo *w = get_focus_window_info();
+        switch (b) {
+        case LQ_OP_LETTER:
+            delay = dt_print_letter(a);
+            break;
+        case LQ_OP_NEWLINE:
+            print_newline();
+            break;
+        case LQ_OP_WORDWRAP:
+            wordwrap_newline_if_needed((uint16_t)(a | (c << 8)));
+            break;
+        case LQ_OP_CHAR_TILE:
+            /* PRINT_CHAR_WITH_SOUND (draw + sound), then its delay loop. */
+            print_char_with_sound((uint16_t)(a | (c << 8)));
+            if (w && !dt.instant_printing)
+                delay = (uint16_t)(dt.selected_text_speed + 1);
+            break;
+        case LQ_OP_SET_CURSOR:
+            set_focus_text_cursor(a, c);
+            break;
+        case LQ_OP_CURSOR_RIGHT_EDGE:
+            /* asm: SET_FOCUS_TEXT_CURSOR(width - 1, text_y); the asm width is
+             * the interior width (the port's width - 2). */
+            if (w)
+                set_focus_text_cursor(w->width - 3, w->text_y);
+            break;
+        case LQ_OP_FORCE_LEFT:
+            dt.force_left_text_alignment = a;
+            break;
+        case LQ_OP_INDENT:
+            vwf_indent_new_line = a;
+            break;
+        default:
+            LOG_WARN("letter queue: bad op 0x%02X\n", b);
+            break;
+        }
+    }
+    if (dt.lq_pos >= dt.lq_len)
+        dt.lq_pos = dt.lq_len = 0;
+    return delay;
+}
+
+/* PRINT_LETTER's delay loop: `delay` WINDOW_TICK frames. The first frame's
+ * work runs now; any remaining frames run in DT_DELAY. Each returns CONTINUE so
+ * the pump yields once per frame — matching the blocking for-loop's
+ * window_tick() (work-then-yield) repeated `delay` times. */
+static StepResult dt_letter_delay(DisplayTextModeState *st, uint16_t delay) {
+    if (window_tick_work_step()) {
+        /* This frame's actionscript render parked: STEP_PUSH it and count
+         * this first delay frame at DT_DELAY_FLUSH on its pop
+         * (delay_remaining = delay; FLUSH decrements to delay-1). */
+        st->delay_remaining = delay;
+        st->phase = DT_DELAY_FLUSH;
+        return actionscript_frame_take_push();
+    }
+    if (delay > 1) {
+        st->delay_remaining = (uint16_t)(delay - 1);
+        st->phase = DT_DELAY;
+    }
+    return STEP_RESULT_CONTINUE();
+}
+
 /* CC_03/0x13/0x14 (cc_halt): push the text-advance prompt as a child mode.
  * Replaces the former inline cc_halt() -> pump_mode(GAME_MODE_TEXT_PROMPT); the
  * prompt's whole phase machine lives in mode_step_text_prompt. No post-work, so
@@ -1678,6 +1850,14 @@ StepResult mode_step_display_text(ModeState *ms) {
     ScriptReader *r = &st->reader;
 
     for (;;) {
+        /* Type out letters a control code queued (see "Letter queue") before
+         * the next script byte, as the asm's PRINT_STRING did inside the CC. */
+        while (dt.lq_len > dt.lq_pos) {
+            uint16_t delay = lq_run_next();
+            if (delay)
+                return dt_letter_delay(st, delay);
+        }
+
         if (!(r->ptr_off < r->end_off || r->prefix_off >= 0)) {
             /* End of stream without END_BLOCK: POP_TEXT_STACK_FRAME equivalent. */
             dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
@@ -1712,65 +1892,10 @@ StepResult mode_step_display_text(ModeState *ms) {
          *
          * The per-character delay creates the typewriter effect. */
         if (byte >= 0x20) {
-            /* PRINT_LETTER (print_letter.asm) early-out: if no window is open
-             * (CURRENT_FOCUS_WINDOW == -1), the routine RETURNs immediately —
-             * no VWF render and, crucially, no per-character WINDOW_TICK
-             * typewriter delay. Cutscene scripts use runs of space characters
-             * with no window open purely as control-stream padding; rendering
-             * them with the typewriter delay would step entity actionscripts
-             * (window_tick → render_frame_tick) once per space, desyncing
-             * scripted entities from the orchestrating dialogue. (Tessie-ride
-             * Lake Tess bug: Tessie froze her screen position ~243 frames early
-             * because the windowless space-runs advanced her past her
-             * SET_POSITION_CHANGE_CALLBACK freeze before DISABLE_SPRITE_MOVEMENT
-             * could park her.) */
-            if (win.current_focus_window == WINDOW_ID_NONE) {
-                continue;
-            }
-
-            uint8_t eb_buf[2] = { byte, 0x00 };
-            print_eb_string(eb_buf, 1);
-
-            /* Sound + delay only when not instant printing
-             * (assembly lines 68-70: skip to @RETURN if instant) */
-            if (!dt.instant_printing) {
-                /* Sound logic (assembly lines 36-66):
-                 * Mode 2: always play. Mode 3: never play.
-                 * Default: play if dt.blinking_triangle_flag == 0.
-                 * Skip for byte 0x20 and CHAR::SPACE (0x50). */
-                bool play_sound;
-                if (dt.text_sound_mode == 2) {
-                    play_sound = true;
-                } else if (dt.text_sound_mode == 3) {
-                    play_sound = false;
-                } else {
-                    play_sound = (dt.blinking_triangle_flag == 0);
-                }
-                if (play_sound && byte != 0x20 && byte != 0x50) {
-                    play_sfx(7);  /* SFX::TEXT_PRINT */
-                }
-
-                /* Typewriter delay (assembly lines 71-81): SELECTED_TEXT_SPEED+1
-                 * WINDOW_TICK frames. The first frame's work runs now; any
-                 * remaining frames run in DT_DELAY. Each returns CONTINUE so the
-                 * pump yields once per frame — matching the blocking for-loop's
-                 * window_tick() (work-then-yield) repeated `delay` times. */
-                int delay = (game_state.text_speed & 0xFF) + 1;
-                if (window_tick_work_step()) {
-                    /* This frame's actionscript render parked: STEP_PUSH it and
-                     * count this first delay frame at DT_DELAY_FLUSH on its pop
-                     * (delay_remaining = delay; FLUSH decrements to delay-1). */
-                    st->delay_remaining = (uint16_t)delay;
-                    st->phase = DT_DELAY_FLUSH;
-                    return actionscript_frame_take_push();
-                }
-                if (delay > 1) {
-                    st->delay_remaining = (uint16_t)(delay - 1);
-                    st->phase = DT_DELAY;
-                }
-                return STEP_RESULT_CONTINUE();
-            }
-            continue;  /* instant printing: no yield */
+            uint16_t delay = dt_print_letter(byte);
+            if (delay)
+                return dt_letter_delay(st, delay);
+            continue;  /* instant printing / no window: no yield */
         }
 
         /* END_BLOCK (CC_02): Script terminator.
@@ -2017,7 +2142,11 @@ StepResult mode_step_display_text(ModeState *ms) {
             static ModeState cc1c_init;  /* outlives this dispatch (pump copies it) */
             memset(&cc1c_init, 0, sizeof(cc1c_init));
             GameMode child_mode = GAME_MODE_NONE;
-            if (cc_1c_dispatch(r, &cc1c_init, &child_mode)) {
+            /* Its printers queue their letters for the drain at the loop top. */
+            s_lq_capture = true;
+            bool pushed = cc_1c_dispatch(r, &cc1c_init, &child_mode);
+            s_lq_capture = false;
+            if (pushed) {
                 return STEP_RESULT_PUSH_INIT(child_mode, &cc1c_init);
             }
             break;

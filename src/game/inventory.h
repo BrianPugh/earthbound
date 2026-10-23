@@ -336,6 +336,10 @@ uint16_t find_condiment(uint16_t item_id);
  * Returns char_id with space, 0 if all full. */
 uint16_t find_inventory_space2(uint16_t char_id);
 
+/* INIT_ALL_ITEM_TRANSFORMATIONS: Port of asm/inventory/init_all_item_transformations.asm.
+ * Starts the timed item transformations for the current inventories. */
+void init_all_item_transformations(void);
+
 /* --- Party management --- */
 
 /* ADD_CHAR_TO_PARTY: Port of asm/misc/party_add_char.asm.

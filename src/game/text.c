@@ -3308,54 +3308,65 @@ uint8_t vwf_indent_new_line = 0;
  *   3. vwf_flush_tiles_to_vram → alloc tiles, upload VRAM, write to content_tilemap
  *   4. Update cursor_pixel_x
  */
-void print_eb_string(const uint8_t *eb_str, int len) {
+void print_eb_letter(uint8_t eb) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
 
     uint8_t font_id = (uint8_t)(w->font & 0xFF);
 
+    /* Word-wrap indent handling (RENDER_VWF_CHARACTER lines 42-61).
+     * Only applies to normal chars (>= 0x50); special chars (0x20, 0x22,
+     * 0x2F) bypass indent via the @PRINT_SPECIAL path (lines 20-30). */
+    if (eb >= 0x50 && vwf_indent_new_line) {
+        if (eb == 0x50) return;  /* skip spaces after word-wrap */
+        w->text_x = 0;
+        if (eb != 0x70) {  /* not BULLET */
+            set_text_pixel_position(w->text_y, 6);
+            w = get_window(win.current_focus_window);
+            if (!w) return;
+            font_id = (uint8_t)(w->font & 0xFF);
+        }
+        vwf_indent_new_line = 0;
+    }
+
+    /* Assembly: STA LAST_PRINTED_CHARACTER at @SETUP_GLYPH (normal path only) */
+    if (eb >= 0x50)
+        dt.last_printed_character = eb;
+
+    if (text_trace_hook)
+        text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
+
+    /* VWF render + flush to VRAM + write to per-window tilemap.
+     * vwf_render_character handles @PRINT_SPECIAL internally for
+     * chars 0x20, 0x22, 0x2F. */
+    vwf_render_character(eb, font_id);
+
+    /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
+     * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
+     * without flushing — advance_vwf_tile already handled tile alloc.
+     * Flushing after a special char would allocate an extra stale VWF tile. */
+    if (eb >= 0x50)
+        vwf_flush_tiles_to_vram();
+
+    /* Update cursor pixel position */
+    w = get_window(win.current_focus_window);
+    if (!w) return;
+    w->cursor_pixel_x = vwf_x;
+}
+
+void print_eb_string(const uint8_t *eb_str, int len) {
+    if (!get_window(win.current_focus_window)) return;
+
     for (int i = 0; i < len; i++) {
         uint8_t eb = eb_str[i];
         if (eb == 0x00) break;
-
-        /* Word-wrap indent handling (RENDER_VWF_CHARACTER lines 42-61).
-         * Only applies to normal chars (>= 0x50); special chars (0x20, 0x22,
-         * 0x2F) bypass indent via the @PRINT_SPECIAL path (lines 20-30). */
-        if (eb >= 0x50 && vwf_indent_new_line) {
-            if (eb == 0x50) continue;  /* skip spaces after word-wrap */
-            w->text_x = 0;
-            if (eb != 0x70) {  /* not BULLET */
-                set_text_pixel_position(w->text_y, 6);
-                w = get_window(win.current_focus_window);
-                if (!w) return;
-                font_id = (uint8_t)(w->font & 0xFF);
-            }
-            vwf_indent_new_line = 0;
-        }
-
-        /* Assembly: STA LAST_PRINTED_CHARACTER at @SETUP_GLYPH (normal path only) */
-        if (eb >= 0x50)
-            dt.last_printed_character = eb;
-
-        if (text_trace_hook)
-            text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
-
-        /* VWF render + flush to VRAM + write to per-window tilemap.
-         * vwf_render_character handles @PRINT_SPECIAL internally for
-         * chars 0x20, 0x22, 0x2F. */
-        vwf_render_character(eb, font_id);
-
-        /* Assembly: RENDER_VWF_CHARACTER calls FLUSH_VWF_TILES_TO_VRAM only for
-         * normal chars (>= 0x50).  Special chars (0x20, 0x22, 0x2F) jump to @DONE
-         * without flushing — advance_vwf_tile already handled tile alloc.
-         * Flushing after a special char would allocate an extra stale VWF tile. */
-        if (eb >= 0x50)
-            vwf_flush_tiles_to_vram();
-
-        /* Update cursor pixel position */
-        w = get_window(win.current_focus_window);
-        if (!w) return;
-        w->cursor_pixel_x = vwf_x;
+        /* PRINT_STRING -> PRINT_LETTER types each letter out; inside a
+         * DISPLAY_TEXT control code the letter goes to the letter queue,
+         * which DT_RUN drains with the per-letter delay. */
+        if (dt_lq_capturing())
+            dt_lq_push_letter(eb);
+        else
+            print_eb_letter(eb);
     }
 }
 
@@ -3363,19 +3374,19 @@ void print_eb_string(const uint8_t *eb_str, int len) {
  * PRINT_STRING — Converts ASCII to EB codes and renders via VWF.
  *
  * Handles embedded newlines by calling print_newline().
- * Each character is rendered immediately (same pipeline as print_eb_string).
+ * Each character is rendered immediately (same pipeline as print_eb_string),
+ * or queued for DISPLAY_TEXT's typewriter (see print_eb_string).
  */
 void print_string(const char *str) {
-    WindowInfo *w = get_window(win.current_focus_window);
-    if (!w) return;
-
-    uint8_t font_id = (uint8_t)(w->font & 0xFF);
+    if (!get_window(win.current_focus_window)) return;
 
     for (const char *p = str; *p; p++) {
         if (*p == '\n') {
-            print_newline();
-            w = get_window(win.current_focus_window);
-            if (!w) return;
+            if (dt_lq_pending())
+                dt_lq_push_op(LQ_OP_NEWLINE, 0, 0);
+            else
+                print_newline();
+            if (!get_window(win.current_focus_window)) return;
             continue;
         }
 
@@ -3390,33 +3401,11 @@ void print_string(const char *str) {
             eb = ascii_to_eb_char(*p);
         }
 
-        /* Word-wrap indent handling (same as print_eb_string) */
-        if (eb >= 0x50 && vwf_indent_new_line) {
-            if (eb == 0x50) continue;
-            w->text_x = 0;
-            if (eb != 0x70) {
-                set_text_pixel_position(w->text_y, 6);
-                w = get_window(win.current_focus_window);
-                if (!w) return;
-                font_id = (uint8_t)(w->font & 0xFF);
-            }
-            vwf_indent_new_line = 0;
-        }
-
-        if (eb >= 0x50)
-            dt.last_printed_character = eb;
-
-        if (text_trace_hook)
-            text_trace_hook(TEXT_TRACE_CHAR, win.current_focus_window, eb);
-        vwf_render_character(eb, font_id);
-
-        /* Skip flush for special chars — same guard as print_eb_string */
-        if (eb >= 0x50)
-            vwf_flush_tiles_to_vram();
-
-        w = get_window(win.current_focus_window);
-        if (!w) return;
-        w->cursor_pixel_x = vwf_x;
+        if (dt_lq_capturing())
+            dt_lq_push_letter(eb);
+        else
+            print_eb_letter(eb);
+        if (!get_window(win.current_focus_window)) return;
     }
 }
 
@@ -3657,11 +3646,11 @@ uint16_t get_string_pixel_width(const uint8_t *str, int16_t max_len) {
     return total;
 }
 
-void print_string_with_wordwrap(const uint8_t *str, int16_t max_len) {
+/* PRINT_STRING_WITH_WORDWRAP's line test: start a new (indented) line if a
+ * string str_width pixels wide doesn't fit after the cursor. */
+void wordwrap_newline_if_needed(uint16_t str_width) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
-
-    uint16_t str_width = get_string_pixel_width(str, max_len);
     uint16_t current_pos = (uint16_t)((w->text_x - 1) * 8 + (vwf_x & 7));
     uint16_t end_pos = str_width + current_pos;
     uint16_t max_pixels = (w->width - 2) * 8;
@@ -3670,6 +3659,19 @@ void print_string_with_wordwrap(const uint8_t *str, int16_t max_len) {
         print_newline();
         vwf_indent_new_line = 1;
     }
+}
+
+void print_string_with_wordwrap(const uint8_t *str, int16_t max_len) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+
+    uint16_t str_width = get_string_pixel_width(str, max_len);
+    /* Letters still queued for DISPLAY_TEXT's typewriter (e.g. the "The " of
+     * CC_1C_0D) move the cursor first: queue the test to run after them. */
+    if (dt_lq_pending())
+        dt_lq_push_op(LQ_OP_WORDWRAP, (uint8_t)(str_width & 0xFF), (uint8_t)(str_width >> 8));
+    else
+        wordwrap_newline_if_needed(str_width);
 
     /* Print the string */
     int len = 0;
