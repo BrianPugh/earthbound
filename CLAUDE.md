@@ -318,7 +318,7 @@ return lo | (hi << 8);
 
 **Randomness:** always use the game RNG (`rng_next_byte()`, `RAND_MOD(N)` = `RAND % (N+1)`), never libc `rand()`. It must advance the serialized RNG state like the original. Check the asm's arithmetic too: some sites scale (`RAND * N >> 8` via `MULT168`) rather than take a modulo.
 
-**Width and signedness of asm math:** `BLTEQ` is `BCC`+`BEQ` (unsigned); `LSR` is a logical shift (use `uint16_t`, not signed `>>`); 16-bit `ADC`/`SBC` wrap. `TRUNCATE_16_TO_8` takes an 8-bit *factor* but returns the full 16-bit result, so don't narrow it. Watch for `.A8`/`.A16` annotations that disagree with the caller's actual accumulator mode: e.g. `UPDATE_PARTY_SPRITE_POSITION`'s `AND #$0000 / CLC` executes as `AND #$1800`.
+**Width and signedness of asm math:** `CLC; SBC #k; BRANCHLTEQS` branches when `A - k - 1 < 0`, i.e. `A <= k` (reading it as `A - k - 1 <= 0` caused two off-by-one bugs); `BLTEQ` is `BCC`+`BEQ` (unsigned); `LSR` is a logical shift (use `uint16_t`, not signed `>>`); 16-bit `ADC`/`SBC` wrap. `TRUNCATE_16_TO_8` takes an 8-bit *factor* but returns the full 16-bit result, so don't narrow it. Watch for `.A8`/`.A16` annotations that disagree with the caller's actual accumulator mode: e.g. `UPDATE_PARTY_SPRITE_POSITION`'s `AND #$0000 / CLC` executes as `AND #$1800`.
 
 **Callroutine dispatch:** an unknown callroutine address falls to `callroutine_dispatch`'s default, which leaves `pc` unchanged, so the routine's parameter bytes then run as script opcodes. A wrong `ROM_ADDR_*` value fails silently this way.
 
