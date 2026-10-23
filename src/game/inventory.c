@@ -789,17 +789,15 @@ uint16_t get_character_item(uint16_t char_id, uint16_t slot) {
 /* FIND_EMPTY_INVENTORY_SLOT: Port of asm/battle/find_empty_inventory_slot.asm.
  * Scans character's inventory for first empty slot.
  * char_id: 1-indexed.
- * Returns 0-based index of first empty slot.
- * Note: assembly only checks slots 0-12 due to off-by-one (CLC;SBC with
- * BRANCHLTEQS exits when 13-slot <= 0, so slot 13 is never checked). */
+ * Returns 0-based index of first empty slot, or 14 when full. */
 uint16_t find_empty_inventory_slot(uint16_t char_id) {
     uint16_t char_idx = char_id - 1;
     if (char_idx >= TOTAL_PARTY_COUNT) return 14; /* invalid → full */
     uint16_t slot = 0;
     /* Assembly: LDA #14; CLC; SBC slot; BRANCHLTEQS @DONE
-     * CLC+SBC = A - M - 1 = 13 - slot. Exits when 13 - slot <= 0 → slot >= 13.
-     * So loops for slot 0 through 12 only (13 iterations, not 14). */
-    while (slot < 13) {
+     * CLC+SBC = 13 - slot, and BRANCHLTEQS branches when that is negative,
+     * so it exits at slot == 14: all 14 slots are scanned. */
+    while (slot < 14) {
         if (party_characters[char_idx].items[slot] == 0)
             break;
         slot++;
