@@ -133,6 +133,11 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Scaraba arms dealer | 28-Scaraba | `teleport 7512 7016 4; 14 LEFT; 30 UP`, talk to npc1125 |
 | Escargo Express delivery | 29-DungeonM | talk to the phone at the start, Escargo → Delivery → item; courier ~600 frames later, $18 |
 | Submarine → Deep Darkness | 30-DeepDark | `flag 11 1; teleport 4168 120 0; 20 UP`, Check npc1197; `until idle 3000 advance` (~3300 frames) |
+| Hawk Eye lighting fade (flag 288) | 30-DeepDark | after the submarine, `teleport 6152 7598 7`; Paula's Goods, Hawk eye is item 12 (`press DOWN 5; press RIGHT`), Use. Only works in sectors whose per-sector item is HAWK_EYE (x<5376 for y 6912-7551, x<6400 for y≥7552); the arrival lawn says "can't be used here". The arrival basin (5480-6000, 7100-7450) is closed off: leave it east along y≈7280, then south at x≈6100-6200 |
+| Master Barf (Poo's Starstorm entrance) | 30-DeepDark | Hawk Eye first, then `teleport 5096 7618 0`, talk to npc1229 (dx -8, dy -10); Auto Fight, Poo swoops in after ~5000 frames |
+| Tenda Village shy Tendas / elder | 30-DeepDark | the cave door is at 4502,7049 (walk UP); elder npc1252 at 464,336, innkeeper npc1251 at 464,112 |
+| Apple Kid kidnapped call (door 904) | 30-DeepDark | in Tenda Village walk to 664,106 then RIGHT into the doorway; the call plays on arrival outside (flag 379 not set) |
+| Dr. Andonuts' lab, Eraser Eraser | any Winters save | `teleport 320 4930 0; until text 200 UP` enters the lab; mouse npc616 at 8101,2872 (talk from 8101,2872 facing UP) |
 | Enter Moonside (cafe bottles) | 19-Moonside | `teleport 5520 6584 0; 10 UP; press L` |
 | Moonside → Evil Mani-Mani | 19-Moonside | `teleport 5490 4458 2`, talk, No; `teleport 7720 4616 0; 10 DOWN; 30 UP`, L; `teleport 7624 4730 0; 20 UP`, L |
 | Talah Rama gift (slot-14 item name) | 20-TarahRama | `teleport 7984 5716 0`, use the Pencil eraser, `40 UP`; drop 1 item; `teleport 7568 6811 6`, L |
