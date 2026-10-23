@@ -1308,12 +1308,13 @@ void print_cc_table_value(uint16_t index) {
     uintptr_t value = resolve_cc_table_data(index, &type, &str_len);
 
     if (type == CC_TABLE_TYPE_STRING) {
-        /* Print EB-encoded string, converting to ASCII */
+        /* US: JSL PRINT_STRING_WITH_WORDWRAP, so the word moves to the
+         * next line whole instead of breaking mid-word. */
         const uint8_t *data = (const uint8_t *)value;
         if (data) {
             int len = 0;
             while (len < str_len && len < 31 && data[len] != 0x00) len++;
-            print_eb_string(data, len);
+            print_string_with_wordwrap(data, (int16_t)len);
         }
     } else {
         /* Print integer — delegate to print_number() like the assembly does
