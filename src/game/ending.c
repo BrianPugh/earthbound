@@ -719,6 +719,12 @@ static uint16_t try_rendering_photograph(uint16_t photo_index) {
     uint16_t map_y = read_u16_le(&cfg[PHOTOGRAPHER_CFG_MAP_Y]);
     uint16_t map_x = read_u16_le(&cfg[PHOTOGRAPHER_CFG_MAP_X]);
     load_map_at_position(map_x * 8, map_y * 8);
+    /* Photograph mode uploads only the first $4000 bytes of the tileset, and
+     * the credits keep their own tiles above that. The asm caches the tileset
+     * in LOADED_MAP_TILE_COMBO, which the post-credits TELEPORT resets; the C
+     * port's separate tileset cache must be dropped too, or the next normal
+     * map load with this combo would skip the full upload. */
+    invalidate_loaded_tileset_combo();
 
     /* Restore enemy spawns */
     ow.enemy_spawns_enabled = saved_enemy_spawns;
@@ -1101,6 +1107,14 @@ static void initialize_credits_scene(void) {
                           VRAM_CREDITS_LAYER_3_TILEMAP, VRAM_CREDITS_LAYER_3_TILES);
     set_oam_size(0x62);
 
+    /* Wide viewport: BG2 holds the 256x224 photo frame at tilemap (0,0) with
+     * scroll 0, while BG1 (the photo map) is centred on the camera and BG3 (the
+     * staff text) is centred horizontally. FILL shifts BG2 right by PAD_LEFT
+     * so the frame lines up with them, and the gutters show the tilemap's
+     * wrap: the opaque black $240C fill. Reset by overworld_setup_vram() after
+     * the credits. */
+    ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
+
     /* Clear all BG scroll positions */
     ppu.bg_hofs[2] = 0; ppu.bg_vofs[2] = 0;
     ppu.bg_hofs[1] = 0; ppu.bg_vofs[1] = 0;
@@ -1113,26 +1127,18 @@ static void initialize_credits_scene(void) {
         vram_copy(zeros, VRAM_CREDITS_LAYER_1_TILEMAP, 4096, 3);
     }
 
-    /* Fill BG2 tilemap with tile $240C (assembly line 39-40: COPY_TO_VRAM1P mode 9,
-     * fixed source word fill).  2048 words = 4096 bytes. */
-    {
-        uint16_t *vram16 = (uint16_t *)&ppu.vram[VRAM_CREDITS_LAYER_2_TILEMAP * 2];
-        for (int i = 0; i < 2048; i++)
-            vram16[i] = 0x240C;
-    }
-
-    /* Assembly line 41: COPY_TO_VRAM1 BUFFER+1, VRAM::CREDITS_LAYER_2_TILEMAP, 4096, 15
-     * Mode 15 = DMAP=$08 (fixed source), VMAIN=$80 (VMDATAH, address remapping).
-     * The source BUFFER+1 is the high byte of the word $240C stored in BUFFER, i.e. $24.
-     * This writes $24 to the high byte of each VRAM word in CREDITS_LAYER_2_TILEMAP.
-     * Step 2 already set all high bytes to $24 (from the $240C fill), so this is a
-     * no-op for this tilemap region — both passes write the same value.  Included here
-     * for assembly faithfulness. */
+    /* Fill the whole 64x64 BG2 tilemap (4096 words) with $240C. DMA_TABLE
+     * mode 9 is {$08,$18,$00}: fixed source into VMDATAL with VMAIN=$00
+     * (increment after the low byte), so its 4096 bytes write the low byte $0C
+     * of 4096 consecutive words. Mode 15 is {$08,$19,$80}: fixed source
+     * BUFFER+1 ($24) into VMDATAH with VMAIN=$80, the high byte of the same
+     * 4096 words. All four 32x32 screens get $240C; the decompressed frame
+     * below then covers screen 0's first 28 rows. */
     {
         uint32_t byte_addr = (uint32_t)VRAM_CREDITS_LAYER_2_TILEMAP * 2;
-        /* Write 0x24 to the high byte of each of the 2048 words (4096 bytes / 2). */
-        for (int i = 0; i < 2048; i++) {
-            ppu.vram[byte_addr + i * 2 + 1] = 0x24;
+        for (int i = 0; i < 4096; i++) {
+            ppu.vram[byte_addr + i * 2]     = 0x0C;   /* mode 9: low bytes */
+            ppu.vram[byte_addr + i * 2 + 1] = 0x24;   /* mode 15: high bytes */
         }
     }
 

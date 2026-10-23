@@ -36,6 +36,7 @@
 #include <stdio.h>
 
 extern uint16_t photograph_map_loading_mode;
+extern uint16_t cur_photo_display;
 #include <string.h>
 
 /* Forward declarations */
@@ -1038,6 +1039,24 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 }
 
+/* LOAD_MAP_PAL's @PHOTOGRAPH_MODE branch (asm/overworld/load_map_palette.asm):
+ * the credits photos use their own palettes. Decompress
+ * COMPRESSED_PHOTOGRAPH_PALETTES into BUFFER and copy the 6 sub-palettes
+ * (192 bytes) at the current photo's credits_map_palettes_offset into
+ * sub-palettes 2-7. No event-flag override in this path. */
+static void load_map_palette_photograph(void) {
+    const uint8_t *cfg_table = ASSET_DATA(ASSET_ENDING_PHOTOGRAPHER_CFG_BIN);
+    if (!cfg_table) return;
+    const uint8_t *cfg = &cfg_table[cur_photo_display * PHOTOGRAPHER_CFG_ENTRY_SIZE];
+    uint16_t offset = read_u16_le(&cfg[PHOTOGRAPHER_CFG_PALETTES_OFFSET]);
+    size_t size = load_and_decompress(ASSET_UNKNOWN_PALETTE_PAL_LZHAL, ert.buffer, BUFFER_SIZE);
+    if ((size_t)offset + BPP4PALETTE_SIZE * 6 > size) {
+        LOG_WARN("map_loader: photograph palette offset %u out of range\n", offset);
+        return;
+    }
+    memcpy(&ert.palettes[32], &ert.buffer[offset], BPP4PALETTE_SIZE * 6);
+}
+
 /* animate_palette_fade_to_map removed — its logic is now inside load_map_palette's
  * fade path (assembly LOAD_MAP_PALETTE handles both instant and fade). */
 
@@ -1185,9 +1204,11 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
                 ppu.vram[bg1_addr]     = bg1_tile & 0xFF;
                 ppu.vram[bg1_addr + 1] = bg1_tile >> 8;
             }
-            /* BG2 tilemap at byte $B000 */
+            /* BG2 tilemap at byte $B000. LOAD_MAP_ROW_TO_VRAM skips it in
+             * photograph mode: the credits keep their own BG2 (photo frame)
+             * and use that VRAM for sprites. */
             size_t bg2_addr = 0xB000 + word_offset * 2;
-            if (bg2_addr + 1 < sizeof(ppu.vram)) {
+            if (!photograph_map_loading_mode && bg2_addr + 1 < sizeof(ppu.vram)) {
                 ppu.vram[bg2_addr]     = bg2_tile & 0xFF;
                 ppu.vram[bg2_addr + 1] = bg2_tile >> 8;
             }
@@ -1614,7 +1635,12 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
      * is harmless (overwritten by tilemaps). Intentional divergence from
      * assembly to avoid ert.buffer dependency. */
     if (tileset_combo != ml.loaded_tileset_combo) {
-        load_and_decompress(ASSET_MAPS_GFX(tileset_id), ppu.vram, sizeof(ppu.vram));
+        /* Photograph mode (credits photos) uploads only the first $4000 bytes
+         * (COPY_TO_VRAM3 BUFFER, $0000, $4000 at @PHOTOGRAPH_TILESET): the
+         * credits put the photo frame's BG2 tiles at word $2000 (byte $4000),
+         * which a full tileset upload would overwrite. */
+        size_t gfx_max = photograph_map_loading_mode ? 0x4000 : sizeof(ppu.vram);
+        load_and_decompress(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
         /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
          * so any cell not overwritten by fill_collision_tiles() blocks movement.
          * This prevents walking into out-of-bounds areas at map edges. */
@@ -1630,7 +1656,10 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     /* Load palette: file selected by tileset_combo, slice by palette_index.
      * Uses overworld version with event flag override checking
      * (port of LOAD_MAP_PAL, not LOAD_MAP_PALETTE). */
-    load_map_palette_overworld(tileset_combo, palette_index);
+    if (photograph_map_loading_mode)
+        load_map_palette_photograph();
+    else
+        load_map_palette_overworld(tileset_combo, palette_index);
     ml.loaded_palette_index = palette_index;
 
     /* Load sprite ert.palettes into sub-ert.palettes 8-15 (OBJ ert.palettes).
@@ -1644,15 +1673,19 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     /* Assembly line 116: apply map-specific sprite palette overrides. */
     load_special_sprite_palette();
 
-    /* Load overlay sprite graphics and init entity overlay state
-     * (assembly line 119: JSL LOAD_OVERLAY_SPRITES) */
-    load_overlay_sprites();
+    /* Assembly lines 117-121: photograph mode skips the overlay sprites and
+     * the tileset/palette animations. */
+    if (!photograph_map_loading_mode) {
+        /* Load overlay sprite graphics and init entity overlay state
+         * (assembly line 119: JSL LOAD_OVERLAY_SPRITES) */
+        load_overlay_sprites();
 
-    /* Load tileset animation (assembly line 120: JSR LOAD_TILESET_ANIM) */
-    load_tileset_anim(tileset_id);
+        /* Load tileset animation (assembly line 120: JSR LOAD_TILESET_ANIM) */
+        load_tileset_anim(tileset_id);
 
-    /* Load palette animation (assembly line 121: JSR LOAD_PALETTE_ANIM) */
-    load_palette_anim();
+        /* Load palette animation (assembly line 121: JSR LOAD_PALETTE_ANIM) */
+        load_palette_anim();
+    }
 
     /* Assembly lines 130-133: restore window palette and disable palette sync.
      * LOAD_CHARACTER_WINDOW_PALETTE ensures ert.palettes[0..31] always have correct
@@ -2096,6 +2129,20 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
         /* --- NPC config lookup (C0222B.asm lines 200-206) --- */
         const NpcConfig *cfg = get_npc_config(npc_id);
         if (!cfg) continue;
+
+        /* --- Photograph mode (@PHOTOGRAPH_MODE_SPAWN): the credits photos
+         * spawn only the always-shown NPCs (appearance_style 0), frozen with
+         * EVENT_799 instead of their own script. --- */
+        if (photograph_map_loading_mode) {
+            if (cfg->appearance_style != 0) continue;
+            int16_t photo_slot = create_entity(cfg->sprite, EVENT_SCRIPT_799, -1,
+                                               world_x, world_y);
+            if (photo_slot >= 0) {
+                entities.directions[photo_slot] = cfg->direction;
+                entities.npc_ids[photo_slot] = npc_id;
+            }
+            continue;
+        }
 
         /* --- Appearance/event flag check (C0222B.asm lines 236-253) ---
          * appearance_style: 0=always, 1=show_if_flag_off, 2=show_if_flag_on.
