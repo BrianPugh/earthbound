@@ -1052,7 +1052,20 @@ static void load_map_palette_overworld(uint16_t tileset_combo,
  *   4. BG1 = tile entry as-is
  *   5. BG2 = tile entry | $2000 if tile_index < 384, else 0
  *   6. Write to VRAM tilemaps */
-static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
+/* True when every block of the 256x128 map sector (sector_x, sector_y) is block
+ * 0: a featureless void sector (the black filler the map uses between areas;
+ * nothing in it is walkable). */
+static bool sector_is_all_block0(uint16_t sector_x, uint16_t sector_y) {
+    for (uint16_t by = sector_y * 4; by < sector_y * 4 + 4; by++) {
+        for (uint16_t bx = sector_x * 8; bx < sector_x * 8 + 8; bx++) {
+            if (get_block_id(bx, by) != 0) return false;
+        }
+    }
+    return true;
+}
+
+static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
+                          uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     if (!arrangement_loaded || !chunks_loaded) return;
 
     LOG_TRACE("map_loader: fill_tilemaps view=(%d,%d) arr_size=%zu\n",
@@ -1067,6 +1080,25 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
      * loaded tileset's block 0 (the assembly's out-of-bounds behavior) to extend
      * the current terrain — open water on the lake map — instead of a black void. */
     bool fill_empty_with_block0 = (game_state.camera_mode != 0);
+
+    /* Void stage: some scenes park the camera on the player inside a void
+     * sector, e.g. TEXT_DOOR_903's fall into the Lost Underworld (party made
+     * invisible, ~340 frames at 3200,1152, which is sector (12,9), all block 0).
+     * The asm relies on the SNES's 256x224 view to keep the screen black: the
+     * void sector is exactly one view wide, and the next sector (same tileset)
+     * holds cave terrain. The wide viewport would show that terrain in
+     * the gutter. While the camera follows the player (camera_mode 0) in such a
+     * sector, tiles outside the SNES-visible rectangle [cam-128, cam+128) x
+     * [cam-112, cam+112) take block 0, extending the void the SNES shows. Tiles
+     * inside the rectangle are untouched, and the whole tilemap is refilled from
+     * the current camera every time, so the rule can't leave stale tiles. At
+     * native resolution only off-screen tiles change. */
+    bool void_stage = game_state.camera_mode == 0 &&
+                      sector_is_all_block0(cam_x_pixels >> 8, cam_y_pixels >> 7);
+    int32_t band_x0 = ((int32_t)cam_x_pixels - SNES_WIDTH / 2) >> 3;
+    int32_t band_x1 = ((int32_t)cam_x_pixels + SNES_WIDTH / 2 - 1) >> 3;
+    int32_t band_y0 = ((int32_t)cam_y_pixels - SNES_HEIGHT / 2) >> 3;
+    int32_t band_y1 = ((int32_t)cam_y_pixels + SNES_HEIGHT / 2 - 1) >> 3;
 
     /* BG1 tilemap at VRAM byte $7000 (word $3800), 64×32 entries.
      * BG2 tilemap at VRAM byte $B000 (word $5800), 64×32 entries.
@@ -1104,6 +1136,13 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile) {
                      * tileset (not part of the loaded area) */
                     render_empty = true;
                 }
+            }
+
+            if (void_stage &&
+                (world_tx < band_x0 || world_tx > band_x1 ||
+                 world_ty < band_y0 || world_ty > band_y1)) {
+                block_id = 0;
+                render_empty = false;
             }
 
             uint16_t bg1_tile, bg2_tile;
@@ -2118,7 +2157,7 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
      * Center the view on the player position. */
     int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
     int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
-    fill_tilemaps(view_x_tile, view_y_tile);
+    fill_tilemaps(view_x_tile, view_y_tile, x_pixels, y_pixels);
     fill_collision_tiles(view_x_tile, view_y_tile);
 
     /* Assembly lines 118-122: Wait for any active fade to complete
@@ -2223,7 +2262,7 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
 
     /* Assembly lines 60-110: invalidate streaming cache, fill tilemaps + collision */
-    fill_tilemaps(view_x_tile, view_y_tile);
+    fill_tilemaps(view_x_tile, view_y_tile, x_pixels, y_pixels);
     fill_collision_tiles(view_x_tile, view_y_tile);
 
     /* Assembly lines 128-132: wait for any active fade to complete */
@@ -2252,7 +2291,9 @@ void load_initial_map_data(void) {
     /* BG1_X_POS = ppu.bg_hofs[0], BG1_Y_POS = ppu.bg_vofs[0] */
     uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - EB_VIEWPORT_CENTER_X) >> 3;
     uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - EB_VIEWPORT_CENTER_Y) >> 3;
-    fill_tilemaps(view_x_tile, view_y_tile);
+    fill_tilemaps(view_x_tile, view_y_tile,
+                  (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X),
+                  (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y));
     fill_collision_tiles(view_x_tile, view_y_tile);
 }
 
@@ -2388,7 +2429,7 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
      * LOAD_MAP_ROW_TO_VRAM. The C port refills the entire tilemap instead. */
     int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (EB_VIEWPORT_CENTER_X / 8);
     int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (EB_VIEWPORT_CENTER_Y / 8);
-    fill_tilemaps(view_x_tile, view_y_tile);
+    fill_tilemaps(view_x_tile, view_y_tile, cam_x_pixels, cam_y_pixels);
     fill_collision_tiles(view_x_tile, view_y_tile);
 }
 
