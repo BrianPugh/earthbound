@@ -106,6 +106,10 @@ static int16_t loaded_oval_window_height_acceleration;
 
 /* Per-scanline window boundary buffer (EB_VIEWPORT_HEIGHT entries, 2 bytes each: left|right packed) */
 static uint16_t swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT];
+/* Window 2 (WH2/WH3) per-scanline boundaries, filled only by DMAP mode-4
+ * swirl frames; swirl_window2_hdma says whether the current table drives them. */
+static uint16_t swirl_window2_hdma_buffer[EB_VIEWPORT_HEIGHT];
+static bool swirl_window2_hdma;
 
 /* Sequence table for serializing the loaded_oval_window cursor as (seq id, frame
  * index) — savestate pointer purge, build item #3. Order defines the seq ids (1..N;
@@ -200,29 +204,35 @@ void oval_window_savestate_unpack(const void *in) {
 #define SWIRL_DATA_COUNT 126
 
 /*
- * Parse SNES HDMA table data and fill the per-scanline window boundary buffer.
+ * Parse SNES HDMA table data and fill the per-scanline window boundary buffers.
  *
- * Swirl data format:
+ * Swirl data format (handed whole to SETUP_HDMA_CHANNEL with BBAD=$26):
  *   Byte 0: DMAP value
- *     0x01 = 2-register mode (2 bytes/entry: WH0, WH1)
- *     0x04 = 4-register mode (4 bytes/entry: WH0, WH1, WH2, WH3)
+ *     0x01 = transfer mode 1 (2 bytes/entry: WH0, WH1)
+ *     0x04 = transfer mode 4 (4 bytes/entry: WH0, WH1, WH2, WH3)
  *   Remaining: standard SNES HDMA entries:
  *     - 0x00: end of table
- *     - 0x01-0x7F: repeat mode — next N bytes for count scanlines
- *     - 0x80-0xFF: individual mode — (N & 0x7F) scanlines, N bytes each
+ *     - 0x01-0x7F: repeat mode — next entry for count scanlines
+ *     - 0x80-0xFF: individual mode — (N & 0x7F) scanlines, one entry each
  *
- * Output: swirl_window_hdma_buffer[EB_VIEWPORT_HEIGHT], packed as (WH0 << 8) | WH1.
+ * Output: swirl_window_hdma_buffer (window 1) and, for mode 4,
+ * swirl_window2_hdma_buffer (window 2), packed as (left << 8) | right.
  */
 static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
-    /* Clear buffer to disabled state (WH0=0xFF, WH1=0x00) */
-    for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++)
+    /* Clear buffers to disabled state (left=0xFF, right=0x00) */
+    for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++) {
         swirl_window_hdma_buffer[i] = 0xFF00;
+        swirl_window2_hdma_buffer[i] = 0xFF00;
+    }
+    swirl_window2_hdma = false;
 
     if (data_size < 2) return;
 
-    /* Read DMAP byte to determine bytes per entry */
+    /* DMAP transfer mode 4 writes all 4 window registers WH0-WH3 */
     uint8_t dmap = data[0];
-    int bytes_per_entry = (dmap == 0x04) ? 4 : 2;
+    bool four_regs = (dmap & 0x07) == 0x04;
+    int bytes_per_entry = four_regs ? 4 : 2;
+    swirl_window2_hdma = four_regs;
 
     const uint8_t *p = data + 1;
     const uint8_t *end = data + data_size;
@@ -233,42 +243,40 @@ static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
         uint8_t count_byte = *p++;
         if (count_byte == 0) break; /* end of table */
 
-        if (count_byte & 0x80) {
-            /* Individual mode: (count & 0x7F) scanlines with per-line data */
-            int count = count_byte & 0x7F;
-            for (int i = 0; i < count && scanline < max_scanline && p + 1 < end; i++) {
-                uint8_t wh0 = *p++;
-                uint8_t wh1 = *p++;
-                swirl_window_hdma_buffer[scanline++] = (uint16_t)((wh0 << 8) | wh1);
-                /* Skip WH2/WH3 in 4-register mode */
-                if (bytes_per_entry == 4 && p + 1 < end)
-                    p += 2;
+        /* Individual mode: one entry per scanline; repeat mode: one entry
+         * held for `count` scanlines. */
+        bool individual = (count_byte & 0x80) != 0;
+        int count = individual ? (count_byte & 0x7F) : count_byte;
+        uint16_t w1 = 0xFF00, w2 = 0xFF00;
+        for (int i = 0; i < count && scanline < max_scanline; i++) {
+            if (individual || i == 0) {
+                if (end - p < bytes_per_entry) return;
+                w1 = (uint16_t)((p[0] << 8) | p[1]);
+                if (four_regs)
+                    w2 = (uint16_t)((p[2] << 8) | p[3]);
+                p += bytes_per_entry;
             }
-        } else {
-            /* Repeat mode: same bytes for `count` scanlines */
-            int count = count_byte;
-            if (p + 1 >= end) break;
-            uint8_t wh0 = *p++;
-            uint8_t wh1 = *p++;
-            /* Skip WH2/WH3 in 4-register mode */
-            if (bytes_per_entry == 4 && p + 1 < end)
-                p += 2;
-            for (int i = 0; i < count && scanline < max_scanline; i++) {
-                swirl_window_hdma_buffer[scanline++] = (uint16_t)((wh0 << 8) | wh1);
-            }
+            swirl_window_hdma_buffer[scanline] = w1;
+            swirl_window2_hdma_buffer[scanline] = w2;
+            scanline++;
         }
     }
 
     /* Extend edge values into padding rows so the swirl covers the full viewport */
     if (EB_VIEWPORT_PAD_TOP > 0) {
-        uint16_t top_val = swirl_window_hdma_buffer[EB_VIEWPORT_PAD_TOP];
-        for (int i = 0; i < EB_VIEWPORT_PAD_TOP; i++)
-            swirl_window_hdma_buffer[i] = top_val;
-
         int last = EB_VIEWPORT_PAD_TOP + SNES_HEIGHT - 1;
-        uint16_t bot_val = swirl_window_hdma_buffer[last];
-        for (int i = last + 1; i < EB_VIEWPORT_HEIGHT; i++)
-            swirl_window_hdma_buffer[i] = bot_val;
+        uint16_t top1 = swirl_window_hdma_buffer[EB_VIEWPORT_PAD_TOP];
+        uint16_t top2 = swirl_window2_hdma_buffer[EB_VIEWPORT_PAD_TOP];
+        uint16_t bot1 = swirl_window_hdma_buffer[last];
+        uint16_t bot2 = swirl_window2_hdma_buffer[last];
+        for (int i = 0; i < EB_VIEWPORT_PAD_TOP; i++) {
+            swirl_window_hdma_buffer[i] = top1;
+            swirl_window2_hdma_buffer[i] = top2;
+        }
+        for (int i = last + 1; i < EB_VIEWPORT_HEIGHT; i++) {
+            swirl_window_hdma_buffer[i] = bot1;
+            swirl_window2_hdma_buffer[i] = bot2;
+        }
     }
 }
 
@@ -300,6 +308,8 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
      * C packing is (left<<8)|right, so 0xFF00 → left=0xFF, right=0x00. */
     for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++)
         swirl_window_hdma_buffer[i] = 0xFF00;
+    /* SETUP_SWIRL_WINDOW_HDMA uses DMAP $41 (mode 1): WH0/WH1 only */
+    swirl_window2_hdma = false;
 
     if (half_width == 0 || half_height == 0)
         return;
@@ -441,7 +451,12 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
     }
 }
 
-/* Copy HDMA buffer to PPU per-scanline window tables */
+/* Copy HDMA buffers to PPU per-scanline window tables.
+ * A mode-1 table (oval window, 2-register swirl frames) writes only WH0/WH1;
+ * WH2/WH3 then keep whatever value the registers last held, which is the
+ * static ppu.wh2/wh3. A mode-4 table also drives WH2/WH3 per scanline, and
+ * the registers keep its last scanline's values after the frame, so latch
+ * those into ppu.wh2/wh3 for a following mode-1 frame. */
 static void apply_hdma_to_ppu(void) {
     for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++) {
         uint16_t packed = swirl_window_hdma_buffer[i];
@@ -449,6 +464,20 @@ static void apply_hdma_to_ppu(void) {
         ppu.wh1_table[i] = packed & 0xFF;         /* right */
     }
     ppu.window_hdma_active = true;
+
+    if (swirl_window2_hdma) {
+        for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++) {
+            uint16_t packed = swirl_window2_hdma_buffer[i];
+            ppu.wh2_table[i] = (packed >> 8) & 0xFF;
+            ppu.wh3_table[i] = packed & 0xFF;
+        }
+        uint16_t last = swirl_window2_hdma_buffer[EB_VIEWPORT_PAD_TOP + SNES_HEIGHT - 1];
+        ppu.wh2 = (last >> 8) & 0xFF;
+        ppu.wh3 = last & 0xFF;
+        ppu.window2_hdma_active = true;
+    } else {
+        ppu.window2_hdma_active = false;
+    }
 }
 
 /* ---- SET_WINDOW_MASK (port of asm/system/set_window_mask.asm) ---- */
@@ -578,6 +607,7 @@ void stop_oval_window(void) {
     loaded_oval_window = NULL;
     /* mask_hdma_channel(3) — in the port we just disable the HDMA */
     ppu.window_hdma_active = false;
+    ppu.window2_hdma_active = false;
     set_window_mask(0, 0);
 }
 
@@ -595,6 +625,7 @@ void stop_battle_swirl(void) {
     frames_until_next_swirl_update = 0;
     /* mask_hdma_channel(swirl_hdma_channel_offset+3) — disable the HDMA */
     ppu.window_hdma_active = false;
+    ppu.window2_hdma_active = false;
     /* SET_COLDATA(0,0,0) — clear fixed color to black */
     ppu.coldata_r = 0;
     ppu.coldata_g = 0;
@@ -758,7 +789,6 @@ process_swirl_frame:
             if (swirl_data) {
                 parse_hdma_to_window_buffer(swirl_data, swirl_size);
                 apply_hdma_to_ppu();
-                ppu.window_hdma_active = true;
             }
         }
 
@@ -815,6 +845,7 @@ process_swirl_frame:
      *   SET_COLDATA(0,0,0), SET_COLOR_MATH_FROM_TABLE(CURRENT_LAYER_CONFIG) */
     if (swirl_auto_restore) {
         ppu.window_hdma_active = false;
+        ppu.window2_hdma_active = false;
         set_window_mask(0, 0);
         restore_bg_palette_backups();
         ppu.coldata_r = 0;

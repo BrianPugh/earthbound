@@ -1118,6 +1118,66 @@ static void classify_window_layers(WindowClassification *wc) {
     }
 }
 
+/* Is native column wx inside per-scanline (HDMA) window `win` (1 or 2) on
+ * native row wy? */
+static inline bool hdma_window_contains(int win, int wx, int wy)
+{
+    int sl = wy + EB_VIEWPORT_PAD_TOP;
+    uint8_t l = (win == 1) ? ppu.wh0_table[sl] : ppu.wh2_table[sl];
+    uint8_t r = (win == 1) ? ppu.wh1_table[sl] : ppu.wh3_table[sl];
+    return wx >= l && wx <= r;
+}
+
+/* Window 1/2 membership at native window coordinate wx on viewport scanline
+ * `scanline`, for the per-pixel dual-window paths.
+ *
+ * Window registers only cover the native 256x224 band, so a wide-mode gutter
+ * pixel (wx<0, wx>255, or a pad row) has no native coordinate.
+ *
+ * Static windows are rectangles: clamping wx to the band extends them
+ * exactly. Per-scanline (HDMA) windows such as the battle swirl and the oval
+ * window are curved shapes, and a per-scanline clamp smears the edge column
+ * into horizontal bars. For those, project the pixel toward the band centre
+ * onto the band edge (E) and mirror it about E back into the band (M): the
+ * pixel is inside when both E and M are, which continues an arm crossing the
+ * edge outward with its own width and ends an arc that only grazes the edge. */
+static inline void window_membership(bool wide_mode, int scanline, int wx,
+                                     uint8_t w1_left, uint8_t w1_right,
+                                     uint8_t w2_left, uint8_t w2_right,
+                                     bool *in_w1, bool *in_w2)
+{
+    int wy = scanline - EB_VIEWPORT_PAD_TOP;
+    int cwx = wx < 0 ? 0 : (wx > 255 ? 255 : wx);
+    *in_w1 = (cwx >= w1_left && cwx <= w1_right);
+    *in_w2 = (cwx >= w2_left && cwx <= w2_right);
+    if (!wide_mode || (!ppu.window_hdma_active && !ppu.window2_hdma_active))
+        return;
+    if ((unsigned)wx <= 255 && (unsigned)wy < SNES_HEIGHT)
+        return;
+
+    /* E = centre + (p - centre) * t, with the largest t <= 1 that lands
+     * inside [0,255]x[0,223]. Fixed point 16.16. */
+    const int cx = SNES_WIDTH / 2, cy = SNES_HEIGHT / 2;
+    int dx = wx - cx, dy = wy - cy;
+    int32_t t = 0x10000;
+    if (dx < -cx) { int32_t tx = (int32_t)(((int64_t)cx << 16) / -dx); if (tx < t) t = tx; }
+    if (dx > cx - 1) { int32_t tx = (int32_t)(((int64_t)(cx - 1) << 16) / dx); if (tx < t) t = tx; }
+    if (dy < -cy) { int32_t ty = (int32_t)(((int64_t)cy << 16) / -dy); if (ty < t) t = ty; }
+    if (dy > cy - 1) { int32_t ty = (int32_t)(((int64_t)(cy - 1) << 16) / dy); if (ty < t) t = ty; }
+    int ex = cx + (int)(((int64_t)dx * t) >> 16);
+    int ey = cy + (int)(((int64_t)dy * t) >> 16);
+    if (ex < 0) ex = 0; else if (ex > 255) ex = 255;
+    if (ey < 0) ey = 0; else if (ey >= SNES_HEIGHT) ey = SNES_HEIGHT - 1;
+    int mx = 2 * ex - wx, my = 2 * ey - wy;
+    if (mx < 0) mx = 0; else if (mx > 255) mx = 255;
+    if (my < 0) my = 0; else if (my >= SNES_HEIGHT) my = SNES_HEIGHT - 1;
+
+    if (ppu.window_hdma_active)
+        *in_w1 = hdma_window_contains(1, ex, ey) && hdma_window_contains(1, mx, my);
+    if (ppu.window2_hdma_active)
+        *in_w2 = hdma_window_contains(2, ex, ey) && hdma_window_contains(2, mx, my);
+}
+
 /* Precompute per-scanline window masks and color math prevention.
  * Kept as a separate noinline function to reduce ppu_render_frame code size
  * below the 16KB RP2040 XIP cache threshold.  Called once per scanline.
@@ -1223,15 +1283,11 @@ void PPU_HOT_FUNC(precompute_window_masks)(
             bool d_w2_inv = sel & 0x04;
             for (int x = 0; x < render_width; x++) {
                 int wx = x + wx_offset;
-                /* Wide-mode gutter columns (wx<0 or wx>255) have no native
-                 * window coordinate. Clamp to the nearest native edge so the
-                 * window's state at the edge extends continuously into the
-                 * gutter, for both inverted (e.g. oval window blanking) and
-                 * non-inverted windows. Matches the color-math dual path and
-                 * the single-window inv_lo/inv_hi extensions above. */
-                int cwx = wx < 0 ? 0 : (wx > 255 ? 255 : wx);
-                bool in_w1 = ((uint8_t)cwx >= w1_left && (uint8_t)cwx <= w1_right);
-                bool in_w2 = ((uint8_t)cwx >= w2_left && (uint8_t)cwx <= w2_right);
+                /* Gutter pixels take the state of the window shape continued
+                 * past the native edge (see window_membership). */
+                bool in_w1, in_w2;
+                window_membership(wide_mode, scanline, wx, w1_left, w1_right,
+                                  w2_left, w2_right, &in_w1, &in_w2);
                 if (d_w1_inv) in_w1 = !in_w1;
                 if (d_w2_inv) in_w2 = !in_w2;
                 bool masked;
@@ -1324,15 +1380,12 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 for (int x = 0; x < render_width; x++) {
                     int wx = x + wx_offset;
                     /* The battle swirl uses BOTH color windows (wobjsel=0xA0 ->
-                     * cm_w1_en && cm_w2_en), so it lands here. Window coords are
-                     * native 0-255; wide-mode gutter columns (wx<0 or wx>255)
-                     * have no native coordinate. Clamp to the nearest native
-                     * edge so the window's state at the edge extends continuously
-                     * into the gutter — equivalent to the inv_lo/inv_hi gutter
-                     * extension in the single-window branches above. */
-                    int cwx = wx < 0 ? 0 : (wx > 255 ? 255 : wx);
-                    bool in_w1 = ((uint8_t)cwx >= w1_left && (uint8_t)cwx <= w1_right);
-                    bool in_w2 = ((uint8_t)cwx >= w2_left && (uint8_t)cwx <= w2_right);
+                     * cm_w1_en && cm_w2_en), so it lands here. Gutter pixels
+                     * take the state of the swirl continued past the native
+                     * edge (see window_membership). */
+                    bool in_w1, in_w2;
+                    window_membership(wide_mode, scanline, wx, w1_left, w1_right,
+                                      w2_left, w2_right, &in_w1, &in_w2);
                     if (cm_w1_inv) in_w1 = !in_w1;
                     if (cm_w2_inv) in_w2 = !in_w2;
                     bool in_cw;
@@ -1723,7 +1776,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             uint8_t w2l = ppu.window2_hdma_active ? ppu.wh2_table[scanline] : ppu.wh2;
             uint8_t w2r = ppu.window2_hdma_active ? ppu.wh3_table[scanline] : ppu.wh3;
             uint8_t key[6] = {w1l, w1r, w2l, w2r, base_tm, base_ts};
-            if (memcmp(key, win_cache_key, 6) != 0) {
+            /* In wide mode with per-scanline windows, gutter pixels sample
+             * other scanlines' windows (window_membership), so equal window
+             * values on this scanline don't mean an equal result. */
+            bool gutter_samples_tables = wide_mode &&
+                (ppu.window_hdma_active || ppu.window2_hdma_active);
+            if (gutter_samples_tables || memcmp(key, win_cache_key, 6) != 0) {
                 memcpy(win_cache_key, key, 6);
                 precompute_window_masks(scanline, render_width, wide_mode,
                                         base_tm, base_ts,

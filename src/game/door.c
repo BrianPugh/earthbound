@@ -846,6 +846,7 @@ StepResult mode_step_screen_transition(ModeState *st) {
             } else {
                 set_force_blank(true);
                 ppu.window_hdma_active = false;
+                ppu.window2_hdma_active = false;
             }
             s->phase = ST_EXIT_POST;
             return STEP_RESULT_CONTINUE();   /* the single finalize yield */

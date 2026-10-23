@@ -547,6 +547,7 @@ void enemy_flashing_on(uint16_t row, uint16_t enemy) {
 void force_blank_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
+    ppu.window2_hdma_active = false;
     bg2_distortion_active = false;
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
@@ -569,6 +570,7 @@ void force_blank_and_wait_vblank(void) {
 bool force_blank_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
+    ppu.window2_hdma_active = false;
     bg2_distortion_active = false;
     fade_out(0, 0);
     return render_frame_tick_work_step();

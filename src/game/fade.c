@@ -60,6 +60,7 @@ bool fade_update(void) {
          * Assembly (irq_nmi.asm:103-106): STZ HDMAEN_MIRROR / LDA #$0080 */
         ppu.inidisp = 0x80;
         ppu.window_hdma_active = false;
+        ppu.window2_hdma_active = false;
         fade_state.step = 0;  /* Assembly (irq_nmi.asm:112): STZ step */
         fade_state.fading = false;
     } else if (next >= 0x10) {
