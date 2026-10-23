@@ -568,12 +568,10 @@ static void fm_flavour_apply(uint16_t result) {
  * Layouts 0/2 = uppercase, 1/3 = lowercase.  Layout 4/5 = button labels.
  *
  * Font tile VRAM placement:
- *   The original assembly renders keyboard characters through DISPLAY_TEXT,
- *   which uses the normal VWF → FLUSH_VWF_TILES_TO_VRAM path.  Each character
- *   gets a dynamically allocated tile from ALLOC_BG2_TILEMAP_ENTRY (bitmap
- *   allocator).  The C port matches this by rendering each grid character
- *   through vwf_render_eb_string_at(), using the same per-frame VWF tile
- *   allocation pool as all other text.
+ *   The keyboard keys and buttons are printed once into the keyboard window
+ *   by DISPLAY_TEXT of the KEYBOARD.ebtxt layouts (kb_display_layout), so they
+ *   use the window's ALLOC_BG2_TILEMAP_ENTRY tiles like any window text.  Only
+ *   the name display uses fixed tiles (0x2E0+, RENDER_KEYBOARD_INPUT_CHARACTER).
  */
 
 /* Keyboard grid dimensions for character rows (text_y 0-3) */
@@ -688,51 +686,26 @@ static int kb_find_next(WindowInfo *kw, int cur_x, int cur_y, int dx, int dy) {
     return -1;
 }
 
-/* Render a single keyboard character at a window position using VWF.
-   Matches assembly: DISPLAY_TEXT renders keyboard text through VWF, with each
-   character dynamically allocated from the per-frame VWF tile pool. */
-static void kb_write_char(WindowInfo *kw, int text_x, int text_y, uint8_t eb_char) {
-    uint16_t mx = kw->content_x + (uint16_t)text_x;
-    uint16_t my = kw->content_y + (uint16_t)(text_y * 2);
-    uint8_t eb_str[2] = { eb_char, 0 };
-    vwf_render_eb_string_at(eb_str, 1, mx, my, FONT_ID_NORMAL, 0);
-}
-
-/* Render the selectable character tiles in the keyboard grid via VWF.
-   Each character is rendered through the same VWF tile allocation pool used
-   by all other text, matching the assembly's DISPLAY_TEXT → VWF path. */
-static void kb_render_grid(WindowInfo *kw, bool is_lowercase) {
-    const uint8_t (*grid)[KB_GRID_COLS] = is_lowercase ? kb_lower_grid : kb_upper_grid;
-
-    /* Place character tiles for rows 0-4.
-       Each cursor stop at text_x has its character at text_x+1. */
-    for (int row = 0; row < KB_GRID_ROWS; row++) {
-        for (int si = 0; kb_row_stops[row][si] >= 0; si++) {
-            int tx = kb_row_stops[row][si];
-
-            int col = kb_text_x_to_grid_col(tx);
-            if (col >= 0 && grid[row][col] != 0xFF) {
-                kb_write_char(kw, tx + 1, row, grid[row][col]);
-            }
-        }
-    }
-}
-
-/* Render label text (CAPITAL, small, Don't Care, Backspace, OK) via VWF
-   for proper character packing (no gaps between letters). */
-static void kb_render_labels(WindowInfo *kw, bool has_dont_care) {
-    uint16_t bx = kw->content_x;  /* base tilemap x (past border) */
-    uint16_t by = kw->content_y;  /* base tilemap y (past border) */
-
-    /* Row 4: CAPITAL at text_x=1, small at text_x=8 */
-    vwf_render_string_at("CAPITAL", bx + 1, by + 4 * 2, FONT_ID_NORMAL);
-    vwf_render_string_at("small",   bx + 8, by + 4 * 2, FONT_ID_NORMAL);
-
-    /* Row 6: buttons */
-    if (has_dont_care)
-        vwf_render_string_at("Don't Care", bx + 1,  by + 6 * 2, FONT_ID_NORMAL);
-    vwf_render_string_at("Backspace",      bx + 18, by + 6 * 2, FONT_ID_NORMAL);
-    vwf_render_string_at("OK",             bx + 26, by + 6 * 2, FONT_ID_NORMAL);
+/* Print the keyboard layout into the keyboard window (the focus window), as
+   TEXT_INPUT_DIALOG does after CREATE_WINDOW (text_input_dialog.asm:44-87 and
+   the @REDRAW_KEYBOARD copy at 98-144). The layout texts (KEYBOARD.ebtxt) place
+   every key with FORCE_TEXT_ALIGNMENT and print it through DISPLAY_TEXT, so the
+   glyph tiles come from the window's ALLOC_BG2_TILEMAP_ENTRY tiles and stay in
+   the window's content tilemap; they are not re-rendered per frame.
+   Without Don't Care (PARAM04 == -1) the button layout is pointer +20 and the
+   key layout is pointer 8 + layout*4 (the "B" set); with it, +16 and layout*4.
+   The buttons print with the current CHARACTER_PADDING, the keys with 0. */
+static void kb_display_layout(const TextInputState *s) {
+    static const uint32_t key_layouts[2][2] = {
+        { MSG_KBD_LAYOUT_UPPERCASE_A, MSG_KBD_LAYOUT_LOWERCASE_A },
+        { MSG_KBD_LAYOUT_UPPERCASE_B, MSG_KBD_LAYOUT_LOWERCASE_B },
+    };
+    bool no_dont_care = !s->has_dont_care;
+    display_text_from_addr_inline(no_dont_care ? MSG_KBD_LAYOUT_BUTTONS_NO_DONT_CARE
+                                               : MSG_KBD_LAYOUT_BUTTONS_DONT_CARE);
+    character_padding = 0;
+    display_text_from_addr_inline(key_layouts[no_dont_care][s->is_lowercase ? 1 : 0]);
+    character_padding = 1;
 }
 
 /* VRAM tile index for name display, matching assembly's
@@ -839,7 +812,15 @@ StepResult mode_step_text_input(ModeState *st) {
 
     /* --- Input handling (skipped on the first frame: no yield has happened
        yet, matching the blocking loop's render-before-first-read order) --- */
-    if (s->primed) {
+    if (s->relayout) {
+        /* Second half of @REDRAW_KEYBOARD: the empty keyboard window has been
+           shown for a frame; print the new layout. Input is next read after
+           the following frame (@RENDER_CURSOR's WINDOW_TICK). */
+        s->relayout = 0;
+        set_instant_printing();
+        kb_display_layout(s);
+        clear_instant_printing();
+    } else if (s->primed) {
         uint16_t pressed = platform_input_get_pad_new();
 
         /* Directional input — assembly: MOVE_CURSOR plays SFX only on
@@ -916,10 +897,17 @@ StepResult mode_step_text_input(ModeState *st) {
             } else if (s->cur_y == 4) {
                 /* Row 4: CAPITAL/small toggle or punctuation */
                 play_sfx(122); /* SFX::TEXT_INPUT */
-                if (s->cur_x == 0) {
-                    s->is_lowercase = false;
-                } else if (s->cur_x == 7) {
-                    s->is_lowercase = true;
+                if (s->cur_x == 0 || s->cur_x == 7) {
+                    /* @SELECT_CAPITAL / @SELECT_SMALL -> @REDRAW_KEYBOARD: only
+                       a changed layout re-creates the keyboard window, shows it
+                       empty for one frame (WINDOW_TICK_WITHOUT_INSTANT_PRINTING)
+                       and then prints the new layout (next step). */
+                    bool lower = (s->cur_x == 7);
+                    if (lower != (bool)s->is_lowercase) {
+                        s->is_lowercase = lower;
+                        create_window(WINDOW_FILE_SELECT_NAMING_KB);
+                        s->relayout = 1;
+                    }
                 } else {
                     /* Punctuation at column 11/12 */
                     int col = kb_text_x_to_grid_col(s->cur_x);
@@ -978,29 +966,20 @@ StepResult mode_step_text_input(ModeState *st) {
 
     /* --- Render one frame (no yield; owned by the pump) --- */
 
-    /* Reset VWF VRAM tile allocation pointer each frame — without this,
-       kb_render_grid() and kb_render_labels() advance vwf_vram_next every
-       frame, eventually overwriting sprite tile data in VRAM. */
+    /* Reset the per-frame VWF pool (window titles re-render from it in
+       render_all_windows) and keep it clear of the name display tiles at
+       0x2E0+.  Each name character uses 2 VRAM tiles (upper+lower). */
     vwf_frame_reset();
-    /* Reserve VRAM tiles for the name display (at 0x2E0+) so the keyboard
-       grid VWF rendering doesn't allocate into the same range.  Each name
-       character uses 2 VRAM tiles (upper+lower for 16px font). */
     vwf_reserve_tiles(s->max_len * 2);
 
-    /* Render all windows (borders + any VWF text for prompt).
-       This clears the tilemap, so we must re-render keyboard tiles after. */
+    /* Render all windows: borders plus each window's content tilemap, which
+       holds the prompt text and the keyboard layout printed by
+       kb_display_layout(). This clears the tilemap. */
     render_all_windows();
 
-    /* Render keyboard grid character tiles */
-    kb_render_grid(kw, s->is_lowercase);
-
-    /* Render label text via VWF (CAPITAL, small, Don't Care, etc.) */
-    kb_render_labels(kw, s->has_dont_care);
-
-    /* Re-render name VWF tiles every frame.  Even though the name only
-       changes on input, the keyboard grid VWF rendering writes to the same
-       VRAM range (0x2E0+) as the name display tiles, so we must re-upload
-       the name tiles after the grid to keep them visible. */
+    /* Upload the name display tiles to 0x2E0+ and write their tilemap entries
+       (RENDER_KEYBOARD_INPUT_CHARACTER).  render_all_windows() rebuilds the
+       tilemap, so the entries are rewritten every frame. */
     {
         uint8_t display[32];
         kb_build_name_display(display, s->eb_name, s->name_pos, s->max_len);
@@ -1090,6 +1069,13 @@ void text_input_prepare(ModeState *init, int name_target, int max_len,
             s->name_pos++;
         }
     }
+
+    /* Print the keyboard layout into the new keyboard window
+       (text_input_dialog.asm:42-91: SET_INSTANT_PRINTING, DISPLAY_TEXT of the
+       button and key layouts; @RENDER_CURSOR then CLEAR_INSTANT_PRINTING). */
+    set_instant_printing();
+    kb_display_layout(s);
+    clear_instant_printing();
 }
 
 /* GAME_MODE_NAMING_PROMPT step — run-to-completion port of the name_a_character()

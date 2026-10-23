@@ -1600,6 +1600,8 @@ typedef struct {
     int16_t  cur_y;                  /* keyboard cursor row */
     uint16_t frame_counter;          /* cursor-blink timer */
     uint8_t  flush;                  /* D4b: 1 = resume after a parked actionscript frame */
+    uint8_t  relayout;               /* 1 = keyboard window was re-created by CAPITAL/small;
+                                        print the layout text on the next step */
     uint8_t  eb_name[32];            /* the name being built (EB-encoded) */
 } TextInputState;
 
