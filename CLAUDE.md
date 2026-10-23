@@ -326,6 +326,8 @@ return lo | (hi << 8);
 
 **Callroutine dispatch:** an unknown callroutine address falls to `callroutine_dispatch`'s default, which leaves `pc` unchanged, so the routine's parameter bytes then run as script opcodes. A wrong `ROM_ADDR_*` value fails silently this way.
 
+**`ert.buffer` is 20 KB, not the asm's $F800:** `BUFFER_SIZE` is 0x5000 (budget table above it in `src/entity/entity.h`). Code ported from asm that stages more than that overruns into `scripts` and corrupts the entity/script free lists, which shows up as an unrelated infinite loop. Budget new users in that table and guard writes with `BUFFER_BOUNDS_CHECK(off, len)`; for a hang with looping entity lists, try an ASan build first.
+
 ## Python Style (ebtools)
 
 - Do **not** use `from __future__ import annotations`. The project targets Python 3.10+ where `X | None` and other modern annotation syntax work natively.
