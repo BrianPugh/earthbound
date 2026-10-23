@@ -507,8 +507,8 @@ int16_t npc_collision_check(int16_t x, int16_t y, int16_t leader_slot) {
         int16_t npc_top = npc_y - (int16_t)npc_height;
         if ((uint16_t)(npc_top - (int16_t)leader_height) >= (uint16_t)leader_top)
             continue;
-        if ((npc_top + (int16_t)npc_height) <= leader_top)
-            continue;
+        if ((uint16_t)(npc_top + (int16_t)npc_height) <= (uint16_t)leader_top)
+            continue;  /* asm BLTEQ: unsigned */
 
         /* Lines 132-150: X overlap check.
          * NPC left = NPC_X - NPC_width
@@ -519,8 +519,8 @@ int16_t npc_collision_check(int16_t x, int16_t y, int16_t leader_slot) {
         int16_t npc_width_2x = (int16_t)(npc_width * 2);
         if ((uint16_t)(npc_left - leader_width_2x) >= (uint16_t)leader_left)
             continue;
-        if ((npc_left + npc_width_2x) <= leader_left)
-            continue;
+        if ((uint16_t)(npc_left + npc_width_2x) <= (uint16_t)leader_left)
+            continue;  /* asm BLTEQ: unsigned */
 
         /* Lines 151-154: Collision found! */
         result = (int16_t)slot;
