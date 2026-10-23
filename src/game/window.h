@@ -344,6 +344,11 @@ void     char_select_overworld_finish(uint16_t window_id, bool had_on_change);
  * Resets the menu item count of the focus window to 0. */
 void clear_focus_window_menu_options(void);
 
+/* CLEAR_WINDOW_MENU_OPTIONS: Port of asm/text/clear_window_menu_options.asm.
+ * Frees the window's menu options and resets selected/current option to none
+ * and the menu page to 1. No-op if the window has no options. */
+void clear_window_menu_options(WindowInfo *w);
+
 /* CLEAR_FOCUS_WINDOW_CONTENT (far wrapper): frees the focus window's BG2 content
  * tiles and resets its text cursor. Defined in battle_ui.c. */
 void clear_focus_window_content_far(void);

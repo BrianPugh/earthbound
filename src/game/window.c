@@ -276,10 +276,7 @@ void close_window(uint16_t window_id) {
                 win.current_focus_window = WINDOW_ID_NONE;
 
             /* Clear menu options (assembly line 33: CLEAR_WINDOW_MENU_OPTIONS) */
-            win.windows[i].menu_count = 0;
-            win.windows[i].selected_option = WINDOW_ID_NONE;
-            win.windows[i].current_option = WINDOW_ID_NONE;
-            win.windows[i].menu_page_number = 1;
+            clear_window_menu_options(&win.windows[i]);
 
             /* Free title slot (assembly close_window.asm:264-272) */
             if (win.windows[i].title_slot != 0) {
@@ -503,11 +500,28 @@ void add_menu_item_no_position(const char *label, uint16_t userdata) {
  * for each option, and calls PRINT_TEXT_IN_WINDOW. C port: iterates the
  * menu_items array and calls print_string().
  */
+/* CLEAR_WINDOW_MENU_OPTIONS — Port of asm/text/clear_window_menu_options.asm.
+ * No-op for a missing window or one with no options (asm: current_option, the
+ * option-list head, is -1). Otherwise frees every option (menu_option::unknown0
+ * = 0; C: type = 0 and menu_count = 0) and resets the menu state: selected_option,
+ * option_count and current_option to -1, unknown49 and menu_page_number to 1.
+ * unknown49 is only ever written in the asm (here, CREATE_WINDOW and
+ * LAYOUT_MENU_OPTIONS), so the C port has no field for it. option_count is
+ * menu_count here. */
+void clear_window_menu_options(WindowInfo *w) {
+    if (!w || w->menu_count == 0) return;
+    for (int i = 0; i < w->menu_count; i++)
+        w->menu_items[i].type = 0;
+    w->menu_count = 0;
+    w->selected_option = WINDOW_ID_NONE;
+    w->current_option = WINDOW_ID_NONE;
+    w->menu_page_number = 1;
+}
+
 /* CLEAR_FOCUS_WINDOW_MENU_OPTIONS — Port of asm/text/window/clear_focus_window_menu_options.asm.
- * Resets the menu item count of the focus window to 0. */
+ * CLEAR_WINDOW_MENU_OPTIONS on the focus window. */
 void clear_focus_window_menu_options(void) {
-    WindowInfo *w = get_window(win.current_focus_window);
-    if (w) w->menu_count = 0;
+    clear_window_menu_options(get_window(win.current_focus_window));
 }
 
 /* GET_WINDOW_MENU_OPTION_COUNT — Port of asm/text/window/get_window_menu_option_count.asm.

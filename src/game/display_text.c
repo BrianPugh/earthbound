@@ -1821,8 +1821,7 @@ StepResult mode_step_display_text(ModeState *ms) {
          * window's menu options — the tail of the former CC_1A_04. */
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
-        WindowInfo *w = get_focus_window_info();
-        if (w) w->menu_count = 0;
+        clear_focus_window_menu_options();
     } else if (st->resume == DT_RESUME_CC18_SEL) {
         /* CC_18_08 selection menu: store the result; if it was cancelled (0)
          * and a cancel target was supplied, jump there — the tail of the former

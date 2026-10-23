@@ -1836,10 +1836,7 @@ void cc_19_dispatch(ScriptReader *r) {
         /* CLEAR_LOADED_STRINGS: 0 args.
          * Port of tree_19.asm @UNKNOWN4 → clears focus window menu options.
          * Assembly: CURRENT_FOCUS_WINDOW → CLEAR_WINDOW_MENU_OPTIONS. */
-        WindowInfo *w = get_focus_window_info();
-        if (w) {
-            w->menu_count = 0;
-        }
+        clear_focus_window_menu_options();
         break;
     }
     case 0x05: {
@@ -2261,7 +2258,7 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         WindowInfo *w = get_window(win.current_focus_window);
         if (!w || w->menu_count == 0) {
             set_working_memory(0);
-            if (w) w->menu_count = 0;
+            clear_focus_window_menu_options();
             break;
         }
         out_init->selection_menu.phase        = SM_SETUP;
