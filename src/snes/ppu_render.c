@@ -766,6 +766,13 @@ static const int obj_sizes[8][2][2] = {
     {{16, 32}, {32, 32}},
 };
 
+/* The SNES PPU evaluates the sprites for a line during the line before it,
+ * so an OBJ with OAM Y = y first appears on scanline y + 1. The game code
+ * compensates (WRITE_SPRITEMAP_TO_OAM does `ADC base_y; DEC` before storing
+ * the Y), so rendering OAM Y as-is puts every sprite 1 px too high against
+ * the BG layers. */
+#define OBJ_LINE_DELAY 1
+
 /* ---- OBJ per-frame sprite bucketing (Candidate 2) -------------------------
  * render_obj_scanline previously rescanned all 128 OAM sprites on EVERY
  * scanline (128 x ~224 = ~28.7k sprite-tests/frame, the vast majority rejected
@@ -818,7 +825,7 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
         int size_bit = (hi_bits >> 1) & 1;
 
         int spr_x = ppu.oam_full_x[i] + ppu.sprite_x_offset;
-        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset;
+        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset + OBJ_LINE_DELAY;
         int w = obj_sizes[size_sel][size_bit][0];
         int h = obj_sizes[size_sel][size_bit][1];
 
@@ -923,7 +930,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
         int spr_x = ppu.oam_full_x[i] + ppu.sprite_x_offset;
         /* Use full 16-bit Y coordinate, mirroring the oam_full_x approach.
          * This eliminates 8-bit wrap issues on 240-line viewports. */
-        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset;
+        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset + OBJ_LINE_DELAY;
 
         int w = obj_sizes[size_sel][size_bit][0];
         int h = obj_sizes[size_sel][size_bit][1];
