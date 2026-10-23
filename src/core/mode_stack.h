@@ -2347,6 +2347,9 @@ typedef enum {
 typedef struct {
     uint8_t phase;        /* HpAlertPhase */
     uint8_t party_index;  /* 0-based party slot whose name + HP triggered the alert */
+    uint8_t saved_ally_or_enemy;  /* battlers_table[0] fields borrowed as the asm's */
+    uint16_t saved_id;            /* stack battler, restored at HA_DONE */
+    uint16_t saved_attacker;      /* CURRENT_ATTACKER, restored at HA_DONE */
 } HpAlertState;
 
 /* GAME_MODE_GAME_OVER — run-to-completion port of spawn() (asm/overworld/spawn.asm)

@@ -148,6 +148,16 @@ StepResult mode_step_hp_alert(ModeState *st) {
     case HA_TEXT: {
         uint8_t char_id = game_state.player_controlled_party_members[hs->party_index];
         CharStruct *cs = &party_characters[char_id];
+        /* Asm (US): point CURRENT_ATTACKER at a temporary ally battler with
+         * id = CHARID, so CC_1C_14 in the warning picks the right pronoun.
+         * The port borrows battlers_table[0] and restores it at HA_DONE. */
+        Battler *tmp = &bt.battlers_table[0];
+        hs->saved_attacker = bt.current_attacker;
+        hs->saved_id = tmp->id;
+        hs->saved_ally_or_enemy = tmp->ally_or_enemy;
+        tmp->id = (uint16_t)(cs->unknown53 + 1);  /* asm: char_struct::unknown53 + 1 */
+        tmp->ally_or_enemy = 0;
+        bt.current_attacker = battler_to_offset(tmp);
         disable_all_entities();
         create_window(0x01);  /* WINDOW::TEXT_STANDARD */
         set_battle_attacker_name((const char *)cs->name, sizeof(cs->name));
@@ -177,6 +187,9 @@ StepResult mode_step_hp_alert(ModeState *st) {
     case HA_DONE:
     default:
         enable_all_entities();
+        bt.battlers_table[0].id = hs->saved_id;
+        bt.battlers_table[0].ally_or_enemy = hs->saved_ally_or_enemy;
+        bt.current_attacker = hs->saved_attacker;
         return STEP_RESULT_POP(0);
     }
 }
