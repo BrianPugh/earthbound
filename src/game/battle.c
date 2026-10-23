@@ -1572,9 +1572,16 @@ StepResult mode_step_battle_ko(ModeState *ms) {
             break;
 
         case 3:
-            /* Show death text (if not skipped) */
+            /* Assembly (ko_target.asm @SHOW_DEATH_TEXT): a set
+             * SKIP_DEATH_TEXT_AND_CLEANUP branches to @DONE, skipping the
+             * death text, the fades, the KO status and death_type handling.
+             * Final actions that replace the dying enemy in place (Pokey
+             * speeches, RAINBOW_OF_COLOURS) rely on this to keep the new
+             * enemy alive. */
+            if (bt.skip_death_text_and_cleanup != 0)
+                return STEP_RESULT_POP(0);
             s->pc = 4;
-            if (bt.skip_death_text_and_cleanup == 0 && enemy_config_table != NULL) {
+            if (enemy_config_table != NULL) {
                 uint32_t death_addr = enemy_config_table[target->id].death_text_ptr;
                 if (death_addr != 0 && battle_push_text(&child, death_addr))
                     return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
