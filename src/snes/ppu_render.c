@@ -814,13 +814,29 @@ typedef struct {
     uint16_t tile_num;   /* spr->tile | ((attr & 1) << 8) */
 } ObjActive;
 static ObjActive obj_active[128];
-static uint8_t   obj_band[OBJ_NUM_BANDS][128]; /* slot indices, priority order */
-static uint8_t   obj_band_count[OBJ_NUM_BANDS];
+
+/* Band lists, packed back to back: band b's slot indices (priority order)
+ * are obj_band_slots[obj_band_start[b] .. obj_band_start[b + 1]). A sprite
+ * is at most 64 lines tall, so it lands in at most 9 bands, which bounds
+ * the total at 128 * 9 entries (vs 128 per band for fixed-size lists). */
+#define OBJ_MAX_BANDS_PER_SPRITE ((64 + (1 << OBJ_BAND_SHIFT) - 2) / (1 << OBJ_BAND_SHIFT) + 1)
+static uint8_t   obj_band_slots[128 * OBJ_MAX_BANDS_PER_SPRITE];
+static uint16_t  obj_band_start[OBJ_NUM_BANDS + 1];
+
+/* Band range [*bstart, *bend] covered by an active sprite. */
+static inline void obj_band_range(const ObjActive *a, int *bstart, int *bend) {
+    int y0 = a->y;
+    int y1 = a->y + a->h;                              /* exclusive */
+    *bstart = y0 < 0 ? 0 : (y0 >> OBJ_BAND_SHIFT);
+    *bend = (y1 - 1) >> OBJ_BAND_SHIFT;
+    if (*bend >= OBJ_NUM_BANDS) *bend = OBJ_NUM_BANDS - 1;
+}
 
 /* Build the per-frame sprite buckets. Call once per frame before the scanline
  * loop (OAM/obsel are frame-constant in this renderer). */
 static void PPU_HOT_FUNC(build_obj_buckets)(void) {
-    for (int b = 0; b < OBJ_NUM_BANDS; b++) obj_band_count[b] = 0;
+    /* Pass 1 counts each band's entries into obj_band_start[b]. */
+    for (int b = 0; b <= OBJ_NUM_BANDS; b++) obj_band_start[b] = 0;
 
     int size_sel = (ppu.obsel >> 5) & 0x07;
 
@@ -854,11 +870,28 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
         obj_active[slot].attr     = spr->attr;
         obj_active[slot].tile_num = spr->tile | ((uint16_t)(spr->attr & 1) << 8);
 
-        int bstart = y0 < 0 ? 0 : (y0 >> OBJ_BAND_SHIFT);
-        int bend = (y1 - 1) >> OBJ_BAND_SHIFT;
-        if (bend >= OBJ_NUM_BANDS) bend = OBJ_NUM_BANDS - 1;
+        int bstart, bend;
+        obj_band_range(&obj_active[slot], &bstart, &bend);
         for (int b = bstart; b <= bend; b++)
-            obj_band[b][obj_band_count[b]++] = (uint8_t)slot;
+            obj_band_start[b]++;
+    }
+
+    /* Running sum: obj_band_start[b] = end of band b's list. */
+    int total = 0;
+    for (int b = 0; b < OBJ_NUM_BANDS; b++) {
+        total += obj_band_start[b];
+        obj_band_start[b] = (uint16_t)total;
+    }
+    obj_band_start[OBJ_NUM_BANDS] = (uint16_t)total;
+
+    /* Pass 2 fills each list from its end, visiting slots n-1 -> 0, so a
+     * band's list ends up in ascending slot order (the 127->0 OAM order
+     * above) and obj_band_start[b] ends up at the start of band b. */
+    for (int slot = n - 1; slot >= 0; slot--) {
+        int bstart, bend;
+        obj_band_range(&obj_active[slot], &bstart, &bend);
+        for (int b = bstart; b <= bend; b++)
+            obj_band_slots[--obj_band_start[b]] = (uint8_t)slot;
     }
 }
 #endif /* EB_PPU_OBJ_BUCKET */
@@ -898,8 +931,8 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
 #if EB_PPU_OBJ_BUCKET
     int band = scanline >> OBJ_BAND_SHIFT;
     if (band < 0 || band >= OBJ_NUM_BANDS) return false;
-    uint8_t bcnt = obj_band_count[band];
-    const uint8_t *blist = obj_band[band];
+    int bcnt = obj_band_start[band + 1] - obj_band_start[band];
+    const uint8_t *blist = &obj_band_slots[obj_band_start[band]];
 
     /* Iterate only sprites that overlap this band (priority order preserved). */
     for (int k = 0; k < bcnt; k++) {
@@ -2212,7 +2245,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * the dirty span render_obj_scanline recorded (see its definition),
              * so wiping that span restores the all-zero invariant. */
             int _oband = scanline >> OBJ_BAND_SHIFT;
-            if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_count[_oband] > 0) {
+            if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_start[_oband + 1] > obj_band_start[_oband]) {
                 if (obj_prio_dirty_hi > obj_prio_dirty_lo)
                     memset(obj_prio + obj_prio_dirty_lo, 0,
                            obj_prio_dirty_hi - obj_prio_dirty_lo);
