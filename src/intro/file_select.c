@@ -1504,8 +1504,9 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                     st->char_i--;
                 } else {
                     /* Back past the first character (@NAMING_NEXT_CHARACTER,
-                       index == $FFFF): close windows, return to flavour. */
-                    close_all_windows();
+                       index == $FFFF): return to flavour. The asm's single
+                       CLOSE_ALL_WINDOWS there (and its WINDOW_TICK's RAND)
+                       runs in the parent's FM_NG_NAMING_RESULT. */
                     return STEP_RESULT_POP(0);
                 }
             }
