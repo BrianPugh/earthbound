@@ -9,6 +9,7 @@ asm ``enemy_data`` struct in ``include/structs.asm``.
 Tests skip when ``asm/bin`` or the extracted assets are missing.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -76,7 +77,7 @@ def test_packed_enemy_table_matches_rom(tmp_path):
     assert len(rom) == ENTRY_COUNT * ENTRY_SIZE
     assert len(packed) == len(rom)
 
-    names = {e["id"]: e["name"] for e in __import__("json").loads(ENEMY_JSON.read_text())["enemies"]}
+    names = {e["id"]: e["name"] for e in json.loads(ENEMY_JSON.read_text())["enemies"]}
     offsets = _header_offsets()
     errors = []
     for i in range(ENTRY_COUNT):
