@@ -500,9 +500,14 @@ static struct {
  * are fully transparent, so this roughly doubles the row cache's gain. */
 static inline bool tile_fully_blank(uint32_t tile_addr, int bytes_per_tile) {
     if (tile_addr + bytes_per_tile > VRAM_SIZE) return false;
-    const uint8_t *p = &ppu.vram[tile_addr];
-    uint8_t any = 0;
-    for (int i = 0; i < bytes_per_tile; i++) any |= p[i];
+    /* Word ORs: tile_addr is tile_data_base (a multiple of 0x2000) plus
+     * tile_num * bytes_per_tile (16/32/64), and ppu.vram sits at offset 0 of
+     * the 4-byte-aligned ppu, so every word read is aligned. may_alias avoids
+     * strict-aliasing UB (same idiom as decode_4bpp_row's stores). */
+    typedef uint32_t __attribute__((may_alias)) u32_alias;
+    const u32_alias *p = (const u32_alias *)&ppu.vram[tile_addr];
+    uint32_t any = 0;
+    for (int i = 0; i < bytes_per_tile / 4; i++) any |= p[i];
     return any == 0;
 }
 #endif

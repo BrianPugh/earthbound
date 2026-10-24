@@ -131,8 +131,9 @@ typedef struct {
     uint8_t ts_per_scanline[EB_VIEWPORT_HEIGHT];
 } PPUState;
 
-/* Global PPU state */
-extern PPUState ppu;
+/* Global PPU state. 4-byte aligned (ppu.c) so VRAM tiles can be read as
+ * aligned words. */
+extern PPUState ppu __attribute__((aligned(4)));
 
 /* Initialize PPU to power-on state */
 void ppu_init(void);

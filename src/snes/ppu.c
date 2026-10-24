@@ -2,7 +2,8 @@
 #include "include/binary.h"
 #include <string.h>
 
-PPUState ppu;
+/* 4-byte aligned: the renderer reads VRAM tiles as aligned words. */
+PPUState ppu __attribute__((aligned(4)));
 
 void ppu_init(void) {
     memset(&ppu, 0, sizeof(ppu));
