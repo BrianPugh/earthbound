@@ -109,6 +109,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Gold Mine cliff and cave missing; the hole leads to the small dig cave | Dusty Dunes, 3656,9632, without flag 174 | emu (save 17); set by Topolla manager npc839 | 2026-10-24 |
 | Monotoli Building door stays shut | Fourside, without flag 143 | script | 2026-10-23 |
 | Winters lab: Andonuts says the Sky Runner is ready but it isn't there (npc621/623 hidden by flag 748) | run-49 (Rainy Circle done before Andonuts' "cave north of Stonehenge" talk); lab 7824,2864 | `MSG_WINS_ANDONUT_RAINY_CIRCLE` jumps to `_SKY_RUNNER_READY` when FLG_POWR_RAIN is set, skipping `clear_event_flag FLG_WINS_SKYW_DISAPPEAR`; only reachable after the relay's harness teleport past Bubble Monkey (leg 50 used `flag 748 0`) | 2026-10-24 |
+| Paralysis survives the Summers doctor ("I can only treat an illness. Sorry.", $70 not charged), Healing β ("no visible effect") and a hotel stay; only Healing γ cures it | run-50.srm, Summers hospital doctor npc1049 (door 6504,2736 → nurse room, top door 6800,9656 → 7360,9704; talk from 7265,9696 facing UP), L'hotel de Summers | ESHOP2 `_SUB_DOCTOR_1` (`_DCTR_DAIYA` for diamond and paralysis), `MSG_SHOP2_SUB_HOTEL_HEAL_ALL_PARTY` skips both; asm `healing_beta.asm` cures only poison/nausea/crying/strange; port run51a | 2026-10-24 |
 
 ## Audio
 
