@@ -421,6 +421,9 @@ void darken_bg_palettes(void) {
  *   - Resets distortion_duration_left to 1
  *
  * Used during Giygas death sequence to cycle through distortion effects.
+ * The static's horizontal bands jumping between bands there also happen in
+ * the original (emu gl-go/0156-0163 vs port gl-g/0072-0079); see
+ * docs/known-original-behaviour.md.
  */
 void rotate_bg_distortion(void) {
     uint8_t temp = loaded_bg_data_layer1.distortion_styles[0];

@@ -2055,6 +2055,10 @@ void load_attack_palette(uint16_t type) {
  *   2) (bottom_start - top_end) scanlines → visible value (chunked at 0x7F)
  *   3) 1 scanline → nonvisible value
  *   4) terminator (count = 0)
+ *
+ * Ordinary battles show only a narrow BG band with black above and below;
+ * that is the original's letterbox (emu run02o/0002, gso1/0003-0004), not a
+ * port bug. See docs/known-original-behaviour.md.
  */
 void build_letterbox_hdma_table(void) {
     uint16_t idx = 0;

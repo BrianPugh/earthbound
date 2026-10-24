@@ -844,16 +844,26 @@ uint16_t blend_colors(uint16_t main_c, uint16_t sub_c,
     int sg = (sub_c >> 6) & 0x1F;
     int sb_val = (sub_c >> 11) & 0x1F;
 
-    if (subtract) { r -= sr; g -= sg; b -= sb_val; }
-    else           { r += sr; g += sg; b += sb_val; }
-
-    /* SNES hardware order: clamp THEN halve (not halve then clamp).
-     * E.g. 20+30=50 → clamp to 31 → halve to 15, NOT 50→25→25. */
-    if (r < 0) r = 0; else if (r > 31) r = 31;
-    if (g < 0) g = 0; else if (g > 31) g = 31;
-    if (b < 0) b = 0; else if (b > 31) b = 31;
+    /* SNES hardware: a halved add is (main + sub) >> 1 with no clamp
+     * (20+30 → 25), a halved subtract clamps at 0 and then halves. Only an
+     * unhalved add saturates at 31. The old clamp-then-halve capped every
+     * halved sum at 15, so the 2-layer battle backgrounds (config 3 / 7,
+     * CGADSUB $64 / $61) never got brighter than half intensity; emu-checked
+     * on the Plague Rat BG (see the sub-screen backdrop note at the call). */
+    if (subtract) {
+        r -= sr; g -= sg; b -= sb_val;
+        if (r < 0) r = 0;
+        if (g < 0) g = 0;
+        if (b < 0) b = 0;
+    } else {
+        r += sr; g += sg; b += sb_val;
+    }
 
     if (half) { r >>= 1; g >>= 1; b >>= 1; }
+
+    if (r > 31) r = 31;
+    if (g > 31) g = 31;
+    if (b > 31) b = 31;
 
     return (uint16_t)(r | (g << 6) | (b << 11));
 }
@@ -2852,6 +2862,7 @@ merge_done:
                 if (color_math_active && math_eligible &&
                     (no_windows || !cm_prevented_line[x])) {
                     uint16_t sub_color;
+                    bool halve = half_math;
                     if (need_sub) {
                         uint8_t sub_obj_pk;
                         if (no_layer_windows)
@@ -2863,12 +2874,24 @@ merge_done:
                             sub_color = obj_color[x];
                         else if (sub_gp_val > 0)
                             sub_color = sub_bg_color[x];
-                        else
-                            sub_color = 0;
+                        else {
+                            /* Sub-screen backdrop: the hardware uses the fixed
+                             * colour (COLDATA) and skips the half (bsnes/fullsnes).
+                             * The 2-layer battle BGs (LOAD_BATTLEBG,
+                             * asm/battle/load_battlebg.asm:270/561, colour-math
+                             * config 7/3: TS = the other BG layer, CGADSUB $61/$64)
+                             * rely on it: where the sub layer is transparent the
+                             * main layer shows at full intensity. Emu-checked on
+                             * the Plague Rat (BG config 3, mode 0): the original
+                             * shows palette colour (24,0,6) unhalved as
+                             * (198,0,49); the port drew it halved. */
+                            sub_color = fixed_color;
+                            halve = false;
+                        }
                     } else {
                         sub_color = fixed_color;
                     }
-                    color = blend_colors(color, sub_color, subtract_mode, half_math);
+                    color = blend_colors(color, sub_color, subtract_mode, halve);
                 }
 
                 /* Brightness */
