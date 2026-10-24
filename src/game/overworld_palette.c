@@ -408,7 +408,9 @@ after_damage:
 static int16_t get_map_colour_fade_slope(int16_t current, int16_t target,
                                          int16_t frames) {
     if (frames <= 0) return 0;
-    int32_t diff = (int32_t)(target - current) << 8;
+    /* asm GET_COLOUR_FADE_SLOPE: SBC, XBA, AND #$FF00. Multiply rather than
+     * shift: the difference is often negative and << on it is UB. */
+    int32_t diff = (int32_t)(target - current) * 256;
     return (int16_t)(diff / frames);
 }
 
