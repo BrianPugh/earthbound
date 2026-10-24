@@ -2350,34 +2350,43 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * temp buffers, then merge visible portion into main. */
 #if EB_VIEWPORT_PAD_LEFT > 0
                 /* CONTINUE: gutter pixels (whole pad rows included) come
-                 * from the band edge; the band itself renders below. Only
-                 * built with side gutters: the RP2040 port (240 wide, pad
-                 * rows only) keeps this RAM-resident function unchanged. */
+                 * from the band edge; the band itself renders below.
+                 * Without side gutters only the pad rows need it (below). */
                 if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CONTINUE) {
                     merged_empty = false;
                     if (bg_gutter_fill(bg, scanline, &ctx, best_bg))
                         goto bg_mosaic_done;
                 }
 #endif
-                if (ppu.sprite_y_offset &&
-                    (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT) &&
-                    ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP)
-                    goto bg_mosaic_done;
-                /* Overworld-space scenes (sprite_y_offset 0) draw a 256-px
+                /* Rows outside the SNES picture. Scenes with a
+                 * sprite_y_offset centre the 224-line band in the viewport;
+                 * overworld-space scenes (sprite_y_offset 0) draw a 256-px
                  * layer top-aligned: viewport row y is BG line VOFS + y. The
                  * SNES's 224-line picture starts at scanline 1, so it only
                  * ever shows lines VOFS+1 .. VOFS+224; the rows above and
                  * below hold tilemap rows the original never displays (e.g.
                  * the staff roll's $240C fill in BG3 rows 29-31, left there
                  * for Ness's room and THE END... ?). Keep the layer to the
-                 * SNES picture, as its columns already are. BG_VIEWPORT_TALL
-                 * layers (text that scrolls through the picture) keep
-                 * drawing to the viewport edge. */
-                if (!ppu.sprite_y_offset &&
-                    (scanline < 1 || scanline > SNES_HEIGHT) &&
+                 * SNES picture, as its columns already are. BG_VIEWPORT_CLAMP
+                 * layers extend their edge rows, and in overworld space
+                 * BG_VIEWPORT_TALL layers (text that scrolls through the
+                 * picture) keep drawing to the viewport edge. */
+                if ((unsigned)(snes_scanline - (ppu.sprite_y_offset ? 0 : 1)) >=
+                        SNES_HEIGHT &&
                     ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP &&
-                    ppu.bg_viewport_fill[bg] != BG_VIEWPORT_TALL)
+                    (ppu.sprite_y_offset ||
+                     ppu.bg_viewport_fill[bg] != BG_VIEWPORT_TALL)) {
+#if EB_VIEWPORT_PAD_LEFT <= 0 && EB_VIEWPORT_PAD_TOP > 0
+                    /* CONTINUE with pad rows only (the RP2040 port, 240x240):
+                     * the pad rows continue the band's top/bottom edge. With
+                     * side gutters the call above already covered them. */
+                    if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CONTINUE) {
+                        merged_empty = false;
+                        bg_gutter_fill(bg, scanline, &ctx, best_bg);
+                    }
+#endif
                     goto bg_mosaic_done;
+                }
 
                 /* Per-context static temp buffers (avoids 2KB stack alloc
                  * that would overflow core 1's 4KB SCRATCH_X stack) */
