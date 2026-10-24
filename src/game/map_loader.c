@@ -1090,15 +1090,15 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
     LOG_TRACE("map_loader: fill_tilemaps view=(%d,%d) arr_size=%zu\n",
               view_x_tile, view_y_tile, arrangement_size);
 
-    /* How to fill wide-viewport tiles that lie off the map or in a sector with a
-     * different tileset combo than the loaded one (areas the SNES's ±128px
-     * camera never reveals). During normal play a black gutter reads as a clean
-     * letterbox, so leave those tiles transparent. During a scripted camera move
-     * (camera_mode != 0, e.g. the Tessie ride's pan over Lake Tess) the camera
-     * deliberately frames terrain that should continue, so fall back to the
-     * loaded tileset's block 0 (the assembly's out-of-bounds behavior) to extend
-     * the current terrain — open water on the lake map — instead of a black void. */
-    bool fill_empty_with_block0 = (game_state.camera_mode != 0);
+    /* Tiles off the map or in a sector whose tileset combo differs from the
+     * loaded one take block 0 of the loaded tileset, as LOAD_MAP_ROW does
+     * (asm/overworld/load_map_row.asm @STORE_EMPTY_TILE / @OUT_OF_BOUNDS_CLEAR:
+     * x >= 256 blocks, which includes negative x, a different
+     * GLOBAL_MAP_TILESETPALETTE_DATA combo, or a block row >= 320 store block 0
+     * in LOADED_MAP_BLOCKS, and LOAD_MAP_ROW_TO_VRAM draws it like any other
+     * block). The SNES camera shows these tiles too (the Dalaam sky sector, the
+     * rows above Onett's meteorite hill), and the wide viewport extends them the
+     * same way. */
 
     /* Void stage: some scenes park the camera on the player inside a void
      * sector, e.g. TEXT_DOOR_903's fall into the Lost Underworld (party made
@@ -1133,27 +1133,14 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
             uint16_t bx = (uint16_t)world_tx / 4;       /* block column */
             uint8_t sub_col = (uint16_t)world_tx & 3;   /* column within block (0-3) */
 
-            /* Classify the tile: in-bounds and in a sector matching the loaded
-             * tileset combo renders its real block; anything else is "empty"
-             * (off the map, or an adjacent sector with a different tileset).
-             * Empty tiles are either left transparent (black gutter, normal play)
-             * or filled with the loaded tileset's block 0 — the assembly's
-             * out-of-bounds behavior (LOAD_MAP_ROW uses block 0 when its
-             * block_row < 320 bounds check fails) — during scripted camera moves. */
+            /* In-bounds tiles in a sector matching the loaded tileset combo
+             * render their real block; everything else keeps block 0. */
             uint16_t block_id = 0;
-            bool render_empty = false;
-            if (world_tx < 0 || world_ty < 0) {
-                /* Off the top/left edge of the map */
-                render_empty = true;
-            } else if (tilesetpalette_data) {
+            if (world_tx >= 0 && world_ty >= 0 && tilesetpalette_data) {
                 uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
                 if (tp_index < tilesetpalette_size &&
                     (tilesetpalette_data[tp_index] >> 3) == (uint8_t)ml.loaded_tileset_combo) {
                     block_id = get_block_id(bx, by);
-                } else {
-                    /* Beyond the map, or an adjacent sector with a different
-                     * tileset (not part of the loaded area) */
-                    render_empty = true;
                 }
             }
 
@@ -1161,27 +1148,15 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
                 (world_tx < band_x0 || world_tx > band_x1 ||
                  world_ty < band_y0 || world_ty > band_y1)) {
                 block_id = 0;
-                render_empty = false;
             }
 
-            uint16_t bg1_tile, bg2_tile;
-            if (render_empty && !fill_empty_with_block0) {
-                /* Normal play: transparent on both layers → black backdrop */
-                bg1_tile = 0;
-                bg2_tile = 0;
-            } else {
-                /* Real block, or block 0 fill during a scripted camera move.
-                 * Look up the tile entry from the arrangement. */
-                bg1_tile = get_arrangement_tile(block_id, sub_col, sub_row);
-
-                /* BG2 logic from LOAD_MAP_ROW_TO_VRAM:
-                 * If tile index (bits 0-9) < 384: BG2 = tile | $2000
-                 * Otherwise: BG2 = 0 (transparent) */
-                if ((bg1_tile & 0x03FF) < 384) {
-                    bg2_tile = bg1_tile | 0x2000;
-                } else {
-                    bg2_tile = 0;
-                }
+            uint16_t bg1_tile = get_arrangement_tile(block_id, sub_col, sub_row);
+            /* BG2 logic from LOAD_MAP_ROW_TO_VRAM:
+             * If tile index (bits 0-9) < 384: BG2 = tile | $2000
+             * Otherwise: BG2 = 0 (transparent) */
+            uint16_t bg2_tile = 0;
+            if ((bg1_tile & 0x03FF) < 384) {
+                bg2_tile = bg1_tile | 0x2000;
             }
 
             /* Compute VRAM tilemap address.
