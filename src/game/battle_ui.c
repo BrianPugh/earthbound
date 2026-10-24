@@ -548,7 +548,7 @@ void force_blank_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
     ppu.window2_hdma_active = false;
-    bg2_distortion_active = false;
+    bg_distortion_off();
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
     /* Present the blanked screen WITHOUT advancing an actionscript frame: every
@@ -571,7 +571,7 @@ bool force_blank_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
     ppu.window2_hdma_active = false;
-    bg2_distortion_active = false;
+    bg_distortion_off();
     fade_out(0, 0);
     return render_frame_tick_work_step();
 }

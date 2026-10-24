@@ -251,7 +251,7 @@ void run_attract_mode_prepare(uint16_t scene_index) {
   /* Clear battle BG distortion left over from gas station intro.
    * Without this, the PPU renderer applies per-scanline horizontal offsets
    * to BG2, causing horizontal stripe artifacts in the overworld. */
-  bg2_distortion_active = false;
+  bg_distortion_off();
 
   /* Clear color math registers — may have residual values from title screen
    * or gas station intro that would tint the backdrop (e.g. purple). */

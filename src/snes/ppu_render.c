@@ -652,25 +652,25 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
     int scroll_x = (ppu.bg_hofs[bg_index] - x_pad) & 0x3FF;
     int scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
 
-    /* Per-scanline horizontal offset for BG2 (HDMA distortion emulation).
-     * The distortion table only covers the native content rows. In a wide
-     * viewport a FILL layer (e.g. the gas station's Giygas static) also renders
-     * the letterbox gutter rows (scanline < 0 or >= the content height). Those
-     * have no table entry, so leaving them undistorted made the gutter render
-     * as a rigid block while the content churned. Reflect an out-of-range
-     * scanline back into the table so every gutter row gets its own ripple
-     * offset and churns like the content; reflection (vs. clamp/wrap) keeps the
-     * offset continuous across the gutter/content seam. */
-    if (bg_index == 1 && bg2_distortion_active) {
-        int dist_y = scanline;
-        if (dist_y < 0)
-            dist_y = -dist_y;                                  /* reflect at top edge */
-        else if (dist_y >= BATTLEBG_MAX_SCANLINES)
-            dist_y = 2 * (BATTLEBG_MAX_SCANLINES - 1) - dist_y; /* reflect at bottom edge */
-        if (dist_y < 0) dist_y = 0;                            /* safety clamp */
-        else if (dist_y >= BATTLEBG_MAX_SCANLINES) dist_y = BATTLEBG_MAX_SCANLINES - 1;
-        scroll_x = (scroll_x + bg2_scanline_hoffset[dist_y]) & 0x3FF;
+    /* Battle-BG distortion HDMA (bg_distortion, battle_bg.h): a layer's
+     * channel replaces this BG's HOFS or VOFS on every line. Layer 2's channel
+     * runs after layer 1's, so it wins when both write the same register. A
+     * wide viewport's gutter rows (line < 0 or >= 224) have no SNES table
+     * line; bg_distortion_line() continues the ripple and the compression ramp
+     * there, so the gutters churn with the content and meet it without a seam. */
+    bool distorted = false;
+    for (int k = 0; k < 2; k++) {
+        const BgDistortion *d = &bg_distortion[k];
+        if (d->layer != bg_index + 1)
+            continue;
+        uint16_t v = bg_distortion_line(d, scanline);
+        if (d->vofs)
+            scroll_y = v & 0x3FF;
+        else
+            scroll_x = (v - x_pad) & 0x3FF;
+        distorted = true;
     }
+    (void)distorted;   /* read only by the row cache */
 
     int world_width = sc_size_h * 8;
     int world_height = sc_size_v * 8;
@@ -697,7 +697,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
     /* Replay the cached column plan when this scanline shares its tile row with an
      * already-decoded scanline of this frame (the common case: 7 of every 8). */
     bool row_cacheable = !big_tiles
-                         && !(bg_index == 1 && bg2_distortion_active)
+                         && !distorted
                          && render_width <= 8 * BG_ROW_PLAN_MAXCOL;
     if (row_cacheable
         && bg_row_cache[bg_index].row == tile_row_map
@@ -2046,7 +2046,7 @@ static uint8_t  temp_tm_all_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_L
  * Any active layer that fills the viewport (64-tile tilemap or explicit
  * bg_viewport_fill flag) triggers full-width rendering. Other screens (intro,
  * menus, gas station, file select) use 32-tile tilemaps without fill and
- * render at SNES native resolution centered. Note: bg2_distortion
+ * render at SNES native resolution centered. Note: bg_distortion
  * (per-scanline HDMA) is applied inside render_bg_scanline() regardless of
  * wide_mode.
  *

@@ -7,8 +7,12 @@
 #define BATTLEBG_FILE_SELECT   230
 #define BATTLEBG_GAS_STATION   295
 
-/* Maximum distortion table entries per scanline */
-#define BATTLEBG_MAX_SCANLINES EB_VIEWPORT_HEIGHT
+/* DISTORTION_STYLE enum (include/enums.asm): a distortion entry's type */
+#define DISTORTION_NONE                  0
+#define DISTORTION_HORIZONTAL_SMOOTH     1
+#define DISTORTION_HORIZONTAL_INTERLACED 2
+#define DISTORTION_VERTICAL_SMOOTH       3
+#define DISTORTION_VERTICAL_INTERLACED   4
 
 /* Per-layer runtime animation state */
 typedef struct {
@@ -123,9 +127,46 @@ extern const int8_t sine_table[256];
 extern LoadedBGData loaded_bg_data_layer1;
 extern LoadedBGData loaded_bg_data_layer2;
 
-/* Per-scanline horizontal offset array for HDMA emulation */
-extern int16_t bg2_scanline_hoffset[BATTLEBG_MAX_SCANLINES];
-extern bool bg2_distortion_active;
+/* One battle-BG layer's distortion HDMA channel (the asm's channels 5/6 and
+ * ANIMATED_BACKGROUND_LAYER_1/2_HDMA_BUFFER). DO_BATTLEBG_DMA points the
+ * channel at the layer's target BG: BGnVOFS for VERTICAL_SMOOTH, BGnHOFS for
+ * the other styles. PREPARE_BG_OFFSET_TABLES fills one register value per
+ * scanline; every value is a closed form of the fields below, so the renderer
+ * evaluates bg_distortion_line() per scanline instead of storing the table.
+ * Layer 2's channel runs after layer 1's, so it wins when both write the same
+ * register. */
+typedef struct {
+    uint8_t  layer;      /* BG written, 1-4 (the target_layer); 0 = channel off */
+    uint8_t  vofs;       /* 1 = writes BGnVOFS, 0 = BGnHOFS */
+    uint8_t  style;      /* distortion_type - 1: 0/1 horizontal, 2/3 compression */
+    uint8_t  amplitude;  /* high byte of distortion_ripple_amplitude (M7A) */
+    uint16_t phase;      /* sine phase accumulator at line 0 */
+    uint16_t frequency;  /* phase step per line */
+    uint16_t compression;      /* compression accumulator before line 0 */
+    uint16_t compression_rate; /* compression step per line */
+    uint16_t base;       /* horizontal styles: the BG's X position */
+} BgDistortion;
+
+extern BgDistortion bg_distortion[2];
+
+/* Turn both distortion channels off (HDMAEN cleared). */
+void bg_distortion_off(void);
+
+/* The register value the channel writes on content line `line` (line 0 = the
+ * first SNES scanline; lines outside 0-223, the wide viewport's gutter rows,
+ * continue the same sine and compression ramp). 16-bit wrap like the asm. */
+static inline uint16_t bg_distortion_line(const BgDistortion *d, int line) {
+    uint16_t phase = (uint16_t)(d->phase + (uint32_t)(int32_t)line * d->frequency);
+    int16_t ripple = (int16_t)(((int32_t)d->amplitude *
+                                (int32_t)sine_table[phase >> 8]) >> 8);
+    if ((d->style & 1) && (line & 1))
+        ripple = (int16_t)-ripple;   /* interlaced styles: odd lines subtract */
+    if (d->style < 2)
+        return (uint16_t)(d->base + ripple);
+    uint16_t comp = (uint16_t)(d->compression +
+                               (uint32_t)(int32_t)(line + 1) * d->compression_rate);
+    return (uint16_t)((comp >> 8) + ripple);
+}
 
 /* Initialize the battle background system */
 void battle_bg_init(void);
@@ -197,6 +238,7 @@ void restore_bg_palette_backups(void);
 typedef struct {
     uint16_t      distort_30fps;
     BattleBGState bg_state;
+    BgDistortion  distortion[2];
 } BattleBgSaveState;
 void battle_bg_savestate_pack(void *out);   /* out: BattleBgSaveState* */
 void battle_bg_savestate_unpack(const void *in);

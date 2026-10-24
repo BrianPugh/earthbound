@@ -14,9 +14,13 @@
  * Set by LOAD_BATTLE_BG when layer 2 has active distortion styles. */
 uint16_t distort_30fps;
 
-/* Per-scanline horizontal offset array for HDMA emulation */
-int16_t bg2_scanline_hoffset[BATTLEBG_MAX_SCANLINES];
-bool bg2_distortion_active = false;
+/* Distortion HDMA channels, one per battle-BG layer (see battle_bg.h) */
+BgDistortion bg_distortion[2];
+
+void bg_distortion_off(void) {
+    bg_distortion[0].layer = 0;
+    bg_distortion[1].layer = 0;
+}
 
 /* Loaded BG data structs — palette, cycling, and animation config per layer.
  * Assembly: LOADED_BG_DATA_LAYER1/LAYER2 in BSS (ram.asm lines 1511-1514). */
@@ -26,32 +30,22 @@ LoadedBGData loaded_bg_data_layer2;
 /* Runtime state for the loaded battle background */
 static BattleBGState bg_state;
 
-/* ---- Savestate snapshot (see BattleBgSaveState in battle_bg.h) ----
- * bg2_scanline_hoffset / bg2_distortion_active are intentionally NOT captured:
- * generate_battlebg_frame/battle_bg_update rebuild them each frame from the captured
- * loaded_bg_data_*, so they are derived render state. */
+/* ---- Savestate snapshot (see BattleBgSaveState in battle_bg.h) ---- */
 void battle_bg_savestate_pack(void *out) {
     BattleBgSaveState *s = (BattleBgSaveState *)out;
     s->distort_30fps = distort_30fps;
     s->bg_state      = bg_state;
+    memcpy(s->distortion, bg_distortion, sizeof(bg_distortion));
 }
 
 void battle_bg_savestate_unpack(const void *in) {
     const BattleBgSaveState *s = (const BattleBgSaveState *)in;
     distort_30fps = s->distort_30fps;
     bg_state      = s->bg_state;
-    /* The derived render state must be re-derived, not inherited from the
-     * running process: loading a non-battle snapshot while currently IN a
-     * battle otherwise leaves the current battle's bg2_distortion_active +
-     * stale hoffset table applied to the loaded scene forever (nothing
-     * outside battle code ever clears them — the "rebuilt each frame"
-     * invariant above only holds while battle frames run).
-     * In-battle snapshots recover on their next battle frame: the
-     * full-config path (generate_battlebg_frame) re-asserts the flag and
-     * rebuilds the table every frame, and the simplified path's flag is
-     * exactly bg_state.active && dist_type != 0. */
-    memset(bg2_scanline_hoffset, 0, sizeof(bg2_scanline_hoffset));
-    bg2_distortion_active = bg_state.active && (bg_state.dist_type != 0);
+    /* The distortion channels are restored too, not inherited from the
+     * running process: loading a non-battle snapshot while IN a battle would
+     * otherwise keep the current battle's distortion on the loaded scene. */
+    memcpy(bg_distortion, s->distortion, sizeof(bg_distortion));
 }
 
 /* Saved palette for cycling */
@@ -86,8 +80,7 @@ const int8_t sine_table[256] = {
 
 void battle_bg_init(void) {
     memset(&bg_state, 0, sizeof(bg_state));
-    memset(bg2_scanline_hoffset, 0, sizeof(bg2_scanline_hoffset));
-    bg2_distortion_active = false;
+    memset(bg_distortion, 0, sizeof(bg_distortion));
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
     ppu.sprite_y_offset = 0;
@@ -209,13 +202,9 @@ void battle_bg_load_at(uint16_t bg_id, uint16_t gfx_vram_addr,
                bg_palette_count * 2);
         generate_battlebg_frame(&loaded_bg_data_layer1, 0);  /* assembly line 145 */
         loaded_bg_data_layer2.target_layer = 0;  /* assembly line 147 */
-        bg2_distortion_active = true;
     }
 
     bg_state.active = true;
-    if (bg_id != BATTLEBG_GAS_STATION) {
-        bg2_distortion_active = (bg_state.dist_type != 0);
-    }
 }
 
 void battle_bg_load(uint16_t bg_id) {
@@ -258,108 +247,9 @@ void battle_bg_update(void) {
     ppu.bg_hofs[1] = (uint16_t)(bg_state.scroll_x >> 16);
     ppu.bg_vofs[1] = (uint16_t)(bg_state.scroll_y >> 16);
 
-    /* --- Distortion (per-scanline horizontal offsets) ---
-     *
-     * Ported from PREPARE_BG_OFFSET_TABLES (prepare_bg_offset_tables.asm).
-     *
-     * ROM hardware multiply: M7A (16-bit signed) × M7B (8-bit signed) → 24-bit.
-     * Reading MPYM:MPYH ($2135-$2136) gives the upper 16 bits = result >> 8.
-     *
-     * Amplitude setup (generate_frame.asm:812-816):
-     *   Load 16-bit ripple_amplitude, XBA, AND #$00FF → extract high byte.
-     *   Store to M7A as 16-bit ($00xx), so M7A = amplitude_high_byte.
-     *
-     * Phase setup: speed (8-bit) stored at accumulator high byte ($03),
-     *   low byte ($02) = 0. Each scanline: accumulator += frequency.
-     *   Phase index = high byte of accumulator = (speed + n * freq_hi).
-     *
-     * Sine table: ROM SINE_LOOKUP_TABLE = 256 signed bytes, peak ±127.
-     * Multiply result: amp_hi * sine[idx], read as (result >> 8).
-     * In C: (int32_t)amp_hi * (int32_t)sine[idx], then >> 8.
-     */
-    /* Update distortion parameters with per-frame acceleration FIRST.
-     * Assembly (generate_frame.asm lines 746-784) applies acceleration BEFORE
-     * computing the per-scanline offset table (line 820). */
-    if (bg_state.dist_type != 0) {
-        bg_state.dist_freq += bg_state.dist_freq_accel;
-        bg_state.dist_amplitude += bg_state.dist_amp_accel;
-        bg_state.dist_speed += bg_state.dist_speed_accel;  /* 8-bit wrapping */
-        bg_state.dist_compression += bg_state.dist_comp_accel;
-    }
-
-    /* Assembly subtracts 1 from dist_type before dispatch (generate_frame.asm:793 DEC).
-     * dist_type 1 → style 0 = plain horizontal, dist_type 2 → style 1 = paired. */
-    int style = bg_state.dist_type - 1;
-
-    if (style >= 0 && style <= 3) {
-        uint16_t amp_hi = ((uint16_t)bg_state.dist_amplitude >> 8) & 0xFF;
-        uint16_t phase = ((uint16_t)bg_state.dist_speed) << 8;
-
-        if (style == 0) {
-            /* Style 0 (dist_type 1 HORIZONTAL_SMOOTH): plain horizontal.
-             * One ripple per scanline, no pairing or compression. */
-            for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y++) {
-                uint8_t idx = (uint8_t)(phase >> 8);
-                int16_t ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                bg2_scanline_hoffset[y] = ripple;
-                phase += (uint16_t)bg_state.dist_freq;
-            }
-        } else if (style == 1) {
-            /* Style 1 (dist_type 2 HORIZONTAL_INTERLACED): paired even/odd.
-             * Even scanline: +ripple, odd scanline: -ripple. */
-            for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y += 2) {
-                uint8_t idx = (uint8_t)(phase >> 8);
-                int16_t ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                bg2_scanline_hoffset[y] = ripple;
-                phase += (uint16_t)bg_state.dist_freq;
-                if (y + 1 < BATTLEBG_MAX_SCANLINES) {
-                    idx = (uint8_t)(phase >> 8);
-                    ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                    bg2_scanline_hoffset[y + 1] = -ripple;
-                    phase += (uint16_t)bg_state.dist_freq;
-                }
-            }
-        } else if (style == 2) {
-            /* Style 2 (dist_type 3 VERTICAL_SMOOTH): compression accumulator.
-             * Assembly increments comp_accum BEFORE extracting high byte. */
-            int16_t comp_accum = 0;
-            for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y++) {
-                comp_accum += bg_state.dist_compression;
-                uint8_t idx = (uint8_t)(phase >> 8);
-                int16_t ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                int16_t comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-                bg2_scanline_hoffset[y] = comp_part + ripple;
-                phase += (uint16_t)bg_state.dist_freq;
-            }
-        }
-        else if (style == 3) {
-            /* Style 3 (dist_type 4 BIDIR_COMPRESS): compression + paired.
-             * Combines style 2 (compression accumulator per scanline) with
-             * style 1 (paired even/odd: even adds sine, odd subtracts sine).
-             * Compression accumulator advances for BOTH even and odd scanlines.
-             * Port of @BIDIR_COMPRESS_LOOP in prepare_bg_offset_tables.asm. */
-            int16_t comp_accum = 0;
-            for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y += 2) {
-                /* Even scanline: compress + sine */
-                uint8_t idx = (uint8_t)(phase >> 8);
-                int16_t ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                comp_accum += bg_state.dist_compression;
-                int16_t comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-                bg2_scanline_hoffset[y] = comp_part + ripple;
-                phase += (uint16_t)bg_state.dist_freq;
-
-                if (y + 1 < BATTLEBG_MAX_SCANLINES) {
-                    /* Odd scanline: compress - sine */
-                    idx = (uint8_t)(phase >> 8);
-                    ripple = (int16_t)(((int32_t)amp_hi * (int32_t)sine_table[idx]) >> 8);
-                    comp_accum += bg_state.dist_compression;
-                    comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-                    bg2_scanline_hoffset[y + 1] = comp_part - ripple;
-                    phase += (uint16_t)bg_state.dist_freq;
-                }
-            }
-        }
-    }
+    /* No distortion here: nothing sets bg_state.dist_type (the gas station,
+     * the only screen of this kind that distorts, takes the full-config path
+     * above). */
 }
 
 /*
@@ -779,6 +669,14 @@ void generate_battlebg_frame(LoadedBGData *data, int layer_index) {
                     data->distortion_comp_accel =
                         (int16_t)read_u16_le(&entry[15]);
                 }
+                /* DO_BATTLEBG_DMA (assembly lines 715-736): point this
+                 * layer's HDMA channel at its target BG's VOFS register for
+                 * VERTICAL_SMOOTH, at its HOFS register otherwise. A target
+                 * of 0 selects WMDATA, which draws nothing. */
+                bg_distortion[layer_index].layer =
+                    (target_layer >= 1 && target_layer <= 4) ? (uint8_t)target_layer : 0;
+                bg_distortion[layer_index].vofs =
+                    ((data->distortion_type & 0xFF) == DISTORTION_VERTICAL_SMOOTH);
             }
         }
     }
@@ -831,65 +729,15 @@ void generate_battlebg_frame(LoadedBGData *data, int layer_index) {
         /* Assembly: LDA bg_vofs; XBA; AND #$FF00 — low byte shifted to high byte */
         comp_accum = (int16_t)((ppu.bg_vofs[target_layer - 1] & 0xFF) << 8);
     }
-    int16_t comp_rate = data->distortion_compression_rate;
-
-    bg2_distortion_active = true;
-
-    if (dist_style == 0) {
-        /* Style 0 (HORIZONTAL_SMOOTH): simple sine ripple */
-        for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y++) {
-            uint8_t idx = (uint8_t)(phase >> 8);
-            int16_t ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                         (int32_t)sine_table[idx]) >> 8);
-            bg2_scanline_hoffset[y] = ripple + base_hofs;
-            phase += (uint16_t)freq;
-        }
-    } else if (dist_style == 1) {
-        /* Style 1 (HORIZONTAL_INTERLACED): alternating sign */
-        for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y += 2) {
-            uint8_t idx = (uint8_t)(phase >> 8);
-            int16_t ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                         (int32_t)sine_table[idx]) >> 8);
-            bg2_scanline_hoffset[y] = ripple + base_hofs;
-            phase += (uint16_t)freq;
-            if (y + 1 < BATTLEBG_MAX_SCANLINES) {
-                idx = (uint8_t)(phase >> 8);
-                ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                     (int32_t)sine_table[idx]) >> 8);
-                bg2_scanline_hoffset[y + 1] = base_hofs - ripple;
-                phase += (uint16_t)freq;
-            }
-        }
-    } else if (dist_style == 2) {
-        /* Style 2 (VERTICAL_SMOOTH): compression + sine */
-        for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y++) {
-            uint8_t idx = (uint8_t)(phase >> 8);
-            int16_t ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                         (int32_t)sine_table[idx]) >> 8);
-            comp_accum += comp_rate;
-            int16_t comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-            bg2_scanline_hoffset[y] = comp_part + ripple;
-            phase += (uint16_t)freq;
-        }
-    } else if (dist_style == 3) {
-        /* Style 3: compression + alternating sign */
-        for (int y = 0; y < BATTLEBG_MAX_SCANLINES; y += 2) {
-            uint8_t idx = (uint8_t)(phase >> 8);
-            int16_t ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                         (int32_t)sine_table[idx]) >> 8);
-            comp_accum += comp_rate;
-            int16_t comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-            bg2_scanline_hoffset[y] = comp_part + ripple;
-            phase += (uint16_t)freq;
-            if (y + 1 < BATTLEBG_MAX_SCANLINES) {
-                idx = (uint8_t)(phase >> 8);
-                ripple = (int16_t)(((int32_t)(int16_t)amp_hi *
-                                     (int32_t)sine_table[idx]) >> 8);
-                comp_accum += comp_rate;
-                comp_part = (int16_t)((comp_accum >> 8) & 0xFF);
-                bg2_scanline_hoffset[y + 1] = comp_part - ripple;
-                phase += (uint16_t)freq;
-            }
-        }
-    }
+    /* Store this frame's table as its line parameters (PREPARE_BG_OFFSET_TABLES
+     * writes the layer's own HDMA buffer: IS_SECONDARY_LAYER selects layer 2's).
+     * Style 4 and up take the asm's bidirectional-compression branch. */
+    BgDistortion *d = &bg_distortion[layer_index];
+    d->style = (dist_style > 3) ? 3 : dist_style;
+    d->amplitude = (uint8_t)amp_hi;
+    d->phase = phase;
+    d->frequency = (uint16_t)freq;
+    d->base = (uint16_t)base_hofs;
+    d->compression = (uint16_t)comp_accum;
+    d->compression_rate = (uint16_t)data->distortion_compression_rate;
 }
