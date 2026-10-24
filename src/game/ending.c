@@ -1116,6 +1116,9 @@ static void initialize_credits_scene(void) {
      * wrap: the opaque black $240C fill. Reset by overworld_setup_vram() after
      * the credits. */
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
+    /* The staff roll scrolls BG3 up through the picture: let it enter from
+     * the viewport's bottom edge rather than the SNES picture's (TALL). */
+    ppu.bg_viewport_fill[2] = BG_VIEWPORT_TALL;
 
     /* Clear all BG scroll positions */
     ppu.bg_hofs[2] = 0; ppu.bg_vofs[2] = 0;

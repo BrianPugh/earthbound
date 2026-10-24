@@ -40,6 +40,9 @@ typedef enum BGViewportMode : uint8_t {
     BG_VIEWPORT_CENTER = 0, /* render at SNES_WIDTH centered (default) */
     BG_VIEWPORT_FILL   = 1, /* render at EB_VIEWPORT_WIDTH with tilemap wrapping */
     BG_VIEWPORT_CLAMP  = 2, /* render at SNES_WIDTH centered, edge-extend borders */
+    BG_VIEWPORT_TALL   = 3, /* like CENTER, but an overworld-space layer also draws
+                             * the rows above/below the SNES picture (scrolling
+                             * text: the staff roll) */
 } BGViewportMode;
 
 typedef struct {

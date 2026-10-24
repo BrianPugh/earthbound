@@ -2005,6 +2005,21 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                     (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT) &&
                     ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP)
                     goto bg_mosaic_done;
+                /* Overworld-space scenes (sprite_y_offset 0) draw a 256-px
+                 * layer top-aligned: viewport row y is BG line VOFS + y. The
+                 * SNES's 224-line picture starts at scanline 1, so it only
+                 * ever shows lines VOFS+1 .. VOFS+224; the rows above and
+                 * below hold tilemap rows the original never displays (e.g.
+                 * the staff roll's $240C fill in BG3 rows 29-31, left there
+                 * for Ness's room and THE END... ?). Keep the layer to the
+                 * SNES picture, as its columns already are. BG_VIEWPORT_TALL
+                 * layers (text that scrolls through the picture) keep
+                 * drawing to the viewport edge. */
+                if (!ppu.sprite_y_offset &&
+                    (scanline < 1 || scanline > SNES_HEIGHT) &&
+                    ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP &&
+                    ppu.bg_viewport_fill[bg] != BG_VIEWPORT_TALL)
+                    goto bg_mosaic_done;
 
                 /* Per-context static temp buffers (avoids 2KB stack alloc
                  * that would overflow core 1's 4KB SCRATCH_X stack) */
