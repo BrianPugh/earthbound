@@ -512,17 +512,19 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         return cr_movement_loop(entity_offset, script_offset, pc, out_pc);
     /* File select / overworld entity sprite callroutines */
     case ROM_ADDR_RENDER_ENTITY_SPRITE_ENTRY3:
-        /* Port of C0A4A8 RENDER_ENTITY_SPRITE_ENTRY3.
+        /* Port of C0A4A8 RENDER_ENTITY_SPRITE_ENTRY3 (the event macro
+         * EVENT_RENDER_ENTITY_SPRITE_ME3).
          * Assembly: STZ USE_SECOND_SPRITE_FRAME; JSL IS_ENTITY_ON_SCREEN;
          *           BNE → RENDER_ENTITY_SPRITE_SETUP_AND_RENDER (ENTRY4).
-         * Uploads frame-0 tiles to VRAM if the entity is on screen.
-         * IMPORTANT: The assembly does NOT modify ENTITY_ANIMATION_FRAME —
-         * it only sets the transient USE_SECOND_SPRITE_FRAME global to 0.
-         * Entity visibility is controlled separately by SET_ANIMATION (0x3B).
-         * The per-frame draw callback handles ongoing tile rendering. */
+         * As in ME1, the BNE tests the Z flag from IS_ENTITY_ON_SCREEN's
+         * closing PLD (actionscript D is never 0), so it always renders.
+         * Always frame 0: ENTITY_ANIMATION_FRAME is neither read nor written
+         * (a SET_ANIMATION $FF before it, as in EVENT_628, stays hidden).
+         * A on return (the advanced VRAM dest, nonzero) becomes the script
+         * tempvar: ANIMATE_BLINK (C3A0D8) and EVENT_670's toggle task loop
+         * on it with SHORTCALL_CONDITIONAL_NOT. */
         *out_pc = pc;
-        render_entity_sprite(entity_offset);
-        return 0;
+        return (int16_t)render_entity_sprite_frame(entity_offset, false);
     case ROM_ADDR_RENDER_ENTITY_SPRITE_ME1:
         return cr_render_entity_sprite_me1(entity_offset, script_offset,
                                             pc, out_pc);

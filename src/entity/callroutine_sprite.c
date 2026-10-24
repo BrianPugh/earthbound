@@ -209,15 +209,23 @@ int16_t cr_render_entity_sprite_me2(int16_t ent, int16_t scr,
  * CR_RENDER_ENTITY_SPRITE_ME1 (C0A4B2)
  *
  * RENDER_ENTITY_SPRITE_MOVEMENT_ENTRY_1: renders entity sprite with frame 1.
- * In the ROM: sets USE_SECOND_SPRITE_FRAME=1, checks IS_ENTITY_ON_SCREEN,
- * then uploads tiles to VRAM if on screen.
+ * In the ROM: sets USE_SECOND_SPRITE_FRAME=1, calls IS_ENTITY_ON_SCREEN,
+ * then BNE SETUP_AND_RENDER. That BNE always branches (see below), so the
+ * tiles are uploaded whether or not the entity is on screen.
  */
 int16_t cr_render_entity_sprite_me1(int16_t ent, int16_t scr,
                                     uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
     /* ASM: LDA #$0001 / STA USE_SECOND_SPRITE_FRAME → render with frame 1
      * (ENTITY_ANIMATION_FRAME is not written).
-     * ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER
+     * ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER / RTL.
+     * The BNE tests the flags IS_ENTITY_ON_SCREEN's epilogue leaves, not its
+     * result: END_C_FUNCTION ends in PLD (sets Z from the restored D) + RTL,
+     * and the actionscript runs with D = (D - $A0) & $FF00, about $1E00
+     * (never 0). So Z is clear, the branch is always taken and the on-screen
+     * result is discarded. The original keeps an off-screen fountain looping
+     * (emu: Lost Underworld geyser npc1303 erupting 160 px right of the
+     * leader stays put); honouring the check would drop it into EVENT_675.
      * A on return (the advanced VRAM dest, nonzero) becomes the script
      * tempvar: ANIMATE_FOUNTAIN_TASK (EVENT_674) loops on it with
      * SHORTCALL_CONDITIONAL_NOT; returning 0 fell through into EVENT_675,
