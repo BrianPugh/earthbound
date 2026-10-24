@@ -1792,7 +1792,18 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
         /* Normal confirm: play item's sound_effect (line 433-435) */
         if (sel->sound_effect)
             play_sfx(sel->sound_effect);
-        /* Assembly lines 428-485: highlight confirmed option with palette 6.
+        /* Assembly lines 436-443: SETUP_MENU_OPTION_VWF(option, text_x, text_y)
+         * moves the focus text cursor to the confirmed option
+         * (setup_menu_option_vwf.asm:16 REDIRECT_SET_FOCUS_TEXT_CURSOR), then
+         * SET_TILE_ATTRIBUTE_AND_REDRAW(47) overwrites the cursor marker and
+         * advances text_x. Callers such as DISPLAY_PSI_ABILITY_DETAILS reuse the
+         * window's text_y to redraw the chosen row, so without this they print
+         * on whichever row was printed last. */
+        set_instant_printing();
+        set_focus_text_cursor(sel->text_x, sel->text_y);
+        win.restore_menu_backup = 0;  /* setup_menu_option_vwf.asm:42-45 */
+        set_tile_attribute_and_redraw(47);
+        /* Assembly lines 445-485: highlight confirmed option with palette 6.
          * SET_FILE_SELECT_TEXT_HIGHLIGHT (lines 24-36) only operates on 4
          * specific file-select windows and is a no-op for all others. Restrict
          * highlight to those windows. */
