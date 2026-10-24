@@ -2082,7 +2082,23 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Classify window layers once per frame — depends only on window config
      * registers which don't change within a frame (only positions change). */
     WindowClassification win_class;
-    bool has_layer_windows = (ppu.tmw || ppu.tsw);
+    /* Layer windows are in effect only when the classification put some layer
+     * into a batch. TMW/TSW alone don't decide it: a layer bit with neither of
+     * its W12SEL/W34SEL/WOBJSEL windows enabled masks nothing (TMW=0x13 with
+     * all window selects zero is left behind after some warps). In that case
+     * precompute_window_masks would fill eff_tm/ts_line with base_tm/base_ts
+     * and nothing else, which is exactly the window-free state, so the
+     * window-free fast paths give identical output. */
+    bool has_layer_windows = false;
+    if (ppu.tmw || ppu.tsw) {
+        classify_window_layers(&win_class);
+        has_layer_windows =
+            (win_class.tm_w1_noninv | win_class.ts_w1_noninv |
+             win_class.tm_w1_inv    | win_class.ts_w1_inv    |
+             win_class.tm_w2_noninv | win_class.ts_w2_noninv |
+             win_class.tm_w2_inv    | win_class.ts_w2_inv    |
+             win_class.dual_tm      | win_class.dual_ts) != 0;
+    }
     /* Color math window can be active even when TMW/TSW=0 (e.g. battle swirl
      * uses WOBJSEL for color math windowing without masking any layers). */
     bool has_cm_windows = color_math_active && (prevent_mode == 1 || prevent_mode == 2);
@@ -2094,8 +2110,6 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
      * Everything except the color-math prevent check can therefore use the
      * window-free fast paths, keyed on this flag instead of has_windows. */
     const bool no_layer_windows = !has_layer_windows;
-    if (has_layer_windows)
-        classify_window_layers(&win_class);
     /* Unified output Y loop: y_start/y_end/y_stride are OUTPUT coordinates.
      * Border scanlines (outside fb_y_offset..fb_y_offset+render_height-1)
      * are sent as black.  This avoids separate border loops that break
