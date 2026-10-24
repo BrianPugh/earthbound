@@ -154,6 +154,8 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Desert battle, 3-member party | 12-Zombies | `teleport 4000 9300 4; until battle 900 DOWN\|DOWN\|LEFT` |
 | Threed hotel phone | 12-Zombies | at the start, talk to the phone in front; Dad is first |
 | Desert cabin shop (buy, equip, sell old) | 15-Desert | inside the cabin, about 12 px LEFT of the start to face the clerk, then talk |
+| Threed → Dusty Dunes on foot (east tunnel) | run-29 | Threed road y≈9420 east past the stop sign (6007,9367) into tunnel door 6528,9408 → 4384,10208, `RIGHT` → 2560,7696; `20 DOWN; RIGHT` to 3110,7724, `20 UP; RIGHT` → tunnel 3144,7680 → `RIGHT` → desert 400,10032. The west road (4472,9408) leads to the Twoson side instead |
+| Desert cabin door / clerk / phone | run-30 | door 1400,9944: approach from the road below (y≈10045) at x 1400, `UP` → 7865,2137; clerk npc747 from 7790,2137 facing UP; phone npc751 from 7814,2137 facing UP; exit `RIGHT` to ~7888,2168, `8 LEFT; UP` |
 | Desert enemies (Skelpion, Booka, Smilin' Sphere) | 20-TarahRama / 24-Museum | `teleport 1400 9400 4; wait 60; until battle 2500 LEFT\|UP\|RIGHT\|DOWN` |
 | Scaraba desert enemies (Octobot, UFOs) | 28-Scaraba | `teleport 1400 5600 4; until battle 1500 RIGHT\|DOWN\|LEFT\|UP` |
 | Dungeon Man robots | 29-DungeonM | from the start, `until battle 1500 RIGHT\|RIGHT\|UP\|RIGHT\|DOWN` |
