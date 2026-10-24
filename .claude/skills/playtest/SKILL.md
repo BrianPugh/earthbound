@@ -148,6 +148,9 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Happy Happy drug store shop | 07-InHappy | `48 RIGHT; 20 UP` from the start (`8 RIGHT; 2 UP` reaches the phone), then talk across the counter; Buy/Sell is horizontal |
 | Leave Happy Happy drug store / reach east cave | 07-InHappy | `120 RIGHT; 20 DOWN; 20 UP; 30 RIGHT` exits to 4120,7616; `teleport 4184 7730 4; 30 RIGHT; 20 UP; 20 RIGHT` reaches the east cave (npc421 blocks the cliff path) |
 | Runaway Five bus via the band | 10-ToThreed | `teleport 2224 6600 0; 8 UP`, talk, Yes, `8 DOWN; 40 LEFT; 20 UP`, then `until idle 4000 advance` ×2 (about 7000 frames) |
+| Chaos Theater show (backstage pass) | run-19 is past it; use run-18 | inside the lobby Use the Backstage pass facing ticket man npc226 from 7576,7387, walk UP into the hall; talk to npc231 (6784,8608, from 6791,8608) → backstage; `until idle 6000 advance` after walking RIGHT into door 8176,7528 plays the show (~4600 frames) |
+| Chaos Theater manager, Wad of bills | run-18 | after the show: lobby left door 7432,7400 → office; stand at 7589,7616, face LEFT, talk, then Use the Wad of bills (Goods item 13); band leaves, bus appears outside |
+| Threed hospital revive / Sunset Hotel stay | run-19 | hospital door 5632,9312, nurse from 6729,9936 facing UP; hotel door 5528,8968, clerk from 6747,9296 facing UP ($120); wake in room 7496,9432, leave by door 7664,9448 → corridor → 7984,9320 → lobby |
 | Desert battle, 3-member party | 12-Zombies | `teleport 4000 9300 4; until battle 900 DOWN\|DOWN\|LEFT` |
 | Threed hotel phone | 12-Zombies | at the start, talk to the phone in front; Dad is first |
 | Desert cabin shop (buy, equip, sell old) | 15-Desert | inside the cabin, about 12 px LEFT of the start to face the clerk, then talk |
