@@ -47,6 +47,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Failed Teleport α chars the party | anywhere | asm | 2026-10-23 |
 | Spiteful Crow steals an item first, which frees a slot | 01-Start | ROM data (drop rate 7 = always), port log vfa1 | 2026-10-23 |
 | Original's battle entry takes longer | every battle | CPU lag; the fade speeds match the asm | 2026-10-23 |
+| PSI Healing α "had no visible effect" on a poisoned member; Healing β cures it | overworld, run-48 cabin (Ness poisoned by a Skelpion) | `asm/battle/actions/healing_alpha.asm` only cures COLD/SUNSTROKE (+ temporary group) | 2026-10-24 |
 | Window turns red after a fight where the last party member is unconscious | any battle | LOAD_CHARACTER_WINDOW_PALETTE (death flavour palette) | 2026-10-23 |
 | Pink text window during Pokey's escape speech | after the final Giygas prayer (save 36) | Poo is down, so LOAD_CHARACTER_WINDOW_PALETTE loads the death palette; emu gl-go/0148 | 2026-10-24 |
 
@@ -96,7 +97,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 |---|---|---|---|
 | Pay phones take $1 when you pick up the receiver | any pay phone | script `MSG_GLOBAL_TELEPHONE_2` (`take_from_wallet: 1`) | 2026-10-24 |
 | Game over: only the leader revives, PP is zeroed, money is halved | Continue → Yes | `asm/overworld/spawn.asm:81-83` | 2026-10-24 |
-| Hotel stay doesn't cure colds, mushroomization or sunstroke | any hotel | script (MSG_SHOP2_SUB_HOTEL_HEAL_ALL_PARTY restores HP/PP only) | 2026-10-24 |
+| Hotel stay doesn't cure colds, mushroomization, sunstroke or poison (also the free Dusty Dunes cabin, MSG_DSRT_HOTEL) | any hotel; cabin 8104,1896 (run-48, Ness stayed poisoned) | script (MSG_SHOP2_SUB_HOTEL_HEAL_ALL_PARTY restores HP/PP only) | 2026-10-24 |
 | Hot spring prints "washed all of the extremely dirty gunk" but doesn't heal conscious members | Saturn Valley, 508,7352 | emu; the script only heals unconscious members | 2026-10-24 |
 | Doctor says "I can only treat an illness" for mushroomization | Twoson hospital | script `_SUB_DOCTOR_1` | 2026-10-24 |
 | Front door stays shut after Pokey joins at night | Ness's house (run-01) | emu run02e; flag 467 clears only on Dad's first call | 2026-10-23 |
