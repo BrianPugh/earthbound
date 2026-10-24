@@ -55,7 +55,7 @@
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 12 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 13 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -71,7 +71,9 @@
                                * tamp-compressed stream; the header's crc32/payload_len
                                * describe the COMPRESSED bytes. Header stays uncompressed.
                                * v12: DisplayTextState gained the letter queue
-                               * (lq_len, lq_pos, letter_queue[128]). */
+                               * (lq_len, lq_pos, letter_queue[128]).
+                               * v13: entity fade metadata and tile merge slots moved
+                               * in ert.buffer (0x0E00/0x1200 -> 0x2B00/0x2F00). */
 
 /* Section IDs */
 enum {

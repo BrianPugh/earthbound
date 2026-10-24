@@ -29,7 +29,7 @@
 /* 96 colors (groups 2-7) × 2 bytes = 192 bytes per array.
  * Relocated from assembly's 0x7800 to pack after palette fade region.
  * Only active during comeback sequence (entities disabled), so sharing
- * the same buffer region as entity fade states is safe. */
+ * the same buffer region as the entity fade sprite copies is safe. */
 #define BUF_MAP_FADE_TARGET      0x0E00  /* Target palette */
 #define BUF_MAP_FADE_SLOPE_R     0x0F00  /* Red channel slopes */
 #define BUF_MAP_FADE_SLOPE_G     0x1000  /* Green channel slopes */
@@ -39,20 +39,36 @@
 #define BUF_MAP_FADE_ACCUM_B     0x1400  /* Blue channel accumulators */
 #define BUF_MAP_FADE_COLOR_COUNT 96      /* Colors in palette groups 2-7 */
 
-/* ===== Entity Fade States (callbacks.c) ===== */
-/* Relocated from assembly's 0x7C00 to pack tightly after palette fade region.
- * Active during overworld; concurrent with palette fade or entity sprite data. */
-#define BUF_ENTITY_FADE_STATES   0x0E00  /* 20-byte entries, up to ~50 (1024 B) */
+/* ===== Entity Fade (callbacks.c, INIT_ENTITY_FADE_STATE) ===== */
+/* Sprite copies: DOUBLE_ENTITY_FADE_STATE bump-allocates 2 copies of each
+ * fading sprite (tile_byte_width * height_px bytes) from BUFFER+$0000 upward,
+ * with no bound check, into the space below the metadata at BUFFER+$7C00
+ * (31 KB). The allocator only resets when a fade batch starts with no fade
+ * entity alive, so concurrent fades accumulate. Per sprite: 384 B for a
+ * 16x24 NPC (most sprites), 3072 B for the vehicles, 4096 B Tessie, 5120 B
+ * Dungeon Man. 0x2B00 holds 28 NPCs, or 2 Dungeon Men plus 2 NPCs.
+ * Aliases BUF_FADE_* (palette fade) like the asm, and BUF_MAP_FADE_* (only
+ * used with entities disabled). */
+#define BUF_ENTITY_FADE_SPRITES      0x0000
+#define BUF_ENTITY_FADE_SPRITES_SIZE 0x2B00
+
+/* Metadata: 20-byte EntityFadeEntry records, 1024 B like the asm ($7C00,
+ * 51 entries). Relocated to sit right after the sprite copies. */
+#define BUF_ENTITY_FADE_STATES   (BUF_ENTITY_FADE_SPRITES + BUF_ENTITY_FADE_SPRITES_SIZE) /* 0x2B00 */
 #define BUF_ENTITY_FADE_STATES_SIZE 1024
+#define ENTITY_FADE_STATES_MAX   (BUF_ENTITY_FADE_STATES_SIZE / 20)  /* 51 */
 
 /* ===== Entity Tile Merge Slot Table (callbacks.c) ===== */
 /* Relocated from assembly's 0x7F00 to right after entity fade states. */
-#define BUF_TILE_MERGE_SLOTS     0x1200  /* 64 entries × 2 bytes = 128 B */
+#define BUF_TILE_MERGE_SLOTS     (BUF_ENTITY_FADE_STATES + BUF_ENTITY_FADE_STATES_SIZE) /* 0x2F00 */
 #define BUF_TILE_MERGE_SLOTS_SIZE 128
 
 /* ===== Pathfinding (pathfinding.c) ===== */
 #define BUF_PATHFINDING_MATRIX   0x3000  /* BFS collision grid (~2 KB, max 4 KB for 64x64) */
 #define BUF_PF_HEAP              0x4000  /* BFS heap/scratch (0xC00 = 3072 bytes, ends 0x4C00) */
+
+_Static_assert(BUF_TILE_MERGE_SLOTS + BUF_TILE_MERGE_SLOTS_SIZE <= BUF_PATHFINDING_MATRIX,
+               "entity fade regions must end below the pathfinding matrix");
 
 /* ===== VWF Save/Restore (text.c) ===== */
 /* 1664-byte snapshot of vwf_buffer, used by vwf_render_string_at(),

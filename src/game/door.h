@@ -55,10 +55,10 @@ typedef struct {
 
     /* Transition scroll state (RAM vars $7E3C22-$7E3C30).
      * 32-bit fixed-point (16.16): high=pixel, low=fraction. */
-    int32_t transition_x_velocity;
-    int32_t transition_y_velocity;
-    int32_t transition_x_accum;
-    int32_t transition_y_accum;
+    uint32_t transition_x_velocity;
+    uint32_t transition_y_velocity;
+    uint32_t transition_x_accum;
+    uint32_t transition_y_accum;
 
     /* Saved interactions across door transitions (32-bit pointers). */
     uint32_t door_interactions[MAX_DOOR_INTERACTIONS];

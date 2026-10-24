@@ -653,10 +653,10 @@ int main(void) {
     FIELD(DoorState, door_found_type, "u16"); SEP();
     FIELD(DoorState, using_door, "u16"); SEP();
     FIELD(DoorState, wipe_palettes_on_map_load, "u16"); SEP();
-    FIELD(DoorState, transition_x_velocity, "i32"); SEP();
-    FIELD(DoorState, transition_y_velocity, "i32"); SEP();
-    FIELD(DoorState, transition_x_accum, "i32"); SEP();
-    FIELD(DoorState, transition_y_accum, "i32"); SEP();
+    FIELD(DoorState, transition_x_velocity, "u32"); SEP();
+    FIELD(DoorState, transition_y_velocity, "u32"); SEP();
+    FIELD(DoorState, transition_x_accum, "u32"); SEP();
+    FIELD(DoorState, transition_y_accum, "u32"); SEP();
     LAST_FIELD(DoorState, door_interactions, "u32[5]");
     END_SECTION();
 

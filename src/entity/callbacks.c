@@ -1060,11 +1060,11 @@ static const uint16_t entity_tile_byte_width_table[ENTITY_SIZE_COUNT] = {
 };
 
 /* Fade state entries — derived from ert.buffer, reconstructed at init */
-static EntityFadeEntry *entity_fade_entries;  /* Pointer to fade entry array at ert.buffer[0x7C00] */
+static EntityFadeEntry *entity_fade_entries;  /* ert.buffer[BUF_ENTITY_FADE_STATES] (asm BUFFER+$7C00) */
 
 /*
  * INIT_ENTITY_FADE_STATES_BUFFER (C4C8A4)
- * Zeros the 1KB fade states area at BUFFER+$7C00 and resets counters.
+ * Zeros the 1KB fade states area (asm BUFFER+$7C00) and resets counters.
  */
 static void init_entity_fade_states_buffer(void) {
     ert.entity_fade_states_buffer = 0;
@@ -1075,11 +1075,15 @@ static void init_entity_fade_states_buffer(void) {
 
 /*
  * DOUBLE_ENTITY_FADE_STATE (C4C8DB)
- * Allocates alloc_size bytes from the fade states ert.buffer.
- * Returns the old ert.buffer offset (before allocation).
+ * Bump-allocates alloc_size bytes of sprite copies from ert.buffer offset 0.
+ * Returns the old offset (before allocation). The asm has no bound check
+ * (its region is the 31 KB below the metadata at $7C00); here the region is
+ * BUF_ENTITY_FADE_SPRITES_SIZE, sized in buffer_layout.h.
  */
 static uint16_t double_entity_fade_state(uint16_t alloc_size) {
     uint16_t old = ert.entity_fade_states_buffer;
+    BUFFER_REGION_CHECK(BUF_ENTITY_FADE_SPRITES + old, alloc_size,
+                        BUF_ENTITY_FADE_SPRITES, BUF_ENTITY_FADE_SPRITES_SIZE);
     ert.entity_fade_states_buffer += alloc_size;
     return old;
 }
@@ -1123,6 +1127,7 @@ static void copy_8dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
     if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
+    BUFFER_BOUNDS_CHECK(dest_offset, copy_size);
     if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
 
     memcpy(&ert.buffer[dest_offset], bank_data + tile_data_offset, copy_size);
@@ -1164,6 +1169,7 @@ static void copy_4dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
     if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
+    BUFFER_BOUNDS_CHECK(dest_offset, copy_size);
     if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
 
     memcpy(&ert.buffer[dest_offset], bank_data + tile_data_offset, copy_size);
@@ -1219,6 +1225,10 @@ void init_entity_fade_state(uint16_t entity_slot, uint16_t fade_param) {
     }
 
     /* Assembly lines 46-52: compute pointer to this fade state entry */
+    BUFFER_REGION_CHECK(BUF_ENTITY_FADE_STATES +
+                            ert.entity_fade_states_length * sizeof(EntityFadeEntry),
+                        sizeof(EntityFadeEntry),
+                        BUF_ENTITY_FADE_STATES, BUF_ENTITY_FADE_STATES_SIZE);
     EntityFadeEntry *entry = &entity_fade_entries[ert.entity_fade_states_length];
 
     /* Assembly lines 55-58: entry.entity_slot = entity_slot */
@@ -1252,7 +1262,8 @@ void init_entity_fade_state(uint16_t entity_slot, uint16_t fade_param) {
     uint16_t buf_offset_1 = double_entity_fade_state(total_sprite_size * 2);
     entry->buf_offset_1 = buf_offset_1;
 
-    /* Clear the allocated region in the main ert.buffer */
+    /* Clear the allocated region in the main ert.buffer (CLEAR_BUFFER_RANGE) */
+    BUFFER_BOUNDS_CHECK(buf_offset_1, total_sprite_size * 2);
     if (buf_offset_1 + total_sprite_size * 2 <= BUFFER_SIZE)
         memset(&ert.buffer[buf_offset_1], 0, total_sprite_size * 2);
 

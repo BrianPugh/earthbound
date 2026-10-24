@@ -215,20 +215,22 @@ typedef struct {
  *   BUF_BATTLE_PALETTE_SAVE  0x2000  512 B — palettes saved for battle fade
  *
  * ENTITY FADE SPRITE DATA (callbacks.c — double_entity_fade_state)
+ *   Assembly: double_entity_fade_state.asm (BUFFER+$0000 up to $7C00, unchecked)
  *   Active during: overworld entity spawn/despawn wipe effects
- *   0x0000+        Bump-allocated sprite tile copies (grows upward)
- *   Typical: a few hundred bytes (one entity sprite ≈ 32–128 B × 2)
+ *   BUF_ENTITY_FADE_SPRITES 0x0000–0x2AFF  bump-allocated copies  11 KB
+ *   Per fading sprite: 2 copies, 384 B for a 16x24 NPC, up to 5120 B
+ *   (Dungeon Man); concurrent fades accumulate until the batch ends.
  *   NOT concurrent with palette fade — fades finish before transitions.
  *
  * ENTITY FADE METADATA (callbacks.c — entity_fade_entries)
  *   Assembly: init_entity_fade_states_buffer.asm
  *   Active during: overworld (concurrent with sprite data above)
- *   BUF_ENTITY_FADE_STATES  0x7C00–0x7FFF  20-byte entries     1024 B
+ *   BUF_ENTITY_FADE_STATES  0x2B00–0x2EFF  20-byte entries     1024 B
  *
  * ENTITY TILE MERGE SLOT TABLE (callbacks.c — cr_animate_entity_tile_merge)
  *   Assembly: clear_spritemap_buffer.asm, animate_entity_tile_merge.asm
  *   Active during: overworld entity wipe animation
- *   BUF_TILE_MERGE_SLOTS  0x7F00–0x7F7F  64-entry slot table    128 B
+ *   BUF_TILE_MERGE_SLOTS  0x2F00–0x2F7F  64-entry slot table    128 B
  *
  * PATHFINDING COLLISION MATRIX + HEAP (pathfinding.c)
  *   Assembly: initialize_pathfinding_for_entities.asm
@@ -301,7 +303,7 @@ typedef struct {
  *
  * === GAME PHASE CONCURRENCY (verified against assembly) ===
  *
- * Overworld:  BUF_FADE_TARGET OR entity_fade_sprite(0x0000) [not both]
+ * Overworld:  BUF_FADE_TARGET OR BUF_ENTITY_FADE_SPRITES [not both]
  *             + BUF_ENTITY_FADE_STATES + BUF_TILE_MERGE_SLOTS
  *             + BUF_PATHFINDING_MATRIX [on-demand]
  *             + BUF_MAP_FADE_* [during map transitions]
@@ -318,7 +320,8 @@ typedef struct {
  *
  * === OVERLAP SAFETY ANALYSIS ===
  *
- * Suspect 1: BUF_MAP_FADE_ACCUM_R (0x7C00) vs BUF_ENTITY_FADE_STATES (0x7C00)
+ * Suspect 1: BUF_MAP_FADE_ACCUM_R (asm 0x7C00) vs BUF_ENTITY_FADE_STATES (asm 0x7C00)
+ *   (in the C port BUF_MAP_FADE_* at 0x0E00 aliases the sprite copies instead)
  *   SAFE. Two code paths use BUF_MAP_FADE_ACCUM_R:
  *   (a) animate_map_palette_change() — only called from play_comeback_sequence(),
  *       which calls disable_all_entities() first. Entity fade data is stale.
@@ -331,13 +334,12 @@ typedef struct {
  *   NO LONGER APPLICABLE. PSI arrangements now use bundled format decompressed
  *   into PsiAnimationState.arr_bundle_buf, not ert.buffer.
  *
- * Suspect 3: Entity fade sprite alloc (0x0000+) vs BUF_PATHFINDING_MATRIX (0x3000)
- *   THEORETICAL RISK. The bump allocator has no bounds check (matching assembly).
- *   Worst case: 3 max-size entities (5120 B each) = 15360 B, exceeding 0x3000.
- *   Async spawn fades (GENERATE_ACTIVE_SPRITE) don't wait for completion, so
- *   pathfinding could theoretically run concurrently. In practice unlikely
- *   during normal gameplay but possible with heavily scripted spawn events.
- *   The original SNES game has the same vulnerability.
+ * Suspect 3: Entity fade sprite alloc (0x0000+) vs fade metadata / pathfinding
+ *   BOUNDED. The asm allocator is unchecked over 31 KB; here the copies get
+ *   BUF_ENTITY_FADE_SPRITES_SIZE (0x2B00) below the metadata, which ends
+ *   below BUF_PATHFINDING_MATRIX (static assert). double_entity_fade_state()
+ *   asserts the budget and init_entity_fade_state() the entry count (debug
+ *   builds); release builds stay unchecked like the asm.
  *
  * === DECOMPRESSED ASSET SIZES (measured via ebtools) ===
  *
@@ -402,8 +404,13 @@ typedef struct {
 #include <assert.h>
 #define BUFFER_BOUNDS_CHECK(off, len) \
     assert((size_t)(off) + (size_t)(len) <= (size_t)BUFFER_SIZE)
+/* Same, against a budgeted region [base, base + size) of the table above. */
+#define BUFFER_REGION_CHECK(off, len, base, size) \
+    assert((size_t)(off) >= (size_t)(base) && \
+           (size_t)(off) + (size_t)(len) <= (size_t)(base) + (size_t)(size))
 #else
 #define BUFFER_BOUNDS_CHECK(off, len) ((void)0)
+#define BUFFER_REGION_CHECK(off, len, base, size) ((void)0)
 #endif
 
 /* DELIVERY_PATHS — persistent path waypoint storage (C port substitute for

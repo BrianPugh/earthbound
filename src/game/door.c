@@ -18,7 +18,7 @@
 
 #include "game/door.h"
 
-#include <math.h>
+#include "core/math.h"
 #include "include/binary.h"
 #include <string.h>
 #include <stdio.h>
@@ -740,43 +740,31 @@ void check_door_near_leader(uint16_t direction) {
 
 /* ---- INIT_TRANSITION_SCROLL_VELOCITY (port of C42631) ----
  * Sets up background scroll velocity for the transition effect.
- * The assembly uses COSINE_SINE/COSINE with byte angles (0-255 = 0-360°).
- * We replicate the same fixed-point result using C math.
  *
  * Assembly parameter mapping:
- *   A = speed (from config.unknown5)
- *   X = direction * 4 (from config.direction << 2) */
+ *   A = speed (from config.scroll_speed)
+ *   X = direction * 4 (from config.direction << 2)
+ *
+ * The velocities are 32-bit 16.16 values (TRANSITION_*_VELOCITY_FRAC low word,
+ * TRANSITION_BACKGROUND_*_VELOCITY high word). The asm zeroes both words, stores
+ * the 16-bit COSINE_SINE / COSINE result at FRAC+1 (bits 8-23), then ORs $FF00
+ * into the high word when the result is negative: a sign-extended result << 8.
+ * COSINE_SINE is the Mode 7 multiply (speed * SINE_LOOKUP_TABLE[angle]) >> 8,
+ * with the table peaking at +-127. Unsigned math keeps the shifts and the
+ * 16-bit ADC carry chain in UPDATE_TRANSITION_SCROLL well defined. */
 static void init_transition_scroll_velocity(uint16_t speed,
                                              uint16_t direction_x4) {
-    dr.transition_x_velocity = 0;
-    dr.transition_y_velocity = 0;
+    /* Assembly: ADC #$0080 / AND #$00FF — add 128 (180 degrees) to the angle */
+    uint8_t angle = (uint8_t)((direction_x4 + 0x80) & 0xFF);
 
-    if (speed != 0) {
-        /* Assembly: ADC #$0080 / AND #$00FF — add 128 (180°) to byte angle */
-        uint8_t angle = (uint8_t)((direction_x4 + 0x80) & 0xFF);
+    int16_t x_vel = cosine_sine((int16_t)speed, angle);
+    int16_t y_vel = cosine_func((int16_t)speed, angle);
+    dr.transition_x_velocity = (uint32_t)(int32_t)x_vel << 8;
+    dr.transition_y_velocity = (uint32_t)(int32_t)y_vel << 8;
 
-        /* COSINE_SINE returns speed * sin(angle) in 8.8 fixed point.
-         * Then stored at TRANSITION_X_VELOCITY_FRAC+1, effectively << 8 within the
-         * 32-bit velocity field. So total shift is << 8 from 8.8 = << 8.
-         * Net: velocity = speed * sin(angle) * 256 in 16.16 fixed point,
-         * i.e. speed * sin(angle) pixels-per-frame when divided by 65536.
-         * But actually the result is already in the right range for smooth scroll. */
-        double rad = (double)angle * 2.0 * M_PI / 256.0;
-
-        /* COSINE_SINE → X velocity component: speed * sin(angle).
-         * COSINE → Y velocity component: speed * sin(angle-64) = -speed * cos(angle).
-         * Assembly uses COSINE (not COSINE_SINE) for Y, so Y velocity is NEGATIVE cosine.
-         * Assembly stores trig result in middle 16 bits of 32-bit field. */
-        int16_t sin_val = (int16_t)round((double)speed * sin(rad));
-        int16_t cos_val = (int16_t)round((double)speed * cos(rad));
-
-        dr.transition_x_velocity = (int32_t)sin_val << 8;
-        dr.transition_y_velocity = -(int32_t)cos_val << 8;
-    }
-
-    /* Initialize position from current BG scroll */
-    dr.transition_x_accum = (int32_t)ppu.bg_hofs[0] << 16;
-    dr.transition_y_accum = (int32_t)ppu.bg_vofs[0] << 16;
+    /* TRANSITION_BACKGROUND_X/Y = BG1_X/Y_POS, position fractions = 0 */
+    dr.transition_x_accum = (uint32_t)ppu.bg_hofs[0] << 16;
+    dr.transition_y_accum = (uint32_t)ppu.bg_vofs[0] << 16;
 }
 
 /* ---- UPDATE_TRANSITION_SCROLL (port of C4268A) ----
