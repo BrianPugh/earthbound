@@ -217,6 +217,53 @@ uv run --no-sync python playtest/run.py NAME playtest/saves/24-Museum.srm playte
 `playtest/out/NAME/{log.txt,sheet.png}`: the output lines and a labelled
 contact sheet of every `shot`. Script files use `.play` (`*.txt` is gitignored).
 
+## Frame-by-frame comparison (framehash)
+
+`regress.py compare` diffs 2 builds at the cases' checkpoints. To compare
+every frame, use `framehash` (playtest/framehash.py); don't write your own
+FIFO reader:
+
+```
+uv run --no-sync python playtest/regress.py framehash OLD_BIN NEW_BIN
+uv run --no-sync python playtest/regress.py framehash OLD_BIN NEW_BIN -k bus --png 5
+uv run --no-sync python playtest/regress.py framehash OLD_BIN NEW_BIN --no-cases \
+    --session bk1 --script sun=path/save.srm:path/input.play
+```
+
+Each case runs on both binaries at once (`--record-video` to a FIFO), every
+frame is hashed, and the report gives per case the frame counts and each
+differing frame with its changed pixels split into the SNES band
+(`[PAD_LEFT, PAD_LEFT+256) x [PAD_TOP, PAD_TOP+224)`, e.g. x[32,288) y[8,232)
+at 320x240) and the gutters/pad rows outside it. The viewport comes from the
+game's `RECORD video WxH` line; 320x240, 256x224 and 240x240 builds work, and
+both binaries must match. Extra cases: `--script NAME=SAVE:SCRIPT` (played as
+is, so include the boot lines) and `--session NAME` (a pt.py session's
+start.srm + history.play). Other options: `-j N` parallel cases (2 games
+each, default half the CPUs), `--timeout S` per case (default 3x the case's,
+600 for extras), `--png N` diff PNGs for the first N differing frames per
+case (A | B | changed pixels, band outlined), `--list N` frames listed per
+case. Output: `playtest/out/regress/framehash/A-vs-B/` (`report.txt`,
+`CASE.csv` with every differing frame, `CASE.A.hashes`, logs, `png/`).
+
+It can't hang: the FIFO is opened non-blocking, reads wait on `select`
+against the case deadline, a case that runs out of time has its games killed
+and shows as TIMEOUT, a game that exits without recording shows as NO VIDEO,
+and Ctrl-C/SIGTERM kill the games and remove the temp dirs.
+
+## Background jobs
+
+Long runs (framehash, regress, videos, BFS scripts) go in the background; keep
+them from piling up:
+
+- Don't wait on a job whose output has stopped changing for ~5 minutes: check
+  the results it has written, kill it, and carry on.
+- Leave no jobs running when you report (`pt.py stop NAME` for sessions).
+- `uv run --no-sync python playtest/stale_jobs.py` lists the playtest-related
+  processes (games, pt.py, regress.py, emu, ffmpeg, scripts under playtest/ or
+  a scratchpad) with elapsed time, %CPU and the age of their newest output, and
+  flags idle ones whose output is older than `--minutes` (default 15) as
+  STALE. It never kills anything; `--all` prints the output paths it checked.
+
 ## Story saves
 
 `playtest/saves/` is gitignored. It holds 36 emulator SRAM files (8 KB `.srm`,

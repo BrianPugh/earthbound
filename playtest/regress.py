@@ -7,6 +7,7 @@ Usage (from the repo root)::
     uv run --no-sync python playtest/regress.py check NAME [--bin BIN]   # run BIN, diff against goldens NAME
     uv run --no-sync python playtest/regress.py diff RUN_DIR_A RUN_DIR_B    # re-diff two finished runs
     uv run --no-sync python playtest/regress.py list
+    uv run --no-sync python playtest/regress.py framehash BIN_A BIN_B [--png N] [--script NAME=SAVE:SCRIPT] [--session NAME]
 
 Common options: ``-k PATTERN`` (run cases whose name contains PATTERN; repeatable), ``-j N``
 (parallel games, default the CPU count), ``--timeout S`` (wall-clock limit per case).
@@ -26,6 +27,10 @@ A run that ends early (crash, signal, wall-clock timeout, game exit) is reported
 checkpoint that never ran. Results go to ``playtest/out/regress/`` (gitignored): ``runs/TAG/CASE/``
 holds each game's log and shots, ``golden/NAME/`` the recorded goldens, and ``diff/A-vs-B/``
 the report and a PNG per differing checkpoint (A | B | changed pixels in red on B).
+
+``framehash`` compares every frame of 2 builds over the cases instead of the checkpoints (see
+playtest/framehash.py): per case the frame counts, each differing frame, and how many of its
+pixels differ inside the SNES band vs the gutters. Results go to ``framehash/A-vs-B/``.
 """
 
 import argparse
@@ -359,6 +364,19 @@ def main():
     s.add_argument("dir_a")
     s.add_argument("dir_b")
     sub.add_parser("list", help="list the cases")
+    s = sub.add_parser("framehash", help="compare every frame of two binaries over the cases (playtest/framehash.py)")
+    s.add_argument("bin_a")
+    s.add_argument("bin_b")
+    s.add_argument("-k", action="append", help="only cases whose name contains this (repeatable)")
+    s.add_argument("-j", type=int, help="parallel cases, 2 games each (default: half the CPU count)")
+    s.add_argument("--timeout", type=float, help="wall-clock seconds per case (default: 3x the case's; extras 600)")
+    s.add_argument("--png", type=int, default=0, metavar="N", help="write diff PNGs of the first N differing frames")
+    s.add_argument("--list", type=int, default=40, metavar="N", help="differing frames listed per case in the report")
+    s.add_argument("--script", action="append", default=[], metavar="NAME=SAVE:SCRIPT", help="extra case (repeatable)")
+    s.add_argument(
+        "--session", action="append", default=[], metavar="NAME", help="extra case: a pt.py session's history"
+    )
+    s.add_argument("--no-cases", action="store_true", help="only the --script/--session extras")
     a = ap.parse_args()
 
     if a.cmd == "diff":
@@ -369,6 +387,28 @@ def main():
         for c in all_cases():
             print(f"{c['name']:<28} {c['save'] or '-':<16} {c['about']}")
         return 0
+    if a.cmd == "framehash":
+        import framehash
+
+        for b in (a.bin_a, a.bin_b):
+            if not Path(b).exists():
+                sys.exit(f"binary not found: {b}")
+        cases = [] if a.no_cases else framehash.regress_cases(sys.modules[__name__], a.k)
+        cases += [framehash.script_case(spec) for spec in a.script]
+        cases += [framehash.session_case(HERE / "out" / "sessions", n) for n in a.session]
+        if not cases:
+            sys.exit("no cases")
+        ta, tb = build_tag(a.bin_a), build_tag(a.bin_b)
+        if ta == tb:
+            ta, tb = ta + "-A", tb + "-B"
+        outdir = OUT / "framehash" / f"{ta}-vs-{tb}"
+        return (
+            1
+            if framehash.run(
+                cases, a.bin_a, a.bin_b, outdir, a.j, a.timeout, a.png, a.list, clean=not (a.k or a.no_cases)
+            )
+            else 0
+        )
     cases = all_cases(a.k)
     if not cases:
         sys.exit("no cases match")
