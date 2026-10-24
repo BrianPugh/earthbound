@@ -123,7 +123,16 @@ When a suspected divergence comes up (port behaviour that might or might not be 
 | Fire Spring sanctuary | 33-FireSpring (after boss) | `until in:DOOR_TRANSITION 120 UP` → 6352,9880; `30 DOWN; until text 100 DOWN+LEFT; until text 100 LEFT; until text 200 UP` → hotspot 31 ~6128,9831; melody ~1300 frames |
 | Magicant: Sea of Eden entrance | 34-Magicant | bush maze NW of town traps you; from `teleport 5760 4690 6`: `8 DOWN; 110 LEFT; 200 UP; until battle 250 LEFT` (enemy NPC), `16 DOWN; 40 LEFT; 150 DOWN+LEFT; 60 LEFT; 200 UP; 30 LEFT; 200 UP; 20 DOWN; 200 RIGHT` (wounded memory), `10 DOWN; 200 RIGHT; 30 RIGHT; 250 UP+RIGHT; 150 UP; 250 RIGHT; 250 UP`, pink maze to 5556,3904, `10 LEFT; press L` → 432,9584 |
 | Sea of Eden Krakens → Nightmare | 34-Magicant | from 432,9584: `until text 200 RIGHT; until text 150 DOWN; until text 300 RIGHT` ×2 (Kraken 1), `30 RIGHT; until text 300 UP` ×2, `20 LEFT; until text 200 UP; until text 300 LEFT\|UP` (Kraken 2), `until text 300 UP; until text 300 LEFT; 80 DOWN; until battle 300 LEFT` (Kraken 3), `until text 105 LEFT; until text 60 UP; 20 DOWN; 44 LEFT; until text 60 UP` → 496,9137, `press L`. Nightmare is slow on Auto Fight; debug SELECT+START wins |
-| Debug menu in emu | any | the original's cursor redraw lags one item: `press DOWN 5; wait 40; press A; wait 60` for STAFF (port: `press UP 2`) |
+| Debug menu in emu | any | the original's cursor redraw lags one item and labels are off: "STONE" runs CAST, the third garbled row below CAST runs STAFF. `press DOWN 5; wait 40; press A; wait 60` for STAFF (port: `press UP 2`) |
+| Meteorite piece | 35-Onett | `flag 11 1; teleport 2075 128 4`, `press L` (npc198 at 2080,144), Yes |
+| Andonuts takes the Meteorite piece | 35-Onett (with piece) | `warp 4; 20 RIGHT; 30 UP` to 387,7656 facing UP (npc728), Goods → Ness → Meteorite piece → Use |
+| Saturn Valley hotel sleep (clears flag 169) | 35-Onett | door 216,7768 → 6488,8008; `24 DOWN; 10 UP; 20 LEFT` to 6471,8032, talk to npc710, Yes |
+| Phase Distorter 2 → Lost Underworld | 35-Onett (flag 134 set, 169 clear) | talk to Andonuts from 387,7657 facing UP, No (sets FLG_DOSEI_INFO_EQUIP), talk again, Yes; `20 RIGHT; 30 UP` into npc741; arrival 5488,340 (~700 frames) |
+| PD3 → Cave of the Past | after PD2 | walk RIGHT to the Starman (Poo Starstorm), into hotspot 8 (5904-5952,216-240) from 5912,217; Apple Kid npc1271 from 5935,251 facing RIGHT (flag 285); robot Andonuts npc1270 from 5776,180 facing LEFT; Yes ×3; arrival 592,6964 after ~4000 frames |
+| Cave of the Past doors | 36-CavePast | door pairs 416,6360↔896,7360 and 672,5976↔864,7616; final door 943 at 192,6040 (from 199,6070: `10 LEFT; 40 UP`) → lair 4240,2032 |
+| Post-Giygas → Mom → ENDING | after the Giygas win | farewells auto-run (~11000 frames), escort Paula (Yes), `warp 2`, walk to 2044,7103 (Polestar); PSI Teleport Onett, `teleport 2640 440 0; until text 200 UP` (house door 2648,336), `20 DOWN; until text 200 LEFT; 10 UP; 50 RIGHT` to 7576,344, talk to Mom npc14 twice, Yes |
+| Debug CAST | 36-CavePast | `debug on`, B+R, `press DOWN 5`, A ×3, `press UP 5; press DOWN`, A |
+| Dalaam different-tileset sector | 36-CavePast | `flag 11 1; teleport 4448 3480 4` |
 | Damage screen shake | 06-ToHappy | `teleport 6112 7776`, fight Zap Eel + Even Slimier Little Pile; a mortal hit shakes ~60 frames plus 10-frame holds |
 
 When you reach a new scene that took effort to find, **add a row here** (save, exact steps) in the same commit as your work.
