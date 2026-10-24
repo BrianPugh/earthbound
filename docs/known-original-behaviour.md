@@ -40,6 +40,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Long Ness's Nightmare fight, most Bashes "Just missed!" | Magicant (save 34) | MISS_CALC reads the Casey bat's miss rate; Nightmare runs out of its 882 PP | 2026-10-23 |
 | Damage, status and reward distributions (Frank, Mondo Mole heals, Smilin' Sphere group, Carbon Dog, Plague Rat, Thunder and Storm, Hard Crocodile + Zap Eel) | see coverage doc "Battle parity" | statistical emu comparison, bt-p1..8 vs bt-e1..8 | 2026-10-24 |
 | Turn-by-turn RNG replay against the emu drifts | any battle | original has CPU-lag frames that skip WINDOW_TICK's RAND; compare distributions instead | 2026-10-24 |
+| Battle-end RAND ticks land on one frame in the port, spread over ~30 frames in the original; the total matches | last prompt of a won battle, normal or debug instant win (02-Sharks, Spiteful Crow at 2660,440) | `rng` seeded at the last prompt on both sides: 17450 21161 → 29218 17098 (3 RANDs) on port and emu; instant win 4660 22136 → 24722 9369 on both; sessions bxp1/bxo1 | 2026-10-24 |
 | Rolling HP meter lets a member survive a mortal hit | any battle | asm | 2026-10-23 |
 | Zap Eel fires 2 bolts | Deep Darkness | asm | 2026-10-23 |
 | Lopsided Titanic Ant / Antoid layout | Giant Step (save 03) | asm (random back-row edge) | 2026-10-23 |
