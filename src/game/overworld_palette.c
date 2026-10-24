@@ -77,24 +77,24 @@ uint16_t adjust_single_colour(uint16_t colour1, uint16_t colour2) {
 
 /* ---- Enemy touch flash helpers ---- */
 static uint16_t background_colour_backup_ow;
-static uint8_t tm_backup_ow;
 
 /* ---- Savestate snapshot (see OwPaletteBackupSaveState in overworld.h) ---- */
 void ow_palette_backup_savestate_pack(void *out) {
     OwPaletteBackupSaveState *s = (OwPaletteBackupSaveState *)out;
     s->background_colour_backup_ow = background_colour_backup_ow;
-    s->tm_backup_ow                = tm_backup_ow;
 }
 
 void ow_palette_backup_savestate_unpack(const void *in) {
     const OwPaletteBackupSaveState *s = (const OwPaletteBackupSaveState *)in;
     background_colour_backup_ow = s->background_colour_backup_ow;
-    tm_backup_ow                = s->tm_backup_ow;
 }
 
+/* RESTORE_BG_PALETTE_AND_ENABLE_DISPLAY: TM_MIRROR is set to a fixed $17
+ * (BG1+BG2+BG3+OBJ), not restored from a backup. */
 void restore_bg_palette_callback(void) {
     ert.palettes[0] = background_colour_backup_ow;
-    ppu.tm = tm_backup_ow;
+    ppu.tm = 0x17;
+    ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
 }
 
 void start_enemy_touch_flash(void) {
@@ -102,8 +102,8 @@ void start_enemy_touch_flash(void) {
     if (ow.enemy_has_been_touched) return;
     background_colour_backup_ow = ert.palettes[0];
     ert.palettes[0] = (31 << 0) | (0 << 5) | (0 << 10);  /* RGB(31,0,0) = pure red */
-    tm_backup_ow = ppu.tm;
     ppu.tm = 0;  /* TM_MIRROR = 0: hide all layers */
+    ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;  /* SET_PALETTE_UPLOAD_MODE 8 */
     schedule_overworld_task(restore_bg_palette_callback, 1);
 }
 
@@ -198,8 +198,8 @@ StepResult mode_step_hp_alert(ModeState *st) {
  *
  * Called every main loop frame. Applies per-frame damage from:
  *   - Affliction 5 (poison): 10 HP every 120 frames
- *   - Affliction 4 (sunstroke): 10 HP every 120 frames
- *   - Afflictions 6-7 (environmental): 2 HP every 240 frames
+ *   - Affliction 4 (nauseous): 10 HP every 120 frames
+ *   - Afflictions 6-7 (sunstroke, cold): 2 HP every 240 frames
  *   - Hot tile (trodden_tile_type & 0x0C == 12): 2 HP every 240 frames
  *
  * If a character's HP drops to 0, sets affliction to unconscious (1),
@@ -278,7 +278,7 @@ OwDamageStatus ow_damage_step(OwDamageState *s) {
                     ow.overworld_damage_countdown_frames[i] = 120;
                 }
             } else {
-                /* --- Environmental/sunstroke damage --- */
+                /* --- Nausea/sunstroke/cold/hot-tile damage --- */
                 bool apply_env = false;
                 if (affliction >= 4 && affliction <= 7) {
                     apply_env = true;
@@ -295,7 +295,7 @@ OwDamageStatus ow_damage_step(OwDamageState *s) {
                         /* Timer expired — apply damage */
                         s->damage_events++;
                         if (affliction == 4) {
-                            /* Sunstroke: 10 HP damage */
+                            /* Nauseous: 10 HP damage */
                             cs->current_hp -= 10;
                             cs->current_hp_target -= 10;
                         } else {
@@ -305,7 +305,7 @@ OwDamageStatus ow_damage_step(OwDamageState *s) {
                         }
                         need_alert = ow_check_low_hp(i);
                     } else {
-                        /* Reset timer: 120 frames for sunstroke, 240 for others */
+                        /* Reset timer: 120 frames for nauseous, 240 for others */
                         ow.overworld_damage_countdown_frames[i] = (affliction == 4) ? 120 : 240;
                     }
                 }

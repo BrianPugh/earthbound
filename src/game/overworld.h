@@ -900,11 +900,10 @@ typedef struct {
 void overworld_deferred_savestate_pack(void *out);   /* out: OverworldDeferredSaveState* */
 void overworld_deferred_savestate_unpack(const void *in);
 
-/* The 1-frame palette/TM backup taken around a screen-flash (overworld_palette.c),
- * restored next frame by a deferred task. */
+/* The 1-frame backdrop-colour backup taken around a screen-flash
+ * (overworld_palette.c), restored next frame by a deferred task. */
 typedef struct {
     uint16_t background_colour_backup_ow;
-    uint8_t  tm_backup_ow;
 } OwPaletteBackupSaveState;
 void ow_palette_backup_savestate_pack(void *out);   /* out: OwPaletteBackupSaveState* */
 void ow_palette_backup_savestate_unpack(const void *in);
