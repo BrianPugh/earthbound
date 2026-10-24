@@ -108,6 +108,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Password door prints only "@....." | Grapefruit Falls, 6376,264, without flag 131 | script `MSG_EVT2_GPFT_GUARD_PASSWORD` (Mr. Saturn npc739 sets FLG_DOSEI_SECRETCODE) | 2026-10-24 |
 | Gold Mine cliff and cave missing; the hole leads to the small dig cave | Dusty Dunes, 3656,9632, without flag 174 | emu (save 17); set by Topolla manager npc839 | 2026-10-24 |
 | Monotoli Building door stays shut | Fourside, without flag 143 | script | 2026-10-23 |
+| Winters lab: Andonuts says the Sky Runner is ready but it isn't there (npc621/623 hidden by flag 748) | run-49 (Rainy Circle done before Andonuts' "cave north of Stonehenge" talk); lab 7824,2864 | `MSG_WINS_ANDONUT_RAINY_CIRCLE` jumps to `_SKY_RUNNER_READY` when FLG_POWR_RAIN is set, skipping `clear_event_flag FLG_WINS_SKYW_DISAPPEAR`; only reachable after the relay's harness teleport past Bubble Monkey (leg 50 used `flag 748 0`) | 2026-10-24 |
 
 ## Audio
 
