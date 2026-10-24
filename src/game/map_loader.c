@@ -1071,13 +1071,78 @@ static void load_map_palette_photograph(void) {
  *   4. BG1 = tile entry as-is
  *   5. BG2 = tile entry | $2000 if tile_index < 384, else 0
  *   6. Write to VRAM tilemaps */
-/* True when every block of the 256x128 map sector (sector_x, sector_y) is block
- * 0: a featureless void sector (the black filler the map uses between areas;
- * nothing in it is walkable). */
-static bool sector_is_all_block0(uint16_t sector_x, uint16_t sector_y) {
-    for (uint16_t by = sector_y * 4; by < sector_y * 4 + 4; by++) {
-        for (uint16_t bx = sector_x * 8; bx < sector_x * 8 + 8; bx++) {
-            if (get_block_id(bx, by) != 0) return false;
+/* Block drawn at world tile (world_tx, world_ty): the map's block when the tile
+ * is on the map and its sector uses the loaded tileset combo, else block 0. */
+static uint16_t visible_block_id(int16_t world_tx, int16_t world_ty) {
+    if (world_tx < 0 || world_ty < 0 || !tilesetpalette_data) return 0;
+    uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
+    if (tp_index >= tilesetpalette_size ||
+        (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo)
+        return 0;
+    return get_block_id((uint16_t)world_tx / 4, (uint16_t)world_ty / 4);
+}
+
+/* Colour index (0-15) an 8x8 4bpp tile is solidly filled with, or -1 when
+ * its pixels differ. Each bitplane byte of a solid tile is $00 or $FF and the
+ * same on all 8 rows (planes 0/1 at bytes 0-15, planes 2/3 at 16-31). */
+static int solid_tile_color(uint32_t byte_addr) {
+    if (byte_addr + 32 > sizeof(ppu.vram)) return -1;
+    const uint8_t *t = &ppu.vram[byte_addr];
+    int color = 0;
+    for (int plane = 0; plane < 4; plane++) {
+        const uint8_t *row0 = t + (plane >> 1) * 16 + (plane & 1);
+        uint8_t v = row0[0];
+        if (v != 0x00 && v != 0xFF) return -1;
+        for (int row = 1; row < 8; row++) {
+            if (row0[row * 2] != v) return -1;
+        }
+        if (v) color |= 1 << plane;
+    }
+    return color;
+}
+
+/* What block_id draws when it is one flat colour: the CGRAM index of that
+ * colour, 0 when it is transparent on both layers (backdrop), or -1 when it
+ * shows any detail. LOAD_MAP_ROW_TO_VRAM puts the same entry on BG1 (tile data
+ * at VRAM byte $0000) and, for tiles < 384, on BG2 with priority (tile data at
+ * byte $4000; BG12NBA = $20), which then covers BG1 wherever it is opaque. */
+static int block_flat_color(uint16_t block_id) {
+    int key = -2;
+    for (uint8_t i = 0; i < 16; i++) {
+        uint16_t entry = get_arrangement_tile(block_id, i & 3, i >> 2);
+        uint16_t tile = entry & 0x03FF;
+        int palette = (entry >> 10) & 7;
+        int c = 0;
+        if (tile < 384) {
+            c = solid_tile_color(0x4000 + (uint32_t)tile * 32);
+            if (c < 0) return -1;
+        }
+        if (c == 0) {
+            c = solid_tile_color((uint32_t)tile * 32);
+            if (c < 0) return -1;
+        }
+        int k = c ? palette * 16 + c : 0;
+        if (key == -2) key = k;
+        else if (k != key) return -1;
+    }
+    return key;
+}
+
+/* True when the SNES's 256x224 view (world tiles [x0,x1] x [y0,y1]) shows a
+ * featureless BG: every block in it is block 0's flat colour (the void filler
+ * the map uses between areas, or a block drawn just like it). The camera's own
+ * block is tested first; in normal play the leader stands on a detailed
+ * block, so this returns at once. */
+static bool band_is_void(int32_t x0, int32_t x1, int32_t y0, int32_t y1) {
+    int void_key = block_flat_color(0);
+    if (void_key < 0) return false;
+    if (block_flat_color(visible_block_id((int16_t)((x0 + x1) / 2),
+                                         (int16_t)((y0 + y1) / 2))) != void_key)
+        return false;
+    for (int32_t ty = y0 & ~3; ty <= y1; ty += 4) {
+        for (int32_t tx = x0 & ~3; tx <= x1; tx += 4) {
+            if (block_flat_color(visible_block_id((int16_t)tx, (int16_t)ty)) != void_key)
+                return false;
         }
     }
     return true;
@@ -1100,24 +1165,28 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
      * rows above Onett's meteorite hill), and the wide viewport extends them the
      * same way. */
 
-    /* Void stage: some scenes park the camera on the player inside a void
-     * sector, e.g. TEXT_DOOR_903's fall into the Lost Underworld (party made
-     * invisible, ~340 frames at 3200,1152, which is sector (12,9), all block 0).
-     * The asm relies on the SNES's 256x224 view to keep the screen black: the
-     * void sector is exactly one view wide, and the next sector (same tileset)
-     * holds cave terrain. The wide viewport would show that terrain in
-     * the gutter. While the camera follows the player (camera_mode 0) in such a
-     * sector, tiles outside the SNES-visible rectangle [cam-128, cam+128) x
-     * [cam-112, cam+112) take block 0, extending the void the SNES shows. Tiles
-     * inside the rectangle are untouched, and the whole tilemap is refilled from
-     * the current camera every time, so the rule can't leave stale tiles. At
-     * native resolution only off-screen tiles change. */
-    bool void_stage = game_state.camera_mode == 0 &&
-                      sector_is_all_block0(cam_x_pixels >> 8, cam_y_pixels >> 7);
+    /* Void stage: some scenes park the camera where the SNES's 256x224 view
+     * shows only block 0 (the black void filler) and rely on that view size to
+     * keep the screen black, while terrain sits just outside it:
+     * TEXT_DOOR_903's fall into the Lost Underworld (party hidden at
+     * 3200,1152), Dr. Andonuts' Phase Distorter "Ready... stand by" stage
+     * (teleport 81) and the THE END... ? card (3200,1136), where the wide
+     * viewport would show cave or cliff terrain in the gutters. While the
+     * camera follows the player (camera_mode 0) and every block of the
+     * SNES-visible rectangle [cam-128, cam+128) x [cam-112, cam+112) draws
+     * block 0's flat colour (the stage itself is block 875 at the Andonuts /
+     * THE END spot, the same black tile as block 0), the tiles outside it
+     * take block 0 too, extending the void the SNES shows. Tiles inside the rectangle are untouched, and the whole
+     * tilemap is refilled from the current camera every time, so the rule
+     * can't leave stale tiles. Normal play never triggers it (the leader
+     * stands on a detailed block). At native resolution only off-screen tiles
+     * change. */
     int32_t band_x0 = ((int32_t)cam_x_pixels - SNES_WIDTH / 2) >> 3;
     int32_t band_x1 = ((int32_t)cam_x_pixels + SNES_WIDTH / 2 - 1) >> 3;
     int32_t band_y0 = ((int32_t)cam_y_pixels - SNES_HEIGHT / 2) >> 3;
     int32_t band_y1 = ((int32_t)cam_y_pixels + SNES_HEIGHT / 2 - 1) >> 3;
+    bool void_stage = game_state.camera_mode == 0 &&
+                      band_is_void(band_x0, band_x1, band_y0, band_y1);
 
     /* BG1 tilemap at VRAM byte $7000 (word $3800), 64×32 entries.
      * BG2 tilemap at VRAM byte $B000 (word $5800), 64×32 entries.
@@ -1125,24 +1194,15 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
 
     for (int ty = 0; ty < 32; ty++) {
         int16_t world_ty = view_y_tile + ty;
-        uint16_t by = (uint16_t)world_ty / 4;       /* block row */
         uint8_t sub_row = (uint16_t)world_ty & 3;   /* row within block (0-3) */
 
         for (int tx = 0; tx < 64; tx++) {
             int16_t world_tx = view_x_tile + tx;
-            uint16_t bx = (uint16_t)world_tx / 4;       /* block column */
             uint8_t sub_col = (uint16_t)world_tx & 3;   /* column within block (0-3) */
 
             /* In-bounds tiles in a sector matching the loaded tileset combo
              * render their real block; everything else keeps block 0. */
-            uint16_t block_id = 0;
-            if (world_tx >= 0 && world_ty >= 0 && tilesetpalette_data) {
-                uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
-                if (tp_index < tilesetpalette_size &&
-                    (tilesetpalette_data[tp_index] >> 3) == (uint8_t)ml.loaded_tileset_combo) {
-                    block_id = get_block_id(bx, by);
-                }
-            }
+            uint16_t block_id = visible_block_id(world_tx, world_ty);
 
             if (void_stage &&
                 (world_tx < band_x0 || world_tx > band_x1 ||
