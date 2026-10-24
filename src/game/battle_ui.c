@@ -1095,14 +1095,24 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
  * sprite_id: 1-based index into BATTLE_SPRITES_POINTERS table.
  */
 void load_battle_sprite(uint16_t sprite_id) {
-    if (sprite_id == 0 || !battle_sprites_pointers_data) return;
+    if (!battle_sprites_pointers_data) return;
 
     /* Record spritemap allocation start for this sprite (assembly lines 26-30) */
     bt.battle_spritemap_allocation_counts[bt.current_battle_sprites_allocated] =
         bt.current_battle_spritemaps_allocated;
 
-    /* Determine sprite size from BATTLE_SPRITES_POINTERS table (lines 134-142) */
-    uint8_t size_enum = battle_sprites_pointers_data[(sprite_id - 1) * BATTLE_SPRITES_ENTRY_SIZE + 4];
+    /* Determine sprite size from BATTLE_SPRITES_POINTERS table (lines 134-142).
+     *
+     * sprite_id 0 (the invisible Giygas phases, enemies 219-221/229) has no
+     * entry: the asm doesn't check for it and reads entry -1, the bytes just
+     * before the table. Its size byte is none of 2-6, so the sprite is 1x1, and
+     * it still takes a sprite slot, a palette slot and one spritemap. Pokey,
+     * listed after Giygas in those groups, therefore stays at sprite slot 1,
+     * where his battler's vram_sprite_index points (his escape speech after the
+     * final prayer shows him). The graphics come from a stray pointer; nothing
+     * draws them (the battler's sprite is 0), so the tile slot is cleared. */
+    uint8_t size_enum = (sprite_id == 0) ? 0 :
+        battle_sprites_pointers_data[(sprite_id - 1) * BATTLE_SPRITES_ENTRY_SIZE + 4];
 
     /* Set width and height based on sprite size enum (lines 143-296) */
     uint16_t width = 1, height = 1;
@@ -1202,6 +1212,17 @@ void load_battle_sprite(uint16_t sprite_id) {
      * battle_sprite_buffer_offsets.asm), 32 words loaded from the donor ROM. */
     const uint8_t *buffer_offsets =
         ASSET_DATA(ASSET_DATA_BATTLE_SPRITE_BUFFER_OFFSETS_BIN);
+
+    if (sprite_id == 0) {
+        /* 1x1: one spritemap, 4 rows of 128 bytes (see the size note above) */
+        if (bt.current_battle_spritemaps_allocated >= 32) return;
+        uint16_t dest_base = read_u16_le(buffer_offsets
+                                         + bt.current_battle_spritemaps_allocated * 2);
+        bt.current_battle_spritemaps_allocated++;
+        for (uint16_t row = 0; row < 4; row++)
+            memset(&ert.buffer[dest_base + row * 0x200], 0, 128);
+        return;
+    }
 
     const uint8_t *compressed = ASSET_DATA(ASSET_BATTLE_SPRITES(sprite_id - 1));
     size_t compressed_size = ASSET_SIZE(ASSET_BATTLE_SPRITES(sprite_id - 1));
