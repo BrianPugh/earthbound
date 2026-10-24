@@ -1071,15 +1071,84 @@ static void load_map_palette_photograph(void) {
  *   4. BG1 = tile entry as-is
  *   5. BG2 = tile entry | $2000 if tile_index < 384, else 0
  *   6. Write to VRAM tilemaps */
+/* True when world tile (world_tx, world_ty) is on the map and its sector uses
+ * the loaded tileset combo, i.e. LOAD_MAP_ROW stores its real block. */
+static bool tile_in_loaded_area(int16_t world_tx, int16_t world_ty) {
+    if (world_tx < 0 || world_ty < 0 || !tilesetpalette_data) return false;
+    uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
+    return tp_index < tilesetpalette_size &&
+           (tilesetpalette_data[tp_index] >> 3) == (uint8_t)ml.loaded_tileset_combo;
+}
+
 /* Block drawn at world tile (world_tx, world_ty): the map's block when the tile
  * is on the map and its sector uses the loaded tileset combo, else block 0. */
 static uint16_t visible_block_id(int16_t world_tx, int16_t world_ty) {
-    if (world_tx < 0 || world_ty < 0 || !tilesetpalette_data) return 0;
-    uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
-    if (tp_index >= tilesetpalette_size ||
-        (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo)
-        return 0;
+    if (!tile_in_loaded_area(world_tx, world_ty)) return 0;
     return get_block_id((uint16_t)world_tx / 4, (uint16_t)world_ty / 4);
+}
+
+/* Wide-viewport gutter overrides (port-only; no asm counterpart).
+ *
+ * The block-0 filler that LOAD_MAP_ROW stores for off-map and foreign-tileset
+ * tiles is what the SNES shows, but at a few area edges the wide viewport's
+ * gutters show it as a flat strip beside scenery cut in half (the half trees
+ * west of the Tenda Village cave entrance). maps/gutter_overrides.bin, packed
+ * by ebtools from the authored src/custom_assets/maps/gutter_overrides.json
+ * (format in ebtools/parsers/gutter_overrides.py), gives such strips block
+ * ids of the loaded tileset. An entry applies while its tileset combo is
+ * loaded, only to filler tiles, and only while the SNES-visible band doesn't
+ * touch its rectangle, so the 256x224 picture never changes and the strip
+ * flips back to filler as a whole once the SNES camera would reveal it.
+ * Collision is untouched (fill_collision_tiles reads the map itself), which
+ * is fine because the gutter is never reachable. The table lives in the
+ * embedded asset (flash); the active list is on the stack. */
+#define GUTTER_OVERRIDE_ENTRY_HEADER 8
+#define MAX_ACTIVE_GUTTER_OVERRIDES 4
+
+typedef struct {
+    const uint8_t *blocks;      /* u16 LE block ids, row-major */
+    int32_t x0, y0, x1, y1;     /* world tile rect, inclusive */
+    uint8_t width;              /* in blocks */
+} ActiveGutterOverride;
+
+/* Collect the entries that can draw this fill: matching tileset combo,
+ * visible in the tilemap window [vx0,vx1] x [vy0,vy1], and clear of the SNES
+ * band [bx0,bx1] x [by0,by1] (all world tiles). Returns how many. */
+static int collect_gutter_overrides(ActiveGutterOverride *out,
+                                    int32_t vx0, int32_t vx1, int32_t vy0, int32_t vy1,
+                                    int32_t bx0, int32_t bx1, int32_t by0, int32_t by1) {
+    int n = 0;
+#ifdef ASSET_MAPS_GUTTER_OVERRIDES_BIN_DATA
+    const uint8_t *data = ASSET_MAPS_GUTTER_OVERRIDES_BIN_DATA;
+    size_t size = ASSET_MAPS_GUTTER_OVERRIDES_BIN_SIZE;
+    if (size < 2) return 0;
+    uint16_t count = read_u16_le(data);
+    size_t off = 2;
+    for (uint16_t i = 0; i < count && n < MAX_ACTIVE_GUTTER_OVERRIDES; i++) {
+        if (off + GUTTER_OVERRIDE_ENTRY_HEADER > size) break;
+        const uint8_t *e = data + off;
+        uint8_t w = e[4], h = e[5];
+        size_t len = GUTTER_OVERRIDE_ENTRY_HEADER + (size_t)w * h * 2;
+        if (off + len > size) break;
+        off += len;
+        if (e[6] != (uint8_t)ml.loaded_tileset_combo) continue;
+        ActiveGutterOverride a = {
+            .blocks = e + GUTTER_OVERRIDE_ENTRY_HEADER,
+            .x0 = (int32_t)read_u16_le(e) * 4,
+            .y0 = (int32_t)read_u16_le(e + 2) * 4,
+            .width = w,
+        };
+        a.x1 = a.x0 + w * 4 - 1;
+        a.y1 = a.y0 + h * 4 - 1;
+        if (a.x1 < vx0 || a.x0 > vx1 || a.y1 < vy0 || a.y0 > vy1) continue;
+        if (!(a.x1 < bx0 || a.x0 > bx1 || a.y1 < by0 || a.y0 > by1)) continue;
+        out[n++] = a;
+    }
+#else
+    (void)out; (void)vx0; (void)vx1; (void)vy0; (void)vy1;
+    (void)bx0; (void)bx1; (void)by0; (void)by1;
+#endif
+    return n;
 }
 
 /* Colour index (0-15) an 8x8 4bpp tile is solidly filled with, or -1 when
@@ -1188,6 +1257,11 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
     bool void_stage = game_state.camera_mode == 0 &&
                       band_is_void(band_x0, band_x1, band_y0, band_y1);
 
+    ActiveGutterOverride gutter[MAX_ACTIVE_GUTTER_OVERRIDES];
+    int gutter_count = collect_gutter_overrides(gutter, view_x_tile, view_x_tile + 63,
+                                                view_y_tile, view_y_tile + 31,
+                                                band_x0, band_x1, band_y0, band_y1);
+
     /* BG1 tilemap at VRAM byte $7000 (word $3800), 64×32 entries.
      * BG2 tilemap at VRAM byte $B000 (word $5800), 64×32 entries.
      * Each tilemap is split into two 32-wide nametables (HORIZONTAL mode). */
@@ -1203,6 +1277,18 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
             /* In-bounds tiles in a sector matching the loaded tileset combo
              * render their real block; everything else keeps block 0. */
             uint16_t block_id = visible_block_id(world_tx, world_ty);
+
+            if (gutter_count && !tile_in_loaded_area(world_tx, world_ty)) {
+                for (int g = 0; g < gutter_count; g++) {
+                    const ActiveGutterOverride *a = &gutter[g];
+                    if (world_tx < a->x0 || world_tx > a->x1 ||
+                        world_ty < a->y0 || world_ty > a->y1) continue;
+                    size_t i = (size_t)((world_ty - a->y0) >> 2) * a->width +
+                               (size_t)((world_tx - a->x0) >> 2);
+                    block_id = read_u16_le(a->blocks + i * 2);
+                    break;
+                }
+            }
 
             if (void_stage &&
                 (world_tx < band_x0 || world_tx > band_x1 ||

@@ -34,6 +34,15 @@ def pack_all(
             ),
         ),
     ] = None,
+    custom_dir: Annotated[
+        Path | None,
+        Parameter(
+            help=(
+                "Authored (committed) asset overrides, e.g. maps/gutter_overrides.json. "
+                "Defaults to assets_dir/../custom_assets (src/custom_assets)."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Pack all human-friendly assets from src/assets/ back to binary format.
 
@@ -706,6 +715,9 @@ def pack_all(
     # --- Battle backgrounds ---
     packed += _pack_all_battle_bgs(assets_dir, output_dir)
 
+    # --- Wide-viewport gutter overrides (authored, src/custom_assets/) ---
+    packed += _pack_gutter_overrides(custom_dir or assets_dir.parent / "custom_assets", output_dir)
+
     # --- Inline string table ---
     string_table_data = string_table.build()
     if string_table_data:
@@ -1339,6 +1351,17 @@ def _pack_all_battle_sprites(assets_dir: Path, bin_dir: Path, output_dir: Path) 
     # So pass output_dir/battle_sprites — locale files go to output_dir/US/battle_sprites/
     pack_battle_sprites(sprites_dir, bin_dir, output_dir / "battle_sprites")
     print(f"  Packed {len(pngs)} battle sprites")
+    return 1
+
+
+def _pack_gutter_overrides(custom_dir: Path, output_dir: Path) -> int:
+    json_path = custom_dir / "maps" / "gutter_overrides.json"
+    if not json_path.exists():
+        return 0
+    from ebtools.parsers.gutter_overrides import pack_gutter_overrides
+
+    count = pack_gutter_overrides(json_path, output_dir / "maps" / "gutter_overrides.bin")
+    print(f"  Packed {count} wide-viewport gutter overrides")
     return 1
 
 

@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Wide-viewport gutter overrides, packed by ebtools pack-all (format: ebtools/parsers/gutter_overrides.py).",
+    "Authored block ids of the loaded tileset, drawn only in the wide-viewport gutters over tiles that",
+    "would otherwise show the block-0 filler, and only while the SNES 256x224 view doesn't reach them.",
+    "block_x/block_y are in 32x32-pixel map blocks; blocks is a list of rows."
+  ],
+  "overrides": [
+    {
+      "name": "Tenda Village cave entrance, west edge: grass and the left halves of the edge trees",
+      "tileset_combo": 6,
+      "block_x": 135,
+      "block_y": 216,
+      "blocks": [
+        [24],
+        [24],
+        [24],
+        [24],
+        [36],
+        [44],
+        [24],
+        [24],
+        [24],
+        [24],
+        [24],
+        [24],
+        [36],
+        [44],
+        [24],
+        [25],
+        [24],
+        [24],
+        [60],
+        [118],
+        [157],
+        [213],
+        [36],
+        [44],
+        [24],
+        [24],
+        [24],
+        [24],
+        [24],
+        [36],
+        [44],
+        [24],
+        [25],
+        [24],
+        [24],
+        [24],
+        [24],
+        [24],
+        [36],
+        [44]
+      ]
+    }
+  ]
+}

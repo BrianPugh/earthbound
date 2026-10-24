@@ -75,6 +75,9 @@ set(EMBED_DECL "${EMBED_GEN_DIR}/embedded_assets_decl.h")
 
 # Glob all human-friendly asset files so pack-all re-runs when they change
 file(GLOB_RECURSE ASSET_SOURCE_FILES CONFIGURE_DEPENDS "${ASSETS_DIR}/*")
+# Authored map overrides packed by pack-all (e.g. maps/gutter_overrides.json)
+file(GLOB_RECURSE CUSTOM_MAP_SOURCE_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/maps/*.json")
 
 add_custom_command(
     OUTPUT ${PACK_ALL_STAMP}
@@ -85,7 +88,7 @@ add_custom_command(
         -y ${PROJECT_ROOT}/earthbound.yml
         -c ${PROJECT_ROOT}/commondefs.yml
     COMMAND ${CMAKE_COMMAND} -E touch ${PACK_ALL_STAMP}
-    DEPENDS ${ASSET_SOURCE_FILES}
+    DEPENDS ${ASSET_SOURCE_FILES} ${CUSTOM_MAP_SOURCE_FILES}
     COMMENT "Packing all human-friendly assets to binary"
 )
 
