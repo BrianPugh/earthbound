@@ -11,6 +11,7 @@
 #include "data/event_script_data.h"
 #include "include/binary.h"
 #include "snes/ppu.h"
+#include "core/math.h"
 #include "core/memory.h"
 #include "core/embedded.h"
 #include "data/assets.h"
@@ -811,7 +812,22 @@ StepResult mode_step_text_input(ModeState *st) {
     }
 
     /* --- Input handling (skipped on the first frame: no yield has happened
-       yet, matching the blocking loop's render-before-first-read order) --- */
+       yet, matching the blocking loop's render-before-first-read order) ---
+     *
+     * WINDOW_TICK starts with JSL RAND. `rand_ticks` counts the WINDOW_TICKs
+     * this step's asm path runs (all just advance the RNG; the order between
+     * them is irrelevant):
+     *   - @RENDER_CURSOR's WINDOW_TICK (text_input_dialog.asm:167): on entry
+     *     and after every action that jumps back to it (cursor move, character,
+     *     Backspace, Don't Care, CAPITAL/small, an empty-name confirm).
+     *   - @REDRAW_KEYBOARD's WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+     *     (text_input_dialog.asm:97) when the layout changes.
+     *   - RENDER_KEYBOARD_INPUT_CHARACTER's text-speed delay
+     *     (render_keyboard_input_character.asm:253): SELECTED_TEXT_SPEED + 1
+     *     WINDOW_TICKs per inserted/deleted character. Instant printing is on
+     *     there, so each exits right after the RAND without rendering. */
+    uint16_t rand_ticks = 0;
+    const uint16_t char_ticks = (uint16_t)(dt.selected_text_speed + 1);
     if (s->relayout) {
         /* Second half of @REDRAW_KEYBOARD: the empty keyboard window has been
            shown for a frame; print the new layout. Input is next read after
@@ -820,49 +836,40 @@ StepResult mode_step_text_input(ModeState *st) {
         set_instant_printing();
         kb_display_layout(s);
         clear_instant_printing();
-    } else if (s->primed) {
+    } else if (!s->primed) {
+        rand_ticks = 1; /* @RENDER_CURSOR on entry */
+    } else {
         uint16_t pressed = platform_input_get_pad_new();
+        uint16_t held = core.pad1_autorepeat; /* PAD_HELD */
 
-        /* Directional input — assembly: MOVE_CURSOR plays SFX only on
-           successful cursor movement (SFX 124 for UP/DOWN, 123 for LEFT/RIGHT) */
-        if (pressed & PAD_UP) {
-            int found = kb_find_next(kw, s->cur_x, s->cur_y, 0, -1);
-            if (found >= 0) {
-                s->cur_y = (found >> 8) & 0xFF;
-                s->cur_x = found & 0xFF;
-                play_sfx(124);
-            }
-        }
-        if (pressed & PAD_DOWN) {
-            int found = kb_find_next(kw, s->cur_x, s->cur_y, 0, 1);
-            if (found >= 0) {
-                s->cur_y = (found >> 8) & 0xFF;
-                s->cur_x = found & 0xFF;
-                play_sfx(124);
-            }
-        }
-        if (pressed & PAD_LEFT) {
-            int found = kb_find_next(kw, s->cur_x, s->cur_y, -1, 0);
-            if (found >= 0) {
-                s->cur_y = (found >> 8) & 0xFF;
-                s->cur_x = found & 0xFF;
-                play_sfx(123);
-            }
-        }
-        if (pressed & PAD_RIGHT) {
-            int found = kb_find_next(kw, s->cur_x, s->cur_y, 1, 0);
-            if (found >= 0) {
-                s->cur_y = (found >> 8) & 0xFF;
-                s->cur_x = found & 0xFF;
-                play_sfx(123);
-            }
-        }
+        /* Directions: the asm tests PAD_PRESS UP, LEFT, DOWN, RIGHT, then
+           PAD_HELD (auto-repeat) UP, DOWN, LEFT, RIGHT, taking the first match
+           and skipping the button checks. MOVE_CURSOR / FIND_NEXT_MENU_OPTION
+           play the SFX only on a successful move; @UPDATE_CURSOR_POSITION
+           always ends at @RENDER_CURSOR. */
+        int dx = 0, dy = 0;
+        if (pressed & PAD_UP)         dy = -1;
+        else if (pressed & PAD_LEFT)  dx = -1;
+        else if (pressed & PAD_DOWN)  dy = 1;
+        else if (pressed & PAD_RIGHT) dx = 1;
+        else if (held & PAD_UP)       dy = -1;
+        else if (held & PAD_DOWN)     dy = 1;
+        else if (held & PAD_LEFT)     dx = -1;
+        else if (held & PAD_RIGHT)    dx = 1;
 
         /* `confirm_request` replaces the blocking loop's `goto confirm_name`. */
         bool confirm_request = false;
 
-        /* A/L button: select */
-        if (pressed & PAD_CONFIRM) {
+        if (dx != 0 || dy != 0) {
+            int found = kb_find_next(kw, s->cur_x, s->cur_y, dx, dy);
+            if (found >= 0) {
+                s->cur_y = (found >> 8) & 0xFF;
+                s->cur_x = found & 0xFF;
+                play_sfx(dy != 0 ? 124 : 123); /* NAMING_CURSOR_VERTICAL / horizontal */
+            }
+            rand_ticks = 1;
+        } else if (pressed & PAD_CONFIRM) {
+            /* A/L button: select */
             if (s->cur_y == 6) {
                 /* Row 6: buttons */
                 if (s->cur_x == 0 && s->has_dont_care) {
@@ -881,13 +888,22 @@ StepResult mode_step_text_input(ModeState *st) {
                         s->eb_name[i] = eb_src[i];
                         s->name_pos++;
                     }
-                    /* Continue loop — assembly jumps back to @RENDER_CURSOR */
+                    /* RENDER_DONT_CARE_NAME: one RENDER_KEYBOARD_INPUT_CHARACTER
+                       per character, then @RENDER_CURSOR. */
+                    rand_ticks = (uint16_t)(1 + char_ticks * s->name_pos);
                 } else if (s->cur_x == 17) {
-                    /* Backspace */
+                    /* Backspace (@BACKSPACE_SELECTED): an empty name returns to
+                       the previous screen, like B. */
                     play_sfx(122); /* SFX::TEXT_INPUT */
                     if (s->name_pos > 0) {
                         s->name_pos--;
                         s->eb_name[s->name_pos] = 0;
+                        rand_ticks = (uint16_t)(char_ticks + 1);
+                    } else if (s->naming_index != -1) {
+                        close_window(WINDOW_FILE_SELECT_NAMING_KB);
+                        return STEP_RESULT_POP(-1);
+                    } else {
+                        rand_ticks = 1;
                     }
                 } else if (s->cur_x == 25) {
                     /* OK */
@@ -903,18 +919,22 @@ StepResult mode_step_text_input(ModeState *st) {
                        empty for one frame (WINDOW_TICK_WITHOUT_INSTANT_PRINTING)
                        and then prints the new layout (next step). */
                     bool lower = (s->cur_x == 7);
+                    rand_ticks = 1;
                     if (lower != (bool)s->is_lowercase) {
                         s->is_lowercase = lower;
                         create_window(WINDOW_FILE_SELECT_NAMING_KB);
                         s->relayout = 1;
+                        rand_ticks = 2;
                     }
                 } else {
                     /* Punctuation at column 11/12 */
                     int col = kb_text_x_to_grid_col(s->cur_x);
                     const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
+                    rand_ticks = 1;
                     if (col >= 0 && grid[4][col] != 0xFF && s->name_pos < s->max_len) {
                         s->eb_name[s->name_pos] = grid[4][col];
                         s->name_pos++;
+                        rand_ticks += char_ticks;
                     }
                 }
             } else if (s->cur_y >= 0 && s->cur_y <= 3) {
@@ -922,47 +942,55 @@ StepResult mode_step_text_input(ModeState *st) {
                 play_sfx(122); /* SFX::TEXT_INPUT */
                 int col = kb_text_x_to_grid_col(s->cur_x);
                 const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
+                rand_ticks = 1;
                 if (col >= 0 && grid[s->cur_y][col] != 0xFF && s->name_pos < s->max_len) {
                     s->eb_name[s->name_pos] = grid[s->cur_y][col];
                     s->name_pos++;
+                    rand_ticks += char_ticks;
                 }
             }
-        }
-
-        /* B/SELECT: backspace (assembly: @CHECK_B_SELECT) */
-        if (pressed & PAD_CANCEL) {
+        } else if (pressed & PAD_CANCEL) {
+            /* B/SELECT: backspace (assembly: @CHECK_B_SELECT) */
             play_sfx(125); /* SFX::NAMING_BACKSPACE */
             if (s->name_pos > 0) {
                 s->name_pos--;
                 s->eb_name[s->name_pos] = 0;
+                rand_ticks = (uint16_t)(char_ticks + 1);
             } else if (s->naming_index != -1) {
                 /* No characters and not standalone — go back to previous screen.
                    Assembly only closes the keyboard window; name box and message
                    are left for the caller. */
                 close_window(WINDOW_FILE_SELECT_NAMING_KB);
                 return STEP_RESULT_POP(-1);
+            } else {
+                rand_ticks = 1;
             }
-        }
-
-        /* START: confirm */
-        if (pressed & PAD_START) {
+        } else if (pressed & PAD_START) {
+            /* START: confirm */
             play_sfx(126); /* SFX::NAMING_CONFIRM_ALT */
             confirm_request = true;
         }
 
         /* Only confirm if at least one character entered
-           (assembly: @CONFIRM_NAME checks STRLEN of KEYBOARD_INPUT_CHARACTERS) */
-        if (confirm_request && s->name_pos > 0) {
-            uint8_t *name_buf = name_target_buffer(s->name_target);
-            if (name_buf) {
-                memset(name_buf, 0, (size_t)s->max_len);
-                for (int i = 0; i < (int)s->name_pos && i < (int)s->max_len; i++)
-                    name_buf[i] = s->eb_name[i];
+           (assembly: @CONFIRM_NAME checks STRLEN of KEYBOARD_INPUT_CHARACTERS;
+           an empty name goes back to @RENDER_CURSOR) */
+        if (confirm_request) {
+            if (s->name_pos == 0) {
+                rand_ticks = 1;
+            } else {
+                uint8_t *name_buf = name_target_buffer(s->name_target);
+                if (name_buf) {
+                    memset(name_buf, 0, (size_t)s->max_len);
+                    for (int i = 0; i < (int)s->name_pos && i < (int)s->max_len; i++)
+                        name_buf[i] = s->eb_name[i];
+                }
+                close_window(WINDOW_FILE_SELECT_NAMING_KB);
+                return STEP_RESULT_POP(0);
             }
-            close_window(WINDOW_FILE_SELECT_NAMING_KB);
-            return STEP_RESULT_POP(0);
         }
     }
+    while (rand_ticks--)
+        rng_next_byte();
 
     /* --- Render one frame (no yield; owned by the pump) --- */
 
@@ -1432,6 +1460,13 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 kb_build_name_display(display, empty_name, 0, ng_name_targets[i].max_len);
                 name_tile_cols = kb_render_name_tiles(display, ng_name_targets[i].max_len);
             }
+            /* name_a_character.asm:33/121 run WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+               after creating each window, and CC_13_14 (the prompt wait) starts
+               with a WINDOW_TICK; each begins with JSL RAND. The prompt mode's
+               first frame stands in for CC_13_14's render. */
+            rng_next_byte();
+            rng_next_byte();
+            rng_next_byte();
             ngn_child_init = (ModeState){0};
             ngn_child_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
             st->phase = NGN_PROMPT_DONE;
@@ -1582,7 +1617,11 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             }
             /* Yep */
             change_music(158); /* MUSIC::NAME_CONFIRMATION */
-            st->wait_frames = 180;
+            /* file_select_menu_loop.asm:483: WINDOW_TICK (JSL RAND first; the
+               windows are already drawn), then 180 RENDER_FRAME_TICKs. The
+               tick's frame is the 181st wait frame. */
+            rng_next_byte();
+            st->wait_frames = 181;
             st->phase = NGN_CONFIRM_WAIT;
             continue;
         }
