@@ -198,10 +198,10 @@ int16_t cr_movement_loop(int16_t ent, int16_t scr,
 int16_t cr_render_entity_sprite_me2(int16_t ent, int16_t scr,
                                     uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
-    /* ASM: STZ USE_SECOND_SPRITE_FRAME → render with frame 0 */
-    entities.animation_frame[ent] = 0;
-    /* ASM: falls through to RENDER_ENTITY_SPRITE_SETUP_AND_RENDER */
-    render_entity_sprite(ent);
+    /* ASM: STZ USE_SECOND_SPRITE_FRAME → render with frame 0. It leaves
+     * ENTITY_ANIMATION_FRAME alone, so a $FF set by SET_ANIMATION keeps the
+     * entity hidden (e.g. the Lost Underworld geysers, EVENT_674_ENTRY_3). */
+    render_entity_sprite_frame(ent, false);
     return 0;
 }
 
@@ -215,11 +215,10 @@ int16_t cr_render_entity_sprite_me2(int16_t ent, int16_t scr,
 int16_t cr_render_entity_sprite_me1(int16_t ent, int16_t scr,
                                     uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
-    /* ASM: LDA #$0001 / STA USE_SECOND_SPRITE_FRAME → render with frame 1 */
-    entities.animation_frame[ent] = 1;
-    /* ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER
-     * Only upload tiles if entity is on screen. */
-    render_entity_sprite(ent);
+    /* ASM: LDA #$0001 / STA USE_SECOND_SPRITE_FRAME → render with frame 1
+     * (ENTITY_ANIMATION_FRAME is not written).
+     * ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER */
+    render_entity_sprite_frame(ent, true);
     return 0;
 }
 

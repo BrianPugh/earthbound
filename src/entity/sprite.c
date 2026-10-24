@@ -521,6 +521,16 @@ static const uint8_t blank_tile_row[512] = {0};
  *   6. Copy tile data from bank data to ppu.vram[] via vram_copy_row_safe
  */
 void render_entity_sprite(int16_t ent) {
+    render_entity_sprite_frame(ent, entities.animation_frame[ent] > 0);
+}
+
+/*
+ * RENDER_ENTITY_SPRITE_ENTRY4 with an explicit USE_SECOND_SPRITE_FRAME.
+ * The asm's entry points set that transient global themselves (ME1: 1,
+ * ME2/ENTRY3: 0, ENTRY2/ME3: ENTITY_ANIMATION_FRAME) and never write
+ * ENTITY_ANIMATION_FRAME, which DRAW_ENTITY uses as the hide flag (BMI).
+ */
+void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
     uint16_t tile_height = entities.tile_heights[ent];
     uint16_t byte_width = entities.byte_widths[ent];
     uint16_t vram_addr = entities.vram_address[ent];
@@ -553,9 +563,8 @@ void render_entity_sprite(int16_t ent) {
      * gfx_ptr_lo already points to the first word (no bank byte to skip). */
     uint32_t frame_ptr_off = (uint32_t)gfx_ptr_lo + (uint32_t)dir_offset * 4;
 
-    /* Select frame: animation_frame chooses which 2-byte pointer within the direction */
-    int16_t frame = entities.animation_frame[ent];
-    if (frame > 0) {
+    /* ASM: LDA USE_SECOND_SPRITE_FRAME / BEQ / INC $02 x2 */
+    if (use_second_frame) {
         frame_ptr_off += 2;  /* Frame 1 */
     }
 
