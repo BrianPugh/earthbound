@@ -51,6 +51,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | PSI Healing α "had no visible effect" on a poisoned member; Healing β cures it | overworld, run-48 cabin (Ness poisoned by a Skelpion) | `asm/battle/actions/healing_alpha.asm` only cures COLD/SUNSTROKE (+ temporary group) | 2026-10-24 |
 | Window turns red after a fight where the last party member is unconscious | any battle | LOAD_CHARACTER_WINDOW_PALETTE (death flavour palette) | 2026-10-23 |
 | Pink text window during Pokey's escape speech | after the final Giygas prayer (save 36) | Poo is down, so LOAD_CHARACTER_WINDOW_PALETTE loads the death palette; emu gl-go/0148 | 2026-10-24 |
+| Kraken's "breathed fire" hits all 4 for 180-300 each (Fire γ) and goes straight through PSI Shield Σ; its Crashing Boom Bang also ignores the shield (only the Franklin badge deflects it) | run-51.srm, Summers sailor npc1065 → Kraken battle | action_table.asm FIRE_BREATH = type OTHER + BTLACT_PSI_FIRE_G; PSI_SHIELD_NULLIFY only acts on ACTION_TYPE::PSI; port run52a (242/225/199 with the shield up) | 2026-10-24 |
 
 ## Text and windows
 
@@ -110,6 +111,9 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Monotoli Building door stays shut | Fourside, without flag 143 | script | 2026-10-23 |
 | Winters lab: Andonuts says the Sky Runner is ready but it isn't there (npc621/623 hidden by flag 748) | run-49 (Rainy Circle done before Andonuts' "cave north of Stonehenge" talk); lab 7824,2864 | `MSG_WINS_ANDONUT_RAINY_CIRCLE` jumps to `_SKY_RUNNER_READY` when FLG_POWR_RAIN is set, skipping `clear_event_flag FLG_WINS_SKYW_DISAPPEAR`; only reachable after the relay's harness teleport past Bubble Monkey (leg 50 used `flag 748 0`) | 2026-10-24 |
 | Paralysis survives the Summers doctor ("I can only treat an illness. Sorry.", $70 not charged), Healing β ("no visible effect") and a hotel stay; only Healing γ cures it | run-50.srm, Summers hospital doctor npc1049 (door 6504,2736 → nurse room, top door 6800,9656 → 7360,9704; talk from 7265,9696 facing UP), L'hotel de Summers | ESHOP2 `_SUB_DOCTOR_1` (`_DCTR_DAIYA` for diamond and paralysis), `MSG_SHOP2_SUB_HOTEL_HEAL_ALL_PARTY` skips both; asm `healing_beta.asm` cures only poison/nausea/crying/strange; port run51a | 2026-10-24 |
+| Summers museum charges the $3 admission again after you leave and come back | run-51.srm, museum lobby ticket lady npc1033 | DOOR_SCRIPTS `TEXT_DOOR_647` clears FLG_GLOBAL_MUSEUM_PAID; port run52a | 2026-10-24 |
+| Checking the hieroglyph plaque (8040,9560, facing UP) only prints the exhibit description while Poo is unconscious; Poo reads the hieroglyphs (and Omar then hands over the Hieroglyph copy) only when he is conscious | run-51.srm, hieroglyph room | EBGMESS `MSG_SIGN_SUMMERS_HIEROGLYPHS_PYRAMID` (`MSG_SYS_CHECK_CHAR_KO` on Poo → `_READ_SUMS_HIERO_DEAD`); port run52a | 2026-10-24 |
+| The Shattered Man vases (npc1039/1040) start their battle when you walk into them, no Talk needed | run-51.srm, hieroglyph room ~8038,9568 | NPC script MSG_BTL9_FMON_HIEROGLYPH_SHATTERED_A/B (touch-triggered field monster); port run52a | 2026-10-24 |
 
 ## Audio
 
