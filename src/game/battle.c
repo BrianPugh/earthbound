@@ -3141,9 +3141,12 @@ void close_all_windows_and_hide_hppp(void) {
      * final combined state (windows cleared + HP/PP hidden) and advance the
      * background once. The two explicit ticks rendered no new window state the
      * collapsed frame can show, so dropping them changes nothing visible except
-     * removing the over-advance. */
+     * removing the over-advance. Each dropped WINDOW_TICK still starts with
+     * JSL RAND, so advance the RNG for both. */
     hide_hppp_windows();
     close_all_windows();
+    rng_next_byte();
+    rng_next_byte();
 }
 
 /*
@@ -5907,6 +5910,11 @@ StepResult mode_step_instant_win(ModeState *state) {
             /* --- Restore music and re-enable entities --- */
             close_all_windows();
             hide_hppp_windows();
+            /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP (instant_win_handler.asm:327) runs
+             * 2 more WINDOW_TICKs after close_all_windows' own; each starts
+             * with JSL RAND. */
+            rng_next_byte();
+            rng_next_byte();
 
             if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
                 change_music(82);  /* MUSIC::BICYCLE */
