@@ -2039,6 +2039,43 @@ static uint16_t temp_sub_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PP
 static uint8_t  temp_sub_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  temp_tm_all_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 
+/* Wide-mode decision for one frame (see the call in ppu_render_frame_ex).
+ * Runs once per frame, so it stays out of EB_PPU_RAM_SECTION; noinline keeps
+ * GCC from folding it into the RAM-resident caller.
+ *
+ * Any active layer that fills the viewport (64-tile tilemap or explicit
+ * bg_viewport_fill flag) triggers full-width rendering. Other screens (intro,
+ * menus, gas station, file select) use 32-tile tilemaps without fill and
+ * render at SNES native resolution centered. Note: bg2_distortion
+ * (per-scanline HDMA) is applied inside render_bg_scanline() regardless of
+ * wide_mode.
+ *
+ * Wide mode is enabled for ANY non-native viewport (both larger AND smaller
+ * than SNES) so that filling layers render at EB_VIEWPORT_WIDTH while
+ * non-filling layers are centered/cropped correctly.
+ *
+ * Backdrop-only frame: no BG layer and no OBJ on the main screen (e.g.
+ * START_ENEMY_TOUCH_FLASH's TM=0 red flash) and no sub-screen layer in colour
+ * math. On the SNES every pixel is then the backdrop colour (plus fixed-colour
+ * math and brightness), so it renders across the whole viewport, gutters and
+ * pad rows included; the native path would leave them black. Band pixels are
+ * the same either way, since no pixel depends on layer or sprite placement. */
+static __attribute__((noinline)) bool frame_wide_mode(const int bg_bpp[4],
+                                                      uint8_t layers_needed,
+                                                      bool sub_math) {
+    if (EB_VIEWPORT_WIDTH == SNES_WIDTH && EB_VIEWPORT_HEIGHT == SNES_HEIGHT)
+        return false;
+    bool main_empty = !ppu.tm_hdma_active && !(ppu.tm & LAYER_OBJ);
+    for (int bg = 0; bg < 4; bg++) {
+        if (bg_bpp[bg] == 0) continue;
+        if ((layers_needed & (1 << bg)) &&
+            ((ppu.bg_sc[bg] & 0x01) || ppu.bg_viewport_fill[bg]))
+            return true;
+        if (ppu.tm & (1 << bg)) main_empty = false;
+    }
+    return main_empty && !(sub_math && (ppu.ts & 0x1F));
+}
+
 void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                          int y_stride, scanline_callback_t send_scanline) {
 #if EB_PPU_BG_ROW_CACHE
@@ -2112,25 +2149,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Which layers need rendering (union of main + sub screen) */
     uint8_t layers_needed = ppu.tm | ppu.ts;
 
-    /* Detect wide mode: any active layer that fills the viewport (64-tile
-     * tilemap or explicit bg_viewport_fill flag) triggers full-width rendering.
-     * Other screens (intro, menus, gas station, file select) use 32-tile
-     * tilemaps without fill and render at SNES native resolution centered.
-     * Note: bg2_distortion (per-scanline HDMA) is applied inside
-     * render_bg_scanline() regardless of wide_mode.
-     *
-     * Wide mode is enabled for ANY non-native viewport (both larger AND
-     * smaller than SNES) so that filling layers render at EB_VIEWPORT_WIDTH
-     * while non-filling layers are centered/cropped correctly. */
-    bool wide_mode = false;
-    if (EB_VIEWPORT_WIDTH != SNES_WIDTH || EB_VIEWPORT_HEIGHT != SNES_HEIGHT) {
-        for (int bg = 0; bg < 4 && !wide_mode; bg++) {
-            if (!(layers_needed & (1 << bg))) continue;
-            if (bg_bpp[bg] == 0) continue;
-            if ((ppu.bg_sc[bg] & 0x01) || ppu.bg_viewport_fill[bg])
-                wide_mode = true;
-        }
-    }
+    /* Wide mode: a filling layer, or a backdrop-only frame (frame_wide_mode). */
+    bool wide_mode = frame_wide_mode(bg_bpp, layers_needed,
+                                     color_math_active && use_sub_screen);
 
     int render_height = EB_VIEWPORT_HEIGHT;
     int render_width = EB_VIEWPORT_WIDTH;
