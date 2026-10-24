@@ -2629,6 +2629,12 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
         /* Set BG3_Y_POS = -1 */
         ppu.bg_vofs[2] = 0xFFFF;
+
+        /* Wide viewport (C port): sequence 1 is the photographer's camera
+         * shutter (EVENT_452), a full-screen overlay; continue it into the
+         * gutters. UNDRAW_FLYOVER_TEXT puts BG3 back to CENTER. */
+        if (lasf_id == 1)
+            ppu.bg_viewport_fill[2] = BG_VIEWPORT_CONTINUE;
         return 0;
     }
 

@@ -498,6 +498,11 @@ void undraw_flyover_text(void) {
     load_character_window_palette();
 
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+
+    /* Wide viewport (C port): end the camera shutter's gutter continuation
+     * (LOAD_ANIMATION_SEQUENCE_FRAME). */
+    if (ppu.bg_viewport_fill[2] == BG_VIEWPORT_CONTINUE)
+        ppu.bg_viewport_fill[2] = BG_VIEWPORT_CENTER;
 }
 
 /* ======================================================================

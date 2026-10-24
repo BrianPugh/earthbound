@@ -43,6 +43,9 @@ typedef enum BGViewportMode : uint8_t {
     BG_VIEWPORT_TALL   = 3, /* like CENTER, but an overworld-space layer also draws
                              * the rows above/below the SNES picture (scrolling
                              * text: the staff roll) */
+    BG_VIEWPORT_CONTINUE = 4, /* like CENTER; the gutters continue the band's
+                               * edge colours and the lines crossing its edge
+                               * (a full-screen overlay: the camera shutter) */
 } BGViewportMode;
 
 typedef struct {

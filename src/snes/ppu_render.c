@@ -727,6 +727,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
 #endif
 }
 
+
 /* Blend two BGR565 colors for color math (add/subtract, optionally halved).
  * All channels are 5-bit precision (green stored as g5<<6 in BGR565).
  * BGR565 layout: BBBBBGGGGGGRRRRR — R[4:0], G[10:6]@5bit, B[15:11]. */
@@ -1266,6 +1267,317 @@ static void gutter_row_build(GutterRow *gr, int scanline)
         else if (wy > SNES_HEIGHT - 1)
             gutter_edge_row(gr, win, 3, wy - (SNES_HEIGHT - 1));
     }
+}
+#endif
+
+/* ---- Wide-viewport gutters of a centered (non-filling) BG layer ----
+ *
+ * A centered layer is drawn only into its native 256x224 band. Two modes
+ * continue it into the gutters, both here, out of the hot renderer (this
+ * only runs while such a layer is shown):
+ *
+ * BG_VIEWPORT_CLAMP extends the band's edge pixels sideways (the merged
+ * word).
+ *
+ * BG_VIEWPORT_CONTINUE continues a full-screen overlay (the photographer's
+ * camera shutter, BG3 animation sequence 1) the way gutter_edge_row()
+ * continues the swirl windows. Along each band edge, the colour covering
+ * most of the edge fills the gutter (the shutter's black). Every other run
+ * of one colour along the edge (a white blade edge, the iris hole) is paired
+ * with the same-coloured run it joins up to 8 px inside, and both run ends
+ * are extrapolated outward along that slope, so a line crossing the edge
+ * carries on at its own angle. A run with no partner inside (an arc that
+ * only grazes the edge) stops at the edge; a run end clipped by the band
+ * corner stays open, which covers the corner gutters.
+ *
+ * `bs` is the layer's BG scanline (BG line = bs + VOFS) and `band_lo` the bs
+ * of the band's first row: the band is bs in [band_lo, band_lo + 224), viewport
+ * x in [PAD_LEFT, PAD_LEFT + 256). Band pixels are never touched. Everything
+ * is rebuilt per scanline on the stack, so the feature costs no static RAM. */
+#if EB_VIEWPORT_PAD_LEFT > 0 || EB_VIEWPORT_PAD_TOP > 0
+typedef struct {
+    uint32_t tilemap_base, tile_data_base;
+    int sc_size_h, sc_size_v, bytes_per_tile, bpp, bg_index;
+    int scroll_x, scroll_y, w_mask, h_mask, band_lo;
+} GutterBgSampler;
+
+/* Tilemap entry and pixel row/column of band pixel (px, py). */
+static uint16_t gbs_entry(const GutterBgSampler *s, int px, int py,
+                          int *wx, int *wy)
+{
+    *wx = (px + s->scroll_x) & s->w_mask;
+    *wy = (py + s->band_lo + s->scroll_y) & s->h_mask;
+    int col = *wx >> 3, row = *wy >> 3;
+    uint32_t addr = s->tilemap_base;
+    if (s->sc_size_v == 64 && row >= 32) {
+        addr += 32 * 32 * 2 * (s->sc_size_h == 64 ? 2 : 1);
+        row -= 32;
+    }
+    if (s->sc_size_h == 64 && col >= 32) {
+        addr += 32 * 32 * 2;
+        col -= 32;
+    }
+    addr += (uint32_t)(row * 32 + col) * 2;
+    if (addr + 1 >= VRAM_SIZE) return 0;
+    return read_u16_le(&ppu.vram[addr]);
+}
+
+/* Colour key of band pixel (px, py): 0 = transparent, else
+ * 1 + (colour index | palette << 3 | priority << 6). */
+static uint16_t gbs_key(const GutterBgSampler *s, int px, int py)
+{
+    int wx, wy;
+    uint16_t entry = gbs_entry(s, px, py, &wx, &wy);
+    uint32_t tile = s->tile_data_base +
+                    (uint32_t)(entry & 0x3FF) * s->bytes_per_tile;
+    if (tile + s->bytes_per_tile > VRAM_SIZE) return 0;
+    int ty = (entry & 0x8000) ? 7 - (wy & 7) : (wy & 7);
+    int tx = (entry & 0x4000) ? (wx & 7) : 7 - (wx & 7);  /* bit in plane */
+    const uint8_t *row = &ppu.vram[tile + ty * 2];
+    int c = 0;
+    for (int p = 0; p < s->bpp; p++) {
+        const uint8_t *pl = row + (p >> 1) * 16 + (p & 1);
+        c |= ((*pl >> tx) & 1) << p;
+    }
+    if (c == 0) return 0;
+    return (uint16_t)(1 + (c | ((entry >> 10) & 7) << 8 |
+                           ((entry >> 13) & 1) << 11));
+}
+
+/* Draw band pixel (px, py) of the layer at viewport column x. */
+static void gbs_emit(const GutterBgSampler *s, int px, int py, int x,
+                     BGRenderCtx *ctx)
+{
+    int wx, wy;
+    uint16_t entry = gbs_entry(s, px, py, &wx, &wy);
+    uint8_t palette = (entry >> 10) & 0x07;
+    if ((ppu.bgmode & BGMODE_MODE_MASK) == 0) palette += 8 * s->bg_index;
+    int ty = wy & 7;
+    emit_tile_run(entry & 0x3FF, (entry & 0x8000) ? 7 - ty : ty, wx & 7, 1,
+                  (entry >> 14) & 1, x, (entry >> 13) & 1, palette,
+                  s->bpp, s->tile_data_base, s->bytes_per_tile, ctx);
+}
+
+/* Band pixel at depth k inward from `edge` (0 left, 1 right, 2 top,
+ * 3 bottom), position t along it. */
+static void gutter_edge_pixel(int edge, int k, int t, int *px, int *py)
+{
+    switch (edge) {
+    case 0:  *px = k;                  *py = t; break;
+    case 1:  *px = SNES_WIDTH - 1 - k; *py = t; break;
+    case 2:  *px = t; *py = k; break;
+    default: *px = t; *py = SNES_HEIGHT - 1 - k; break;
+    }
+}
+
+#define GUTTER_MAX_RUNS 32
+typedef struct {
+    int16_t a0, b0;   /* run on the edge */
+    int16_t da, db;   /* its ends' offsets k px inside */
+    uint8_t k, open_a, open_b;
+} GutterRun;
+
+typedef struct {
+    int n;
+    int base_t;       /* edge position of the dominant colour, -1 = none */
+    GutterRun run[GUTTER_MAX_RUNS];
+} GutterEdge;
+
+static void gutter_edge_scan(const GutterBgSampler *s, int edge, GutterEdge *ge)
+{
+    const int len = edge < 2 ? SNES_HEIGHT : SNES_WIDTH;
+    uint16_t base = 0;
+    int base_len = 0;
+    ge->n = 0;
+    ge->base_t = -1;
+
+    /* The dominant colour: the one with the most edge pixels. */
+    {
+        uint16_t keys[4] = {0};
+        int cnt[4] = {0}, first[4] = {0}, nk = 0;
+        for (int t = 0; t < len; t++) {
+            int px, py;
+            gutter_edge_pixel(edge, 0, t, &px, &py);
+            uint16_t key = gbs_key(s, px, py);
+            int i = 0;
+            while (i < nk && keys[i] != key) i++;
+            if (i == nk) {
+                if (nk == 4) continue;
+                keys[nk] = key; first[nk] = t; nk++;
+            }
+            cnt[i]++;
+        }
+        for (int i = 0; i < nk; i++) {
+            if (cnt[i] > base_len) {
+                base_len = cnt[i];
+                base = keys[i];
+                ge->base_t = keys[i] ? first[i] : -1;
+            }
+        }
+    }
+
+    for (int a0 = 0; a0 < len; ) {
+        int px, py;
+        gutter_edge_pixel(edge, 0, a0, &px, &py);
+        uint16_t key = gbs_key(s, px, py);
+        int b0 = a0;
+        for (;;) {
+            if (b0 + 1 >= len) break;
+            gutter_edge_pixel(edge, 0, b0 + 1, &px, &py);
+            if (gbs_key(s, px, py) != key) break;
+            b0++;
+        }
+        if (key != base && ge->n < GUTTER_MAX_RUNS) {
+            /* The same-coloured run k px inside that touches [a0, b0]
+             * (diagonal neighbours count, for 1-px lines). */
+            for (int k = GUTTER_SLOPE_PROBE; k >= 1; k--) {
+                int lo = a0 > 0 ? a0 - 1 : 0;
+                int hi = b0 < len - 1 ? b0 + 1 : len - 1;
+                int p = lo;
+                for (; p <= hi; p++) {
+                    gutter_edge_pixel(edge, k, p, &px, &py);
+                    if (gbs_key(s, px, py) == key) break;
+                }
+                if (p > hi)
+                    continue;
+                int q = hi;
+                for (;; q--) {
+                    gutter_edge_pixel(edge, k, q, &px, &py);
+                    if (gbs_key(s, px, py) == key) break;
+                }
+                int ak = p, bk = q;
+                for (; ak > 0; ak--) {
+                    gutter_edge_pixel(edge, k, ak - 1, &px, &py);
+                    if (gbs_key(s, px, py) != key) break;
+                }
+                for (; bk < len - 1; bk++) {
+                    gutter_edge_pixel(edge, k, bk + 1, &px, &py);
+                    if (gbs_key(s, px, py) != key) break;
+                }
+                GutterRun *r = &ge->run[ge->n++];
+                r->a0 = (int16_t)a0; r->b0 = (int16_t)b0;
+                r->da = (int16_t)(a0 - ak); r->db = (int16_t)(b0 - bk);
+                r->k = (uint8_t)k;
+                r->open_a = a0 == 0;
+                r->open_b = b0 == len - 1;
+                break;
+            }
+        }
+        a0 = b0 + 1;
+    }
+}
+
+/* Edge position whose pixel shows at depth d (>= 1) outside the edge,
+ * position t, or -1 for transparent. Later runs win. */
+static int gutter_edge_source(const GutterEdge *ge, int d, int t)
+{
+    for (int i = ge->n - 1; i >= 0; i--) {
+        const GutterRun *r = &ge->run[i];
+        if (!r->open_a &&
+            t < r->a0 + gutter_floor_div(r->da * d + r->k / 2, r->k))
+            continue;
+        if (!r->open_b &&
+            t > r->b0 + gutter_floor_div(r->db * d + r->k / 2, r->k))
+            continue;
+        return r->a0;
+    }
+    return ge->base_t;
+}
+
+/* Returns true when `scanline` is a pad row of the layer (no band pixels).
+ * Few arguments on purpose: the call sites sit in the hot renderer, which
+ * the RP2040 build keeps in RAM. */
+static bool __attribute__((noinline))
+bg_gutter_fill(int bg_index, int scanline, const BGRenderCtx *ctx_in,
+               uint32_t *best_bg)
+{
+    static const uint8_t mode_bpp[8][4] = {
+        {2, 2, 2, 2}, {4, 4, 2, 0}, {4, 4, 0, 0}, {8, 4, 0, 0},
+        {8, 2, 0, 0}, {4, 2, 0, 0}, {0, 0, 0, 0}, {8, 0, 0, 0},
+    };
+    int bpp = mode_bpp[ppu.bgmode & BGMODE_MODE_MASK][bg_index];
+    int band_lo = ppu.sprite_y_offset ? 0 : 1;
+    int bs = scanline - ppu.sprite_y_offset;
+    bool pad_row = bs < band_lo || bs >= band_lo + SNES_HEIGHT;
+
+    if (ppu.bg_viewport_fill[bg_index] == BG_VIEWPORT_CLAMP) {
+        /* The band span the merge wrote (see the temp-layer merge). */
+        const int dst_start = EB_VIEWPORT_PAD_LEFT > 0 ? EB_VIEWPORT_PAD_LEFT : 0;
+        int count = SNES_WIDTH - (EB_VIEWPORT_PAD_LEFT < 0 ? -EB_VIEWPORT_PAD_LEFT : 0);
+        if (dst_start + count > EB_VIEWPORT_WIDTH)
+            count = EB_VIEWPORT_WIDTH - dst_start;
+        if (count <= 0) return pad_row;
+        uint32_t left_w = best_bg[dst_start];
+        uint32_t right_w = best_bg[dst_start + count - 1];
+        for (int x = 0; x < dst_start; x++) {
+            if (GP_LM_GP(left_w) > GP_LM_GP(best_bg[x]))
+                best_bg[x] = left_w;
+        }
+        for (int x = dst_start + count; x < EB_VIEWPORT_WIDTH; x++) {
+            if (GP_LM_GP(right_w) > GP_LM_GP(best_bg[x]))
+                best_bg[x] = right_w;
+        }
+        return pad_row;
+    }
+
+    /* BG_VIEWPORT_CONTINUE. 8x8 tiles only (the shutter is BG3, mode 1). */
+    if (bpp == 0 || ((ppu.bgmode >> (4 + bg_index)) & 1)) return pad_row;
+
+    GutterBgSampler s;
+    uint16_t sc_reg = ppu.bg_sc[bg_index];
+    uint8_t nba = bg_index < 2 ? ppu.bg_nba[0] >> (bg_index * 4)
+                               : ppu.bg_nba[1] >> ((bg_index - 2) * 4);
+    s.tilemap_base = (uint32_t)(sc_reg & 0xFC) << 9;
+    s.tile_data_base = (uint32_t)(nba & 0x0F) * 0x2000;
+    s.sc_size_h = (sc_reg & 0x01) ? 64 : 32;
+    s.sc_size_v = (sc_reg & 0x02) ? 64 : 32;
+    s.bpp = bpp;
+    s.bytes_per_tile = (bpp == 8) ? 64 : (bpp == 4) ? 32 : 16;
+    s.bg_index = bg_index;
+    s.scroll_x = ppu.bg_hofs[bg_index] & 0x3FF;
+    s.scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
+    s.w_mask = s.sc_size_h * 8 - 1;
+    s.h_mask = s.sc_size_v * 8 - 1;
+    s.band_lo = band_lo;
+
+    /* Priority-compared emit (gutter pixels may hold a lower layer). */
+    BGRenderCtx ctx = *ctx_in;
+    ctx.uncond = 0;
+
+    GutterEdge ge;
+    int t = bs - band_lo;   /* native row; < 0 or >= 224 in a pad row */
+
+    /* Top/bottom pad row: the band's columns. */
+    if (t < 0 || t > SNES_HEIGHT - 1) {
+        int edge = t < 0 ? 2 : 3;
+        int d = t < 0 ? -t : t - (SNES_HEIGHT - 1);
+        gutter_edge_scan(&s, edge, &ge);
+        for (int u = 0; u < SNES_WIDTH; u++) {
+            int x = u + EB_VIEWPORT_PAD_LEFT;
+            if (x < 0 || x >= EB_VIEWPORT_WIDTH) continue;
+            int src = gutter_edge_source(&ge, d, u);
+            if (src < 0) continue;
+            int px, py;
+            gutter_edge_pixel(edge, 0, src, &px, &py);
+            gbs_emit(&s, px, py, x, &ctx);
+        }
+    }
+
+    /* Left/right gutters, corner rows included. */
+    for (int edge = 0; edge < 2 && EB_VIEWPORT_PAD_LEFT > 0; edge++) {
+        gutter_edge_scan(&s, edge, &ge);
+        for (int d = 1; d <= EB_VIEWPORT_PAD_LEFT; d++) {
+            int x = edge == 0 ? EB_VIEWPORT_PAD_LEFT - d
+                              : EB_VIEWPORT_PAD_LEFT + SNES_WIDTH - 1 + d;
+            if (x >= EB_VIEWPORT_WIDTH) continue;
+            int src = gutter_edge_source(&ge, d, t);
+            if (src < 0) continue;
+            int px, py;
+            gutter_edge_pixel(edge, 0, src, &px, &py);
+            gbs_emit(&s, px, py, x, &ctx);
+        }
+    }
+    return pad_row;
 }
 #endif
 
@@ -2036,6 +2348,17 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             } else if (wide_mode) {
                 /* Non-filling layer in wide mode: render SNES_WIDTH into
                  * temp buffers, then merge visible portion into main. */
+#if EB_VIEWPORT_PAD_LEFT > 0
+                /* CONTINUE: gutter pixels (whole pad rows included) come
+                 * from the band edge; the band itself renders below. Only
+                 * built with side gutters: the RP2040 port (240 wide, pad
+                 * rows only) keeps this RAM-resident function unchanged. */
+                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CONTINUE) {
+                    merged_empty = false;
+                    if (bg_gutter_fill(bg, scanline, &ctx, best_bg))
+                        goto bg_mosaic_done;
+                }
+#endif
                 if (ppu.sprite_y_offset &&
                     (snes_scanline < 0 || snes_scanline >= SNES_HEIGHT) &&
                     ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP)
@@ -2187,19 +2510,11 @@ merge_done:
                                (SNES_WIDTH - merged_hi) * sizeof(uint32_t));
                 }
 
+#if EB_VIEWPORT_PAD_LEFT > 0 || EB_VIEWPORT_PAD_TOP > 0
                 /* Clamp mode: extend edge pixels into the border area */
-                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP && count > 0) {
-                    uint32_t left_w = best_bg[dst_start];
-                    uint32_t right_w = best_bg[dst_start + count - 1];
-                    for (int x = 0; x < dst_start; x++) {
-                        if (GP_LM_GP(left_w) > GP_LM_GP(best_bg[x]))
-                            best_bg[x] = left_w;
-                    }
-                    for (int x = dst_start + count; x < EB_VIEWPORT_WIDTH; x++) {
-                        if (GP_LM_GP(right_w) > GP_LM_GP(best_bg[x]))
-                            best_bg[x] = right_w;
-                    }
-                }
+                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP)
+                    bg_gutter_fill(bg, scanline, &ctx, best_bg);
+#endif
             } else {
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &ctx, render_width, 0);
