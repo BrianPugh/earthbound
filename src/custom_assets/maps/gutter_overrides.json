@@ -53,6 +53,38 @@
         [36],
         [44]
       ]
+    },
+    {
+      "name": "Sky Runner flight clouds, west edge: the cloud pattern's next column (it repeats every 16 blocks)",
+      "tileset_combo": 8,
+      "block_x": 63,
+      "block_y": 64,
+      "blocks": [
+        [356],
+        [356],
+        [369],
+        [420],
+        [372],
+        [386],
+        [376],
+        [370]
+      ]
+    },
+    {
+      "name": "Sky Runner flight clouds, east edge: the cloud pattern's next column (it repeats every 16 blocks)",
+      "tileset_combo": 8,
+      "block_x": 96,
+      "block_y": 64,
+      "blocks": [
+        [356],
+        [356],
+        [356],
+        [366],
+        [371],
+        [370],
+        [370],
+        [383]
+      ]
     }
   ]
 }
