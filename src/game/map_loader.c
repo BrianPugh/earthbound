@@ -1702,15 +1702,28 @@ static void adjust_sprite_palettes_by_average(void) {
  * keep a small sub-palette number there, but credits photograph palettes
  * (COMPRESSED_PHOTOGRAPH_PALETTES, photos 3/4/9/10/31) hold a colour, $0101,
  * so the original copies 32 bytes from $7E2220 (HEAP_ALT, the NMI-swapped
- * scratch heap) into the sprite sub-palette. The port has no equivalent of
- * that WRAM, so a source outside PALETTES leaves sprite sub-palette 4 as
+ * scratch heap) into the sprite sub-palette. TRY_RENDERING_PHOTOGRAPH
+ * (asm/ending/try_rendering_photograph.asm, @CLEAR_BUFFER_BODY after
+ * LDX #$2000) zeroes $7E2000-$7E27FF just before LOAD_MAP_AT_POSITION, and
+ * nothing writes there before this runs, so the original always copies
+ * $0000s: sprite sub-palette 4 ends up all black. The port has no such WRAM,
+ * so a source inside $2000-$27FF zeroes the destination directly. Any other
+ * source outside PALETTES leaves sprite sub-palette 4 as
  * ADJUST_SPRITE_PALETTES_BY_AVERAGE left it. */
 static void load_special_sprite_palette(void) {
     uint16_t pal_index = ert.palettes[64];
     if (pal_index == 0) return;
 
     uint16_t src_offset = (uint16_t)(pal_index * BPP4PALETTE_SIZE);
-    if ((size_t)src_offset + BPP4PALETTE_SIZE > sizeof(ert.palettes)) return;
+    if ((size_t)src_offset + BPP4PALETTE_SIZE > sizeof(ert.palettes)) {
+        /* WRAM addresses from ram.asm / the linker map. */
+        enum { WRAM_PALETTES = 0x0200, WRAM_PHOTO_CLEAR_START = 0x2000, WRAM_PHOTO_CLEAR_END = 0x2800 };
+        /* 16-bit WRAM source address, as the asm forms it. */
+        uint16_t src_addr = (uint16_t)(WRAM_PALETTES + src_offset);
+        if (src_addr >= WRAM_PHOTO_CLEAR_START && src_addr + BPP4PALETTE_SIZE <= WRAM_PHOTO_CLEAR_END)
+            memset(&ert.palettes[192], 0, BPP4PALETTE_SIZE);
+        return;
+    }
     memcpy(&ert.palettes[192], (const uint8_t *)ert.palettes + src_offset, BPP4PALETTE_SIZE);
 }
 
