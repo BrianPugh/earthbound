@@ -1112,12 +1112,14 @@ static void initialize_credits_scene(void) {
     /* Wide viewport: BG2 holds the 256x224 photo frame at tilemap (0,0) with
      * scroll 0, while BG1 (the photo map) is centred on the camera and BG3 (the
      * staff text) is centred horizontally. FILL shifts BG2 right by PAD_LEFT
-     * so the frame lines up with them, and the gutters show the tilemap's
-     * wrap: the opaque black $240C fill. Reset by overworld_setup_vram() after
-     * the credits. */
+     * (and, in this overworld-space scene, down by PAD_TOP, as the camera
+     * centres the map) so the frame lines up with them, and the gutters show
+     * the tilemap's wrap: the opaque black $240C fill. Reset by
+     * overworld_setup_vram() after the credits. */
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_FILL;
     /* The staff roll scrolls BG3 up through the picture: let it enter from
-     * the viewport's bottom edge rather than the SNES picture's (TALL). */
+     * the viewport's bottom edge rather than the SNES picture's (TALL; it
+     * drops by PAD_TOP with the frame). */
     ppu.bg_viewport_fill[2] = BG_VIEWPORT_TALL;
 
     /* Clear all BG scroll positions */

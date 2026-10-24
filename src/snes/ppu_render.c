@@ -2474,6 +2474,17 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 bg_scanline = scanline;
             } else if (wide_mode) {
                 bg_scanline = snes_scanline;
+                /* Overworld-space scenes (sprite_y_offset 0) centre the map
+                 * and its sprites through the camera (EB_VIEWPORT_CENTER_Y),
+                 * so the SNES picture sits PAD_TOP rows down. An explicit FILL
+                 * or TALL layer here is band content laid out from tilemap
+                 * row 0 (the credits photo frame on BG2, the staff roll on
+                 * BG3): drop it by PAD_TOP too, as fill_pad does for x, or
+                 * the photo sits PAD_TOP low in its frame. */
+                if (!ppu.sprite_y_offset &&
+                    (fills_explicit ||
+                     ppu.bg_viewport_fill[bg] == BG_VIEWPORT_TALL))
+                    bg_scanline -= EB_VIEWPORT_PAD_TOP;
                 if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP) {
                     if (bg_scanline < 0) bg_scanline = 0;
                     else if (bg_scanline >= SNES_HEIGHT) bg_scanline = SNES_HEIGHT - 1;
