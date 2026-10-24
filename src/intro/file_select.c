@@ -786,6 +786,26 @@ static uint8_t *name_target_buffer(int id) {
     }
 }
 
+/* The keyboard's battle-BG animation. TEXT_INPUT_DIALOG (text_input_dialog.asm:230)
+ * draws each frame with RENDER_FRAME_TICK, whose overworld path
+ * (render_frame_tick.asm:14-17) never touches the battle BG itself; the BG only
+ * moves because RUN_ACTIONSCRIPT_FRAME runs EVENT_787 (EVENT_UPDATE_BATTLE_SCREEN_EFFECTS
+ * every frame), which FILE_SELECT_INIT spawns (file_select_init.asm:56-63) and
+ * deactivates on exit (:82-83). The port doesn't spawn EVENT_787 and calls
+ * battle_bg_update() in its place, so do that only while the file menu (EVENT_787's
+ * lifetime) is on the mode stack. The overworld name prompts (CC_1F_41 3/4 /
+ * GAME_MODE_ENTER_NAME, e.g. Tony's call) have no EVENT_787, and a battle's BG
+ * state left loaded there must not scroll the screen. The battle-mode branch of
+ * RENDER_FRAME_TICK never applies: no keyboard runs in battle. */
+static void text_input_bg_update(void) {
+    for (int i = 0; i < g_mode_stack.depth; i++) {
+        if (g_mode_stack.mode[i] == GAME_MODE_FILE_MENU) {
+            battle_bg_update();
+            return;
+        }
+    }
+}
+
 /* GAME_MODE_TEXT_INPUT step — run-to-completion port of the text_input_dialog()
  * keyboard loop. Each step reads the input the pump's prior yield latched (when
  * `primed`), acts on it, then renders one frame; the pump owns the single yield.
@@ -799,7 +819,7 @@ StepResult mode_step_text_input(ModeState *st) {
         s->flush = 0;
         render_all_priority_sprites();
         sync_palettes_to_cgram();
-        battle_bg_update();
+        text_input_bg_update();
         s->primed = 1;
         return STEP_RESULT_CONTINUE();
     }
@@ -1052,8 +1072,8 @@ StepResult mode_step_text_input(ModeState *st) {
     /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
     sync_palettes_to_cgram();
 
-    /* Update battle BG animation */
-    battle_bg_update();
+    /* Battle-BG animation (EVENT_787 stand-in; see text_input_bg_update) */
+    text_input_bg_update();
 
     s->primed = 1;
     return STEP_RESULT_CONTINUE();
