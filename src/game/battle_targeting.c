@@ -303,6 +303,10 @@ static void set_battler_flashing(uint16_t row) {
  * (actionscript_frame_take_push) and call _flush() at its resume; on no park the
  * render finishes inline and _step() returns false. */
 static bool targeting_render_work_step(void) {
+    /* WINDOW_TICK's first line is JSL RAND. select_battle_target.asm:52/183 and
+     * select_battle_row.asm:30 call WINDOW_TICK here, so the RNG advances once
+     * per render (twice per target change: apply_selection + update_target_display). */
+    rng_next_byte();
     render_all_windows();
     upload_battle_screen_to_vram();
     if (run_actionscript_frame_step())
