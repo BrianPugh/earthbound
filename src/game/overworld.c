@@ -1879,7 +1879,9 @@ void load_party_at_map_position(uint16_t direction) {
  * Sets leader position/direction, calls LOAD_PARTY_AT_MAP_POSITION to
  * rebuild party entities for the new area, inits position ert.buffer,
  * clears animation fingerprints, resets mini ghost and teleport destination,
- * updates pajama flag, and refreshes party entity graphics. */
+ * updates pajama flag, and refreshes party entity graphics.
+ * The leader's sub-pixel fraction is kept, as in the asm, so an arrival can
+ * stick on a surface-0x91 tile (Moonside café counter; emu-checked). */
 void set_leader_position_and_load_party(uint16_t x, uint16_t y,
                                          uint16_t direction) {
     /* Assembly lines 11-15: set leader position and direction */

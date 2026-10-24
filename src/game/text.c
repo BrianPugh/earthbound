@@ -407,7 +407,9 @@ void text_load_flavour_palette(uint8_t flavour) {
 /* Port of LOAD_CHARACTER_WINDOW_PALETTE (C47F87.asm).
  * Checks the last party member's status — if unconscious/diamondized
  * (and transitions not disabled), loads a special death palette.
- * Otherwise loads the palette for the current text_flavour. */
+ * Otherwise loads the palette for the current text_flavour.
+ * This is why windows turn red after a fight whose last member is down, and
+ * why Pokey's escape-speech window is pink when Poo is down (emu-checked). */
 void load_character_window_palette(void) {
     /* Ensure flavour palette data is loaded */
     if (!flavour_palettes) {
@@ -2403,7 +2405,10 @@ StepResult mode_step_use_item(ModeState *ms) {
             create_window(WINDOW_TEXT_STANDARD);
 
             /* Set working_memory = char_id, argument_memory = item_slot
-             * (assembly lines 293-308) */
+             * (assembly lines 293-308). The slot, not the item ID: the
+             * wrong-user text prints item #slot, so Paula's Big bottle rocket
+             * in slot 12 reads "could not use the Broken tube" in the
+             * original too (emu-checked). */
             set_working_memory((uint32_t)st->char_id);
             set_argument_memory((uint32_t)st->item_slot);
 

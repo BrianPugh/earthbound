@@ -775,6 +775,8 @@ uint16_t get_item_subtype_2(uint16_t item_id) {
  * When disabling (param == 0, currently on):
  *   Restore hp_target/pp_target from backups.
  * Always: update flipout state and clear meter speed flags (RESUME_MUSIC).
+ * The Magicant power montage turns it on (trigger_event 13), so the HP/PP
+ * meters roll through unrelated values there in the original too.
  */
 void toggle_hppp_flipout_mode(uint16_t enable) {
     if (bt.hppp_meter_flipout_mode == 0 && enable != 0) {

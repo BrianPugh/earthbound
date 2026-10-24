@@ -262,6 +262,8 @@ To play or verify a change in-game, use the interactive session driver `playtest
 
 The `playtest` skill (`.claude/skills/playtest/SKILL.md`) holds the workflow, debug shortcuts, gotchas and a table of verified scene recipes (save + exact steps); load it before playing, and add a row when you reach a new scene.
 
+Many things that look wrong match the original (narrow battle-BG bands, purple/blue map rectangles, the phone's $1 charge, the HQ wanderer pile-up, ...). Check `docs/known-original-behaviour.md` before investigating a suspected divergence, and add a line there (plus a short comment at the code site, if one routine explains it) whenever a check concludes "matches the original".
+
 - In zsh, wrap the driver in a function (`pt(){ uv run --no-sync python playtest/pt.py "$@"; }`); a `PT="uv run ..."` variable won't word-split.
 - Several agents can play at once: give each its own build dir (`EB_BIN=port/unix/build-X/earthbound`) and session-name prefix.
 - The pre-commit hook (ruff only) stashes unstaged files during a commit, which yanks running agents' in-progress edits. With parallel agents, stage only your own paths or hunks (`git apply --cached` of a filtered `git diff`), run `uv run --no-sync ruff check`/`ruff format --check` on staged Python yourself, and commit with `--no-verify`.

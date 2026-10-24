@@ -936,6 +936,8 @@ StepResult mode_step_game_over(ModeState *mst) {
                 leader_cs->afflictions[i] = 0;
             leader_cs->current_hp_target = leader_cs->max_hp;
             leader_cs->current_hp        = leader_cs->max_hp;
+            /* PP is zeroed, not refilled: spawn.asm:81-83 STZ current_pp_target
+             * and current_pp (checked against the asm in playtests). */
             leader_cs->current_pp_target = 0;
             leader_cs->current_pp        = 0;
 

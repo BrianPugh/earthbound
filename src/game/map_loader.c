@@ -2318,7 +2318,7 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
          * even when another entity stands there, and the two then block each
          * other for good (ENTITY_PHYSICS_WITH_COLLISION). The Happy Happy HQ
          * wanderers pile up on npc389's placement this way in the original too
-         * (emu-confirmed, docs/plans/playtest-coverage.md save 07). */
+         * (emu-confirmed, docs/known-original-behaviour.md). */
         int16_t created_slot = create_entity(sprite_id, script_id, -1,
                                              world_x, world_y);
 
@@ -2997,6 +2997,8 @@ static int16_t test_collision_east(void) {
  * Port of TEST_COLLISION_DIAGONAL (C05B4E).
  * Uses direction-specific bitmask from diagonal_masks table.
  * Returns: 0xFF00 = blocked, or original direction = clear.
+ * A blocked diagonal doesn't slide along the wall, as in the original
+ * (emu-checked: the UP+LEFT snag on the Giant Step north path).
  */
 static int16_t test_collision_diagonal(int16_t direction) {
     temp_entity_surface_flags = 0;
