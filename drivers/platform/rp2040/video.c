@@ -102,3 +102,8 @@ void platform_video_end_frame(void) {
 #endif
     st7789_rp2040_end_frame();
 }
+
+/* The ST7789 frame is paced by SPI DMA; there is no host vsync to toggle. */
+void platform_video_set_vsync(bool enabled) {
+    (void)enabled;
+}

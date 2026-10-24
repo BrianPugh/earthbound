@@ -1136,26 +1136,30 @@ static inline bool hdma_window_contains(int win, int wx, int wy)
  * windows such as the battle swirl and the oval window are curved shapes and
  * need their shape continued past the band edge.
  *
- * gutter_hdma_masks() does that once per frame, per band edge: each run of
- * window pixels along the edge column/row is paired with the run it joins a
- * few pixels inside the band, and both run ends are extrapolated outward
+ * gutter_row_build() does that per viewport scanline, per band edge: each run
+ * of window pixels along the edge column/row is paired with the run it joins
+ * a few pixels inside the band, and both run ends are extrapolated outward
  * along that slope. An arm crossing the edge continues at its own angle; an
  * arc that only grazes the edge (its boundary nearly parallel to the edge,
  * e.g. the type-1 spiral's outer ring) closes within a few pixels. A run end
  * clipped by the band corner has no known slope and stays open, which covers
- * the corner gutters. Bits: 1 = window 1, 2 = window 2. */
+ * the corner gutters. Bits: 1 = window 1, 2 = window 2.
+ *
+ * The row's membership lives in a small GutterRow on the caller's stack and
+ * is rebuilt for each scanline that needs it, so the feature costs no static
+ * RAM (a whole-frame mask was 4.5 KB on the RP2040 build, 19 KB at 320x240). */
 #if EB_VIEWPORT_PAD_LEFT > 0 || EB_VIEWPORT_PAD_TOP > 0
 #define GUTTER_PAD_R (EB_VIEWPORT_WIDTH - SNES_WIDTH - EB_VIEWPORT_PAD_LEFT)
 #define GUTTER_PAD_B (EB_VIEWPORT_HEIGHT - SNES_HEIGHT - EB_VIEWPORT_PAD_TOP)
 #define GUTTER_MAX_X (GUTTER_PAD_R > EB_VIEWPORT_PAD_LEFT ? GUTTER_PAD_R : \
                       (EB_VIEWPORT_PAD_LEFT > 0 ? EB_VIEWPORT_PAD_LEFT : 1))
-#define GUTTER_MAX_Y (GUTTER_PAD_B > EB_VIEWPORT_PAD_TOP ? GUTTER_PAD_B : \
-                      (EB_VIEWPORT_PAD_TOP > 0 ? EB_VIEWPORT_PAD_TOP : 1))
 #define GUTTER_HAS_PADS 1
-/* [edge: 0 left, 1 right][viewport scanline][depth - 1] */
-static uint8_t gutter_lr_mask[2][EB_VIEWPORT_HEIGHT][GUTTER_MAX_X];
-/* [edge: 0 top, 1 bottom][depth - 1][native x] */
-static uint8_t gutter_tb_mask[2][GUTTER_MAX_Y][SNES_WIDTH];
+typedef struct {
+    /* [edge: 0 left, 1 right][depth - 1] for this scanline */
+    uint8_t lr[2][GUTTER_MAX_X];
+    /* top/bottom pad row: 2 bits per native x, 4 x per byte */
+    uint8_t tb[SNES_WIDTH / 4];
+} GutterRow;
 #else
 #define GUTTER_HAS_PADS 0
 #endif
@@ -1182,7 +1186,11 @@ static int gutter_floor_div(int n, int d)
     return n >= 0 ? n / d : -((-n + d - 1) / d);
 }
 
-static void gutter_edge_mask(int win, int edge)
+/* Continue window `win` past band edge `edge` into one gutter row of `gr`.
+ * Left/right edges: `pos` is the native row t (may lie in a pad row) and
+ * every depth of that row is filled. Top/bottom edges: `pos` is the depth d
+ * (1 = adjacent to the band) and every native x of that row is filled. */
+static void gutter_edge_row(GutterRow *gr, int win, int edge, int pos)
 {
     const int len = edge < 2 ? SNES_HEIGHT : SNES_WIDTH;
     const int depth_max = edge == 0 ? EB_VIEWPORT_PAD_LEFT
@@ -1202,66 +1210,99 @@ static void gutter_edge_mask(int win, int edge)
         while (b0 + 1 < len && gutter_edge_inside(win, edge, 0, b0 + 1)) b0++;
 
         /* Span of the runs at depth k that overlap [a0, b0]: the shape
-         * this edge run belongs to, k pixels further in. */
+         * this edge run belongs to, k pixels further in. The outermost
+         * overlapping runs hold the first/last inside pixel of [a0, b0]. */
         int k, ak = 0, bk = -1;
         for (k = GUTTER_SLOPE_PROBE; k >= 1; k--) {
-            ak = len; bk = -1;
-            for (int t = 0; t < len; t++) {
-                if (!gutter_edge_inside(win, edge, k, t)) continue;
-                int e = t;
-                while (e + 1 < len && gutter_edge_inside(win, edge, k, e + 1)) e++;
-                if (e >= a0 && t <= b0) {
-                    if (t < ak) ak = t;
-                    if (e > bk) bk = e;
-                }
-                t = e;
-            }
-            if (bk >= 0)
-                break;
+            int p = a0;
+            while (p <= b0 && !gutter_edge_inside(win, edge, k, p)) p++;
+            if (p > b0)
+                continue;
+            int q = b0;
+            while (!gutter_edge_inside(win, edge, k, q)) q--;
+            ak = p;
+            while (ak > 0 && gutter_edge_inside(win, edge, k, ak - 1)) ak--;
+            bk = q;
+            while (bk + 1 < len && gutter_edge_inside(win, edge, k, bk + 1)) bk++;
+            break;
         }
 
         if (bk >= 0) {
-            for (int d = 1; d <= depth_max; d++) {
+            int d_first = edge < 2 ? 1 : pos;
+            int d_last = edge < 2 ? depth_max : pos;
+            for (int d = d_first; d <= d_last; d++) {
                 int lo = a0 == 0 ? t_lo
                          : a0 + gutter_floor_div((a0 - ak) * d + k / 2, k);
                 int hi = b0 == len - 1 ? t_hi
                          : b0 + gutter_floor_div((b0 - bk) * d + k / 2, k);
                 if (lo < t_lo) lo = t_lo;
                 if (hi > t_hi) hi = t_hi;
-                for (int t = lo; t <= hi; t++) {
-                    if (edge < 2)
-                        gutter_lr_mask[edge][t + EB_VIEWPORT_PAD_TOP][d - 1] |= bit;
-                    else
-                        gutter_tb_mask[edge - 2][d - 1][t] |= bit;
+                if (edge < 2) {
+                    if (pos >= lo && pos <= hi)
+                        gr->lr[edge][d - 1] |= bit;
+                } else {
+                    for (int t = lo; t <= hi; t++)
+                        gr->tb[t >> 2] |= (uint8_t)(bit << ((t & 3) * 2));
                 }
             }
         }
         a0 = b0 + 1;
     }
 }
+
+/* Build the gutter continuation of the active per-scanline windows for
+ * viewport scanline `scanline` (see above). */
+static void gutter_row_build(GutterRow *gr, int scanline)
+{
+    memset(gr, 0, sizeof(*gr));
+    int wy = scanline - EB_VIEWPORT_PAD_TOP;
+    for (int win = 1; win <= 2; win++) {
+        if (!(win == 1 ? ppu.window_hdma_active : ppu.window2_hdma_active))
+            continue;
+        gutter_edge_row(gr, win, 0, wy);
+        gutter_edge_row(gr, win, 1, wy);
+        if (wy < 0)
+            gutter_edge_row(gr, win, 2, -wy);
+        else if (wy > SNES_HEIGHT - 1)
+            gutter_edge_row(gr, win, 3, wy - (SNES_HEIGHT - 1));
+    }
+}
 #endif
 
-/* Build the gutter continuation of the active per-scanline windows for this
- * frame (see above). Call once per frame before window_membership. */
-static void gutter_hdma_masks(void)
-{
+/* Scratch for one scanline's gutter row (lives on precompute_window_masks's
+ * stack). gutter_row_get() builds it on first use and returns NULL when no
+ * per-scanline window needs continuing. */
+typedef struct {
 #if GUTTER_HAS_PADS
-    memset(gutter_lr_mask, 0, sizeof(gutter_lr_mask));
-    memset(gutter_tb_mask, 0, sizeof(gutter_tb_mask));
-    for (int edge = 0; edge < 4; edge++) {
-        if (ppu.window_hdma_active)
-            gutter_edge_mask(1, edge);
-        if (ppu.window2_hdma_active)
-            gutter_edge_mask(2, edge);
-    }
+    GutterRow row;
 #endif
+    bool tried;
+    const void *gr;
+} GutterRowSlot;
+
+static const void *gutter_row_get(GutterRowSlot *slot, bool wide_mode, int scanline)
+{
+    if (!slot->tried) {
+        slot->tried = true;
+        slot->gr = NULL;
+#if GUTTER_HAS_PADS
+        if (wide_mode && (ppu.window_hdma_active || ppu.window2_hdma_active)) {
+            gutter_row_build(&slot->row, scanline);
+            slot->gr = &slot->row;
+        }
+#else
+        (void)wide_mode; (void)scanline;
+#endif
+    }
+    return slot->gr;
 }
 
 /* Window 1/2 membership at native window coordinate wx on viewport scanline
  * `scanline`, for the per-pixel dual-window paths. Gutter pixels of a
- * per-scanline window read the continuation built by gutter_hdma_masks();
- * static windows clamp wx to the band. */
-static inline void window_membership(bool wide_mode, int scanline, int wx,
+ * per-scanline window read the continuation gutter_row_build() put in `gr`
+ * (NULL when no per-scanline window is active); static windows clamp wx to
+ * the band. */
+static inline void window_membership(const void *gr_opaque, int scanline, int wx,
                                      uint8_t w1_left, uint8_t w1_right,
                                      uint8_t w2_left, uint8_t w2_right,
                                      bool *in_w1, bool *in_w2)
@@ -1270,7 +1311,8 @@ static inline void window_membership(bool wide_mode, int scanline, int wx,
     *in_w1 = (cwx >= w1_left && cwx <= w1_right);
     *in_w2 = (cwx >= w2_left && cwx <= w2_right);
 #if GUTTER_HAS_PADS
-    if (!wide_mode || (!ppu.window_hdma_active && !ppu.window2_hdma_active))
+    const GutterRow *gr = (const GutterRow *)gr_opaque;
+    if (!gr)
         return;
     int wy = scanline - EB_VIEWPORT_PAD_TOP;
     uint8_t bits;
@@ -1278,12 +1320,9 @@ static inline void window_membership(bool wide_mode, int scanline, int wx,
         int edge = wx < 0 ? 0 : 1;
         int d = wx < 0 ? -wx : wx - (SNES_WIDTH - 1);
         if (d > GUTTER_MAX_X || (unsigned)scanline >= EB_VIEWPORT_HEIGHT) return;
-        bits = gutter_lr_mask[edge][scanline][d - 1];
+        bits = gr->lr[edge][d - 1];
     } else if (wy < 0 || wy > SNES_HEIGHT - 1) {
-        int edge = wy < 0 ? 0 : 1;
-        int d = wy < 0 ? -wy : wy - (SNES_HEIGHT - 1);
-        if (d > GUTTER_MAX_Y) return;
-        bits = gutter_tb_mask[edge][d - 1][wx];
+        bits = (gr->tb[wx >> 2] >> ((wx & 3) * 2)) & 3;
     } else {
         return;
     }
@@ -1292,7 +1331,7 @@ static inline void window_membership(bool wide_mode, int scanline, int wx,
     if (ppu.window2_hdma_active)
         *in_w2 = (bits & 2) != 0;
 #else
-    (void)wide_mode; (void)scanline;
+    (void)gr_opaque; (void)scanline;
 #endif
 }
 
@@ -1311,6 +1350,8 @@ void PPU_HOT_FUNC(precompute_window_masks)(
     bool color_math_active, uint8_t prevent_mode,
     const WindowClassification *wc)
 {
+    GutterRowSlot gslot;
+    gslot.tried = false;
     if (ppu.tmw || ppu.tsw) {
         uint8_t w1_left, w1_right, w2_left, w2_right;
         if (ppu.window_hdma_active) {
@@ -1404,7 +1445,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                 /* Gutter pixels take the state of the window shape continued
                  * past the native edge (see window_membership). */
                 bool in_w1, in_w2;
-                window_membership(wide_mode, scanline, wx, w1_left, w1_right,
+                window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, wx, w1_left, w1_right,
                                   w2_left, w2_right, &in_w1, &in_w2);
                 if (d_w1_inv) in_w1 = !in_w1;
                 if (d_w2_inv) in_w2 = !in_w2;
@@ -1502,7 +1543,7 @@ void PPU_HOT_FUNC(precompute_window_masks)(
                      * take the state of the swirl continued past the native
                      * edge (see window_membership). */
                     bool in_w1, in_w2;
-                    window_membership(wide_mode, scanline, wx, w1_left, w1_right,
+                    window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, wx, w1_left, w1_right,
                                       w2_left, w2_right, &in_w1, &in_w2);
                     if (cm_w1_inv) in_w1 = !in_w1;
                     if (cm_w2_inv) in_w2 = !in_w2;
@@ -1743,12 +1784,6 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     const bool no_layer_windows = !has_layer_windows;
     if (has_layer_windows)
         classify_window_layers(&win_class);
-    /* Per-scanline windows: continue their shapes into the wide-mode gutters
-     * (window_membership) once per frame. */
-    if (wide_mode && has_windows &&
-        (ppu.window_hdma_active || ppu.window2_hdma_active))
-        gutter_hdma_masks();
-
     /* Unified output Y loop: y_start/y_end/y_stride are OUTPUT coordinates.
      * Border scanlines (outside fb_y_offset..fb_y_offset+render_height-1)
      * are sent as black.  This avoids separate border loops that break
