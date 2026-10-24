@@ -9,6 +9,7 @@
 #include "game/game_state.h"
 #include "game/audio.h"
 #include "game/display_text.h"
+#include "game/display_text_internal.h"
 #include "game/inventory.h"
 #include "game/text.h"
 #include "game/window.h"
@@ -128,6 +129,44 @@ static int16_t find_prev_battler_in_row(uint16_t row, uint16_t x_position,
 
 
 /*
+ * SET_TARGET_NAME_WITH_ARTICLE (asm/battle/set_target_name_with_article.asm)
+ *
+ * Copies the targeted enemy's name (plus " A"/" B"... when another enemy of
+ * the same type is in the battle) into the battle attacker name, and sets up
+ * PRINT_ENEMY_ARTICLE(0): ATTACKER_ENEMY_ID = the enemy's id, and
+ * PRINT_ATTACKER_ARTICLE = 1 when a letter was appended (no article then).
+ *
+ * index: 1-based; 1..NUM_BATTLERS_IN_FRONT_ROW picks the front row, larger
+ * values the back row (index - NUM_BATTLERS_IN_FRONT_ROW).
+ */
+static void set_target_name_with_article(uint16_t index) {
+    uint8_t target_name[ENEMY_NAME_SIZE + 2];
+
+    set_print_attacker_article(0);
+    memset(target_name, 0, sizeof(target_name));
+
+    uint16_t battler_idx;
+    if (index <= bt.num_battlers_in_front_row)
+        battler_idx = bt.front_row_battlers[index - 1] & 0xFF;
+    else
+        battler_idx = bt.back_row_battlers[index - bt.num_battlers_in_front_row - 1] & 0xFF;
+    Battler *b = &bt.battlers_table[battler_idx];
+
+    uint16_t pos = copy_enemy_name(enemy_config_table[b->id].name, target_name,
+                                   ENEMY_NAME_SIZE, sizeof(target_name));
+    /* Asm: the letter is skipped only for letter A when no other enemy of
+     * this type holds a letter (FIND_NEXT_ENEMY_LETTER returns 2). */
+    if (b->the_flag != 1 || find_next_enemy_letter(b->enemy_type_id) != 2) {
+        target_name[pos++] = EB_CHAR_SPACE;
+        target_name[pos] = (uint8_t)(b->the_flag + EB_CHAR_A_MINUS_1);
+        set_print_attacker_article(1);
+    }
+    set_battle_attacker_name((const char *)target_name, ENEMY_NAME_SIZE + 1);
+    set_attacker_enemy_id((int16_t)b->id);
+}
+
+
+/*
  * DISPLAY_BATTLE_TARGET_TEXT (asm/battle/ui/display_battle_target_text.asm)
  *
  * Displays "To <enemy name>" or "To the Front/Back Row" in WINDOW 0x31.
@@ -144,36 +183,18 @@ static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
     print_string("To ");
 
     if (enemy_index != -1) {
-        /* Assembly calls SET_TARGET_NAME_WITH_ARTICLE which copies the enemy name
-         * to the target name ert.buffer, then prints it via RETURN_BATTLE_ATTACKER_ADDRESS.
-         * We approximate by using the battler's name directly. */
+        /* Assembly: SET_TARGET_NAME_WITH_ARTICLE(row * NUM_BATTLERS_IN_FRONT_ROW
+         * + enemy_index + 1), then (USA) PRINT_ENEMY_ARTICLE(0) prints "the "
+         * for enemies whose enemy_data::the_flag is set. */
+        set_target_name_with_article(
+            (uint16_t)(row * bt.num_battlers_in_front_row + (uint16_t)enemy_index + 1));
+        print_enemy_article(0);
         uint16_t battler_idx;
         if (row != 0)
             battler_idx = bt.back_row_battlers[enemy_index] & 0xFF;
         else
             battler_idx = bt.front_row_battlers[enemy_index] & 0xFF;
-
-        /* Copy enemy name to target name ert.buffer */
         Battler *b = &bt.battlers_table[battler_idx];
-        if (b->ally_or_enemy == 1) {
-            const EnemyData *edata = &enemy_config_table[b->id];
-            uint8_t scratch[ENEMY_NAME_SIZE + 2];
-            memset(scratch, 0, sizeof(scratch));
-            uint16_t pos = copy_enemy_name(edata->name, scratch, ENEMY_NAME_SIZE, sizeof(scratch));
-
-            /* Append letter suffix if needed (same logic as fix_target_name) */
-            bool add_letter = true;
-            if (b->the_flag == 1) {
-                uint8_t next = find_next_enemy_letter(b->enemy_type_id);
-                if (next == 2)
-                    add_letter = false;
-            }
-            if (add_letter && b->the_flag != 0) {
-                scratch[pos++] = EB_CHAR_SPACE;
-                scratch[pos] = b->the_flag + EB_CHAR_A_MINUS_1;
-            }
-            set_battle_attacker_name((const char *)scratch, ENEMY_NAME_SIZE + 2);
-        }
 
         /* Print the attacker name (assembly: JSR RETURN_BATTLE_ATTACKER_ADDRESS) */
         char *attacker_name = return_battle_attacker_address();
