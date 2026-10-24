@@ -813,6 +813,14 @@ void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_s
         /* Mode 9 (assembly lines 145-148): mode 1 + BG3 priority */
         ppu.bgmode = 0x09;
 
+        /* Mode 1 keeps the text layer on BG3 (no BG4), so only BG1/BG2 fill
+         * the wide viewport. Reset BG3/BG4 to CENTER: a 2bpp (mode 0) battle
+         * BG loaded earlier in the same battle (Giygas phases before the
+         * prayer) leaves them on FILL, and BG3's HP windows then wrap into
+         * both gutters. Inert at native resolution. */
+        ppu.bg_viewport_fill[2] = BG_VIEWPORT_CENTER;
+        ppu.bg_viewport_fill[3] = BG_VIEWPORT_CENTER;
+
         /* Adjust tilemap entries (assembly lines 150-166):
          * For each tilemap word, high byte: AND $DF, ORA $08
          * (clear priority bit, set palette bit → palette 2) */
