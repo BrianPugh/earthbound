@@ -200,9 +200,9 @@ int16_t cr_render_entity_sprite_me2(int16_t ent, int16_t scr,
     *out_pc = pc;
     /* ASM: STZ USE_SECOND_SPRITE_FRAME → render with frame 0. It leaves
      * ENTITY_ANIMATION_FRAME alone, so a $FF set by SET_ANIMATION keeps the
-     * entity hidden (e.g. the Lost Underworld geysers, EVENT_674_ENTRY_3). */
-    render_entity_sprite_frame(ent, false);
-    return 0;
+     * entity hidden (e.g. the Lost Underworld geysers, EVENT_674_ENTRY_3).
+     * A (the advanced VRAM dest) becomes the script tempvar. */
+    return (int16_t)render_entity_sprite_frame(ent, false);
 }
 
 /*
@@ -217,9 +217,12 @@ int16_t cr_render_entity_sprite_me1(int16_t ent, int16_t scr,
     *out_pc = pc;
     /* ASM: LDA #$0001 / STA USE_SECOND_SPRITE_FRAME → render with frame 1
      * (ENTITY_ANIMATION_FRAME is not written).
-     * ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER */
-    render_entity_sprite_frame(ent, true);
-    return 0;
+     * ASM: JSL IS_ENTITY_ON_SCREEN / BNE SETUP_AND_RENDER
+     * A on return (the advanced VRAM dest, nonzero) becomes the script
+     * tempvar: ANIMATE_FOUNTAIN_TASK (EVENT_674) loops on it with
+     * SHORTCALL_CONDITIONAL_NOT; returning 0 fell through into EVENT_675,
+     * whose COPY_LEADER_POS moved the geyser onto the party leader. */
+    return (int16_t)render_entity_sprite_frame(ent, true);
 }
 
 /*
@@ -421,8 +424,8 @@ int16_t cr_render_entity_sprite_me3(int16_t entity_offset, int16_t script_offset
      * Assembly: LDY $88; loads ENTITY_ANIMATION_FRAME[Y] into
      * USE_SECOND_SPRITE_FRAME; then JSL RENDER_ENTITY_SPRITE_ENTRY4.
      * Uses entity's current animation_frame to select sprite frame,
-     * then renders the entity sprite (uploads tiles to VRAM). */
+     * then renders the entity sprite (uploads tiles to VRAM).
+     * A on return (the advanced VRAM dest) becomes the script tempvar. */
     *out_pc = pc;
-    render_entity_sprite(entity_offset);
-    return 0;
+    return (int16_t)render_entity_sprite_frame(entity_offset, entities.animation_frame[entity_offset] > 0);
 }

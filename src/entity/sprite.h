@@ -150,7 +150,7 @@ uint16_t load_sprite_tiles_to_vram(uint16_t sprite_id, uint16_t sub_palette_idx,
 /* Render entity sprite — upload current frame's tile data to ppu.vram[].
  * Called per-frame for entities that need their VRAM tiles updated. */
 void render_entity_sprite(int16_t entity_offset);
-void render_entity_sprite_frame(int16_t entity_offset, bool use_second_frame);
+uint16_t render_entity_sprite_frame(int16_t entity_offset, bool use_second_frame);
 
 /* Update entity sprite (8-dir) — sets use_8dir_sprites and renders.
  * Used for party member sprites with 8-directional walking animations.

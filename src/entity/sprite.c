@@ -529,8 +529,10 @@ void render_entity_sprite(int16_t ent) {
  * The asm's entry points set that transient global themselves (ME1: 1,
  * ME2/ENTRY3: 0, ENTRY2/ME3: ENTITY_ANIMATION_FRAME) and never write
  * ENTITY_ANIMATION_FRAME, which DRAW_ENTITY uses as the hide flag (BMI).
+ * Returns the advanced VRAM destination (the asm's A on RTL), 0 if nothing
+ * was uploaded.
  */
-void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
+uint16_t render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
     uint16_t tile_height = entities.tile_heights[ent];
     uint16_t byte_width = entities.byte_widths[ent];
     uint16_t vram_addr = entities.vram_address[ent];
@@ -538,7 +540,7 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
     uint16_t bank_num = entities.graphics_sprite_bank[ent];
 
     if (tile_height == 0 || byte_width == 0)
-        return;
+        return 0;
 
     /* gfx_ptr_lo is a ert.buffer offset into sprite_grouping_data_buf, pointing
      * to the start of the spritepointerarray (offset 9 in sprite_grouping).
@@ -569,7 +571,7 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
     }
 
     if (frame_ptr_off + 2 > sprite_grouping_data_size)
-        return;
+        return 0;
 
     /* Read the 2-byte within-bank offset pointing to actual tile data.
      * ASM: LDA [$02] → STA ENTITY_CURRENT_DISPLAYED_SPRITES,Y
@@ -594,14 +596,14 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
             vram_dest = vram_copy_row_safe(vram_dest, blank_tile_row, byte_width);
             tile_height--;
             if (tile_height == 0)
-                return;
+                return vram_dest;
 
             if (sf & 0x0004) {  /* CAUSES_SUNSTROKE (bit 2) — present in DEEP_WATER */
                 /* Upload another blank row */
                 vram_dest = vram_copy_row_safe(vram_dest, blank_tile_row, byte_width);
                 tile_height--;
                 if (tile_height == 0)
-                    return;
+                    return vram_dest;
             }
         }
     }
@@ -613,9 +615,9 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
      * ROM stores HiROM bank bytes ($D1-$D5); mask with 0x3F to get $11-$15. */
     int bank_idx = (int)(bank_num & 0x3F) - SPRITE_BANK_FIRST;
     if (bank_idx < 0 || bank_idx >= SPRITE_BANK_COUNT)
-        return;
+        return 0;
     if (!sprite_banks[bank_idx])
-        return;
+        return 0;
 
     const uint8_t *bank_data = sprite_banks[bank_idx];
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
@@ -628,7 +630,7 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
         : (tile_data_offset & 0xFFF0);
 
     if (data_off >= bank_size)
-        return;
+        return 0;
 
     LOG_TRACE("render_entity_sprite: ent=%d bank_idx=%d data_off=0x%04X vram=0x%04X "
               "w=%u h=%u tile_data_off=0x%04X\n",
@@ -644,6 +646,9 @@ void render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
 
         vram_dest = vram_copy_row_safe(vram_dest, bank_data + src_off, byte_width);
     }
+    /* A on return is the last PREPARE_VRAM_COPY_ROW_SAFE's advanced
+     * DMA_COPY_VRAM_DEST; callroutine wrappers hand it to the script tempvar. */
+    return vram_dest;
 }
 
 /* UPDATE_ENTITY_SPRITE (asm/overworld/update_entity_sprite.asm)
