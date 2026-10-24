@@ -993,8 +993,10 @@ static void load_cast_scene(void) {
         }
     }
 
-    /* Load battle background animation */
-    load_background_animation(BATTLEBG_LAYER_NONE, BATTLEBG_LAYER_UNKNOWN279);
+    /* Load battle background animation: A = BG1 layer (UNKNOWN279),
+     * X = BG2 layer (NONE), as LOAD_BACKGROUND_ANIMATION passes them on to
+     * LOAD_BATTLE_BG. */
+    load_background_animation(BATTLEBG_LAYER_UNKNOWN279, BATTLEBG_LAYER_NONE);
 
     /* Set up BG3 VRAM layout for cast */
     set_bg3_vram_location(BG_TILEMAP_SIZE_NORMAL, VRAM_CAST_TILEMAP, VRAM_CAST_TILES);
