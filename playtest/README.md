@@ -153,6 +153,8 @@ Instant (no frame passes):
 | `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula. In a battle it also sets the member's battler, which the battle copies back over the char afflictions |
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
 | `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |
+| `rng [A B]` | print `RNG A B`, the game RNG state (`rng_state` / the asm's `RAND_A`/`RAND_B`); with 2 numbers, set it first. RAND isn't saved in SRAM, so seed both sides with it before comparing RNG-dependent steps against the original |
+| `hpt` | print `HPT id:HP/PP ... exp E ... bank B`: each member's HP/PP *rolling target* (where the meter will settle, so big hits show before the meter catches up), exp, and the bank balance |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |
@@ -286,7 +288,7 @@ What differs from the port:
   `FLUSH_ENTITY_CREATION_QUEUE`, `ENABLE_ALL_ENTITIES`, `SPAWN_BUZZ_BUZZ`), then
   resumes the wait loop. It needs `idle`, like the port.
 - `flag`, `money`, `hp`/`pp`/`heal` (also the battler in a battle), `status`,
-  `give` (first empty slot) and `debug on|off` poke WRAM directly. `aux` keys
+  `give` (first empty slot), `rng`, `hpt` and `debug on|off` read/poke WRAM directly. `aux` keys
   don't exist (ERR).
 - `snap`/`restore` are core savestates in `snaps/` (they work across
   processes, too).

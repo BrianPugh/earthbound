@@ -67,6 +67,7 @@ DIR_NAMES = ("UP", "UP_RIGHT", "RIGHT", "DOWN_RIGHT", "DOWN", "DOWN_LEFT", "LEFT
 
 # Struct layouts (include/structs.asm, USA)
 GS_MONEY = 60
+GS_BANK_BALANCE = 64
 GS_PARTY_STATUS = 75
 GS_PARTY_MEMBERS = 122
 GS_LEADER_X = 130
@@ -81,6 +82,7 @@ GS_PARTY_COUNT = 174
 GS_CAMERA_MODE = 176
 CHAR_SIZE = 95
 CH_NAME, CH_LEVEL, CH_MAX_HP, CH_MAX_PP, CH_AFFLICTIONS, CH_ITEMS = 0, 5, 10, 12, 14, 35
+CH_EXP = 6
 CH_HP, CH_HP_TARGET, CH_PP, CH_PP_TARGET = 69, 71, 75, 77
 WINDOW_STATS_SIZE = 82
 WS_ID, WS_X, WS_Y, WS_W, WS_H, WS_TEXT_X, WS_TEXT_Y = 4, 6, 8, 10, 12, 14, 16
@@ -1231,6 +1233,24 @@ class Player:
                 self.err("usage: give ITEM [CHAR]")
                 return
             self.give(ints[0], ints[1] if len(ints) > 1 else 0)
+        elif cmd == "hpt":
+            # HP/PP rolling targets (where the meters will settle), exp, bank balance
+            log(
+                "HPT"
+                + "".join(
+                    f" {cid}:{g.w16(g.char(cid) + CH_HP_TARGET)}/{g.w16(g.char(cid) + CH_PP_TARGET)}"
+                    for cid in g.party()
+                )
+                + " exp"
+                + "".join(f" {g.w32(g.char(cid) + CH_EXP)}" for cid in g.party())
+                + f" bank {g.w32(g.gs + GS_BANK_BALANCE)}"
+            )
+        elif cmd == "rng":
+            # RAND_A/RAND_B aren't in SRAM: seed both sides before comparing RNG-dependent steps
+            if len(ints) >= 2:
+                g.put16(g.sym("RAND_A"), ints[0])
+                g.put16(g.sym("RAND_B"), ints[1])
+            log(f"RNG {g.w16(g.sym('RAND_A'))} {g.w16(g.sym('RAND_B'))}")
         elif cmd == "money":
             if ints:
                 g.put32(g.gs + GS_MONEY, ints[0])

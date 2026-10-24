@@ -92,6 +92,8 @@ KEEP = (
     "FLAG",
     "GIVE",
     "MONEY",
+    "RNG",
+    "HPT",
     "TELEPORT",
     "SNAP",
     "RESTORE",

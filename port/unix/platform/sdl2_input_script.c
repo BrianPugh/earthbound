@@ -58,6 +58,10 @@
  *                    In a battle, also sets the member's battler
  *   debug on|off     set ow.debug_flag (no debug menu, unlike aux F5)
  *   money N          set money on hand
+ *   rng [A B]        print / set the game RNG state (rng_state.a/.b, the
+ *                    asm's RAND_A/RAND_B), for seeding port vs emu runs
+ *   hpt              print each party member's HP/PP rolling targets, exp,
+ *                    and the bank balance
  *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP; in a
  *                    battle, also the member's battler HP/PP (and its target)
  *   heal             restore every party member's HP/PP to max (as hp/pp)
@@ -81,6 +85,7 @@
 #include "platform/platform.h"
 #include "include/pad.h"
 #include "include/constants.h"
+#include "core/math.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "entity/entity.h"
@@ -1104,6 +1109,28 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
                 printf(") FAILED: every party inventory is full\n");
             }
         }
+    } else if (strcmp(cmd, "hpt") == 0) {
+        printf("HPT");
+        for (int i = 0; i < game_state.party_count && i < 6; i++) {
+            uint8_t id = game_state.party_members[i];
+            if (id < 1 || id > TOTAL_PARTY_COUNT)
+                continue;
+            const CharStruct *c = &party_characters[id - 1];
+            printf(" %u:%u/%u", id, c->current_hp_target, c->current_pp_target);
+        }
+        printf(" exp");
+        for (int i = 0; i < game_state.party_count && i < 6; i++) {
+            uint8_t id = game_state.party_members[i];
+            if (id >= 1 && id <= TOTAL_PARTY_COUNT)
+                printf(" %u", (unsigned)party_characters[id - 1].exp);
+        }
+        printf(" bank %u\n", (unsigned)game_state.bank_balance);
+    } else if (strcmp(cmd, "rng") == 0) {
+        if (nv >= 2) {
+            rng_state.a = (uint16_t)v1;
+            rng_state.b = (uint16_t)v2;
+        }
+        printf("RNG %u %u\n", (unsigned)rng_state.a, (unsigned)rng_state.b);
     } else if (strcmp(cmd, "money") == 0) {
         game_state.money_carried = (uint32_t)v1;
         printf("MONEY %u\n", (unsigned)game_state.money_carried);
