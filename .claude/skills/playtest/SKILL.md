@@ -313,3 +313,7 @@ Put these in their own "Viewport/visual" section of the report, with shot paths 
 ## Reporting
 
 Report per item: PASS/FAIL/NOT REACHED, evidence (shot/sheet paths, decoded text, measured vs expected numbers), and for a FAIL the exact asm vs C divergence (file:line on both sides). Keep it short; the person reading it already has the context.
+| Gold Mine entrance + Gerardo in the mine | run-33 / run-34 (flag 174 set) | bulldozer npc793 blocks the cabin-side approach; the door 3664,9632 is reached by `teleport 3664 9648 0; UP` (on-foot step not found) → 8128,6864. Gerardo npc830 (8048,6832): talk from 8032,6841 facing UP ("5 big moles"); pass him on the right (8054,6848) |
+| Gold Mine: Guardian Digger npc837 | run-34 | entrance → corridor north (x≈8060-8100) → hole 8040,5992 (UP from 8044,6015) → 6608,5272; `40 DOWN; 40 DOWN`, LEFT to 6296,5320, `UP` into the mole. Fight: Paula PSI Fire β (~110), Ness bash/Lifeup, Rockin doesn't work; 386 HP |
+| Gold Mine: Guardian Diggers npc831 / npc838 | run-34 | `teleport 7300 6010 0` (maze hub; walk-in not found). 831: `16 LEFT; 200 UP; 50 RIGHT; 60 UP+RIGHT; 250 UP; UP+LEFT`. 838: from the hub `250 RIGHT` (7504,6015), `30 LEFT; 150 UP; 100 UP+RIGHT; 250 RIGHT` → 7835,5840, UP into hole 7848,5704 → 8112,5400, `30 DOWN; 100 LEFT; 150 UP; RIGHT` |
+| Gold Mine map montage | any | `flag 11 1`, then `teleport X Y; wait 4; shot PATH` over x 6272-8192 step 256, y 5120-6912 step 224; crop each 256×224 around (160,120) and paste at (X-128, Y-112). Shows the mine pieces and the interleaved Monkey Cave / Stonehenge rooms |
