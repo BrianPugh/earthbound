@@ -14838,7 +14838,7 @@ dumpEntries:
 # PARTY_MEMBER_CAST_TILE_IDS — 4 × 2 byte VRAM tile offsets for party cast names
 - subdir: ending
   name: party_cast_tile_ids
-  offset: 0x3FDAD
+  offset: 0x3FDB5
   size: 8
   extension: bin
   compressed: false
