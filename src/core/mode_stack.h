@@ -722,6 +722,8 @@ typedef enum {
     BM_ITEM,            /* Goods: build the inventory window; push SELECTION_MENU */
     BM_ITEM_RESULT,     /* item chosen/cancelled; classify; push targeting if needed */
     BM_ITEM_TGT_RESULT, /* after the item's DETERMINE_TARGETING pops */
+    BM_CYCLE_FIND,      /* debug CYCLE_BATTLE_TARGET: skip unconscious, WINDOW_TICK */
+    BM_CYCLE_POLL,      /* debug CYCLE_BATTLE_TARGET: per-frame LEFT/RIGHT/press poll */
 } BattleMenuPhase;
 
 typedef struct {
@@ -733,6 +735,8 @@ typedef struct {
     uint16_t num_selected;    /* characters already committed this round (input) */
     uint16_t selected_action; /* @LOCAL05/@VIRTUAL02: the action being built */
     uint16_t item_effect;     /* Goods: effect id carried across DETERMINE_TARGETING */
+    uint8_t  cycle_index;     /* CYCLE_BATTLE_TARGET @LOCAL01: battler slot */
+    int8_t   cycle_dir;       /* CYCLE_BATTLE_TARGET @LOCAL02: +1 / -1 */
 } BattleMenuState;
 
 /* GAME_MODE_BATTLE phases. Port of battle_routine()

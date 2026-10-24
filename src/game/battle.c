@@ -2735,10 +2735,12 @@ StepResult mode_step_battle_menu(ModeState *ms) {
                         bt.disable_hppp_rolling = 0;
                         return STEP_RESULT_POP(0xFFFF);
                     }
-                    /* R button = cycle through battle targets (debug) */
+                    /* R button = cycle through battle targets (debug),
+                     * then BRA @MENU_SELECTION_LOOP when it returns. */
                     if (core.pad1_held & PAD_R) {
-                        /* cycle_battle_target — debug-only, skip for now */
-                        st->phase = BM_MAIN;
+                        st->cycle_dir = 1;
+                        st->cycle_index = 0;
+                        st->phase = BM_CYCLE_FIND;
                         break;
                     }
                 }
@@ -2879,6 +2881,66 @@ StepResult mode_step_battle_menu(ModeState *ms) {
             default:
                 return bm_close_menu(st);
             }
+            break;
+        }
+
+        /*
+         * CYCLE_BATTLE_TARGET — Port of asm/misc/cycle_battle_target.asm.
+         *
+         * Debug-only (DEBUG + R when the command menu is cancelled). Steps
+         * through the battler slots: RIGHT/LEFT (PAD_HELD, so it auto-repeats)
+         * move one conscious battler forward/back with wraparound, closing the
+         * focus window each time; any new press closes the focus window and
+         * returns to @MENU_SELECTION_LOOP. Per selected battler it calls
+         * NULL_C1E1A2, an empty stub in the retail ROM (the display it fed was
+         * stripped), so nothing on screen marks the selection.
+         *
+         * Both exits close the command menu window. The original then runs
+         * SELECTION_MENU on that closed window (invisible menu, stray cursor at
+         * the top left, still selectable); the port's selection menu pops 0 on
+         * a closed window, so this menu returns "back" and the battle routine
+         * rebuilds the menu for the same character.
+         */
+        case BM_CYCLE_FIND: {
+            /* @CHECK_CONSCIOUS / @ADVANCE: skip unconscious slots, moving
+             * in the current direction with wraparound. */
+            int16_t idx = st->cycle_index;
+            while (bt.battlers_table[idx].consciousness == 0) {
+                idx = (int16_t)(idx + st->cycle_dir);
+                if (idx < 0) idx = BATTLER_COUNT - 1;
+                if (idx >= BATTLER_COUNT) idx = 0;
+            }
+            st->cycle_index = (uint8_t)idx;
+            /* JSL NULL_C1E1A2 (empty stub); JSL WINDOW_TICK; then the
+             * @POLL_INPUT WAIT_UNTIL_NEXT_FRAME is this step's frame. */
+            (void)window_tick_work_step();   /* battle: never parks */
+            st->phase = BM_CYCLE_POLL;
+            return STEP_RESULT_CONTINUE();
+        }
+
+        case BM_CYCLE_POLL: {
+            int8_t dir = 0;
+            if (core.pad1_autorepeat & PAD_RIGHT) {
+                dir = 1;
+            } else if (core.pad1_autorepeat & PAD_LEFT) {
+                dir = -1;
+            } else if (core.pad1_pressed) {
+                /* @CHECK_CONFIRM: any new press leaves */
+                redirect_close_focus_window();
+                st->phase = BM_MAIN;
+                break;
+            } else {
+                /* @POLL_INPUT: WAIT_UNTIL_NEXT_FRAME only (no WINDOW_TICK) */
+                return STEP_RESULT_CONTINUE();
+            }
+            /* @CYCLE_NEXT */
+            st->cycle_dir = dir;
+            int16_t idx = (int16_t)(st->cycle_index + dir);
+            if (idx < 0) idx = BATTLER_COUNT - 1;
+            if (idx >= BATTLER_COUNT) idx = 0;
+            st->cycle_index = (uint8_t)idx;
+            redirect_close_focus_window();
+            st->phase = BM_CYCLE_FIND;
             break;
         }
 
