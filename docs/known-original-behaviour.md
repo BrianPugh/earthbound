@@ -46,6 +46,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Lopsided Titanic Ant / Antoid layout | Giant Step (save 03) | asm (random back-row edge) | 2026-10-23 |
 | "[enemy] was able to move!" after a solidified member's turn | any battle | asm | 2026-10-23 |
 | Failed Teleport α chars the party | anywhere | asm | 2026-10-23 |
+| An overworld enemy touching the party during a PSI Teleport α run starts a battle (the teleport fails) | Scaraba desert, run-54 session run54a (Great Crested Booka during the run west along y 4581 from 1863) | asm psi_teleport_alpha_tick.asm:34-40 sets state 2 + BATTLE_MODE on BATTLE_SWIRL_COUNTDOWN; C overworld_teleport.c:447-451 same | 2026-10-24 |
 | Spiteful Crow steals an item first, which frees a slot | 01-Start | ROM data (drop rate 7 = always), port log vfa1 | 2026-10-23 |
 | Original's battle entry takes longer | every battle | CPU lag; the fade speeds match the asm | 2026-10-23 |
 | PSI Healing α "had no visible effect" on a poisoned member; Healing β cures it | overworld, run-48 cabin (Ness poisoned by a Skelpion) | `asm/battle/actions/healing_alpha.asm` only cures COLD/SUNSTROKE (+ temporary group) | 2026-10-24 |
@@ -97,6 +98,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| Hospital "Who do you want to see?" on a conscious (poisoned) member answers "We don't have a person like that in our hospital." and cures nothing | Summers hospital nurse npc1047, run-53 | port run54a; ROM script ESHOP2 nurse branch: no matching ailment → `_NURSE_NOPLAYER` | 2026-10-24 |
+| Star Master taking Poo outside the pyramid exit (1728,5514) also fully revives and heals the party | run-54 pyramid exit, walk DOWN from 1728,5472 | port run54a (Paula 1 HP, Jeff unconscious → all full); ROM script `MSG_SKRB_ELDER_WELCOME_POO` calls `MSG_SHOP2_SUB_ALLHEAL_SANCTUARY` | 2026-10-24 |
 | Pay phones take $1 when you pick up the receiver | any pay phone | script `MSG_GLOBAL_TELEPHONE_2` (`take_from_wallet: 1`) | 2026-10-24 |
 | Game over: only the leader revives, PP is zeroed, money is halved | Continue → Yes | `asm/overworld/spawn.asm:81-83` | 2026-10-24 |
 | Hotel stay doesn't cure colds, mushroomization, sunstroke or poison (also the free Dusty Dunes cabin, MSG_DSRT_HOTEL) | any hotel; cabin 8104,1896 (run-48, Ness stayed poisoned) | script (MSG_SHOP2_SUB_HOTEL_HEAL_ALL_PARTY restores HP/PP only) | 2026-10-24 |
