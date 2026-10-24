@@ -1695,13 +1695,23 @@ static void adjust_sprite_palettes_by_average(void) {
  *
  * Checks ert.palettes[64] (sub-palette 4, color 0 — normally transparent).
  * If non-zero, treats it as a sub-palette index and copies that
- * sub-palette's 16 colors into sprite sub-palette 4 (ert.palettes[192..207]). */
+ * sub-palette's 16 colors into sprite sub-palette 4 (ert.palettes[192..207]).
+ *
+ * The asm forms the source as a 16-bit WRAM address, PALETTES + index * 32
+ * (OPTIMIZED_MULT, then ADC #.LOWORD(PALETTES), both wrapping). Map palettes
+ * keep a small sub-palette number there, but credits photograph palettes
+ * (COMPRESSED_PHOTOGRAPH_PALETTES, photos 3/4/9/10/31) hold a colour, $0101,
+ * so the original copies 32 bytes from $7E2220 (HEAP_ALT, the NMI-swapped
+ * scratch heap) into the sprite sub-palette. The port has no equivalent of
+ * that WRAM, so a source outside PALETTES leaves sprite sub-palette 4 as
+ * ADJUST_SPRITE_PALETTES_BY_AVERAGE left it. */
 static void load_special_sprite_palette(void) {
     uint16_t pal_index = ert.palettes[64];
     if (pal_index == 0) return;
 
-    uint16_t *src = &ert.palettes[pal_index * 16];
-    memcpy(&ert.palettes[192], src, 16 * sizeof(uint16_t));
+    uint16_t src_offset = (uint16_t)(pal_index * BPP4PALETTE_SIZE);
+    if ((size_t)src_offset + BPP4PALETTE_SIZE > sizeof(ert.palettes)) return;
+    memcpy(&ert.palettes[192], (const uint8_t *)ert.palettes + src_offset, BPP4PALETTE_SIZE);
 }
 
 /* --- LOAD_MAP_AT_SECTOR ---
