@@ -253,7 +253,10 @@ static void PPU_HOT_FUNC(decode_4bpp_row)(const uint8_t *tile_data, int row,
     ((u32_alias *)out_indices)[1] = hi;
 }
 
-static void PPU_HOT_FUNC(decode_8bpp_row)(const uint8_t *tile_data, int row,
+/* Mode 3 only (the gas station intro's BG1), and only on a tile-row cache
+ * miss, so it stays out of EB_PPU_RAM_SECTION. noinline keeps GCC from
+ * folding it into the RAM-resident caller, which would cost the same RAM. */
+static __attribute__((noinline)) void decode_8bpp_row(const uint8_t *tile_data, int row,
                             uint8_t *out_indices) {
     const uint8_t *bp01 = tile_data + row * 2;
     const uint8_t *bp23 = tile_data + 16 + row * 2;
@@ -1653,13 +1656,15 @@ static inline void window_membership(const void *gr_opaque, int scanline, int wx
 }
 
 /* Precompute per-scanline window masks and color math prevention.
- * Kept as a separate noinline function to reduce ppu_render_frame code size
- * below the 16KB RP2040 XIP cache threshold.  Called once per scanline.
- * Placed in SRAM via PPU_HOT_FUNC to avoid XIP cache thrashing with
- * ppu_render_frame — these two functions would otherwise ping-pong the 16KB
- * XIP cache on every scanline. */
+ * Kept as a separate noinline function to reduce ppu_render_frame code size.
+ * Called only on window scanlines whose window values changed (see the
+ * win_cache_key check in the caller), never on window-free frames.
+ * Deliberately NOT in EB_PPU_RAM_SECTION: ppu_render_frame_ex and the other
+ * hot functions now run from RAM, so this no longer competes with them for
+ * the RP2040 XIP cache, and its 5 KB of SRAM is worth more than the
+ * occasional XIP refill in window scenes. */
 static __attribute__((noinline))
-void PPU_HOT_FUNC(precompute_window_masks)(
+void precompute_window_masks(
     int scanline, int render_width, bool wide_mode,
     uint8_t base_tm, uint8_t base_ts,
     uint8_t *eff_tm_line, uint8_t *eff_ts_line,
