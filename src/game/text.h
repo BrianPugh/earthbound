@@ -20,6 +20,7 @@
 
 /* Special EB text character codes (from CHAR enum in include/macros.asm) */
 #define EB_CHAR_EQUIPPED  0x22  /* CHAR::EQUIPPED — purple oval with "E" */
+#define EB_CHAR_SPACE     0x50  /* CHAR::SPACE — first font glyph */
 
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */
@@ -196,9 +197,14 @@ void vwf_render_eb_string_at(const uint8_t *eb_str, int len, uint16_t x_tile,
    VWF tiles at VRAM::TEXT_LAYER_TILES + $1700 (tile index 0x2E0).
    Returns the number of VWF tile columns used (each column = 2 VRAM
    tiles for 16px fonts, 1 tile for 8px fonts).
-   Does NOT write tilemap entries — caller must do that separately. */
+   Does NOT write tilemap entries — caller must do that separately.
+   fixed_advance: 0 = per-character font widths (RENDER_VWF_CHARACTER);
+   nonzero = blit every glyph with this fixed advance (RENDER_TINY_FONT_STRING). */
 int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
-                               uint16_t vram_tile_base);
+                               uint16_t vram_tile_base, uint8_t fixed_advance);
+
+/* RENDER_TINY_FONT_STRING's fixed per-character advance (LDA #6). */
+#define TINY_FONT_STRING_ADVANCE 6
 
 /* Render a window title string to dedicated VRAM tiles (once, at set_window_title time).
    Matches assembly's RENDER_WINDOW_TITLE → RENDER_TINY_FONT_STRING flow.

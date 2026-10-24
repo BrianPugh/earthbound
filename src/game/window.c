@@ -769,6 +769,9 @@ void close_menu_header_window(void) {
 #define BORDER_BL     0xBC10  /* tile 0x10, pal 7, pri, v-flip:  bottom-left corner */
 #define BORDER_BOTTOM 0xBC11  /* tile 0x11, pal 7, pri, v-flip:  bottom edge */
 #define BORDER_BR     0xFC10  /* tile 0x10, pal 7, pri, hv-flip: bottom-right corner */
+/* Title end caps around a window title in the top border row */
+#define TITLE_CAP_LEFT  0x3C16  /* tile 0x16, pal 7, pri, no flip */
+#define TITLE_CAP_RIGHT 0x7C16  /* tile 0x16, pal 7, pri, h-flip */
 /* Junction (T-intersection) tiles for overlapping window corners */
 #define JUNCTION_TL   0x3C13  /* tile 0x13, pal 7, pri, no flip */
 #define JUNCTION_TR   0x7C13  /* tile 0x13, pal 7, pri, h-flip */
@@ -849,16 +852,23 @@ void render_all_windows(void) {
             }
         }
 
-        /* Write pre-rendered title tile IDs to BG2_BUFFER (top border row).
-           Assembly: RENDER_WINDOW_FRAME writes tile IDs for the title;
-           actual glyph data was uploaded to VRAM once at set_window_title time. */
-        if (w->title_slot > 0 && w->title_tile_count > 0) {
+        /* Title in the top border row (RENDER_WINDOW_FRAME @CHECK_TITLE): after
+         * the top-left corner comes the left end cap ($3C16), then
+         * (strlen*6+7)/8 title tiles from $02E0 + (slot-1)*16 (+$2000
+         * priority), then the h-flipped end cap ($7C16); the top edge follows.
+         * The glyph data was uploaded once at set_window_title time. */
+        if (w->title_slot > 0 && w->title_tile_count > 0 && w->y < 32) {
             uint16_t tile_base = 0x02E0 + (w->title_slot - 1) * 16;
-            for (int t = 0; t < w->title_tile_count; t++) {
-                uint16_t mx = w->content_x + t;
-                if (mx < 32 && w->y < 32)
+            uint16_t mx = w->x + 1;
+            if (mx < 32)
+                tilemap[w->y * 32 + mx] = TITLE_CAP_LEFT;
+            mx++;
+            for (int t = 0; t < w->title_tile_count; t++, mx++) {
+                if (mx < 32)
                     tilemap[w->y * 32 + mx] = (tile_base + t) | 0x2000;
             }
+            if (mx < 32)
+                tilemap[w->y * 32 + mx] = TITLE_CAP_RIGHT;
         }
 
         /* Copy per-window content_tilemap to win.bg2_buffer.

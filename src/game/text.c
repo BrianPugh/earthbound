@@ -4150,14 +4150,25 @@ void vwf_render_eb_string_at(const uint8_t *eb_str, int len, uint16_t x_tile,
 }
 
 int vwf_render_to_fixed_tiles(const uint8_t *eb_str, int len, uint8_t font_id,
-                               uint16_t vram_tile_base) {
+                               uint16_t vram_tile_base, uint8_t fixed_advance) {
     uint8_t height = font_get_height(font_id);
     bool is_tall = (height > 8);
 
     vwf_init();
 
     for (int i = 0; i < len && eb_str[i] != 0; i++) {
-        vwf_render_character(eb_str[i], font_id);
+        if (fixed_advance == 0) {
+            vwf_render_character(eb_str[i], font_id);
+            continue;
+        }
+        /* RENDER_TINY_FONT_STRING: every character goes straight to
+         * BLIT_VWF_GLYPH with a fixed advance (LDA #6), glyph index
+         * (char - CHAR::SPACE) & $7F, no width table or padding. */
+        uint8_t char_index = (uint8_t)((eb_str[i] - EB_CHAR_SPACE) & 0x7F);
+        if (char_index >= FONT_CHAR_COUNT) continue;
+        const uint8_t *glyph = font_get_glyph(font_id, char_index);
+        if (glyph)
+            blit_vwf_glyph(glyph, height, fixed_advance);
     }
 
     uint16_t tiles_used = (vwf_x + 7) >> 3;
@@ -4213,7 +4224,8 @@ int render_title_to_vram(const char *title, uint8_t title_slot) {
     /* Render to fixed VRAM tiles: 0x02E0 + (slot-1)*16
      * Matches assembly RENDER_WINDOW_TITLE → RENDER_TINY_FONT_STRING. */
     uint16_t vram_tile_base = 0x02E0 + (title_slot - 1) * 16;
-    int tile_count = vwf_render_to_fixed_tiles(eb_str, len, FONT_ID_TINY, vram_tile_base);
+    int tile_count = vwf_render_to_fixed_tiles(eb_str, len, FONT_ID_TINY, vram_tile_base,
+                                               TINY_FONT_STRING_ADVANCE);
 
     /* Restore VWF state */
     memcpy(vwf_buffer, vwf_saved_buffer, VWF_BUFFER_SIZE);

@@ -734,7 +734,7 @@ static void kb_build_name_display(uint8_t *display, const uint8_t *eb_name,
    RENDER_KEYBOARD_INPUT_CHARACTER which is called per-change, not per-frame).
    Returns the number of tile columns rendered. */
 static int kb_render_name_tiles(const uint8_t *display, int max_len) {
-    return vwf_render_to_fixed_tiles(display, max_len, FONT_ID_NORMAL, NAME_VRAM_TILE_BASE);
+    return vwf_render_to_fixed_tiles(display, max_len, FONT_ID_NORMAL, NAME_VRAM_TILE_BASE, 0);
 }
 
 /* Write tilemap entries for the name display at a specific text row.
