@@ -118,6 +118,12 @@ When a suspected divergence comes up (port behaviour that might or might not be 
 | Twoson–Threed tunnel ghosts (move-toward) | 10-ToThreed | walk into the tunnel; the ghosts follow and warp you back to Twoson |
 | Summers sailor to Scaraba (diagonal velocity) | 27-Kraken | `teleport 7264 2908`, talk to npc1065, pay; sailor walks DOWN_LEFT at 0.354 px/frame/axis |
 | Credits photo slides | any (36-CavePast) | `debug on`; set flags 698-729 (photos); B+R → page to STAFF → A |
+| Fire Spring entry + quake | 33-FireSpring | `until text 120 UP; 30 DOWN; 160 LEFT` → 2000,3221 (EVENT_672/674 quake fires on a 400-1800 frame random timer here); cave door 1880,3096: `60 UP; 180 UP+LEFT; 120 LEFT; 50 LEFT; 100 UP` → 2872,6792 |
+| Carbon Dog / Diamond Dog | 33-FireSpring | `teleport 3344 6410 0; 30 UP`, talk to npc1276; Auto Fight wins in ~13000 frames with 4 members |
+| Fire Spring sanctuary | 33-FireSpring (after boss) | `until in:DOOR_TRANSITION 120 UP` → 6352,9880; `30 DOWN; until text 100 DOWN+LEFT; until text 100 LEFT; until text 200 UP` → hotspot 31 ~6128,9831; melody ~1300 frames |
+| Magicant: Sea of Eden entrance | 34-Magicant | bush maze NW of town traps you; from `teleport 5760 4690 6`: `8 DOWN; 110 LEFT; 200 UP; until battle 250 LEFT` (enemy NPC), `16 DOWN; 40 LEFT; 150 DOWN+LEFT; 60 LEFT; 200 UP; 30 LEFT; 200 UP; 20 DOWN; 200 RIGHT` (wounded memory), `10 DOWN; 200 RIGHT; 30 RIGHT; 250 UP+RIGHT; 150 UP; 250 RIGHT; 250 UP`, pink maze to 5556,3904, `10 LEFT; press L` → 432,9584 |
+| Sea of Eden Krakens → Nightmare | 34-Magicant | from 432,9584: `until text 200 RIGHT; until text 150 DOWN; until text 300 RIGHT` ×2 (Kraken 1), `30 RIGHT; until text 300 UP` ×2, `20 LEFT; until text 200 UP; until text 300 LEFT\|UP` (Kraken 2), `until text 300 UP; until text 300 LEFT; 80 DOWN; until battle 300 LEFT` (Kraken 3), `until text 105 LEFT; until text 60 UP; 20 DOWN; 44 LEFT; until text 60 UP` → 496,9137, `press L`. Nightmare is slow on Auto Fight; debug SELECT+START wins |
+| Debug menu in emu | any | the original's cursor redraw lags one item: `press DOWN 5; wait 40; press A; wait 60` for STAFF (port: `press UP 2`) |
 | Damage screen shake | 06-ToHappy | `teleport 6112 7776`, fight Zap Eel + Even Slimier Little Pile; a mortal hit shakes ~60 frames plus 10-frame holds |
 
 When you reach a new scene that took effort to find, **add a row here** (save, exact steps) in the same commit as your work.
