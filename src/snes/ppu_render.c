@@ -74,13 +74,13 @@ static BGCounters g_bgc;
 #define LAYER_BG4  0x08
 #define LAYER_OBJ  0x10
 
-/* Tile row cache entry for bitplane decode caching. */
-typedef struct {
-    uint32_t key;       /* tile_addr | (pixel_y << 17), 0xFFFFFFFF = invalid */
+/* Tile row cache entry for bitplane decode caching. 12 bytes, 4-aligned so
+ * indices[] (offset 4) can be read and written as two words. */
+typedef struct __attribute__((aligned(4))) {
+    uint16_t key;       /* TILE_CACHE_KEY(tile_addr, pixel_y), TILE_CACHE_EMPTY = invalid */
+    uint8_t opaque;     /* 1 = 2bpp/4bpp row with no transparent pixel; else 0 */
+    uint8_t pad;
     uint8_t indices[8]; /* decoded palette indices for this tile row */
-#ifdef EB_PPU_PROFILE
-    uint8_t opaque;     /* 1 = no transparent pixel in this row (diagnostic only) */
-#endif
 } TileRowCacheEntry;
 
 /* Context for merge-during-render: BG layers write directly into the
@@ -161,7 +161,14 @@ void ppu_prepare_palette(void) {
 #define TILE_CACHE_BITS  8
 #define TILE_CACHE_SIZE  (1 << TILE_CACHE_BITS)
 #define TILE_CACHE_MASK  (TILE_CACHE_SIZE - 1)
-#define TILE_CACHE_EMPTY 0xFFFFFFFF
+#define TILE_CACHE_EMPTY 0xFFFF
+/* Every tile address is a multiple of 16: BG tiles sit at nba * 0x2000 plus
+ * tile_num * 16/32/64, OBJ tiles at obsel-derived 0x2000 multiples plus
+ * t * 32. So tile_addr >> 4 (12 bits, VRAM is 64 KB) and the row (3 bits)
+ * pack into 15 bits, one-to-one, and never reach TILE_CACHE_EMPTY. */
+#define TILE_CACHE_KEY(tile_addr, pixel_y) \
+    ((uint16_t)(((tile_addr) >> 4) | ((uint32_t)(pixel_y) << 12)))
+_Static_assert(sizeof(TileRowCacheEntry) == 12, "tile row cache entry must stay 12 bytes");
 
 static TileRowCacheEntry tile_row_cache[EB_PPU_NUM_RENDER_CONTEXTS][TILE_CACHE_SIZE];
 
@@ -284,6 +291,158 @@ static __attribute__((noinline)) void decode_8bpp_row(const uint8_t *tile_data, 
                    | ((b4 << 4) & 0x10) | ((b5 << 5) & 0x20) | ((b6 << 6) & 0x40) | ((b7 << 7) & 0x80);
 }
 
+/* Colour of byte k (pixel k) of a decoded 2bpp/4bpp row word w. Indexes pal
+ * by byte offset, (byte k) * 2, which the M0+ extracts in two shifts. Exact
+ * only while every index is < 128: (w << 16) >> 23 also picks up bit 7 of
+ * byte k-1. 2bpp/4bpp indices are < 16, and only those rows are marked
+ * opaque, so 8bpp rows never come here. */
+static inline __attribute__((always_inline))
+uint16_t row_rgb(const uint16_t *pal, uint32_t w, int k)
+{
+    uint32_t ofs = (k == 3) ? (w >> 24) << 1 : (w << (24 - 8 * k)) >> 23;
+    return *(const uint16_t *)((const uint8_t *)pal + ofs);
+}
+
+/* Fully opaque 8-pixel row into a merge buffer that may already hold pixels
+ * (no-window layer after the first): write each pixel whose gp beats the
+ * stored one. w0/w1 are the row's pixels 0-3 and 4-7, already flipped.
+ * Out of line on purpose: inlined into render_bg_scanline's tile loops it
+ * has only r0-r3 free on the M0+ and reloads pal, gp and gp_lm from the
+ * stack for every pixel; as a leaf it keeps all of them in registers. */
+static __attribute__((noinline)) void PPU_HOT_FUNC(emit_opaque_row_prio)(
+    uint32_t *dst, uint32_t w0, uint32_t w1, const uint16_t *pal, uint16_t gp_lm)
+{
+    const uint8_t gp = GP_LM_GP(gp_lm);
+#define PX_PRIO(i, w, k) do { \
+    if (gp > GP_LM_GP(dst[i])) dst[i] = MAIN_PACK(row_rgb(pal, w, k), gp_lm); \
+} while (0)
+    PX_PRIO(0, w0, 0); PX_PRIO(1, w0, 1); PX_PRIO(2, w0, 2); PX_PRIO(3, w0, 3);
+    PX_PRIO(4, w1, 0); PX_PRIO(5, w1, 1); PX_PRIO(6, w1, 2); PX_PRIO(7, w1, 3);
+#undef PX_PRIO
+}
+
+/* General emit: any run of a decoded row, with transparency, the sub screen
+ * and window masks. These take the runs the opaque fast path in
+ * emit_tile_run doesn't (partial and transparent rows, sub screen, windowed
+ * layers). Out of line for the same reason as emit_opaque_row_prio: as
+ * leaves the loops get the registers, and render_bg_scanline carries one
+ * copy of the loops instead of one per emit_tile_run call site. Split into
+ * a main-only and a main+sub function (rather than a per-pixel sub_gp NULL
+ * check, or one function whose register allocation serves neither).
+ *
+ * src walks the run forward: an hflipped row is first byte-reversed into
+ * the caller's 8-byte `flipped` buffer. */
+static inline __attribute__((always_inline))
+const uint8_t *run_src(const uint8_t *indices, int start_px, bool hflip,
+                       uint32_t flipped[2])
+{
+    if (!hflip) return indices + start_px;
+    typedef const uint32_t __attribute__((may_alias)) u32_alias;
+    flipped[0] = __builtin_bswap32(((u32_alias *)indices)[1]);
+    flipped[1] = __builtin_bswap32(((u32_alias *)indices)[0]);
+    return (const uint8_t *)flipped + start_px;
+}
+
+#define EMIT_PIXELS_LOOP(BODY) do { \
+    for (int _i = 0; _i < count; _i++) { \
+        uint32_t _cidx = src[_i]; \
+        if (_cidx == 0) continue; \
+        uint16_t _rgb = pal[_cidx]; \
+        BODY; \
+    } \
+} while (0)
+
+/* Windowed variant: per-pixel window masks + priority compare. tm_line is
+ * always valid (never NULL) — caller provides an all-0xFF array when windows
+ * are inactive, eliminating the NULL check. */
+#define EMIT_PIXELS(HAS_SUB) EMIT_PIXELS_LOOP( \
+    if ((tm[_i] & layer_bit) && gp > GP_LM_GP(dst[_i])) \
+        dst[_i] = MAIN_PACK(_rgb, gp_lm); \
+    if (HAS_SUB && (ts[_i] & layer_bit) && gp > sub_gp[_i]) { \
+        sub_gp[_i] = gp; \
+        sub_color[_i] = _rgb; \
+    })
+
+/* No-window variant: windows globally inactive, so eff_tm_line/eff_ts_line
+ * are uniform. The per-pixel `tm_line[_sx] & layer_bit` load+AND collapses
+ * to the loop-invariant booleans main_on/sub_on — one memory load removed
+ * from the critical path of every emitted pixel. */
+#define EMIT_PIXELS_NW(HAS_SUB) EMIT_PIXELS_LOOP( \
+    if (main_on && gp > GP_LM_GP(dst[_i])) \
+        dst[_i] = MAIN_PACK(_rgb, gp_lm); \
+    if (HAS_SUB && sub_on && gp > sub_gp[_i]) { \
+        sub_gp[_i] = gp; \
+        sub_color[_i] = _rgb; \
+    })
+
+/* Unconditional variant: the merge buffer is known-empty for this layer's
+ * pixels (uncond), so the priority load+compare is dropped — the write
+ * always wins. main is written unconditionally (selection guarantees
+ * main_on); sub is gated by the loop-invariant sub_on. Each screen_x is
+ * written at most once per layer, so no intra-layer overwrite hazard. */
+#define EMIT_PIXELS_UNCOND(HAS_SUB) EMIT_PIXELS_LOOP( \
+    dst[_i] = MAIN_PACK(_rgb, gp_lm); \
+    if (HAS_SUB && sub_on) { \
+        sub_gp[_i] = gp; \
+        sub_color[_i] = _rgb; \
+    })
+
+/* Main screen only (ctx->sub_gp == NULL). */
+static __attribute__((noinline)) void PPU_HOT_FUNC(emit_row_main)(
+    const BGRenderCtx *ctx, int screen_x, const uint16_t *pal, uint16_t gp_lm,
+    const uint8_t *indices, int start_px, int count, bool hflip)
+{
+    uint32_t flipped[2];
+    const uint8_t *src = run_src(indices, start_px, hflip, flipped);
+    const uint8_t gp = GP_LM_GP(gp_lm);
+    uint32_t *const dst = ctx->main + screen_x;
+    const bool main_on = ctx->main_on;
+    /* HAS_SUB = 0 removes every sub-screen use; these keep the dead
+     * branches well-formed. */
+    const bool sub_on = false;
+    uint8_t *const sub_gp = NULL;
+    uint16_t *const sub_color = NULL;
+    const uint8_t *const ts = NULL;
+    if (ctx->uncond && main_on) {
+        EMIT_PIXELS_UNCOND(0);
+    } else if (ctx->no_window) {
+        EMIT_PIXELS_NW(0);
+    } else {
+        const uint8_t *const tm = ctx->tm_line + screen_x;
+        const uint8_t layer_bit = ctx->layer_bit;
+        EMIT_PIXELS(0);
+    }
+}
+
+/* Main and sub screen (ctx->sub_gp != NULL, colour math on). */
+static __attribute__((noinline)) void PPU_HOT_FUNC(emit_row_sub)(
+    const BGRenderCtx *ctx, int screen_x, const uint16_t *pal, uint16_t gp_lm,
+    const uint8_t *indices, int start_px, int count, bool hflip)
+{
+    uint32_t flipped[2];
+    const uint8_t *src = run_src(indices, start_px, hflip, flipped);
+    const uint8_t gp = GP_LM_GP(gp_lm);
+    uint32_t *const dst = ctx->main + screen_x;
+    const bool main_on = ctx->main_on;
+    const bool sub_on = ctx->sub_on;
+    uint8_t *const sub_gp = ctx->sub_gp + screen_x;
+    uint16_t *const sub_color = ctx->sub_color + screen_x;
+    if (ctx->uncond && main_on) {
+        EMIT_PIXELS_UNCOND(1);
+    } else if (ctx->no_window) {
+        EMIT_PIXELS_NW(1);
+    } else {
+        const uint8_t *const tm = ctx->tm_line + screen_x;
+        const uint8_t *const ts = ctx->ts_line + screen_x;
+        const uint8_t layer_bit = ctx->layer_bit;
+        EMIT_PIXELS(1);
+    }
+}
+#undef EMIT_PIXELS_LOOP
+#undef EMIT_PIXELS
+#undef EMIT_PIXELS_NW
+#undef EMIT_PIXELS_UNCOND
+
 /* Emit a run of pixels from a single decoded 8x8 tile row.
  * Writes directly to merged priority buffers via BGRenderCtx, applying
  * window masks and global priority comparison in one pass. */
@@ -302,48 +461,36 @@ void emit_tile_run(
     const uint8_t *tile_data = &ppu.vram[tile_addr];
 
     /* Quick blank-row check: if all bitplane bytes for this row are zero,
-     * every pixel is transparent — skip decode + emit entirely. */
-    {
-        const uint8_t *bp = tile_data + pixel_y * 2;
-        uint8_t any = bp[0] | bp[1];
-        if (bpp >= 4) { any |= bp[16] | bp[17]; }
-        if (bpp == 8) { any |= bp[32] | bp[33] | bp[48] | bp[49]; }
-        if (!any) { BGC_INC(blank_skips); return; }
-    }
+     * every pixel is transparent — skip decode + emit entirely. A pixel is
+     * index 0 only where no plane has its bit set, so any == 0xFF also says
+     * the row has no transparent pixel (the cache entry's opaque, kept 0 for
+     * 8bpp rows: see row_rgb). */
+    const uint8_t *bp = tile_data + pixel_y * 2;
+    uint8_t any = bp[0] | bp[1];
+    if (bpp >= 4) { any |= bp[16] | bp[17]; }
+    if (bpp == 8) { any |= bp[32] | bp[33] | bp[48] | bp[49]; }
+    if (!any) { BGC_INC(blank_skips); return; }
 
     /* Tile row cache lookup — avoids redundant decode across scanlines,
      * horizontal tile repeats, and cross-layer tile sharing. */
-    uint32_t cache_key = tile_addr | ((uint32_t)pixel_y << 17);
+    uint16_t cache_key = TILE_CACHE_KEY(tile_addr, pixel_y);
     uint32_t cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
-    const uint8_t *indices;
-
-    {
-        TileRowCacheEntry *cache = ctx->tile_cache;
-        if (cache[cache_idx].key == cache_key) {
-            /* Cache hit */
-            BGC_INC(cache_hits);
-            indices = cache[cache_idx].indices;
-        } else {
-            /* Cache miss — decode and store */
-            BGC_INC(cache_misses);
-            uint8_t *dest = cache[cache_idx].indices;
-            if (bpp == 8)
-                decode_8bpp_row(tile_data, pixel_y, dest);
-            else if (bpp == 4)
-                decode_4bpp_row(tile_data, pixel_y, dest);
-            else
-                decode_2bpp_row(tile_data, pixel_y, dest);
-            cache[cache_idx].key = cache_key;
-            indices = dest;
-#ifdef EB_PPU_PROFILE
-            uint8_t _opq = 1;
-            for (int _k = 0; _k < 8; _k++) if (dest[_k] == 0) { _opq = 0; break; }
-            cache[cache_idx].opaque = _opq;
-#endif
-        }
+    TileRowCacheEntry *row = &ctx->tile_cache[cache_idx];
+    if (row->key == cache_key) {
+        BGC_INC(cache_hits);
+    } else {
+        BGC_INC(cache_misses);
+        if (bpp == 8)
+            decode_8bpp_row(tile_data, pixel_y, row->indices);
+        else if (bpp == 4)
+            decode_4bpp_row(tile_data, pixel_y, row->indices);
+        else
+            decode_2bpp_row(tile_data, pixel_y, row->indices);
+        row->key = cache_key;
+        row->opaque = (any == 0xFF && bpp != 8);
     }
 #ifdef EB_PPU_PROFILE
-    if (ctx->tile_cache[cache_idx].opaque) BGC_INC(opaque_runs);
+    if (row->opaque) BGC_INC(opaque_runs);
 #endif
 
     /* Widen the emit span (blank rows were already skipped above, so the
@@ -351,105 +498,53 @@ void emit_tile_run(
     if (screen_x < ctx->emit_lo) ctx->emit_lo = screen_x;
     if (screen_x + count > ctx->emit_hi) ctx->emit_hi = screen_x + count;
 
-    int pal_base = (bpp == 8) ? 0 : (bpp == 4) ? palette * 16 : palette * 4;
-    uint16_t gp_lm = prio_bit ? ctx->gp1_lm : ctx->gp0_lm;
-    uint8_t gp = GP_LM_GP(gp_lm);
-
-    /* Inner pixel loop — split into sub/no-sub variants to eliminate the
-     * per-pixel sub_gp NULL check.  The sub-screen path adds ~5 loads per
-     * pixel; skipping it when unused saves ~15% of render_bg_scanline time.
-     * tm_line is always valid (never NULL) — caller provides an all-0xFF
-     * array when windows are inactive, eliminating the NULL check. */
-#define EMIT_PIXELS(HAS_SUB) do { \
-    for (int _i = 0; _i < count; _i++) { \
-        int _px = hflip ? (7 - (start_px + _i)) : (start_px + _i); \
-        uint8_t _cidx = indices[_px]; \
-        if (_cidx == 0) continue; \
-        uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
-                                    : cgram_render[pal_base + _cidx]; \
-        int _sx = screen_x + _i; \
-        /* Main screen: window mask + priority check, packed store */ \
-        if ((ctx->tm_line[_sx] & ctx->layer_bit) && \
-            gp > GP_LM_GP(ctx->main[_sx])) { \
-            ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
-        } \
-        if (HAS_SUB) { \
-            if ((ctx->ts_line[_sx] & ctx->layer_bit) && \
-                gp > ctx->sub_gp[_sx]) { \
-                ctx->sub_gp[_sx] = gp; \
-                ctx->sub_color[_sx] = _rgb; \
-            } \
-        } \
-    } \
-} while(0)
-
-    /* No-window variant: windows globally inactive, so eff_tm_line/eff_ts_line
-     * are uniform. The per-pixel `tm_line[_sx] & layer_bit` load+AND collapses
-     * to the loop-invariant booleans main_on/sub_on — one memory load removed
-     * from the critical path of every emitted pixel. */
-#define EMIT_PIXELS_NW(HAS_SUB) do { \
-    for (int _i = 0; _i < count; _i++) { \
-        int _px = hflip ? (7 - (start_px + _i)) : (start_px + _i); \
-        uint8_t _cidx = indices[_px]; \
-        if (_cidx == 0) continue; \
-        uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
-                                    : cgram_render[pal_base + _cidx]; \
-        int _sx = screen_x + _i; \
-        if (main_on && gp > GP_LM_GP(ctx->main[_sx])) { \
-            ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
-        } \
-        if (HAS_SUB && sub_on && gp > ctx->sub_gp[_sx]) { \
-            ctx->sub_gp[_sx] = gp; \
-            ctx->sub_color[_sx] = _rgb; \
-        } \
-    } \
-} while(0)
-
-    /* Unconditional variant: the merge buffer is known-empty for this layer's
-     * pixels (uncond), so the priority load+compare is dropped — the write
-     * always wins. main is written unconditionally (selection guarantees
-     * main_on); sub is gated by the loop-invariant sub_on. Each screen_x is
-     * written at most once per layer, so no intra-layer overwrite hazard. */
-#define EMIT_PIXELS_UNCOND(HAS_SUB) do { \
-    for (int _i = 0; _i < count; _i++) { \
-        int _px = hflip ? (7 - (start_px + _i)) : (start_px + _i); \
-        uint8_t _cidx = indices[_px]; \
-        if (_cidx == 0) continue; \
-        uint16_t _rgb = (bpp == 8) ? cgram_render[_cidx] \
-                                    : cgram_render[pal_base + _cidx]; \
-        int _sx = screen_x + _i; \
-        ctx->main[_sx] = MAIN_PACK(_rgb, gp_lm); \
-        if (HAS_SUB && sub_on) { \
-            ctx->sub_gp[_sx] = gp; \
-            ctx->sub_color[_sx] = _rgb; \
-        } \
-    } \
-} while(0)
+    /* Per-run invariants, computed once instead of per pixel: the palette
+     * row (8bpp indexes CGRAM directly, so it starts at 0), the packed gp|lm
+     * word and the destination. */
+    const uint16_t *pal = cgram_render
+                        + ((bpp == 8) ? 0 : (bpp == 4) ? palette * 16 : palette * 4);
+    const uint16_t gp_lm = prio_bit ? ctx->gp1_lm : ctx->gp0_lm;
+    uint32_t *const dst = ctx->main + screen_x;
 
     if (ctx->sub_gp) BGC_INC(sub_emit_calls);
 
-    if (ctx->uncond && ctx->main_on) {
-        const bool sub_on = ctx->sub_on;
-        if (ctx->sub_gp)
-            EMIT_PIXELS_UNCOND(1);
-        else
-            EMIT_PIXELS_UNCOND(0);
-    } else if (ctx->no_window) {
-        const bool main_on = ctx->main_on;
-        const bool sub_on  = ctx->sub_on;
-        if (ctx->sub_gp)
-            EMIT_PIXELS_NW(1);
-        else
-            EMIT_PIXELS_NW(0);
-    } else {
-        if (ctx->sub_gp)
-            EMIT_PIXELS(1);
-        else
-            EMIT_PIXELS(0);
+    /* Whole opaque row, main screen only: ~95% of runs on the overworld and in
+     * battle. All 8 pixels are written (or priority-tested), so the loop is
+     * unrolled with no transparency test, and the row is read as two words
+     * (pixel 0 in the low byte; little-endian, as decode_4bpp_row assumes)
+     * that hflip reverses with a byte swap. */
+    if (count == 8 && row->opaque && !ctx->sub_gp && ctx->main_on) {
+        typedef const uint32_t __attribute__((may_alias)) u32_alias;
+        uint32_t w0 = ((u32_alias *)row->indices)[0];
+        uint32_t w1 = ((u32_alias *)row->indices)[1];
+        if (hflip) {
+            uint32_t t = w0;
+            w0 = __builtin_bswap32(w1);
+            w1 = __builtin_bswap32(t);
+        }
+        if (ctx->uncond) {
+            dst[0] = MAIN_PACK(row_rgb(pal, w0, 0), gp_lm);
+            dst[1] = MAIN_PACK(row_rgb(pal, w0, 1), gp_lm);
+            dst[2] = MAIN_PACK(row_rgb(pal, w0, 2), gp_lm);
+            dst[3] = MAIN_PACK(row_rgb(pal, w0, 3), gp_lm);
+            dst[4] = MAIN_PACK(row_rgb(pal, w1, 0), gp_lm);
+            dst[5] = MAIN_PACK(row_rgb(pal, w1, 1), gp_lm);
+            dst[6] = MAIN_PACK(row_rgb(pal, w1, 2), gp_lm);
+            dst[7] = MAIN_PACK(row_rgb(pal, w1, 3), gp_lm);
+            return;
+        }
+        if (ctx->no_window) {
+            emit_opaque_row_prio(dst, w0, w1, pal, gp_lm);
+            return;
+        }
     }
-#undef EMIT_PIXELS
-#undef EMIT_PIXELS_NW
-#undef EMIT_PIXELS_UNCOND
+
+    /* Everything else: partial rows, rows with transparent pixels, the sub
+     * screen, windowed layers. */
+    if (ctx->sub_gp)
+        emit_row_sub(ctx, screen_x, pal, gp_lm, row->indices, start_px, count, hflip);
+    else
+        emit_row_main(ctx, screen_x, pal, gp_lm, row->indices, start_px, count, hflip);
 }
 
 /* BG tilemap-row plan cache.
@@ -1029,7 +1124,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
                 continue;
 
             /* Tile row cache lookup for OBJ tiles (same cache as BG) */
-            uint32_t obj_cache_key = tile_addr | ((uint32_t)pixel_y << 17);
+            uint16_t obj_cache_key = TILE_CACHE_KEY(tile_addr, pixel_y);
             uint32_t obj_cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
             const uint8_t *indices;
             {
@@ -1040,6 +1135,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
                     uint8_t *dest = cache[obj_cache_idx].indices;
                     decode_4bpp_row(&ppu.vram[tile_addr], pixel_y, dest);
                     cache[obj_cache_idx].key = obj_cache_key;
+                    cache[obj_cache_idx].opaque = 0; /* not tracked for OBJ rows */
                     indices = dest;
                 }
             }
