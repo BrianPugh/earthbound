@@ -181,6 +181,7 @@ MapLoaderState ml = {
 
 void invalidate_loaded_tileset_combo(void) {
     ml.loaded_tileset_combo = -1;
+    ow.loaded_map_tile_combo = -1;
 }
 
 /* --- Map tile arrangement ert.buffer ---
@@ -1754,8 +1755,16 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
      * to VRAM $0000. We decompress directly to ppu.vram — the first 0x7000
      * bytes land at the correct position, and any overflow into higher VRAM
      * is harmless (overwritten by tilemaps). Intentional divergence from
-     * assembly to avoid ert.buffer dependency. */
-    if (tileset_combo != ml.loaded_tileset_combo) {
+     * assembly to avoid ert.buffer dependency.
+     *
+     * The gate is LOADED_MAP_TILE_COMBO (asm line 83), which RELOAD_MAP,
+     * LOAD_TELEPORT_DESTINATION, LOAD_MAP_AT_POSITION and the game-over
+     * reinit set to -1 to force the upload. ml.loaded_tileset_combo only
+     * records which combo's data is in VRAM; gating on it alone skipped the
+     * upload after the Clumsy Robot's post-battle instant teleport, leaving
+     * battle graphics in the map's tile area. */
+    if ((int16_t)tileset_combo != ow.loaded_map_tile_combo ||
+        (int16_t)tileset_combo != ml.loaded_tileset_combo) {
         /* Photograph mode (credits photos) uploads only the first $4000 bytes
          * (COPY_TO_VRAM3 BUFFER, $0000, $4000 at @PHOTOGRAPH_TILESET): the
          * credits put the photo frame's BG2 tiles at word $2000 (byte $4000),
