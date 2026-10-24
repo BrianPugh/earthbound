@@ -2290,7 +2290,12 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
         uint16_t script_id = cfg->event_script;
         uint8_t direction = cfg->direction;
 
-        /* --- Create entity (C0222B.asm lines 293-310) --- */
+        /* --- Create entity (C0222B.asm lines 293-310) ---
+         * No occupancy check, as in the asm: an NPC respawns on its placement
+         * even when another entity stands there, and the two then block each
+         * other for good (ENTITY_PHYSICS_WITH_COLLISION). The Happy Happy HQ
+         * wanderers pile up on npc389's placement this way in the original too
+         * (emu-confirmed, docs/plans/playtest-coverage.md save 07). */
         int16_t created_slot = create_entity(sprite_id, script_id, -1,
                                              world_x, world_y);
 
