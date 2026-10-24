@@ -124,3 +124,4 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | What you see | Where | Verified | Date |
 |---|---|---|---|
 | Threed keeps the zombie music | Threed, until FLG_WIN_GEPPU | event music table entry 6 | 2026-10-24 |
+| Overworld PSI menu goes straight to Ness's list with Paula and Jeff in the party (no "Who?") | any, Paula has no overworld-usable PSI | asm overworld_psi_menu.asm @CHARACTER_SELECT: COUNT_CHARACTERS_WITH_PSI == 1 auto-selects (code read, leg 56) | 2026-10-24 |
