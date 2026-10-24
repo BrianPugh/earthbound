@@ -31,7 +31,8 @@ def test_pack_layout(tmp_path):
 @pytest.mark.parametrize(
     "entry",
     [
-        {"tileset_combo": 6, "block_x": 255, "block_y": 0, "blocks": [[1, 1]]},  # off the right edge
+        {"tileset_combo": 6, "block_x": 255, "block_y": 0, "blocks": [[1, 1, 1]]},  # off the right edge
+        {"tileset_combo": 6, "block_x": -2, "block_y": 0, "blocks": [[1]]},  # past the west gutter
         {"tileset_combo": 6, "block_x": 0, "block_y": 0, "blocks": [[1], [1, 2]]},  # ragged
         {"tileset_combo": 6, "block_x": 0, "block_y": 0, "blocks": [[1024]]},  # block id too big
         {"tileset_combo": 32, "block_x": 0, "block_y": 0, "blocks": [[1]]},  # combo too big
@@ -40,6 +41,13 @@ def test_pack_layout(tmp_path):
 def test_pack_rejects_bad_entries(tmp_path, entry):
     with pytest.raises(ValueError):
         pack_gutter_overrides(_write(tmp_path, [entry]), tmp_path / "out.bin")
+
+
+def test_pack_west_of_map(tmp_path):
+    src = _write(tmp_path, [{"tileset_combo": 6, "block_x": -1, "block_y": 224, "blocks": [[21]]}])
+    out = tmp_path / "out.bin"
+    pack_gutter_overrides(src, out)
+    assert struct.unpack_from("<hh", out.read_bytes(), 2) == (-1, 224)
 
 
 def test_repo_overrides_pack(tmp_path):

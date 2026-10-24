@@ -13,7 +13,8 @@ committed). Packed to ``maps/gutter_overrides.bin``::
 
     u16 count
     count x {
-        u16 block_x, u16 block_y   # top-left, in 32x32-pixel map blocks
+        i16 block_x, i16 block_y   # top-left, in 32x32-pixel map blocks; may be -1
+                                   # (the gutter beyond the map's west/north edge)
         u8  width, u8 height       # in blocks
         u8  tileset_combo          # only used while this combo is loaded
         u8  reserved (0)
@@ -32,6 +33,7 @@ from pathlib import Path
 
 MAP_BLOCKS_WIDE = 256
 MAP_BLOCKS_HIGH = 320
+OFF_MAP_MARGIN = 1  # blocks past the map edge a 32-px gutter can show
 MAX_BLOCK_ID = 1023  # block ids are 10 bits (2-bit high field + low byte)
 MAX_TILESET_COMBO = 31  # GLOBAL_MAP_TILESETPALETTE_DATA byte >> 3
 
@@ -66,11 +68,12 @@ def pack_gutter_overrides(json_path: Path, out_path: Path) -> int:
             raise ValueError(f"gutter override {name!r}: bad size {width}x{height}")
         if any(len(r) != width for r in rows):
             raise ValueError(f"gutter override {name!r}: rows differ in width")
-        if bx < 0 or by < 0 or bx + width > MAP_BLOCKS_WIDE or by + height > MAP_BLOCKS_HIGH:
+        m = OFF_MAP_MARGIN
+        if bx < -m or by < -m or bx + width > MAP_BLOCKS_WIDE + m or by + height > MAP_BLOCKS_HIGH + m:
             raise ValueError(f"gutter override {name!r}: rect off the map")
         if not 0 <= combo <= MAX_TILESET_COMBO:
             raise ValueError(f"gutter override {name!r}: bad tileset_combo {combo}")
-        out += struct.pack("<HHBBBB", bx, by, width, height, combo, 0)
+        out += struct.pack("<hhBBBB", bx, by, width, height, combo, 0)
         for r in rows:
             for block in r:
                 if not 0 <= int(block) <= MAX_BLOCK_ID:

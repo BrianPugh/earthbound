@@ -1134,8 +1134,8 @@ static int collect_gutter_overrides(ActiveGutterOverride *out,
         if (e[6] != (uint8_t)ml.loaded_tileset_combo) continue;
         ActiveGutterOverride a = {
             .blocks = e + GUTTER_OVERRIDE_ENTRY_HEADER,
-            .x0 = (int32_t)read_u16_le(e) * 4,
-            .y0 = (int32_t)read_u16_le(e + 2) * 4,
+            .x0 = (int32_t)(int16_t)read_u16_le(e) * 4,     /* i16: may be -1 */
+            .y0 = (int32_t)(int16_t)read_u16_le(e + 2) * 4,
             .width = w,
         };
         a.x1 = a.x0 + w * 4 - 1;
