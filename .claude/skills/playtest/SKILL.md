@@ -66,6 +66,7 @@ pt start NAME1 --save playtest/saves/NN-Name.srm
 - **Towns have no overworld enemies, and spawning needs movement.** Enemies only spawn when the camera crosses a 64 px boundary, only from tiles with encounter placements, and ones placed far off screen despawn within frames (all asm behaviour). Walk back and forth on a route, cave or dungeon; `teleport`/`warp` clear enemies first.
 - **Finding an NPC's coordinates:** look up its id in `sprite_placement.json` through the sector pointer table: `pt[(sy*32+sx)*2] - 0x6BE7` indexes `placement_data`, entries are (id16, y8, x8), world x = `sx*256 + x8` (y likewise with the sector row).
 - **Menus can drop an early press:** `until input` / `in:SELECTION_MENU` can fire while a menu still prints its last item; add `wait 10` before the next press.
+- **Game over menu:** a No to "another shot?" asks "...Is that okay?" with the cursor on No; a Yes there goes to the title screen and loses everything since the last Dad save. Never chain `press RIGHT`/`press A` battle steps that may land in a game over, and don't `snap` blindly after a fight that may have been lost.
 - **Enemy count:** `ow_enemies=65535`/`65534` after `teleport` or a door is the asm's own wraparound, and spawning still works. Don't report it.
 - **Blinking party:** `blink=N` after a battle means the party sprites blink, so a shot may miss them. Use `wait 1; shot`.
 - **Before calling something a port bug, rule out how you walked.** Check the asm's conditions, such as the area box, flags, and facing, against what you actually did.
@@ -212,6 +213,8 @@ When you reach a new scene that took effort to find, **add a row here** (save, e
 | Brickroad cave → Winters lab | 30-DeepDark | `teleport 204 3864 0; 40 UP` (cave 5128,160); `46 LEFT; 24 DOWN+LEFT; 52 LEFT; 40 DOWN+LEFT; 30 LEFT` → 432,4264; then south keeping x≤296 at y≈4424 (the Stonehenge hole is at 336,4440), down x≈232 to y 4864, `24 DOWN+RIGHT; 12 RIGHT; 48 DOWN+RIGHT` to 317,4935, `until text 300 UP` |
 | Stonehenge Base diagonal maze | 31-StonehBase | `teleport 6672 5264 2`, then follow the corridor (east/down, west y≈5384, down, east/down, west y≈5608, up-left, down-left, west) to hole 6144,5544; at 6410,5594 use `12 DOWN+LEFT; 6 DOWN; 30 LEFT` |
 | Lost Underworld talking rock npc1292 | 32-LumineHall | `teleport 2864 3080 4`, walk (0.5 px/frame, ~2600 frames) via 2592,2760 → 2392,2720 → camp gate 2343,2688 → 2362,2617, Talk to facing UP |
+| Onett drug store (Tee ball bat, cap, bracelet) | run-03 / run-04 | door 1600,1128 (walk UP; from the hotel exit: north along the diagonal road to y≈1090, `50 DOWN; 300 LEFT`, `10 LEFT; until text 200 UP`) → 7912,1512; sports clerk npc9: `28 LEFT; 30 UP` (7873,1496 facing UP). After picking Buy add `wait 20` before the next press, or the menu eats it. Exit: walk DOWN; to reach the arcade street go west of the town hall: `20 UP; 100 LEFT; 40 LEFT; 200 DOWN` → 1371,1512 |
+| Onett Shark grinding (Skate/Pogo Punk, Yes Man Junior) | run-04 | enemy placement group 8 (rate 10%) covers x 1280-1791, y 1600-1791. From 1413,1495: `80 DOWN; 40 DOWN+LEFT; 60 DOWN` → 1374,1727, then `until battle 5000 RIGHT×5\|LEFT×5`. Vertical oscillation at x≈1368 spawns nothing. Pairs (Punk + Yes Man Junior) beat a L5 Ness with Tee ball bat/cap/bracelet |
 
 ## Viewport and visual review (every shot)
 
