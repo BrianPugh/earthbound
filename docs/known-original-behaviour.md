@@ -28,6 +28,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Lumine Hall wall text is clipped at band x≈236 | Lumine Hall, hotspot 30 (save 32) | emu teo1 sheet-0003 vs port te1 sheet-0005 | 2026-10-23 |
 | Black Antoids undrawn for a moment right after the door | Giant Step rope-room door (save 03) | emu gso1 | 2026-10-24 |
 | Palette darkens | Magicant (save 34) | emu p33m | 2026-10-23 |
+| Magicant turns orange-and-black (black sea, black trees) a few steps after the start, then changes colour scheme again by area (green, magenta, red/purple in the pink maze) | run-64.srm, after talking to the dark figure at 6032,4512: `10 RIGHT; 6 UP` talk, `60 RIGHT; 150 DOWN` → 6101,4512 | emu run65o/0001 vs port run65a/0004 | 2026-10-24 |
 | Screen quake on entry | Fire Spring, door 1880,3096 (save 33) | emu p33a | 2026-10-23 |
 
 ## Battle
@@ -57,6 +58,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Window turns red after a fight where the last party member is unconscious | any battle | LOAD_CHARACTER_WINDOW_PALETTE (death flavour palette) | 2026-10-23 |
 | Pink text window during Pokey's escape speech | after the final Giygas prayer (save 36) | Poo is down, so LOAD_CHARACTER_WINDOW_PALETTE loads the death palette; emu gl-go/0148 | 2026-10-24 |
 | Kraken's "breathed fire" hits all 4 for 180-300 each (Fire γ) and goes straight through PSI Shield Σ; its Crashing Boom Bang also ignores the shield (only the Franklin badge deflects it) | run-51.srm, Summers sailor npc1065 → Kraken battle | action_table.asm FIRE_BREATH = type OTHER + BTLACT_PSI_FIRE_G; PSI_SHIELD_NULLIFY only acts on ACTION_TYPE::PSI; port run52a (242/225/199 with the shield up) | 2026-10-24 |
+| Ness's Nightmare's "glorious light" knocks a lone Ness out instantly | Sea of Eden (run-65 path), Nightmare battle | BTLACT_PSI_FLASH_G: after FLASH_IMMUNITY_TEST, RAND&7 in {0,1} = KO_TARGET (2/8); battle_actions.c btlact_psi_flash_gamma_step matches. The menu wait doesn't advance RNG, so a retry needs a different action | 2026-10-24 |
 
 ## Text and windows
 
