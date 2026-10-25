@@ -31,6 +31,7 @@ exclude = [
     "venv",
     ".venv",
     "ebtools/_version.py",
+    "src/vendor",
 ]
 
 line-length = 120

@@ -1,0 +1,198 @@
+name: CI
+
+# Two tiers.
+#
+# 1. Asset-free jobs (always run on GitHub-hosted Ubuntu): ruff, the pytest
+#    subset that needs no donor ROM (asset tests skip), the arm-none-eabi
+#    cross-compile of port/gw_retro_go (platform.h drift check), and cppcheck
+#    against a baseline (.github/cppcheck-suppressions.txt).
+#
+# 2. Asset jobs (CODE-QUALITY.md Q2 option b): the donor ROM and the story saves
+#    can't be in the repo, so these run only on a self-hosted runner labelled
+#    `ebsrc-assets`, and only when the repository variable EB_ASSET_RUNNER is
+#    "true". The runner must provide EB_DONOR_ROM (path to the US retail ROM)
+#    and EB_SAVES_DIR (a playtest/saves/ copy) in its environment. They cover
+#    the desktop build at both viewports with -Werror, the regress text goldens
+#    (playtest/regress/golden/main), the same cases under ASan+UBSan, and the
+#    RP2040 link with its RAM budget. An encrypted asset tarball on hosted
+#    runners would also work; the jobs only need the 2 paths above.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUFF_VERSION: "0.15.4" # keep in step with .pre-commit-config.yaml
+  CPPCHECK_VERSION: "2.22.0" # the baseline is specific to this version
+
+jobs:
+  ruff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx "ruff@${RUFF_VERSION}" check .
+      - run: uvx "ruff@${RUFF_VERSION}" format --check .
+
+  pytest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install ebtools
+        run: |
+          uv venv .venv
+          uv pip install -e . pytest
+      # No donor ROM: the asset-dependent tests skip themselves.
+      - run: uv run --no-sync python -m pytest tests -q -rs
+
+  gw-cross-compile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install arm-none-eabi-gcc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi cmake
+      - name: Configure
+        run: >
+          cmake -S port/gw_retro_go -B build-gw
+          -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/port/gw_retro_go/cmake/arm-none-eabi.cmake"
+      - name: Build
+        run: cmake --build build-gw -j "$(nproc)"
+
+  cppcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # configuring port/unix needs src/vendor/tamp
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libsdl2-dev
+      - name: Cache cppcheck
+        id: cache-cppcheck
+        uses: actions/cache@v4
+        with:
+          path: ~/cppcheck
+          key: cppcheck-${{ env.CPPCHECK_VERSION }}-ubuntu-24.04
+      - name: Build cppcheck
+        if: steps.cache-cppcheck.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://github.com/danmar/cppcheck/archive/refs/tags/${CPPCHECK_VERSION}.tar.gz" | tar xz
+          cmake -S "cppcheck-${CPPCHECK_VERSION}" -B cppcheck-build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/cppcheck" -DFILESDIR="$HOME/cppcheck/share/cppcheck"
+          cmake --build cppcheck-build -j "$(nproc)"
+          cmake --install cppcheck-build
+      - run: echo "$HOME/cppcheck/bin" >> "$GITHUB_PATH"
+      # src/CMakeLists.txt needs the ebtools CLI on PATH to configure (no assets are read)
+      - uses: astral-sh/setup-uv@v6
+      - name: Install ebtools
+        run: |
+          uv venv .venv
+          uv pip install -e .
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: cppcheck (new findings fail)
+        run: .github/scripts/cppcheck.sh build-cppcheck
+
+  # ---- Asset jobs: self-hosted runner with the donor ROM (option b) ----
+
+  desktop-build:
+    if: vars.EB_ASSET_RUNNER == 'true'
+    runs-on: [self-hosted, ebsrc-assets]
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport: ["256 224", "320 240"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Extract assets
+        run: .github/scripts/assets.sh
+      - name: Build (-Werror)
+        run: |
+          read -r w h <<< "${{ matrix.viewport }}"
+          cmake -S port/unix -B "build-$w" -DCMAKE_BUILD_TYPE=Release -DEB_WERROR=ON \
+            -DEB_VIEWPORT_WIDTH="$w" -DEB_VIEWPORT_HEIGHT="$h"
+          cmake --build "build-$w" -j "$(nproc)"
+      - name: Port/disassembly consistency tests
+        if: matrix.viewport == '320 240'
+        run: |
+          make
+          uv pip install -e . pytest
+          uv run --no-sync python -m pytest tests -q
+      - name: Regress against the committed text goldens
+        if: matrix.viewport == '320 240'
+        run: uv run --no-sync python playtest/regress.py check main --text --bin build-320/earthbound
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: regress-${{ strategy.job-index }}
+          path: playtest/out/regress/
+          if-no-files-found: ignore
+
+  sanitizers:
+    if: vars.EB_ASSET_RUNNER == 'true'
+    runs-on: [self-hosted, ebsrc-assets]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Extract assets
+        run: .github/scripts/assets.sh
+      # Debug also arms BUFFER_BOUNDS_CHECK. EB_WERROR is off: this job is for
+      # runtime reports, and newer clangs add warnings the -Werror job doesn't use.
+      - name: Build ASan + UBSan
+        run: |
+          cmake -S port/unix -B build-asan -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_ASAN=ON -DENABLE_UBSAN=ON -DEB_WERROR=OFF \
+            -DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240
+          cmake --build build-asan -j "$(nproc)"
+      # A sanitizer report lands in the case's problem lines, which the text
+      # goldens don't have, so any report fails the check.
+      - name: Regress cases under the sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: |
+          uv run --no-sync python playtest/regress.py check main --text --bin build-asan/earthbound --timeout 900
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: sanitizer-logs
+          path: playtest/out/regress/runs/
+          if-no-files-found: ignore
+
+  pico-ram-budget:
+    if: vars.EB_ASSET_RUNNER == 'true'
+    runs-on: [self-hosted, ebsrc-assets]
+    env:
+      PICO_SDK_VERSION: "2.2.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Extract assets
+        run: .github/scripts/assets.sh
+      - name: Fetch pico-sdk
+        run: |
+          git clone --depth 1 --branch "$PICO_SDK_VERSION" https://github.com/raspberrypi/pico-sdk.git "$RUNNER_TEMP/pico-sdk"
+          git -C "$RUNNER_TEMP/pico-sdk" submodule update --init --depth 1 lib/tinyusb
+          cp "$RUNNER_TEMP/pico-sdk/external/pico_sdk_import.cmake" port/waveshare/pico-lcd-1.3/
+      # The link fails when .data + .bss exceeds RAM_BUDGET_BYTES (see the port's CMakeLists.txt).
+      - name: Build and check the RAM budget
+        env:
+          PICO_SDK_PATH: ${{ runner.temp }}/pico-sdk
+        run: |
+          cmake -S port/waveshare/pico-lcd-1.3 -B build-pico -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-pico -j "$(nproc)"
+          arm-none-eabi-size -A build-pico/earthbound_pico.elf
