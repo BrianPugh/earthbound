@@ -26,7 +26,7 @@ This guide covers the practical knowledge needed to port 65816 assembly function
 3. **Trace every constant.** Follow `LDA #immediate`, `.DEFINE`, enum references into `include/` headers. Never guess values.
 4. **Write the C function.** Map virtual registers to local variables, `@LOCALxx` to local variables, branch labels to control flow. Port logic line by line.
 5. **Grep before naming.** Check that new constant/function names don't collide with existing code.
-6. **Build and test.** `cmake --build build` after each logical change.
+6. **Build and test.** `cmake --build build` after each logical change, then run the regression check before committing (see [Verifying a Port](#verifying-a-port)).
 7. **Rename unknowns.** If the assembly label starts with `UNKNOWN_`, give it a descriptive name (see [Renaming Workflow](#renaming-unknown-labels)).
 
 ---
@@ -497,6 +497,18 @@ EarthBound uses its own character encoding, not ASCII. Key ranges:
 ---
 
 ## Testing and Debug
+
+### Verifying a Port
+
+A faithful port or a behaviour-preserving refactor is accepted by replaying the regression cases against the pre-change and post-change binaries. Build both trees with the wide-viewport flags (`-DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240`) in separate build dirs, using a `git worktree` for the old tree, then:
+
+```
+uv run --no-sync python playtest/regress.py compare OLD_BIN NEW_BIN     # ~30 replay cases, under a minute
+uv run --no-sync python playtest/regress.py framehash OLD_BIN NEW_BIN   # renderer changes: every frame, SNES band vs gutters
+uv run --no-sync python playtest/regress.py check                       # one binary against the committed (hashed) goldens
+```
+
+Explain every reported diff in the commit message (the intended effect of the change, or a regression). Run `uv run --no-sync python -m pytest tests` too: `tests/test_port_consistency.py` cross-checks `ROM_ADDR_*` constants, callroutine dispatch and script WRAM writes against the disassembly. The playtest skill (`.claude/skills/playtest/SKILL.md`, "Regression check") covers reading the diff PNGs and adding cases; check `docs/known-original-behaviour.md` before treating a difference from expectations as a bug.
 
 ### Debug Hotkeys (Unix Port)
 

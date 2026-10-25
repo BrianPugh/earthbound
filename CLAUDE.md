@@ -10,7 +10,7 @@ Committing directly to `main` (or whatever the current branch is) is OK — no n
 
 ebsrc is a disassembly/decompilation of the SNES games EarthBound (US) and Mother 2 (Japan), with support for a US localization prototype (1995-03-27). The codebase is pure 65816 assembly (ca65 dialect) with SPC700 assembly for audio. The assembly disassembly is essentially complete — all ~1,000 previously-unknown functions have been identified and reorganized into proper subsystem directories.
 
-A native C port (`src/`) is also nearly complete (~95%+ of executable code ported). The project is currently in a **bug fixing, polish, and feature development** phase. Key priorities include:
+A native C port (`src/`) plays the whole game start to finish (a playtest relay reached THE END on 2026-10-25). The project is currently in a **bug fixing, polish, and feature development** phase. Key priorities include:
 - Fixing remaining bugs and visual glitches
 - Performance optimization
 - Feature development and modding support
@@ -150,7 +150,7 @@ Install ebtools with: `uv pip install -e .` (from the repo root).
 
 ### Goal
 
-The `src/` directory contains a native C reimplementation of the game that runs on modern platforms (SDL2). It reuses the same donor ROM asset pipeline — binary game data is extracted by ebtools and embedded into the executable at build time. The port is nearly complete (~95%+ of executable code) and is in the bug fixing and polish phase.
+The `src/` directory contains a native C reimplementation of the game that runs on modern platforms (SDL2). It reuses the same donor ROM asset pipeline — binary game data is extracted by ebtools and embedded into the executable at build time. It is in the bug fixing and polish phase (see Project Overview).
 
 ### What Belongs in C Source Code
 
@@ -194,7 +194,7 @@ All game data flows through ebtools extraction:
 
 `ebtools extract` generates indexed PNG spritesheets and JSON metadata for all 463 overworld sprites in `src/assets/overworld_sprites/`. These can be edited in any image editor that supports indexed PNGs and repacked with `ebtools pack sprites`. Custom sprites go in `src/custom_assets/overworld_sprites/png/` and override the originals at build time.
 
-See **[docs/editing-sprites.md](../docs/editing-sprites.md)** for the full editing guide, spritesheet format, JSON metadata reference, and troubleshooting.
+See **[docs/editing-sprites.md](docs/editing-sprites.md)** for the full editing guide, spritesheet format, JSON metadata reference, and troubleshooting.
 
 ### VRAM Addressing
 
@@ -216,7 +216,7 @@ See **[docs/assembly-to-c.md](docs/assembly-to-c.md)** for the full guide coveri
 2. **Trace every constant** — follow `LDA #immediate` values, `.DEFINE` names, and enum references back to their definitions in `include/` (`macros.asm`, `enums.asm`, `hardware.asm`, `constants/`). Use the actual values.
 3. **Check related subsystems** — if the function writes tiles, check what tiles are already at those VRAM positions (e.g., `TEXT_WINDOW_GFX` scattered uploads overwrite tiles 0x50-0x54, 0x5F-0x69, 0x70-0x79, 0x80, 0x90). If it uses the cursor, check how `selection_menu()` renders cursors (two-frame blink with tiles 0x41/0x51 and 0x28D/0x29D).
 4. **Grep before naming** — before using any constant, tile index, or function name, grep the codebase to confirm it matches the assembly and doesn't collide with existing definitions.
-5. **Build and test** — `cmake --build build` after each logical change. Visual bugs from wrong constants are hard to diagnose after the fact.
+5. **Build and test** — `cmake --build build` after each logical change. Visual bugs from wrong constants are hard to diagnose after the fact. Before committing, run the regression check (`playtest/regress.py compare OLD_BIN NEW_BIN`, plus `framehash` for renderer changes; see Playtesting below).
 
 As you read and understand assembly functions during porting, rename any `UNKNOWN_*` labels to descriptive names. This applies to both:
 - **Global function labels** (`UNKNOWN_C0xxxx`): rename the label, the `.GLOBAL` symbol in `include/symbols/bankXX.inc.asm`, all callers (JSL/JSR), event macros in `include/eventmacros.asm`, and event macro callers in `asm/data/events/`. Build with `make` to verify.
