@@ -431,6 +431,13 @@ void host_process_frame(void) {
     /* Poll input */
     platform_input_poll();
     uint16_t current_pad = platform_input_get_pad();
+    /* A capture unwind runs hundreds of frames in a few milliseconds; feeding them
+     * the live pad would let a button held across F6/F7 (or power-off) advance
+     * prompts or scroll menus the player never saw. The unwind gets no input: a
+     * helper that is waiting for a press never finishes, so the request trips the
+     * frame cap and is abandoned instead. (The host keys below still poll.) */
+    if (capture_unwinding)
+        current_pad = 0;
 
     /* Demo playback: override pad input when playing back auto-movement.
      * Port of READ_JOYPAD demo section — demo_playback_tick() may
