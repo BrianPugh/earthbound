@@ -186,7 +186,7 @@ All game data flows through ebtools extraction:
 
 **Pipeline gotchas:**
 - Changing an `earthbound.yml` entry (new asset, different size) needs a re-run of `ebtools extract`; `make unix` skips extraction once assets exist.
-- The pack-all stamp (`PACK_ALL_STAMP` in `src/CMakeLists.txt`) tracks asset JSON, not ebtools' Python sources. After changing a packer, delete `port/unix/build/**/pack_all.stamp` before rebuilding.
+- The pack-all stamp (`PACK_ALL_STAMP` in `src/CMakeLists.txt`) tracks the asset JSON, `earthbound.yml`/`commondefs.yml`, `asm/bin/assets.manifest` and every `ebtools/**/*.py`, so editing a packer reruns pack-all and the registry on the next build. The build runs the `ebtools` found at configure time: in a worktree, that is the main checkout's editable install unless `PYTHONPATH` points at the worktree.
 - Text-pointer fields in data tables hold original SNES ROM addresses and must be remapped with `addr_remap` after dialogue packing (see the telephone-contacts and timed-delivery blocks in `pack_all.py`). A table packed by the plain simple packers keeps unresolvable addresses.
 - Event scripts are only runnable if their ROM range is inside a registered script bank (`event_script_data.c`); otherwise `event_script_init` halts them with "unknown script ID".
 

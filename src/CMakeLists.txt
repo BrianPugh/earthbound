@@ -79,6 +79,18 @@ file(GLOB_RECURSE ASSET_SOURCE_FILES CONFIGURE_DEPENDS "${ASSETS_DIR}/*")
 file(GLOB_RECURSE CUSTOM_MAP_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/custom_assets/maps/*.json")
 
+# pack-all's output also depends on the asset layout (earthbound.yml,
+# commondefs.yml), the extracted originals it reads with -b (asm/bin, whose
+# manifest extract rewrites) and ebtools itself: a packer change can add or
+# reshape packed files (e.g. a new .raw family) that the registry and C code
+# expect. All of ebtools/**/*.py is tracked since pack-all imports most of it.
+file(GLOB_RECURSE EBTOOLS_PY_SOURCES CONFIGURE_DEPENDS "${PROJECT_ROOT}/ebtools/*.py")
+set(PACK_ALL_TOOL_DEPS
+    ${PROJECT_ROOT}/earthbound.yml
+    ${PROJECT_ROOT}/commondefs.yml
+    ${EMBED_MANIFEST}
+    ${EBTOOLS_PY_SOURCES})
+
 add_custom_command(
     OUTPUT ${PACK_ALL_STAMP}
     COMMAND ${EBTOOLS_EXE} pack-all
@@ -88,7 +100,7 @@ add_custom_command(
         -y ${PROJECT_ROOT}/earthbound.yml
         -c ${PROJECT_ROOT}/commondefs.yml
     COMMAND ${CMAKE_COMMAND} -E touch ${PACK_ALL_STAMP}
-    DEPENDS ${ASSET_SOURCE_FILES} ${CUSTOM_MAP_SOURCE_FILES}
+    DEPENDS ${ASSET_SOURCE_FILES} ${CUSTOM_MAP_SOURCE_FILES} ${PACK_ALL_TOOL_DEPS}
     COMMENT "Packing all human-friendly assets to binary"
 )
 
@@ -153,7 +165,9 @@ add_custom_command(
         --custom-dir ${EMBED_PACKED_DIR}
         --locale US
         ${EMBED_EXCLUDE_ARGS}
-    DEPENDS ${EMBED_MANIFEST} ${PACK_ALL_STAMP}
+    # This file holds the --exclude list, and the Makefile generator does not
+    # rerun a custom command when only its command line changes.
+    DEPENDS ${EMBED_MANIFEST} ${PACK_ALL_STAMP} ${CMAKE_CURRENT_LIST_FILE}
     COMMENT "Generating embedded asset registry"
 )
 
@@ -205,7 +219,7 @@ add_custom_command(
     OUTPUT ${MUSIC_HEADER}
     COMMAND ${EBTOOLS_EXE} generate music-header
         ${MUSIC_JSON} ${MUSIC_HEADER}
-    DEPENDS ${MUSIC_JSON}
+    DEPENDS ${MUSIC_JSON} ${EBTOOLS_PY_SOURCES}
     COMMENT "Generating music_generated.h"
 )
 add_custom_target(music_header DEPENDS ${MUSIC_HEADER})
@@ -217,7 +231,7 @@ set(ITEMS_HEADER "${EMBED_GEN_DIR}/items_generated.h")
 add_custom_command(
     OUTPUT ${ITEMS_HEADER}
     COMMAND ${EBTOOLS_EXE} generate items-header ${ITEMS_JSON} ${ITEMS_HEADER}
-    DEPENDS ${ITEMS_JSON}
+    DEPENDS ${ITEMS_JSON} ${EBTOOLS_PY_SOURCES}
     COMMENT "Generating items_generated.h"
 )
 add_custom_target(items_header DEPENDS ${ITEMS_HEADER})
