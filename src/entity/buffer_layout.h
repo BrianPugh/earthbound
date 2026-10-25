@@ -51,6 +51,12 @@ static inline uint8_t *buf_region_at(size_t base, size_t size,
     return &ert.buffer[base + rel];
 }
 
+/* The whole buffer as a decomp target (BUF_DECOMP_SCRATCH). Pass
+ * BUF_DECOMP_SCRATCH_SIZE as the decomp limit. */
+static inline uint8_t *buf_decomp_scratch(void) {
+    return &ert.buffer[0];
+}
+
 /* BUF_REGION(BUF_FOO, rel, len) == &ert.buffer[BUF_FOO + rel], checked against
  * BUF_FOO_SIZE. `region` must be the bare BUF_* name (its _SIZE is pasted). */
 #define BUF_REGION(region, rel, len) \

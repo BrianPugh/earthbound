@@ -1127,10 +1127,10 @@ static void copy_8dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
     if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
-    BUFFER_BOUNDS_CHECK(dest_offset, copy_size);
     if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
 
-    memcpy(&ert.buffer[dest_offset], bank_data + tile_data_offset, copy_size);
+    memcpy(BUF_REGION(BUF_ENTITY_FADE_SPRITES, dest_offset, copy_size),
+           bank_data + tile_data_offset, copy_size);
 }
 
 /*
@@ -1169,10 +1169,10 @@ static void copy_4dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
     if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
-    BUFFER_BOUNDS_CHECK(dest_offset, copy_size);
     if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
 
-    memcpy(&ert.buffer[dest_offset], bank_data + tile_data_offset, copy_size);
+    memcpy(BUF_REGION(BUF_ENTITY_FADE_SPRITES, dest_offset, copy_size),
+           bank_data + tile_data_offset, copy_size);
 }
 
 /*
@@ -1263,9 +1263,9 @@ void init_entity_fade_state(uint16_t entity_slot, uint16_t fade_param) {
     entry->buf_offset_1 = buf_offset_1;
 
     /* Clear the allocated region in the main ert.buffer (CLEAR_BUFFER_RANGE) */
-    BUFFER_BOUNDS_CHECK(buf_offset_1, total_sprite_size * 2);
     if (buf_offset_1 + total_sprite_size * 2 <= BUFFER_SIZE)
-        memset(&ert.buffer[buf_offset_1], 0, total_sprite_size * 2);
+        memset(BUF_REGION(BUF_ENTITY_FADE_SPRITES, buf_offset_1, total_sprite_size * 2),
+               0, total_sprite_size * 2);
 
     /* Assembly lines 123-137: entry.buf_offset_2 = buf_offset_1 + total_sprite_size */
     entry->buf_offset_2 = buf_offset_1 + total_sprite_size;
@@ -1370,10 +1370,9 @@ static void copy_sprite_tile_data(uint16_t dest_off, uint16_t src_off,
     for (uint16_t i = 0; i < count; i++) {
         uint32_t d = (uint32_t)dest_off + y;
         uint32_t s = (uint32_t)src_off + y;
-        if (d + 2 <= BUFFER_SIZE && s + 2 <= BUFFER_SIZE) {
-            ert.buffer[d] = ert.buffer[s];
-            ert.buffer[d + 1] = ert.buffer[s + 1];
-        }
+        if (d + 2 <= BUFFER_SIZE && s + 2 <= BUFFER_SIZE)
+            memmove(BUF_REGION(BUF_ENTITY_FADE_SPRITES, d, 2),
+                   BUF_REGION(BUF_ENTITY_FADE_SPRITES, s, 2), 2);
         y += 0x10;
     }
 }
@@ -1412,10 +1411,11 @@ static void blend_sprite_tile_data(uint16_t dest_off, uint16_t src_off,
             uint32_t d = (uint32_t)dest_off + off;
             if (s + 2 > BUFFER_SIZE || d + 2 > BUFFER_SIZE)
                 continue;
-            uint16_t src_word = read_u16_le(&ert.buffer[s]);
-            uint16_t dst_word = read_u16_le(&ert.buffer[d]);
+            uint8_t *dp = BUF_REGION(BUF_ENTITY_FADE_SPRITES, d, 2);
+            uint16_t src_word = read_u16_le(BUF_REGION(BUF_ENTITY_FADE_SPRITES, s, 2));
+            uint16_t dst_word = read_u16_le(dp);
             uint16_t result = (dst_word & inv_mask) | (src_word & mask);
-            write_u16_le(&ert.buffer[d], result);
+            write_u16_le(dp, result);
         }
         y += row_stride;
     }
@@ -1444,10 +1444,11 @@ static void merge_sprite_tile_pair(uint16_t dest_off, uint16_t src_off,
         uint32_t d = (uint32_t)dest_off + off;
         if (s + 2 > BUFFER_SIZE || d + 2 > BUFFER_SIZE)
             continue;
-        uint16_t src_word = read_u16_le(&ert.buffer[s]);
-        uint16_t dst_word = read_u16_le(&ert.buffer[d]);
+        uint8_t *dp = BUF_REGION(BUF_ENTITY_FADE_SPRITES, d, 2);
+        uint16_t src_word = read_u16_le(BUF_REGION(BUF_ENTITY_FADE_SPRITES, s, 2));
+        uint16_t dst_word = read_u16_le(dp);
         uint16_t result = (dst_word & inv_mask) | (src_word & mask);
-        write_u16_le(&ert.buffer[d], result);
+        write_u16_le(dp, result);
     }
 }
 
@@ -1471,7 +1472,8 @@ static void upload_entity_sprite_to_vram(uint16_t entity_slot,
     for (uint16_t row = 0; row < tile_height; row++) {
         if ((uint32_t)src + byte_width > BUFFER_SIZE)
             break;
-        vram_addr = vram_copy_row_safe(vram_addr, &ert.buffer[src], byte_width);
+        vram_addr = vram_copy_row_safe(
+            vram_addr, BUF_REGION(BUF_ENTITY_FADE_SPRITES, src, byte_width), byte_width);
         src += byte_width;
     }
 }
@@ -1683,7 +1685,7 @@ int16_t cr_animate_entity_tile_blend(void) {
  * entire sprite for all active fade entries.
  */
 void cr_animate_entity_tile_merge(void) {
-    uint8_t *slot_table = &ert.buffer[BUF_TILE_MERGE_SLOTS];
+    uint8_t *slot_table = BUF_REGION(BUF_TILE_MERGE_SLOTS, 0, BUF_TILE_MERGE_SLOTS_SIZE);
 
     /* Pick a random unused slot from the 64-entry table */
     /* Original ANIMATE_ENTITY_TILE_MERGE uses one serialized RAND byte. */

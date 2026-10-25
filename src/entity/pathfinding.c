@@ -19,10 +19,7 @@
 
 /* ---- Pathfinding heap (bump allocator in PATHFINDING_BUFFER, 0xC00 bytes) ---- */
 
-#define PF_HEAP_SIZE 0xC00
-
-_Static_assert(BUF_PF_HEAP + PF_HEAP_SIZE <= BUFFER_SIZE,
-               "pf_heap must fit within ert.buffer");
+#define PF_HEAP_SIZE BUF_PF_HEAP_SIZE  /* region bounds asserted in buffer_layout.h */
 
 static uint16_t *pf_heap;  /* 16-bit word array, points into ert.buffer[BUF_PF_HEAP] */
 static uint16_t pf_heap_start;   /* word index */
@@ -543,7 +540,7 @@ static int16_t initialize_pathfinder(PathfindingState *state,
                                      int16_t bfs_max_iterations,
                                      int16_t queue_alloc_size) {
     /* Initialize heap — overlay onto ert.buffer[BUF_PF_HEAP] to save static RAM */
-    pf_heap = (uint16_t *)&ert.buffer[BUF_PF_HEAP];
+    pf_heap = (uint16_t *)BUF_REGION(BUF_PF_HEAP, 0, PF_HEAP_SIZE);
     pf_heap_start = 0;
     pf_heap_current = 0;
     pf_heap_end = PF_HEAP_SIZE / 2;
@@ -555,7 +552,7 @@ static int16_t initialize_pathfinder(PathfindingState *state,
 
     int16_t matrix_size = path_matrix_rows * path_matrix_columns;
     path_matrix_size = matrix_size;
-    path_matrix = &ert.buffer[BUF_PATHFINDING_MATRIX];
+    path_matrix = BUF_REGION(BUF_PATHFINDING_MATRIX, 0, (size_t)(uint16_t)matrix_size);
 
     /* Set up cardinal direction offsets (flat index deltas) */
     path_cardinal_offset[0] = -path_matrix_columns;  /* up */
@@ -722,7 +719,8 @@ static int16_t initialize_pathfinding_for_entities(
     int16_t queue_alloc_size) {
 
     /* Phase 1: Build collision grid from LOADED_COLLISION_TILES */
-    uint8_t *grid = &ert.buffer[BUF_PATHFINDING_MATRIX];
+    uint8_t *grid = BUF_REGION(BUF_PATHFINDING_MATRIX, 0,
+                               (size_t)state->radius_y * state->radius_x);
     for (int16_t row = 0; row < (int16_t)state->radius_y; row++) {
         for (int16_t col = 0; col < (int16_t)state->radius_x; col++) {
             /* Wrap coordinates to 64×64 tile grid */

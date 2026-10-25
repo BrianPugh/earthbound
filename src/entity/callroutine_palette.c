@@ -299,7 +299,8 @@ int16_t cr_cycle_entity_palette(int16_t ent, int16_t scr,
     uint16_t dst_idx = (uint16_t)(target_pal * 16);
 
     if (src_off + BPP4PALETTE_SIZE <= BUFFER_SIZE && dst_idx + 16 <= 256) {
-        memcpy(&ert.palettes[dst_idx], &ert.buffer[src_off], BPP4PALETTE_SIZE);
+        memcpy(&ert.palettes[dst_idx],
+               BUF_REGION(BUF_DECOMP_SCRATCH, src_off, BPP4PALETTE_SIZE), BPP4PALETTE_SIZE);
     }
 
     frame++;
@@ -374,20 +375,20 @@ int16_t cr_load_file_select_palettes(int16_t ent, int16_t scr,
     comp_size = ASSET_SIZE(ASSET_E1AE83_BIN_LZHAL);
     comp_data = ASSET_DATA(ASSET_E1AE83_BIN_LZHAL);
     if (comp_data) {
-        decomp(comp_data, comp_size, ert.buffer, BUFFER_SIZE);
+        decomp(comp_data, comp_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
     }
     memcpy((uint8_t *)ert.palettes + BPP4PALETTE_SIZE * 8,
-           ert.buffer + 0x1A0, BPP4PALETTE_SIZE);
+           BUF_REGION(BUF_DECOMP_SCRATCH, 0x1A0, BPP4PALETTE_SIZE), BPP4PALETTE_SIZE);
 
     /* Decompress gradient data 1 (E1AEFD) into ert.buffer,
      * copy one palette frame to palette group 7 (colors 112-127) */
     comp_size = ASSET_SIZE(ASSET_E1AEFD_BIN_LZHAL);
     comp_data = ASSET_DATA(ASSET_E1AEFD_BIN_LZHAL);
     if (comp_data) {
-        decomp(comp_data, comp_size, ert.buffer, BUFFER_SIZE);
+        decomp(comp_data, comp_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
     }
     memcpy((uint8_t *)ert.palettes + BPP4PALETTE_SIZE * 7,
-           ert.buffer + 0x260, BPP4PALETTE_SIZE);
+           BUF_REGION(BUF_DECOMP_SCRATCH, 0x260, BPP4PALETTE_SIZE), BPP4PALETTE_SIZE);
 
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
     return 0;

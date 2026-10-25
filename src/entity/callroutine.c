@@ -253,7 +253,7 @@ static void portrait_stage_tile(uint16_t vwf_off, uint16_t buf_off) {
         return;
     if ((uint32_t)vwf_off + VWF_TILE_BYTES > VWF_BUFFER_SIZE)
         return;
-    uint8_t *dst = &ert.buffer[BUF_PORTRAIT_GLYPHS + buf_off];
+    uint8_t *dst = BUF_REGION(BUF_PORTRAIT_GLYPHS, buf_off, PORTRAIT_GLYPH_BLOCK_HALF + 16);
     memcpy(dst, vwf_buffer + vwf_off, 16);
     memcpy(dst + PORTRAIT_GLYPH_BLOCK_HALF, vwf_buffer + vwf_off + 16, 16);
 }
@@ -371,10 +371,10 @@ static uint16_t render_character_name_display(void) {
  */
 static void decode_planar_tilemap(uint16_t char_code, uint8_t **dest_ptr) {
     uint16_t src_off = (uint16_t)((((char_code & 0xFFF0) << 1) + (char_code & 0x000F)) << 4);
-    BUFFER_BOUNDS_CHECK(BUF_PORTRAIT_GLYPHS + src_off, PORTRAIT_GLYPH_BLOCK_HALF + 16);
-    const uint8_t *glyph = &ert.buffer[BUF_PORTRAIT_GLYPHS + src_off];
+    const uint8_t *glyph = BUF_REGION(BUF_PORTRAIT_GLYPHS, src_off, PORTRAIT_GLYPH_BLOCK_HALF + 16);
     uint8_t *dest = *dest_ptr;
-    BUFFER_BOUNDS_CHECK((size_t)(dest - ert.buffer), 32);
+    BUFFER_REGION_CHECK((size_t)(dest - ert.buffer), 32,
+                        BUF_PORTRAIT_COLUMNS, BUF_PORTRAIT_COLUMNS_SIZE);
 
     for (int shift = 6; shift >= 0; shift -= 2) {
         for (int half = 0; half < 2; half++) {
@@ -2057,7 +2057,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * Clears 64 words (128 bytes) at BUFFER + $7F00. This is the entity
          * spritemap display list used by the sprite rendering pipeline. */
         *out_pc = pc;
-        memset(&ert.buffer[BUF_TILE_MERGE_SLOTS], 0, BUF_TILE_MERGE_SLOTS_SIZE);
+        memset(BUF_REGION(BUF_TILE_MERGE_SLOTS, 0, BUF_TILE_MERGE_SLOTS_SIZE), 0,
+               BUF_TILE_MERGE_SLOTS_SIZE);
         return 0;
     }
 
@@ -2363,15 +2364,16 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         /* Copy tilemap from BUFFER + idx*$800 to VRAM at $3800
          * (0x780 bytes = 30 rows x 32 words = 960 tilemap entries) */
         memcpy(&ppu.vram[0x3800 * 2],
-               &ert.buffer[BUF_SANCTUARY_TILEMAPS
-                           + (size_t)sanctuary_idx * BUF_SANCTUARY_TILEMAP_STRIDE],
+               BUF_REGION(BUF_SANCTUARY_TILEMAPS,
+                          (size_t)sanctuary_idx * BUF_SANCTUARY_TILEMAP_STRIDE, 0x0780),
                0x0780);
 
         /* Copy palette from the sanctuary's palette slot to CGRAM.
          * Assembly: LDX #BPP4PALETTE_SIZE * 8 = 256 bytes (8 BG sub-palettes). */
         memcpy(ert.palettes,
-               &ert.buffer[BUF_SANCTUARY_PALETTES
-                           + (size_t)sanctuary_idx * BUF_SANCTUARY_PALETTE_STRIDE],
+               BUF_REGION(BUF_SANCTUARY_PALETTES,
+                          (size_t)sanctuary_idx * BUF_SANCTUARY_PALETTE_STRIDE,
+                          BPP4PALETTE_SIZE * 8),
                BPP4PALETTE_SIZE * 8);
         ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
 
@@ -2555,7 +2557,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         for (int r = 0; r < PORTRAIT_COLUMN_CELLS; r++) {
             for (int c = 0; c < PORTRAIT_VISIBLE_COLUMNS; c++) {
                 size_t off = ataf_src + (size_t)c * PORTRAIT_COLUMN_CELLS + r;
-                uint8_t cell = off < BUFFER_SIZE ? ert.buffer[off] : 0;
+                uint8_t cell = off < BUFFER_SIZE ? *buf_at(off, 1) : 0;
                 ataf_region[r * PORTRAIT_VISIBLE_COLUMNS + c] = (uint16_t)(cell + PORTRAIT_TILE_BASE);
             }
         }
@@ -2601,7 +2603,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         const uint8_t *lasf_comp = ASSET_DATA(lasf_anim_assets[lasf_id]);
         if (!lasf_comp) return 0;
 
-        size_t lasf_dec_sz = decomp(lasf_comp, lasf_comp_sz, ert.buffer, BUFFER_SIZE);
+        size_t lasf_dec_sz = decomp(lasf_comp, lasf_comp_sz,
+                                    buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
         if (lasf_dec_sz == 0) return 0;
 
         /* Decompressed data layout (no header — tile_size from metadata table):
@@ -2616,13 +2619,15 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             uint16_t lasf_len = lasf_tile_size;
             if (lasf_vram + lasf_len > VRAM_SIZE)
                 lasf_len = VRAM_SIZE - lasf_vram;
-            memcpy(&ppu.vram[lasf_vram], &ert.buffer[0], lasf_len);
+            memcpy(&ppu.vram[lasf_vram], BUF_REGION(BUF_DECOMP_SCRATCH, 0, lasf_len), lasf_len);
         }
 
         /* Load palette (BPP2PALETTE_SIZE = 8 bytes) after tile data */
         uint32_t lasf_pal_off = lasf_tile_size;
         if (lasf_pal_off + BPP2PALETTE_SIZE <= lasf_dec_sz) {
-            memcpy(ert.palettes, &ert.buffer[lasf_pal_off], BPP2PALETTE_SIZE);
+            memcpy(ert.palettes,
+                   BUF_REGION(BUF_DECOMP_SCRATCH, lasf_pal_off, BPP2PALETTE_SIZE),
+                   BPP2PALETTE_SIZE);
             ert.palettes[0] = 0;
             ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
         }
@@ -2669,7 +2674,8 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             uint16_t dasf_len = 1792;
             if (dasf_vram + dasf_len > VRAM_SIZE)
                 dasf_len = VRAM_SIZE - dasf_vram;
-            memcpy(&ppu.vram[dasf_vram], &ert.buffer[dasf_frame_off], dasf_len);
+            memcpy(&ppu.vram[dasf_vram],
+                   BUF_REGION(BUF_DECOMP_SCRATCH, dasf_frame_off, dasf_len), dasf_len);
         }
 
         /* Check if last frame: frame_count is at metadata byte [2] */
@@ -2692,7 +2698,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         uint16_t lcps_text_cols = render_character_name_display();
 
         /* 29 blank lead columns */
-        uint8_t *lcps_dest = &ert.buffer[BUF_PORTRAIT_COLUMNS];
+        uint8_t *const lcps_base =
+            BUF_REGION(BUF_PORTRAIT_COLUMNS, 0, BUF_PORTRAIT_COLUMNS_SIZE);
+        uint8_t *lcps_dest = lcps_base;
         memset(lcps_dest, 0, PORTRAIT_LEAD_COLUMNS * PORTRAIT_COLUMN_CELLS);
         lcps_dest += PORTRAIT_LEAD_COLUMNS * PORTRAIT_COLUMN_CELLS;
 
@@ -2718,12 +2726,13 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             decode_planar_tilemap(lcps_code++, &lcps_dest);
 
         /* 30 blank trailing columns */
-        BUFFER_BOUNDS_CHECK((size_t)(lcps_dest - ert.buffer),
-                            PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS);
+        BUFFER_REGION_CHECK((size_t)(lcps_dest - ert.buffer),
+                            PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS,
+                            BUF_PORTRAIT_COLUMNS, BUF_PORTRAIT_COLUMNS_SIZE);
         memset(lcps_dest, 0, PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS);
         lcps_dest += PORTRAIT_TRAIL_COLUMNS * PORTRAIT_COLUMN_CELLS;
         uint16_t lcps_total_cols =
-            (uint16_t)((lcps_dest - &ert.buffer[BUF_PORTRAIT_COLUMNS]) / PORTRAIT_COLUMN_CELLS);
+            (uint16_t)((lcps_dest - lcps_base) / PORTRAIT_COLUMN_CELLS);
 
         /* @VIRTUAL04: column index of the last frame */
         uint16_t lcps_last_col = (uint16_t)(lcps_text_cols + PORTRAIT_VISIBLE_COLUMNS);
@@ -2739,8 +2748,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             lcps_steps = (uint16_t)(lcps_total_cols - 1);
 
         /* @INIT_TILEMAP_ENTRY: half-step column 0 is blank ($0C10 words) */
-        const uint8_t *lcps_cols = &ert.buffer[BUF_PORTRAIT_COLUMNS];
-        uint8_t *lcps_scroll = &ert.buffer[BUF_PORTRAIT_SCROLL];
+        const uint8_t *lcps_cols = lcps_base;
+        uint8_t *lcps_scroll = BUF_REGION(BUF_PORTRAIT_SCROLL, 0,
+                                          (size_t)(lcps_steps + 1) * PORTRAIT_COLUMN_CELLS);
         memset(lcps_scroll, 0, PORTRAIT_COLUMN_CELLS);
         /* Half-step column j + 1: the right pixel column of whole column j
          * and the left one of column j + 1. */

@@ -3,6 +3,7 @@
  * Extracted from callroutine.c.
  */
 #include "entity/callroutine_internal.h"
+#include "entity/buffer_layout.h"
 #include "entity/entity.h"
 #include "entity/script.h"
 #include "entity/sprite.h"
@@ -40,7 +41,7 @@ int16_t cr_decompress_title_data(int16_t ent, int16_t scr,
     size_t comp_size = ASSET_SIZE(id);
     const uint8_t *comp_data = ASSET_DATA(id);
     if (comp_data) {
-        decomp(comp_data, comp_size, ert.buffer, BUFFER_SIZE);
+        decomp(comp_data, comp_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
     }
     return 0;
 }
