@@ -716,7 +716,8 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
  * Returns: final damage dealt (after all modifiers)
  *
  * Resumable (BC_RESIST_DAMAGE): arg0 = the mutable damage (the blocking
- * local), arg1 = resist_modifier, local[0] = reflected damage. The target
+ * local, also the return value: a Power-shield reflection replaces it with
+ * the reflected half), arg1 = resist_modifier, local[0] = reflected damage. The target
  * is re-derived from bt.current_target at each pc — BC_CALC_DAMAGE's Giygas
  * redirect restores it before popping, and the reflection swap/swap-back
  * brackets pcs 2-3/9 exactly as in the blocking form. Both KO checks are
@@ -813,10 +814,14 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             uint8_t shield = tgt->afflictions[STATUS_GROUP_SHIELD];
 
             if (shield == STATUS_6_SHIELD_POWER) {
-                /* SHIELD_POWER: reflect half damage back to attacker */
+                /* SHIELD_POWER: reflect half damage back to attacker. The asm
+                 * halves @VIRTUAL02 in place (calc_damage_reduction.asm
+                 * @SHIELD_POWER_REFLECT), so the reflected amount is also
+                 * what CALC_RESIST_DAMAGE returns. */
                 if (!bt.enemy_performing_final_attack) {
                     uint16_t reflected = st->arg0 >> 1;
                     if (reflected == 0) reflected = 1;
+                    st->arg0 = reflected;
                     st->local[0] = reflected;
 
                     st->pc = 2;
