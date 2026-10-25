@@ -1007,6 +1007,7 @@ typedef struct {
     uint16_t table_index;   /* btlact_dispatch_table index (which action) */
     uint16_t scratch16[2];  /* per-action hoisted locals */
     uint32_t scratch32;     /* per-action hoisted 32-bit local */
+    uint8_t  teardown;      /* Giygas cutscenes: CLOSE_ALL_WINDOWS_AND_HIDE_HPPP beat stage */
 } BattleActionState;
 
 /* GAME_MODE_BATTLE_CALC — the battle_calc.c text-displaying calculation

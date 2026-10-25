@@ -76,7 +76,11 @@ void clear_battle_menu_character_indicator_far(void);
 StepResult battle_push_vblanks(ModeState *child, uint16_t frames);
 void set_current_item_far(uint8_t item);
 uint16_t enemy_select_mode(uint16_t current_group);
-void close_all_windows_and_hide_hppp(void);
+/* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP as per-frame beats (battle.c): call once per
+ * step with *stage starting at 0; true with *out set while a frame is owed,
+ * false once done (carry on in the same step). */
+bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
+                                          StepResult *out);
 
 
 /* ---- Dispatch table type ---- */

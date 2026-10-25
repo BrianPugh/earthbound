@@ -4610,13 +4610,16 @@ static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
     switch (st->pc - base) {
     case 0:
         fade_out(1, 4);
+        st->teardown = 0;
         st->pc = base + 1;
         *out = push_fade_wait_window(&child);
         return true;
     case 1:
         bt.battle_mode_flag = 0;
         ml.current_map_music_track = 0;
-        close_all_windows_and_hide_hppp();
+        /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: a presented frame per tick/wait */
+        if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, out))
+            return true;
         st->pc = base + 2;
         if (battle_push_text(&child, text)) {
             *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
@@ -4658,12 +4661,15 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
     case 0:
         fade_out(1, 1);
         write_apu_port1(2);
+        st->teardown = 0;
         st->pc = base + 1;
         *out = push_fade_wait_window(&child);
         return true;
     case 1:
         bt.battle_mode_flag = 0;
-        close_all_windows_and_hide_hppp();
+        /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: a presented frame per tick/wait */
+        if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, out))
+            return true;
         ppu.tm = 0x04;  /* BG3 only */
         change_music(191);  /* MUSIC::GIYGAS_WEAKENED */
         fade_in(1, 1);

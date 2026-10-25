@@ -3297,8 +3297,8 @@ void set_battler_target(uint16_t attacker_offset, uint16_t target_index) {
  * once per step with `*stage` starting at 0: returns true with *out set while a
  * frame (or a parked actionscript frame) is owed, false once the teardown is
  * done (the caller carries on in the same step). */
-static bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
-                                                 StepResult *out) {
+bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
+                                          StepResult *out) {
     switch (*stage) {
     case 0: {
         /* CLOSE_ALL_WINDOWS: its tick ran inline (window_tick_no_actionscript);
@@ -3354,37 +3354,6 @@ static bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *chil
     default:
         return false;
     }
-}
-
-/*
- * CLOSE_ALL_WINDOWS_AND_HIDE_HPPP (asm/text/hp_pp_window/close_all_windows_and_hide_hppp.asm)
- *
- * Closes all windows, ticks rendering, hides HPPP windows, ticks again.
- */
-void close_all_windows_and_hide_hppp(void) {
-    /* Battle-cleanup helper. The assembly issues THREE WINDOW_TICKs — one inside
-     * CLOSE_ALL_WINDOWS plus two explicit — each a separate presented frame in the
-     * blocking original (a 3-frame teardown, the background advancing once per
-     * frame). The run-to-completion port renders these as no-actionscript ticks
-     * (battle branch = update_battle_screen_effects, no pump, no host yield) that
-     * the enclosing battle mode-step collapses into its ONE presented frame. With
-     * the literal 1:1 port that fired update_battle_screen_effects() three times in
-     * that single frame, jumping the animated background ~3 steps at once on every
-     * battle-message teardown.
-     *
-     * Fix: keep exactly one background advance per presented frame. Do all the
-     * state mutation first (hide_hppp_windows only clears the menu indicator and
-     * sets redraw flags — pure buffer/flag writes, independent of window-close
-     * order), then let close_all_windows()'s single internal window_tick upload the
-     * final combined state (windows cleared + HP/PP hidden) and advance the
-     * background once. The two explicit ticks rendered no new window state the
-     * collapsed frame can show, so dropping them changes nothing visible except
-     * removing the over-advance. Each dropped WINDOW_TICK still starts with
-     * JSL RAND, so advance the RNG for both. */
-    hide_hppp_windows();
-    close_all_windows();
-    rng_next_byte();
-    rng_next_byte();
 }
 
 /*
