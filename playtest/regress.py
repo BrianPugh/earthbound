@@ -28,12 +28,26 @@ checkpoint that never ran. Results go to ``playtest/out/regress/`` (gitignored):
 holds each game's log and shots, ``golden/NAME/`` the recorded goldens, and ``diff/A-vs-B/``
 the report and a PNG per differing checkpoint (A | B | changed pixels in red on B).
 
+Text goldens in git: ``record NAME --git`` also writes the machine-independent half of each result
+(no PNG paths, frame numbers or wall-clock times) to ``playtest/regress/golden/NAME/CASE.json``,
+which is tracked. Game text comes only from the donor ROM, so decoded strings are stored as hashes:
+each checkpoint's window text, ``win`` lines and the trailing text become a ``sha256:`` digest, and
+enemy names in ``ENEMIES`` are hashed per enemy (HP stays readable). STATE, PARTY (character names
+included), ``until`` results and ERR lines stay plain. A hash mismatch names the checkpoint; to see
+the lines, record full goldens from a known-good build into ``out/`` and rerun ``check`` (see
+``HASH_HINT``). ``check NAME`` uses the full goldens under ``out/`` when they exist and falls back to the
+tracked text goldens otherwise (``--text`` forces them), so a fresh clone can run
+``regress.py check`` (``NAME`` defaults to ``main``). Frame numbers are never compared; a fix that
+only shifts timing still passes. The tracked goldens are recorded with the wide-viewport (320x240)
+build; ``meta.json`` records the viewport and ``check`` warns when the binary's differs.
+
 ``framehash`` compares every frame of 2 builds over the cases instead of the checkpoints (see
 playtest/framehash.py): per case the frame counts, each differing frame, and how many of its
 pixels differ inside the SNES band vs the gutters. Results go to ``framehash/A-vs-B/``.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -51,6 +65,7 @@ ROOT = HERE.parent
 CASES = HERE / "regress" / "cases"
 SAVES = HERE / "saves"
 OUT = HERE / "out" / "regress"
+TRACKED = HERE / "regress" / "golden"  # text goldens, committed
 DEFAULT_BIN = os.environ.get("EB_BIN", str(ROOT / "port/unix/build/earthbound"))
 
 # Title screen -> file select -> file 1 -> Continue, then wait for control (as pt.py)
@@ -284,7 +299,10 @@ def diff_case(name, ra, rb, diffdir):
                 else:
                     sub.append(f"{key}:\n      A {va}\n      B {vb}")
         for key in ("text", "win"):
-            if ca.get(key, []) != cb.get(key, []):
+            va, vb = ca.get(key, []), cb.get(key, [])
+            if va != vb and (is_hash(va) or is_hash(vb)):
+                sub.append(f"{key}: game text changed ({va} vs {vb}); {HASH_HINT}")
+            elif va != vb:
                 sub.append(f"{key}:\n      " + "\n      ".join(line_diff(ca.get(key, []), cb.get(key, []))))
         n, bbox = shot_diff(ca.get("shot"), cb.get("shot"), diffdir / f"{name}--{label}.png")
         if n:
@@ -329,6 +347,97 @@ def report(results_a, results_b, diffdir, label_a, label_b, clean=True):
     return ndiff
 
 
+# Result keys that vary between machines or runs without a behaviour change: never in text goldens
+VOLATILE = ("secs", "rc")
+CHECK_VOLATILE = ("frame", "shot")
+
+
+def _scrub(v):
+    """Drop frame numbers and absolute repo paths from every string in a result value."""
+    if isinstance(v, str):
+        return re.sub(r" ?frame=\d+", "", v.replace(str(ROOT) + os.sep, ""))
+    if isinstance(v, list):
+        return [_scrub(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _scrub(x) for k, x in v.items()}
+    return v
+
+
+HASH_PREFIX = "sha256:"
+HASHED_LISTS = ("text", "win")  # per-checkpoint lists of decoded game text
+GAME_TEXT_LINE = ("WIN ", "MENU ", "TEXT ")  # problem lines that quote game text
+HASH_HINT = (
+    "the committed goldens hold only a hash of game text; to see the lines, record full goldens from a "
+    "known-good build (regress.py record NAME --bin GOOD -k CASE, into playtest/out/regress/golden/NAME) "
+    "and rerun check NAME -k CASE with this build"
+)
+
+
+def text_hash(lines):
+    """A stable digest of decoded game text (a list of lines, or one string)."""
+    data = "\n".join(lines) if isinstance(lines, list) else lines
+    return HASH_PREFIX + hashlib.sha256(data.encode()).hexdigest()[:16]
+
+
+def is_hash(v):
+    return isinstance(v, str) and v.startswith(HASH_PREFIX)
+
+
+def hash_enemies(line):
+    """``ENEMIES [0] Name hp=a/b ...`` with each enemy name replaced by its hash."""
+    return re.sub(r"(\[\d+\]) (.*?) (hp=)", lambda m: f"{m.group(1)} {text_hash(m.group(2))} {m.group(3)}", line)
+
+
+def text_golden(res):
+    """The committable half of a result: no machine-dependent fields, game text hashed (see the docstring)."""
+    out = {k: v for k, v in _scrub(res).items() if k not in VOLATILE}
+    checks = {}
+    for label, c in out["checks"].items():
+        c = {k: v for k, v in c.items() if k not in CHECK_VOLATILE}
+        for key in HASHED_LISTS:
+            if key in c and not is_hash(c[key]):
+                c[key] = text_hash(c[key])
+        if c.get("enemies"):
+            c["enemies"] = hash_enemies(c["enemies"])
+        checks[label] = c
+    out["checks"] = checks
+    if not is_hash(out.get("tail_text", "")):
+        out["tail_text"] = text_hash(out.get("tail_text", []))
+    out["problems"] = [text_hash(ln) if ln.startswith(GAME_TEXT_LINE) else ln for ln in out.get("problems", [])]
+    return out
+
+
+def viewport_of(binary):
+    """``WxH`` from the CMakeCache.txt next to ``binary`` (None when it can't be found)."""
+    cache = Path(binary).resolve().parent / "CMakeCache.txt"
+    if not cache.exists():
+        return None
+    vals = dict(re.findall(r"^EB_VIEWPORT_(WIDTH|HEIGHT):\w+=(\d+)", cache.read_text(), re.MULTILINE))
+    return f"{vals.get('WIDTH', '256')}x{vals.get('HEIGHT', '224')}"
+
+
+def write_tracked(name, res, binary, partial):
+    """Write text goldens for ``res`` ({case: result}) to playtest/regress/golden/NAME/."""
+    td = TRACKED / name
+    if not partial:
+        shutil.rmtree(td, ignore_errors=True)
+    td.mkdir(parents=True, exist_ok=True)
+    for case, r in res.items():
+        (td / f"{case}.json").write_text(json.dumps(text_golden(r), indent=1, sort_keys=True) + "\n")
+    meta = {"viewport": viewport_of(binary)}
+    (td / "meta.json").write_text(json.dumps(meta, indent=1, sort_keys=True) + "\n")
+    print(f"text goldens in {td.relative_to(ROOT)} (commit them)")
+
+
+def load_tracked(name, cases=None):
+    """{case: text golden} from playtest/regress/golden/NAME/."""
+    return {
+        f.stem: json.loads(f.read_text())
+        for f in sorted((TRACKED / name).glob("*.json"))
+        if f.name != "meta.json" and (cases is None or f.stem in cases)
+    }
+
+
 def load_results(d, cases=None):
     """{case: result} from the result.json files under run dir ``d``."""
     out = {}
@@ -357,9 +466,13 @@ def main():
     s = sub.add_parser("record", parents=[common], help="run every case and store the results as goldens")
     s.add_argument("name")
     s.add_argument("--bin", default=DEFAULT_BIN)
+    s.add_argument("--git", action="store_true", help="also write text goldens to playtest/regress/golden/NAME")
     s = sub.add_parser("check", parents=[common], help="run every case and diff against stored goldens")
-    s.add_argument("name")
+    s.add_argument("name", nargs="?", default="main")
     s.add_argument("--bin", default=DEFAULT_BIN)
+    s.add_argument(
+        "--text", action="store_true", help="compare with the tracked text goldens even if out/ has full ones"
+    )
     s = sub.add_parser("diff", help="diff two finished runs (runs/TAG or golden/NAME dirs) without rerunning")
     s.add_argument("dir_a")
     s.add_argument("dir_b")
@@ -435,16 +548,32 @@ def main():
         (gd / "binary").write_text(str(Path(a.bin).resolve()) + "\n")
         bad = [n for n, r in res.items() if r["status"] != "done"]
         print(f"goldens in {gd}" + (f"; NOT done: {', '.join(bad)}" if bad else ""))
+        if a.git:
+            write_tracked(a.name, res, a.bin, partial=bool(a.k))
         return 1 if bad else 0
     gd = OUT / "golden" / a.name
-    if not gd.exists():
-        sys.exit(f"no goldens named {a.name} (record them first)")
-    golden = load_results(gd, {c["name"] for c in cases})
+    names = {c["name"] for c in cases}
+    text_only = a.text or not gd.exists()
+    if text_only:
+        if not (TRACKED / a.name).exists():
+            sys.exit(f"no goldens named {a.name} in {gd} or {TRACKED / a.name} (record them first)")
+        golden = load_tracked(a.name, names)
+        meta_f = TRACKED / a.name / "meta.json"
+        want = json.loads(meta_f.read_text()).get("viewport") if meta_f.exists() else None
+        have = viewport_of(a.bin)
+        if want and have and want != have:
+            print(f"WARNING: text goldens were recorded at {want}, {a.bin} is {have}", file=sys.stderr)
+        src = f"text golden {TRACKED.relative_to(ROOT) / a.name}"
+    else:
+        golden = load_results(gd, names)
+        src = f"golden {a.name}"
     rd = OUT / "runs" / f"check-{a.name}"
     if not a.k:
         shutil.rmtree(rd, ignore_errors=True)
     res = run_all(cases, [a.bin], [rd], a.j, a.timeout)[str(rd)]
-    n = report(golden, res, OUT / "diff" / f"golden-{a.name}-vs-check", f"golden {a.name}", a.bin, clean=not a.k)
+    if text_only:
+        res = {k: text_golden(v) for k, v in res.items()}
+    n = report(golden, res, OUT / "diff" / f"golden-{a.name}-vs-check", src, a.bin, clean=not a.k)
     return 1 if n else 0
 
 

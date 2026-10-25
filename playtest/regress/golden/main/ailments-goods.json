@@ -1,0 +1,80 @@
+{
+ "case": "ailments-goods",
+ "checks": {
+  "cold-remedy": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 73/122 PP 37/37",
+   "state": "STATE cold-remedy modes=[OVERWORLD] idle=yes input=1 pos=(7464,7257) dir=LEFT music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:a2410390997f5448",
+   "until": [
+    "met",
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "exit-mouse": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 73/122 PP 37/37",
+   "state": "STATE exit-mouse modes=[OVERWORLD] idle=yes input=1 pos=(7464,7257) dir=LEFT music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:bd3fc0b4490ed1b5",
+   "until": [
+    "met",
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "goods": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 20/122 PP 37/37",
+   "state": "STATE goods modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(7464,7257) dir=LEFT music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:4446600c3b9bceed",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:429987e3e47e5abf"
+  },
+  "hamburger": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 75/122 PP 37/37",
+   "state": "STATE hamburger modes=[OVERWORLD] idle=yes input=1 pos=(7464,7257) dir=LEFT music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:192d52c714c48dcc",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "poison-alert": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 20/122 PP 37/37 st=1:poisoned",
+   "state": "STATE poison-alert modes=[OVERWORLD>HP_ALERT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(7464,7257) dir=LEFT music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:c062a4f9dabb0a77",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:10a27669d49b8241"
+  }
+ },
+ "order": [
+  "poison-alert",
+  "goods",
+  "hamburger",
+  "cold-remedy",
+  "exit-mouse"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

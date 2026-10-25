@@ -1,0 +1,121 @@
+{
+ "case": "escargo",
+ "checks": {
+  "anything-else": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE anything-else modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:0d6b2e0ac3b8eb02",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:c854dc41f24c3980"
+  },
+  "confirm": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE confirm modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:123829e433664ce3",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:51ef83f8e4d77109"
+  },
+  "courier": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE courier modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:5d713fd24797e9ed",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:ef0bb9171e072c46"
+  },
+  "escargo": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE escargo modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:042257d5ebd49240",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:5942e399032854d0"
+  },
+  "items": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE items modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>ESCARGO_MENU>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:70bcba533dc0fb89",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:3409779170b9e926"
+  },
+  "ordered": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE ordered modes=[OVERWORLD] idle=yes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:81662c577c3d776e",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "paid": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE paid modes=[OVERWORLD] idle=yes input=1 pos=(4304,688) dir=UP music=106 money=99978 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:159485bcbee9fa7d",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "pay": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE pay modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:0b3e675427c3c22e",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:95b85671da87557b"
+  },
+  "phone": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
+   "state": "STATE phone modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:6fb93fb31f040a0a",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:4a2f60a4f93ad06d"
+  }
+ },
+ "order": [
+  "phone",
+  "escargo",
+  "items",
+  "anything-else",
+  "confirm",
+  "ordered",
+  "courier",
+  "pay",
+  "paid"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

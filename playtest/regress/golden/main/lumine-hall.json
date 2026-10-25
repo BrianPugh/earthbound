@@ -1,0 +1,69 @@
+{
+ "case": "lumine-hall",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(6597,4808) dir=LEFT music=31 money=93545 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:04339d0d061d907a",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "hole": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
+   "state": "STATE hole modes=[OVERWORLD] idle=yes input=1 pos=(7320,4792) dir=DOWN music=30 money=93545 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:faa2973dc98099b8",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "wall-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
+   "state": "STATE wall-1 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>ACTIONSCRIPT_WAIT] idle=modes input=0 pos=(6597,4808) dir=LEFT music=30 money=93545 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "TIMEOUT",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "wall-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
+   "state": "STATE wall-2 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>ACTIONSCRIPT_WAIT] idle=modes input=0 pos=(6597,4808) dir=LEFT music=30 money=93545 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "wall-3": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
+   "state": "STATE wall-3 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>ACTIONSCRIPT_WAIT] idle=modes input=0 pos=(6597,4808) dir=LEFT music=30 money=93545 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "hole",
+  "wall-1",
+  "wall-2",
+  "wall-3",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

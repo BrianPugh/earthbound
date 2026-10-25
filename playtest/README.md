@@ -217,6 +217,30 @@ uv run --no-sync python playtest/run.py NAME playtest/saves/24-Museum.srm playte
 `playtest/out/NAME/{log.txt,sheet.png}`: the output lines and a labelled
 contact sheet of every `shot`. Script files use `.play` (`*.txt` is gitignored).
 
+## Regression goldens in git
+
+`playtest/regress/golden/main/` holds the machine-independent half of every
+case's result (no screenshots, frame numbers or timings), recorded with the
+wide-viewport (320x240) build. Game text must come from the donor ROM, so the
+committed files hold no decoded strings: each checkpoint's window text and
+TEXT lines are a `sha256:` digest, and enemy names in ENEMIES are hashed per
+enemy (HP stays readable). STATE, PARTY (character names included), `until`
+results and ERR lines stay plain. On any checkout with `playtest/saves/`:
+
+```
+uv run --no-sync python playtest/regress.py check --text --bin port/unix/build-wide/earthbound
+```
+
+`check NAME` (default `main`) prefers full goldens in `playtest/out/regress/golden/NAME`
+(with screenshots and the actual lines) and falls back to the tracked hashed
+goldens; `--text` forces the tracked ones. Frame numbers are never compared. A
+hash mismatch names the checkpoint whose text changed; to see the lines,
+record full goldens from a known-good build
+(`regress.py record main --bin GOOD -k CASE`) and rerun `check main -k CASE`
+with the new build. When a change is meant to alter a case, re-record and
+commit with `regress.py record main --git --bin BIN` (`-k CASE` rewrites just
+that case) and explain each changed checkpoint in the commit message.
+
 ## Frame-by-frame comparison (framehash)
 
 `regress.py compare` diffs 2 builds at the cases' checkpoints. To compare

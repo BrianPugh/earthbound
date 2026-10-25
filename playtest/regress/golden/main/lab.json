@@ -1,0 +1,46 @@
+{
+ "case": "lab",
+ "checks": {
+  "lab": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L44 HP 375/375 PP 130/130 | 2:Paula L35 HP 134/134 PP 125/125 | 3:Jeff L38 HP 213/213 PP 0/0",
+   "state": "STATE lab modes=[OVERWORLD] idle=yes input=1 pos=(8112,2864) dir=UP music=16 money=40089 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "TIMEOUT",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "lab-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L44 HP 375/375 PP 130/130 | 2:Paula L35 HP 134/134 PP 125/125 | 3:Jeff L38 HP 213/213 PP 0/0",
+   "state": "STATE lab-walk modes=[OVERWORLD] idle=yes input=1 pos=(8113,2865) dir=UP music=16 money=40089 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "outside": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L44 HP 375/375 PP 130/130 | 2:Paula L35 HP 134/134 PP 125/125 | 3:Jeff L38 HP 213/213 PP 0/0",
+   "state": "STATE outside modes=[OVERWORLD] idle=yes input=1 pos=(320,4930) dir=UP music=54 money=40089 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:5a0db92fd837787e",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "outside",
+  "lab",
+  "lab-walk"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

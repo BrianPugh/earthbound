@@ -1,0 +1,80 @@
+{
+ "case": "magicant",
+ "checks": {
+  "battle": {
+   "enemies": "ENEMIES [0] sha256:0d41537a2943cf18 hp=1654/1654",
+   "err": [],
+   "party": "PARTY 1:Ness L78 HP 630/630 PP 216/216",
+   "state": "STATE battle modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>DISPLAY_TEXT>BATTLE_SCRIPTED>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=65535 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:2eee8f0fdbb6a3be",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "magicant": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L78 HP 630/630 PP 216/216",
+   "state": "STATE magicant modes=[OVERWORLD] idle=yes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:87bc3a1239b9ed51",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "montage-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L78 HP 835/630 PP 216/216",
+   "state": "STATE montage-1 modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:acff3c69b2d41ffd",
+   "until": [],
+   "win": "sha256:6613796d8e1fb998"
+  },
+  "montage-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L78 HP 723/630 PP 216/216",
+   "state": "STATE montage-2 modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:6613796d8e1fb998"
+  },
+  "powers": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L78 HP 948/630 PP 70/216",
+   "state": "STATE powers modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT] idle=modes input=0 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:727b0673b11f1915",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:93d40d28c3aa55c7"
+  },
+  "woke": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L79 HP 795/795 PP 590/590 | 2:Paula L73 HP 246/246 PP 265/265 | 3:Jeff L73 HP 378/378 PP 0/0 | 4:Poo L69 HP 436/436 PP 147/147",
+   "state": "STATE woke modes=[OVERWORLD] idle=yes input=1 pos=(276,7776) dir=LEFT music=48 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:5cf862796037778a",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "magicant",
+  "battle",
+  "powers",
+  "montage-1",
+  "montage-2",
+  "woke"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

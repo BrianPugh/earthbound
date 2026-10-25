@@ -1,0 +1,48 @@
+{
+ "case": "doors",
+ "checks": {
+  "lobby": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L43 HP 332/332 PP 122/122 | 3:Jeff L37 HP 212/212 PP 0/0",
+   "state": "STATE lobby modes=[OVERWORLD] idle=yes input=1 pos=(5912,5992) dir=RIGHT music=24 money=39687 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:516c57bdcad9e56e",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "lobby-again": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L43 HP 332/332 PP 122/122 | 3:Jeff L37 HP 212/212 PP 0/0",
+   "state": "STATE lobby-again modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(5919,5990) dir=UP music=24 money=39687 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:9da3719128dac27c",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:67a9760e3b37beea"
+  },
+  "lobby-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L43 HP 332/332 PP 122/122 | 3:Jeff L37 HP 212/212 PP 0/0",
+   "state": "STATE lobby-walk modes=[OVERWORLD] idle=yes input=1 pos=(5912,6007) dir=DOWN music=24 money=39687 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "lobby",
+  "lobby-walk",
+  "lobby-again"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

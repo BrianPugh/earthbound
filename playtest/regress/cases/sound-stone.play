@@ -1,0 +1,11 @@
+# save: 05-Twoson
+# about: Goods -> Sound Stone -> Use: the melody playback screen (SOUND_STONE mode) and the return to the overworld
+press A; until input 60; press RIGHT; wait 5; press A; until input 120; wait 10
+press RIGHT; wait 5; press A; until input 120; wait 10
+check use-menu
+press A; until in:TEXT_PROMPT 600
+check touched
+press A; wait 400
+check melody
+until idle 3000 advance
+check after

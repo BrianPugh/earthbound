@@ -1,0 +1,275 @@
+{
+ "case": "towns",
+ "checks": {
+  "dalaam": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE dalaam modes=[OVERWORLD] idle=yes input=1 pos=(4560,3592) dir=DOWN music=59 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "dalaam-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE dalaam-walk modes=[OVERWORLD] idle=yes input=1 pos=(4561,3616) dir=RIGHT music=59 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "deep": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE deep modes=[OVERWORLD] idle=yes input=1 pos=(5632,7168) dir=DOWN music=64 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "deep-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE deep-walk modes=[OVERWORLD] idle=yes input=1 pos=(5662,7160) dir=RIGHT music=64 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "fourside": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE fourside modes=[OVERWORLD] idle=yes input=1 pos=(3040,4040) dir=DOWN music=47 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "fourside-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE fourside-walk modes=[OVERWORLD] idle=yes input=1 pos=(3040,4095) dir=RIGHT music=47 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "onett": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE onett modes=[OVERWORLD] idle=yes input=1 pos=(2024,1488) dir=DOWN music=46 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:85a3f77b4bab184f",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "onett-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE onett-walk modes=[OVERWORLD] idle=yes input=1 pos=(2024,1496) dir=RIGHT music=46 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "saturn": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE saturn modes=[OVERWORLD] idle=yes input=1 pos=(272,7776) dir=DOWN music=48 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "saturn-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE saturn-walk modes=[OVERWORLD] idle=yes input=1 pos=(216,7809) dir=RIGHT music=48 money=46630 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "scaraba": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE scaraba modes=[OVERWORLD] idle=yes input=1 pos=(1216,4208) dir=DOWN music=61 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "scaraba-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE scaraba-walk modes=[OVERWORLD] idle=yes input=1 pos=(1232,4216) dir=RIGHT music=61 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "summers": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE summers modes=[OVERWORLD] idle=yes input=1 pos=(4432,2824) dir=DOWN music=56 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "summers-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE summers-walk modes=[OVERWORLD] idle=yes input=1 pos=(4428,2840) dir=RIGHT music=56 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "tenda": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE tenda modes=[OVERWORLD] idle=yes input=1 pos=(4512,7112) dir=DOWN music=64 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "tenda-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE tenda-walk modes=[OVERWORLD] idle=yes input=1 pos=(4540,7120) dir=RIGHT music=64 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "threed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE threed modes=[OVERWORLD] idle=yes input=1 pos=(5536,9008) dir=DOWN music=129 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "threed-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE threed-walk modes=[OVERWORLD] idle=yes input=1 pos=(5536,9023) dir=RIGHT music=129 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "twoson": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE twoson modes=[OVERWORLD] idle=yes input=1 pos=(1408,6560) dir=DOWN music=128 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "twoson-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE twoson-walk modes=[OVERWORLD] idle=yes input=1 pos=(1368,6615) dir=RIGHT music=128 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "under": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE under modes=[OVERWORLD] idle=yes input=1 pos=(2600,2808) dir=DOWN music=68 money=46630 battle=0 ow_enemies=0 surface=0x00 walk=10",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "under-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE under-walk modes=[OVERWORLD] idle=yes input=1 pos=(2600,2816) dir=RIGHT music=68 money=46630 battle=0 ow_enemies=0 surface=0x00 walk=10",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "winters": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE winters modes=[OVERWORLD] idle=yes input=1 pos=(496,2312) dir=DOWN music=54 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "winters-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE winters-walk modes=[OVERWORLD] idle=yes input=1 pos=(496,2367) dir=RIGHT music=54 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "onett",
+  "onett-walk",
+  "twoson",
+  "twoson-walk",
+  "threed",
+  "threed-walk",
+  "saturn",
+  "saturn-walk",
+  "fourside",
+  "fourside-walk",
+  "winters",
+  "winters-walk",
+  "summers",
+  "summers-walk",
+  "scaraba",
+  "scaraba-walk",
+  "dalaam",
+  "dalaam-walk",
+  "deep",
+  "deep-walk",
+  "tenda",
+  "tenda-walk",
+  "under",
+  "under-walk"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

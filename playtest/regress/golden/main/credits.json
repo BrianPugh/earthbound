@@ -1,0 +1,115 @@
+{
+ "case": "credits",
+ "checks": {
+  "before": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE before modes=[OVERWORLD] idle=yes input=1 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:691bccde231c1011",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "debug-menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE debug-menu modes=[OVERWORLD>DEBUG_MENU>SELECTION_MENU] idle=modes input=1 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:4cc5c1d043b9a087",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e640be4e7bd0014b"
+  },
+  "photos": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE photos modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "photos-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE photos-2 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "photos-3": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE photos-3 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "photos-4": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE photos-4 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "roll-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE roll-1 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "roll-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE roll-2 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "staff-item": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE staff-item modes=[OVERWORLD>DEBUG_MENU>SELECTION_MENU] idle=modes input=1 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:021fd155ea721f5e",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  },
+  "staff-title": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
+   "state": "STATE staff-title modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:d59fb12309de403e"
+  }
+ },
+ "order": [
+  "before",
+  "debug-menu",
+  "staff-item",
+  "staff-title",
+  "roll-1",
+  "roll-2",
+  "photos",
+  "photos-2",
+  "photos-3",
+  "photos-4"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

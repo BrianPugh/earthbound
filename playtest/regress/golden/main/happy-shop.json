@@ -1,0 +1,96 @@
+{
+ "case": "happy-shop",
+ "checks": {
+  "anything-else": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE anything-else modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7097,1756) dir=UP music=53 money=1913 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:354a62386bae9926",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:d4b6c29bddad5c7e"
+  },
+  "buy-list": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE buy-list modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>STORE_MENU>SELECTION_MENU] idle=modes input=1 pos=(7097,1756) dir=UP music=53 money=1962 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:8a890b4dcfad98db",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:b72cc3feb93f166f"
+  },
+  "buy-sell": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE buy-sell modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7097,1756) dir=UP music=53 money=1962 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:8f7c683a689e9366",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:f97826e2182a9d3b"
+  },
+  "closed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE closed modes=[OVERWORLD] idle=yes input=1 pos=(7097,1756) dir=UP music=53 money=1913 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:d8da522591fc6313",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "counter": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE counter modes=[OVERWORLD] idle=yes input=1 pos=(7097,1756) dir=UP music=53 money=1962 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:3e80e26b7a044e0a",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "equip-here": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE equip-here modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7097,1756) dir=UP music=53 money=1864 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:4b1cf10244b5c426",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:95a6778f1f504c39"
+  },
+  "sell-old": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L19 HP 155/155 PP 55/55 st=6:homesick",
+   "state": "STATE sell-old modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7097,1756) dir=UP music=53 money=1864 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:d7386c2bdd2d498e",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:34039f9d52fa5f16"
+  }
+ },
+ "order": [
+  "counter",
+  "buy-sell",
+  "buy-list",
+  "equip-here",
+  "sell-old",
+  "anything-else",
+  "closed"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

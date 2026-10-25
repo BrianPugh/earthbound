@@ -1,0 +1,80 @@
+{
+ "case": "plague-rat",
+ "checks": {
+  "battle": {
+   "enemies": "ENEMIES [0] sha256:596644b95ca89009 hp=1827/1827",
+   "err": [],
+   "party": "PARTY 1:Ness L47 HP 382/382 PP 135/135 | 2:Paula L40 HP 150/150 PP 150/150 | 3:Jeff L41 HP 242/242 PP 0/0 | 4:Poo L28 HP 195/195 PP 65/65",
+   "state": "STATE battle modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>BATTLE_SCRIPTED>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(3552,3212) dir=UP music=40 money=56255 battle=65535 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:5295295c1474af7f",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "boss-swirl": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L47 HP 382/382 PP 135/135 | 2:Paula L40 HP 150/150 PP 150/150 | 3:Jeff L41 HP 242/242 PP 0/0 | 4:Poo L28 HP 195/195 PP 65/65",
+   "state": "STATE boss-swirl modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>BATTLE_SCRIPTED>BATTLE_WAIT] idle=modes input=0 pos=(3552,3212) dir=UP music=40 money=56255 battle=65535 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:689ee29437d9debb",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "boss-swirl-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L47 HP 382/382 PP 135/135 | 2:Paula L40 HP 150/150 PP 150/150 | 3:Jeff L41 HP 242/242 PP 0/0 | 4:Poo L28 HP 195/195 PP 65/65",
+   "state": "STATE boss-swirl-2 modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>BATTLE_SCRIPTED>BATTLE_WAIT] idle=modes input=0 pos=(3552,3212) dir=UP music=40 money=56255 battle=65535 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "boss-swirl-3": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L47 HP 382/382 PP 135/135 | 2:Paula L40 HP 150/150 PP 150/150 | 3:Jeff L41 HP 242/242 PP 0/0 | 4:Poo L28 HP 195/195 PP 65/65",
+   "state": "STATE boss-swirl-3 modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>BATTLE_SCRIPTED>BATTLE_WAIT] idle=modes input=0 pos=(3552,3212) dir=UP music=40 money=56255 battle=65535 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "rat": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L47 HP 382/382 PP 135/135 | 2:Paula L40 HP 150/150 PP 150/150 | 3:Jeff L41 HP 242/242 PP 0/0 | 4:Poo L28 HP 195/195 PP 65/65",
+   "state": "STATE rat modes=[OVERWORLD] idle=yes input=1 pos=(3552,3212) dir=UP music=40 money=56255 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:3da966f0d4932778",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "won": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L48 HP 384/384 PP 72/145 | 2:Paula L40 HP 0/150 PP 150/150 st=1:unconscious | 3:Jeff L42 HP 242/243 PP 0/0 | 4:Poo L31 HP 120/210 PP 70/70",
+   "state": "STATE won modes=[OVERWORLD] idle=yes input=1 pos=(3552,3212) dir=UP music=40 money=56255 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "text": "sha256:79dbbc642c1527f4",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "rat",
+  "boss-swirl",
+  "boss-swirl-2",
+  "boss-swirl-3",
+  "battle",
+  "won"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

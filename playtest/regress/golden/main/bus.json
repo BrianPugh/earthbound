@@ -1,0 +1,70 @@
+{
+ "case": "bus",
+ "checks": {
+  "band": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L24 HP 202/202 PP 67/67 | 2:Paula L19 HP 97/97 PP 70/70",
+   "state": "STATE band modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(2224,6585) dir=UP music=130 money=4411 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:3f9a5254542a21c7",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:d5edcf5a65ed3a40"
+  },
+  "boarding": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L24 HP 202/202 PP 67/67 | 2:Paula L19 HP 97/97 PP 70/70",
+   "state": "STATE boarding modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT] idle=modes input=0 pos=(2176,6567) dir=UP music=77 money=4411 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:aefd59cffd816b68",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:bec27e82ea1c6081"
+  },
+  "ride-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L24 HP 202/202 PP 67/67 | 2:Paula L19 HP 97/97 PP 70/70",
+   "state": "STATE ride-1 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(2176,6567) dir=UP music=77 money=4411 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:3c18eea9b0b854cc",
+   "until": [],
+   "win": "sha256:45bbff1568ba1f16"
+  },
+  "ride-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L24 HP 202/202 PP 67/67 | 2:Paula L19 HP 97/97 PP 70/70",
+   "state": "STATE ride-2 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(2176,6567) dir=UP music=77 money=4411 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:45bbff1568ba1f16"
+  },
+  "threed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L24 HP 202/202 PP 67/67 | 2:Paula L19 HP 97/97 PP 70/70",
+   "state": "STATE threed modes=[OVERWORLD] idle=yes input=1 pos=(5533,9388) dir=RIGHT music=44 money=4411 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:813fe9b8551bd4b0",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "band",
+  "boarding",
+  "ride-1",
+  "ride-2",
+  "threed"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

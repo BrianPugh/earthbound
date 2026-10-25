@@ -1,0 +1,71 @@
+{
+ "case": "naming",
+ "checks": {
+  "dont-care": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY",
+   "state": "STATE dont-care modes=[OVERWORLD>INIT_INTRO>FILE_MENU>NEW_GAME_NAMING>TEXT_INPUT] idle=modes input=1 pos=(0,0) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3db9c70145c384e"
+  },
+  "file-select": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY",
+   "state": "STATE file-select modes=[OVERWORLD>INIT_INTRO>FILE_MENU>SELECTION_MENU] idle=modes input=1 pos=(0,0) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:23e581134b055957",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:7768b3423bdbccdf"
+  },
+  "flavor": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY",
+   "state": "STATE flavor modes=[OVERWORLD>INIT_INTRO>FILE_MENU>SELECTION_MENU] idle=modes input=1 pos=(0,0) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:cebb648dbaef2d98",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:f84b91f03a7dcbba"
+  },
+  "paula-keyboard": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY",
+   "state": "STATE paula-keyboard modes=[OVERWORLD>INIT_INTRO>FILE_MENU>NEW_GAME_NAMING>TEXT_INPUT] idle=modes input=1 pos=(0,0) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:a6673d57b837e2b8",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a178a05aca403a53"
+  },
+  "typed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY",
+   "state": "STATE typed modes=[OVERWORLD>INIT_INTRO>FILE_MENU>NEW_GAME_NAMING>TEXT_INPUT] idle=modes input=1 pos=(0,0) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e1ef78a1e67b6627",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3db9c70145c384e"
+  }
+ },
+ "order": [
+  "file-select",
+  "flavor",
+  "typed",
+  "dont-care",
+  "paula-keyboard"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

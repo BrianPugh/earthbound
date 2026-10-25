@@ -1,0 +1,59 @@
+{
+ "case": "desert-autofight",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L56 HP 426/450 PP 155/155 | 2:Paula L51 HP 172/172 PP 185/185 | 3:Jeff L50 HP 291/291 PP 0/0 | 4:Poo L46 HP 246/300 PP 97/97",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(1400,5600) dir=DOWN music=62 money=99199 battle=0 ow_enemies=5 blink=88 surface=0x80(solid)",
+   "text": "sha256:5bf88379250eda4e",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "battle-menu": {
+   "enemies": "ENEMIES [0] sha256:b7e7545e4b9cb80c hp=339/339",
+   "err": [],
+   "party": "PARTY 1:Ness L56 HP 450/450 PP 155/155 | 2:Paula L51 HP 172/172 PP 185/185 | 3:Jeff L50 HP 291/291 PP 0/0 | 4:Poo L46 HP 260/300 PP 97/97",
+   "state": "STATE battle-menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(1400,5600) dir=DOWN music=62 money=99199 battle=65535 ow_enemies=6 surface=0x80(solid)",
+   "text": "sha256:dd36402911fff9a8",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "desert": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L56 HP 450/450 PP 155/155 | 2:Paula L51 HP 172/172 PP 185/185 | 3:Jeff L50 HP 291/291 PP 0/0 | 4:Poo L46 HP 300/300 PP 97/97",
+   "state": "STATE desert modes=[OVERWORLD] idle=yes input=1 pos=(1400,5600) dir=DOWN music=62 money=99199 battle=0 ow_enemies=6 surface=0x80(solid)",
+   "text": "sha256:286c23a0a99842b2",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "swirl": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L56 HP 450/450 PP 155/155 | 2:Paula L51 HP 172/172 PP 185/185 | 3:Jeff L50 HP 291/291 PP 0/0 | 4:Poo L46 HP 300/300 PP 97/97",
+   "state": "STATE swirl modes=[OVERWORLD] idle=battle input=0 pos=(1400,5600) dir=DOWN music=62 money=99199 battle=0 ow_enemies=6 surface=0x80(solid)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "desert",
+  "swirl",
+  "battle-menu",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

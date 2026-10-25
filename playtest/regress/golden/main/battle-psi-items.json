@@ -1,0 +1,149 @@
+{
+ "case": "battle-psi-items",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 121/131 | 2:Paula L38 HP 141/141 PP 134/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L19 HP 143/143 PP 47/47",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=0 ow_enemies=3 blink=88 surface=0x00",
+   "text": "sha256:0d3186967c9288b3",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "jeff-goods": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE jeff-goods modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:913f6e2630485269",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:ff50b994701a5468"
+  },
+  "jeff-menu": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE jeff-menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:91ed105aa31772ac",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:876efcbf1ae90285"
+  },
+  "menu": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:d7048ca27794b1db",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "ness-psi": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE ness-psi modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>BATTLE_PSI_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:4e58d1d0421a4327",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:493b8eaf165a9361"
+  },
+  "paula-row": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE paula-row modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>BATTLE_PSI_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:17c04d271d1d9d01",
+   "until": [
+    "met",
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:3e0c73784fec3f6d"
+  },
+  "poo-menu": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE poo-menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:12ceb92492c51c4b",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:574b0162dcab6214"
+  },
+  "rocket": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=289/417 [1] sha256:669368650d5da3d3 hp=220/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 121/131 | 2:Paula L38 HP 141/141 PP 134/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE rocket modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>DISPLAY_TEXT] idle=modes input=0 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:4bf7777cf9d41080",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:9bd6c25f8a3cf549"
+  },
+  "rockin": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 134/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE rockin modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=0 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:2e1a213a8f399ae8",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:12c7aad20f36208b"
+  },
+  "row-select": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=417/417 [1] sha256:669368650d5da3d3 hp=294/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE row-select modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>BATTLE_PSI_MENU>DETERMINE_TARGETING>BATTLE_ROW_SELECT] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:ed635974990d4a85",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:2522299668289d57"
+  },
+  "turn-2": {
+   "enemies": "ENEMIES [0] sha256:894e2dd6a9b6e53e hp=0/417 [1] sha256:669368650d5da3d3 hp=219/294",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 121/131 | 2:Paula L38 HP 141/141 PP 134/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE turn-2 modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(5128,216) dir=UP music=55 money=46630 battle=65535 ow_enemies=5 surface=0x00",
+   "text": "sha256:b3b08d03030494ea",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  }
+ },
+ "order": [
+  "menu",
+  "ness-psi",
+  "paula-row",
+  "row-select",
+  "jeff-menu",
+  "jeff-goods",
+  "poo-menu",
+  "rockin",
+  "rocket",
+  "turn-2",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

@@ -1,0 +1,20 @@
+{
+ "case": "savestate-selftest",
+ "checks": {
+  "selftest": {
+   "lines": [
+    "savestate round-trip self-test: PASS",
+    "savestate perturb (cold-load) self-test: PASS",
+    "savestate crash-safe self-test: PASS",
+    "savestate asset-pointer self-test: PASS"
+   ]
+  }
+ },
+ "order": [
+  "selftest"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

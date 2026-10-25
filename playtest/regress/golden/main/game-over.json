@@ -1,0 +1,49 @@
+{
+ "case": "game-over",
+ "checks": {
+  "battle": {
+   "enemies": "ENEMIES [0] sha256:2afc9ffd2e6779c2 hp=631/631",
+   "err": [],
+   "party": "PARTY 1:Ness L15 HP 1/127 PP 45/45",
+   "state": "STATE battle modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(6112,7776) dir=DOWN music=64 money=1253 battle=65535 ow_enemies=4 surface=0x08(shallow-water)",
+   "text": "sha256:553dc2af4208dada",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:53a2eab476409ba2"
+  },
+  "game-over": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L15 HP 0/127 PP 45/45 st=1:unconscious",
+   "state": "STATE game-over modes=[OVERWORLD>GAME_OVER>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(6112,7776) dir=DOWN music=64 money=1253 battle=0 ow_enemies=4 surface=0x08(shallow-water)",
+   "text": "sha256:43ca880f753f46ba",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:4dab659296d3c8ff"
+  },
+  "revived": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L15 HP 127/127 PP 0/45",
+   "state": "STATE revived modes=[OVERWORLD] idle=yes input=1 pos=(7556,7248) dir=LEFT music=26 money=627 battle=0 ow_enemies=65532 surface=0x00",
+   "text": "sha256:3bc5012b9d0b30ce",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "battle",
+  "game-over",
+  "revived"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

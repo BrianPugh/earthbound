@@ -1,0 +1,24 @@
+# save: 02-Sharks
+# about: Hotel Onett: stay the night ($35, morning in the room, HP restored), room -> lobby -> side room, ATM zero-balance withdrawal and a $12 deposit (NUMBER_SELECT)
+hp 1 20
+39 RIGHT; 1 UP; wait 5; 11 LEFT; 1 UP; wait 5
+press A; until input 60; press A
+until in:SELECTION_MENU 1000 advance; wait 10
+check stay-menu
+press A; until idle 4000 advance
+check morning
+until text 300 RIGHT; until idle 300; 10 DOWN; 60 RIGHT; 12 DOWN; until text 200 RIGHT; until idle 300
+58 LEFT; wait 5
+until in:DOOR_TRANSITION 120 UP; until idle 300
+3 UP; 3 LEFT; wait 5
+press L; until in:SELECTION_MENU 600 advance; wait 10
+check atm-menu
+press A; until input 600 advance; wait 10
+check zero-balance
+until idle 600 advance
+press L; until in:SELECTION_MENU 600 advance; wait 10
+press RIGHT; wait 5; press A; until input 600 advance; wait 10
+press UP; wait 5; press UP; wait 5; press LEFT; wait 5; press UP; wait 10
+check deposit-amount
+press A; until idle 1000 advance
+check deposited

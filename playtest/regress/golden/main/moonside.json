@@ -1,0 +1,34 @@
+{
+ "case": "moonside",
+ "checks": {
+  "moonside": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L40 HP 318/318 PP 120/120 | 3:Jeff L34 HP 185/185 PP 0/0",
+   "state": "STATE moonside modes=[OVERWORLD] idle=yes input=1 pos=(6512,4920) dir=DOWN music=50 money=29270 battle=0 ow_enemies=0 surface=0x90(ladder-stairs,solid)",
+   "text": "sha256:df8c2dcb2db6774e",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L40 HP 318/318 PP 120/120 | 3:Jeff L34 HP 185/185 PP 0/0",
+   "state": "STATE walk modes=[OVERWORLD] idle=yes input=1 pos=(6512,4928) dir=DOWN music=50 money=29270 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "moonside",
+  "walk"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

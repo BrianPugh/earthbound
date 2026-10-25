@@ -1,0 +1,63 @@
+{
+ "case": "attract",
+ "checks": {
+  "oval-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1: L0 HP 0/0 PP 0/0 | 2: L0 HP 0/0 PP 0/0 | 3: L0 HP 0/0 PP 0/0",
+   "state": "STATE oval-1 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(7506,2893) dir=DOWN_LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "oval-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1: L0 HP 0/0 PP 0/0 | 2: L0 HP 0/0 PP 0/0 | 3: L0 HP 0/0 PP 0/0",
+   "state": "STATE oval-2 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(7371,2927) dir=LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "scene-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1: L0 HP 0/0 PP 0/0",
+   "state": "STATE scene-2 modes=[OVERWORLD>INIT_INTRO>ATTRACT>DISPLAY_TEXT>TELEPORT_TO] idle=modes input=0 pos=(7520,2824) dir=RIGHT music=0 money=0 battle=0 ow_enemies=0 surface=0x08(shallow-water)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "scene-3": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1: L0 HP 0/0 PP 0/0",
+   "state": "STATE scene-3 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(1935,6948) dir=UP music=0 money=0 battle=0 ow_enemies=0 surface=0x00 walk=3",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "start": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1: L0 HP 0/0 PP 0/0 | 2: L0 HP 0/0 PP 0/0 | 3: L0 HP 0/0 PP 0/0",
+   "state": "STATE start modes=[OVERWORLD>INIT_INTRO>ATTRACT>DISPLAY_TEXT>TELEPORT_TO] idle=modes input=0 pos=(7520,2824) dir=RIGHT music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "start",
+  "oval-1",
+  "oval-2",
+  "scene-2",
+  "scene-3"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

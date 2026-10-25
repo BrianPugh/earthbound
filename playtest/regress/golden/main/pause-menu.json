@@ -1,0 +1,209 @@
+{
+ "case": "pause-menu",
+ "checks": {
+  "closed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE closed modes=[OVERWORLD] idle=yes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "equip-closed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE equip-closed modes=[OVERWORLD] idle=yes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:22b4c0838a51ac20",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "equip-items": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE equip-items modes=[OVERWORLD>PAUSE_MENU>EQUIP_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:5fc1b5a7ff087b74",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e986474565962315"
+  },
+  "equip-slot": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE equip-slot modes=[OVERWORLD>PAUSE_MENU>EQUIP_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:a6bd6d5c03ec3961",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:16eb008901479027"
+  },
+  "equip-who": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE equip-who modes=[OVERWORLD>PAUSE_MENU>EQUIP_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:f91e7bb18e707a00",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:046d18f5d2064135"
+  },
+  "goods-closed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE goods-closed modes=[OVERWORLD] idle=yes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:edaf82fb29bcc717",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "goods-ness": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE goods-ness modes=[OVERWORLD>PAUSE_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:785fc825d83f5f7d",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:f2643a69ccdc3151"
+  },
+  "goods-paula": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE goods-paula modes=[OVERWORLD>PAUSE_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:1528f2fdeae8f6d2",
+   "until": [],
+   "win": "sha256:dde45359032bb0bf"
+  },
+  "item-actions": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE item-actions modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:334d87fe858b7de6",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:9bea860c962fc4a1"
+  },
+  "item-help": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE item-help modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:ac5fcaaa62e1a7a6",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:702c35ff37332cf8"
+  },
+  "menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE menu modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:8d5ad6bb5987f0d9",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:e9d7960f73791a23"
+  },
+  "psi-closed": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE psi-closed modes=[OVERWORLD] idle=yes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:9f73a0c59b849578",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "psi-ness": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE psi-ness modes=[OVERWORLD>PAUSE_MENU>PSI_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:eb309d6943da34c9",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:de0f2a8bf0b5456b"
+  },
+  "psi-ness-down": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE psi-ness-down modes=[OVERWORLD>PAUSE_MENU>PSI_MENU>SELECTION_MENU] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:eb309d6943da34c9",
+   "until": [],
+   "win": "sha256:4418a928b4b787c6"
+  },
+  "psi-who": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE psi-who modes=[OVERWORLD>PAUSE_MENU>PSI_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:ed4ebd25d5f853b4",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:fc1c47e0cd611b21"
+  },
+  "status-jeff": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE status-jeff modes=[OVERWORLD>PAUSE_MENU>STATUS_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:f37bb3641667af7c",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:f4696b810e63a82a"
+  },
+  "status-who": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE status-who modes=[OVERWORLD>PAUSE_MENU>STATUS_MENU>CHAR_SELECT] idle=modes input=1 pos=(6716,9416) dir=UP music=26 money=46630 battle=0 ow_enemies=0 surface=0x01(hide-lower)",
+   "text": "sha256:86f8f9f27c8e9142",
+   "until": [
+    "met",
+    "met"
+   ],
+   "win": "sha256:c876285e78e06dc1"
+  }
+ },
+ "order": [
+  "menu",
+  "goods-ness",
+  "goods-paula",
+  "item-actions",
+  "item-help",
+  "goods-closed",
+  "psi-who",
+  "psi-ness",
+  "psi-ness-down",
+  "psi-closed",
+  "equip-who",
+  "equip-slot",
+  "equip-items",
+  "equip-closed",
+  "status-who",
+  "status-jeff",
+  "closed"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

@@ -1,0 +1,61 @@
+{
+ "case": "phone-dad",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(7999,1488) dir=UP music=26 money=829 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:f71bffd7405846ee",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "dad": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE dad modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7999,1488) dir=UP music=26 money=829 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:6509a924589db4b4",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:736c5ee692eafb1b"
+  },
+  "phone-menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE phone-menu modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>SELECTION_MENU] idle=modes input=1 pos=(7999,1488) dir=UP music=26 money=829 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:adf74514478af437",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:aabd9883323038e5"
+  },
+  "recorded": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE recorded modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7999,1488) dir=UP music=26 money=829 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:cb68932be555c0f5",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:63d39b7d7f2489c5"
+  }
+ },
+ "order": [
+  "phone-menu",
+  "dad",
+  "recorded",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

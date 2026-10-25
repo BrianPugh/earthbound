@@ -1,0 +1,69 @@
+{
+ "case": "onett-battle",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L4 HP 35/47 PP 15/15",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(2660,440) dir=DOWN music=46 money=20 battle=0 ow_enemies=2 blink=88 surface=0x00",
+   "text": "sha256:278af906893a6cfd",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "battle-menu": {
+   "enemies": "ENEMIES [0] sha256:d973c12279348cd9 hp=24/24",
+   "err": [],
+   "party": "PARTY 1:Ness L4 HP 47/47 PP 15/15",
+   "state": "STATE battle-menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(2660,440) dir=DOWN music=46 money=20 battle=65535 ow_enemies=3 surface=0x00",
+   "text": "sha256:8892c4ee5039ba81",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "street": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L4 HP 47/47 PP 15/15",
+   "state": "STATE street modes=[OVERWORLD] idle=battle input=0 pos=(2660,440) dir=DOWN music=46 money=20 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:241ed30ce1f1f019",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "swirl": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L4 HP 47/47 PP 15/15",
+   "state": "STATE swirl modes=[OVERWORLD] idle=battle input=0 pos=(2660,440) dir=DOWN music=46 money=20 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "swirl-wide": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L4 HP 47/47 PP 15/15",
+   "state": "STATE swirl-wide modes=[OVERWORLD] idle=battle input=0 pos=(2660,440) dir=DOWN music=46 money=20 battle=0 ow_enemies=3 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "street",
+  "swirl",
+  "swirl-wide",
+  "battle-menu",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

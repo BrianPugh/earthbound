@@ -1,0 +1,81 @@
+{
+ "case": "deep-darkness",
+ "checks": {
+  "dark": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE dark modes=[OVERWORLD] idle=yes input=1 pos=(6152,7598) dir=UP_LEFT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0F(deep-water,hide-lower,hide-upper)",
+   "text": "sha256:962be17e8bfd0a06",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "dark-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE dark-walk modes=[OVERWORLD] idle=yes input=1 pos=(6161,7589) dir=RIGHT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0F(deep-water,hide-lower,hide-upper)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "fade": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE fade modes=[OVERWORLD>PAUSE_MENU>USE_ITEM>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(6161,7589) dir=RIGHT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0F(deep-water,hide-lower,hide-upper)",
+   "text": "sha256:73a0ee6b3c52e7ac",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:62d291100a55fd93"
+  },
+  "hawk-eye": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE hawk-eye modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(6161,7589) dir=RIGHT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0F(deep-water,hide-lower,hide-upper)",
+   "text": "sha256:8df56f662bfea12c",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:818b2639c3567f56"
+  },
+  "lit": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE lit modes=[OVERWORLD] idle=yes input=1 pos=(6161,7589) dir=RIGHT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0F(deep-water,hide-lower,hide-upper)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "lit-walk": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 295/296 PP 0/0",
+   "state": "STATE lit-walk modes=[OVERWORLD] idle=yes input=1 pos=(6179,7584) dir=RIGHT music=64 money=99995 battle=0 ow_enemies=0 surface=0x0D(deep-water,hide-lower)",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "dark",
+  "dark-walk",
+  "hawk-eye",
+  "fade",
+  "lit",
+  "lit-walk"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

@@ -1,0 +1,43 @@
+{
+ "case": "snap-restore",
+ "checks": {
+  "restored": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE restored modes=[OVERWORLD] idle=yes input=1 pos=(6712,9464) dir=DOWN music=26 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "walk-1": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE walk-1 modes=[OVERWORLD] idle=yes input=1 pos=(6664,9464) dir=DOWN music=26 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:85a3f77b4bab184f",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "walk-2": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L46 HP 379/379 PP 131/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
+   "state": "STATE walk-2 modes=[OVERWORLD] idle=yes input=1 pos=(6664,9464) dir=DOWN music=26 money=46630 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "walk-1",
+  "restored",
+  "walk-2"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

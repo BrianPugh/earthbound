@@ -1,0 +1,93 @@
+{
+ "case": "hotel-atm",
+ "checks": {
+  "atm-menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE atm-menu modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(7237,1094) dir=LEFT music=27 money=794 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:ccd03a1bcc0d1b68",
+   "until": [
+    "TIMEOUT",
+    "met",
+    "TIMEOUT",
+    "met",
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:b5f063d5eacad4d8"
+  },
+  "deposit-amount": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE deposit-amount modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>DISPLAY_TEXT>NUMBER_SELECT] idle=modes input=1 pos=(7237,1094) dir=LEFT music=27 money=794 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:fe8caf692257583b",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:d3ecfe6c75c598f3"
+  },
+  "deposited": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE deposited modes=[OVERWORLD] idle=yes input=1 pos=(7237,1094) dir=LEFT music=27 money=782 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:78305caa7f8e87d0",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "morning": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE morning modes=[OVERWORLD] idle=yes input=1 pos=(8008,1624) dir=DOWN music=27 money=794 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:73dcaa4c21485002",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "stay-menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 20/76 PP 26/26",
+   "state": "STATE stay-menu modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(8038,1488) dir=UP music=26 money=829 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:425b2c529a194ee8",
+   "until": [
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:6a15fa5ebde5439a"
+  },
+  "zero-balance": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
+   "state": "STATE zero-balance modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(7237,1094) dir=LEFT music=27 money=794 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "text": "sha256:810edab5d1e607f9",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:1b87bc956f092b5c"
+  }
+ },
+ "order": [
+  "stay-menu",
+  "morning",
+  "atm-menu",
+  "zero-balance",
+  "deposit-amount",
+  "deposited"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

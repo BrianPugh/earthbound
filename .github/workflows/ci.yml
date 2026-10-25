@@ -12,7 +12,7 @@ name: CI
 #    `ebsrc-assets`, and only when the repository variable EB_ASSET_RUNNER is
 #    "true". The runner must provide EB_DONOR_ROM (path to the US retail ROM)
 #    and EB_SAVES_DIR (a playtest/saves/ copy) in its environment. They cover
-#    the desktop build at both viewports with -Werror, the regress text goldens
+#    the desktop build at both viewports with -Werror, the regress goldens (game text hashed)
 #    (playtest/regress/golden/main), the same cases under ASan+UBSan, and the
 #    RP2040 link with its RAM budget. An encrypted asset tarball on hosted
 #    runners would also work; the jobs only need the 2 paths above.
@@ -130,7 +130,7 @@ jobs:
           make
           uv pip install -e . pytest
           uv run --no-sync python -m pytest tests -q
-      - name: Regress against the committed text goldens
+      - name: Regress against the committed hashed goldens
         if: matrix.viewport == '320 240'
         run: uv run --no-sync python playtest/regress.py check main --text --bin build-320/earthbound
       - uses: actions/upload-artifact@v4

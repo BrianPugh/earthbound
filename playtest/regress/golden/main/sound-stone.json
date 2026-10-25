@@ -1,0 +1,60 @@
+{
+ "case": "sound-stone",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 122/122 PP 37/37",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(7557,7248) dir=UP music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "melody": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 122/122 PP 37/37",
+   "state": "STATE melody modes=[OVERWORLD>PAUSE_MENU>USE_ITEM>DISPLAY_TEXT>SPECIAL_EVENT>SOUND_STONE] idle=modes input=0 pos=(7557,7248) dir=UP music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [],
+   "win": "sha256:caec8731d1fca26a"
+  },
+  "touched": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 122/122 PP 37/37",
+   "state": "STATE touched modes=[OVERWORLD>PAUSE_MENU>USE_ITEM>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(7557,7248) dir=UP music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:ec569b52ee9e0e31",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:caec8731d1fca26a"
+  },
+  "use-menu": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L13 HP 122/122 PP 37/37",
+   "state": "STATE use-menu modes=[OVERWORLD>PAUSE_MENU>SELECTION_MENU] idle=modes input=1 pos=(7557,7248) dir=UP music=26 money=1994 battle=0 ow_enemies=0 surface=0x00",
+   "text": "sha256:05f13ab58e4621f9",
+   "until": [
+    "met",
+    "met",
+    "met",
+    "met"
+   ],
+   "win": "sha256:826a6484388e6131"
+  }
+ },
+ "order": [
+  "use-menu",
+  "touched",
+  "melody",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}

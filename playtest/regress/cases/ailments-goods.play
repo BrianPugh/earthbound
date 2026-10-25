@@ -1,0 +1,20 @@
+# save: 05-Twoson
+# about: Twoson hotel lobby: poison drains HP to the HP alert, eat a Hamburger from Goods, catch a cold and drink a Cold remedy, Exit mouse refuses outside a cave
+flag 11 1; give 90 1; hp 1 30; status 1 1 5
+120 LEFT; 100 RIGHT; 100 LEFT; 100 RIGHT; 100 LEFT
+check poison-alert
+until idle 600 advance; status 1 1 0
+press A; until input 60; press RIGHT; wait 5; press A; until input 120; wait 10
+check goods
+press DOWN; wait 5; press DOWN; wait 5; press RIGHT; wait 5; press A; until input 120; wait 10
+press A; until idle 1500 advance
+check hamburger
+status 1 1 7; 100 RIGHT; 100 LEFT
+press A; until input 60; press RIGHT; wait 5; press A; until input 120; wait 10
+press DOWN; wait 5; press DOWN; wait 5; press DOWN; wait 5; press DOWN; wait 5; press RIGHT; wait 5; press A; until input 120; wait 10
+press A; until idle 1500 advance
+check cold-remedy
+press A; until input 60; press RIGHT; wait 5; press A; until input 120; wait 10
+press DOWN; wait 5; press DOWN; wait 5; press DOWN; wait 5; press DOWN; wait 5; press RIGHT; wait 5; press A; until input 120; wait 10
+press A; until idle 1500 advance
+check exit-mouse

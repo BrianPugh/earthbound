@@ -1,0 +1,59 @@
+{
+ "case": "surprise",
+ "checks": {
+  "after": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 125/125 PP 114/114 | 3:Jeff L29 HP 165/165 PP 0/0",
+   "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(3409,9312) dir=LEFT music=51 money=8865 battle=0 ow_enemies=3 blink=88 surface=0x04(sunstroke) debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "battle-menu": {
+   "enemies": "ENEMIES [0] sha256:ed9ecdfa1b0d2fc6 hp=233/233 [1] sha256:a5ac374193fa526c hp=162/162 [2] sha256:ba09c081c9a93569 hp=265/265",
+   "err": [],
+   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 125/125 PP 114/114 | 3:Jeff L29 HP 165/165 PP 0/0",
+   "state": "STATE battle-menu modes=[OVERWORLD>BATTLE_ENTRY>BATTLE>BATTLE_MENU>SELECTION_MENU] idle=modes input=1 pos=(3409,9312) dir=LEFT music=51 money=8865 battle=65535 ow_enemies=6 surface=0x04(sunstroke) debug=1",
+   "text": "sha256:991079bcc9309004",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:a3cb65e574ff8609"
+  },
+  "mine": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 125/125 PP 114/114 | 3:Jeff L29 HP 165/165 PP 0/0",
+   "state": "STATE mine modes=[OVERWORLD] idle=yes input=1 pos=(3424,9312) dir=DOWN music=51 money=8865 battle=0 ow_enemies=6 surface=0x04(sunstroke) debug=1",
+   "text": "sha256:d4405f41925ca98f",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  },
+  "swirl": {
+   "enemies": "",
+   "err": [],
+   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 125/125 PP 114/114 | 3:Jeff L29 HP 165/165 PP 0/0",
+   "state": "STATE swirl modes=[OVERWORLD] idle=battle input=0 pos=(3409,9312) dir=LEFT music=51 money=8865 battle=0 ow_enemies=6 surface=0x04(sunstroke) debug=1",
+   "text": "sha256:e3b0c44298fc1c14",
+   "until": [
+    "met"
+   ],
+   "win": "sha256:e3b0c44298fc1c14"
+  }
+ },
+ "order": [
+  "mine",
+  "swirl",
+  "battle-menu",
+  "after"
+ ],
+ "problems": [],
+ "status": "done",
+ "tail_err": [],
+ "tail_text": "sha256:e3b0c44298fc1c14"
+}
