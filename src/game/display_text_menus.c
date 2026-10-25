@@ -319,8 +319,9 @@ StepResult mode_step_sound_stone(ModeState *st) {
 
     case SS_FADEIN:
         /* fade_in + loop-scalar init (original lines 275-284). The CONTINUE yield
-         * matches the blocking loop's first wait_for_vblank before the body. */
-        fade_in(1, 0);
+         * matches the blocking loop's first wait_for_vblank before the body.
+         * Assembly (use_sound_stone.asm): LDX #1; TXA; JSL FADE_IN → step 1, delay 1. */
+        fade_in(1, 1);
         s->center_timer = 15;
         s->center_frame = 0;
         s->initial_delay = 60;
