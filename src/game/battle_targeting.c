@@ -382,6 +382,9 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
         s->phase = ET_INPUT;
         return STEP_RESULT_CONTINUE();
 
+    case ET_CANCELLED:
+        return STEP_RESULT_POP(0);
+
     case ET_INPUT:
     default: {
         uint16_t pressed = platform_input_get_pad_new();
@@ -397,11 +400,19 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
             return STEP_RESULT_POP(result);
         }
 
-        /* B/SELECT: cancel */
+        /* B/SELECT: cancel. CLOSE_FOCUS_WINDOW's tick takes a frame (the
+         * target window gone, the command menu not back yet) before the
+         * caller's menu loop resumes. */
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
+            static ModeState et_cancel_init;
             enemy_flashing_off();
             play_sfx(2);  /* SFX::CURSOR2 */
+            (void)take_unpresented_ticks();
             close_focus_window();
+            uint16_t ticks = take_unpresented_ticks();
+            s->phase = ET_CANCELLED;
+            if (ticks)
+                return battle_push_vblanks(&et_cancel_init, ticks);
             return STEP_RESULT_POP(0);
         }
 
@@ -574,6 +585,9 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
         s->phase = BR_INPUT;
         return STEP_RESULT_CONTINUE();
 
+    case BR_CANCELLED:
+        return STEP_RESULT_POP(0);
+
     case BR_INPUT:
     default: {
         uint16_t pressed = platform_input_get_pad_new();
@@ -594,11 +608,18 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
             return STEP_RESULT_POP(result);
         }
 
-        /* B/SELECT: cancel */
+        /* B/SELECT: cancel (CLOSE_FOCUS_WINDOW's tick frame, as in
+         * select_battle_target's cancel) */
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
+            static ModeState br_cancel_init;
             clear_battler_flashing();
             play_sfx(2);  /* SFX::CURSOR2 */
+            (void)take_unpresented_ticks();
             close_focus_window();
+            uint16_t ticks = take_unpresented_ticks();
+            s->phase = BR_CANCELLED;
+            if (ticks)
+                return battle_push_vblanks(&br_cancel_init, ticks);
             return STEP_RESULT_POP(0);
         }
 
