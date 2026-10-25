@@ -1364,11 +1364,6 @@ static uint8_t get_nearby_npc_config_type(void) {
  * phases. See PauseMenuState in mode_stack.h.
  * ------------------------------------------------------------------------- */
 
-/* Initial state for a pushed child. Must outlive the dispatch turn
- * (STEP_RESULT_PUSH_INIT copies it immediately); a file-static is fine since
- * only one child push is ever pending at a time. */
-static ModeState pm_child_init;
-
 /* Push GAME_MODE_SELECTION_MENU as a child after the focus window's menu has
  * been laid out. Replicates selection_menu()'s early-exit (no focus window /
  * empty menu → result 0 with no push), delivered inline via *result_ready so
@@ -1382,10 +1377,10 @@ static StepResult menu_push_selection(uint8_t *result_ready, uint16_t *result,
         return STEP_RESULT_CONTINUE();
     }
     *result_ready = 0;
-    pm_child_init = (ModeState){0};
-    pm_child_init.selection_menu.phase        = SM_SETUP;
-    pm_child_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &pm_child_init);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.selection_menu.phase        = SM_SETUP;
+    g_mode_push_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 }
 
 /* Read the result of the menu a *_RESULT phase is processing: the popped
@@ -1403,14 +1398,13 @@ static StepResult menu_push_selection(uint8_t *result_ready, uint16_t *result,
  *   menu_flush_waits: `waits` bare waits (BW_VBLANK).
  * Both set *phase = next and return true with *out = the push when frames are
  * owed. */
-static ModeState menu_beat_init;  /* outlives the dispatch (the pump copies it) */
 
 static bool menu_flush_ticks(uint8_t *phase, uint8_t next, StepResult *out) {
     uint16_t ticks = take_unpresented_ticks();
     *phase = next;
     if (ticks == 0)
         return false;
-    *out = battle_wait_push_frames(&menu_beat_init, BW_TICK_PRESENT, ticks);
+    *out = battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, ticks);
     return true;
 }
 
@@ -1419,7 +1413,7 @@ static bool menu_flush_waits(uint8_t *phase, uint8_t next, uint16_t waits,
     *phase = next;
     if (waits == 0)
         return false;
-    *out = battle_wait_push_frames(&menu_beat_init, BW_VBLANK, waits);
+    *out = battle_wait_push_frames(&g_mode_push_init, BW_VBLANK, waits);
     return true;
 }
 
@@ -1476,9 +1470,9 @@ static StepResult pm_push_selection_psi(PsiMenuState *st,
  * warn (like display_text_from_addr) and don't push — the caller has already
  * set its resume phase, so its for(;;) falls through there inline. */
 static StepResult menu_push_text(uint32_t addr, bool *pushed) {
-    if (dt_make_child_init(&pm_child_init, addr)) {
+    if (dt_make_child_init(&g_mode_push_init, addr)) {
         *pushed = true;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &pm_child_init);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     *pushed = false;
@@ -1535,10 +1529,10 @@ StepResult mode_step_equip_menu(ModeState *ms) {
              * equipment display updates as the player scrolls characters. */
             if ((game_state.player_controlled_party_count & 0xFF) != 1) {
                 display_menu_header_text(0);  /* "Who?" */
-                char_select_make_init(&pm_child_init, 0, 1,
+                char_select_make_init(&g_mode_push_init, 0, 1,
                                       CS_ONCHANGE_EQUIPMENT, CS_CHECKVALID_NONE);
                 st->phase = EQ_SELECT_RESULT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
             }
             /* Single party → auto-select, highlight in HPPP (with
              * SELECT_BATTLE_MENU_CHARACTER's waits) */
@@ -1784,10 +1778,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
             /* Assembly lines 13-19: char select with DISPLAY_STATUS_WINDOW as
              * the on_change callback (mode=0, allow_cancel=1). */
-            char_select_make_init(&pm_child_init, 0, 1,
+            char_select_make_init(&g_mode_push_init, 0, 1,
                                   CS_ONCHANGE_STATUS, CS_CHECKVALID_NONE);
             st->phase = SU_SELECT_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
 
         case SU_SELECT_RESULT: {
             uint16_t status_char = (uint16_t)mode_child_result();
@@ -2005,10 +1999,10 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             /* Multiple PSI users — character selection (assembly lines 45-56).
              * mode=0: L/R arrow cycling with pagination arrows. */
             display_menu_header_text(0);  /* "Who?" */
-            char_select_make_init(&pm_child_init, 0, 1,
+            char_select_make_init(&g_mode_push_init, 0, 1,
                                   CS_ONCHANGE_PSI_LIST, CS_CHECKVALID_PSI);
             st->phase = PS_CHAR_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
         }
 
         case PS_CHAR_RESULT:
@@ -2112,21 +2106,21 @@ StepResult mode_step_psi_menu(ModeState *ms) {
 
                 /* Teleport destination menu (assembly line 193), now
                  * GAME_MODE_TELEPORT_MENU; result read in PS_TELEPORT_RESULT. */
-                pm_child_init = (ModeState){0};
-                pm_child_init.teleport_menu.phase = TPM_ENTER;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.teleport_menu.phase = TPM_ENTER;
                 st->phase = PS_TELEPORT_RESULT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_MENU, &pm_child_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_MENU, &g_mode_push_init);
             }
 
             /* @NOT_TELEPORT: targeting (lines 206-212), now
              * GAME_MODE_DETERMINE_TARGETING; result read in PS_TARGET_RESULT. */
-            pm_child_init = (ModeState){0};
-            pm_child_init.targeting.phase     = TGT_ENTER;
-            pm_child_init.targeting.action_id = st->battle_action_id;
-            pm_child_init.targeting.char_id   = st->char_id;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.targeting.phase     = TGT_ENTER;
+            g_mode_push_init.targeting.action_id = st->battle_action_id;
+            g_mode_push_init.targeting.char_id   = st->char_id;
             st->phase = PS_TARGET_RESULT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING,
-                                         &pm_child_init);
+                                         &g_mode_push_init);
         }
 
         case PS_TELEPORT_RESULT:
@@ -2247,10 +2241,9 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             if (target_id > 0)
                 battle_init_player_stats(target_id, &bt.battlers_table[1]);
 
-            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
             st->phase = PS_EXEC_DONE;
-            if (battle_action_dispatch(func_addr, &ba_init))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            if (battle_action_dispatch(func_addr, &g_mode_push_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             continue;  /* ran inline */
         }
 
@@ -2278,10 +2271,9 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             /* Call the action function (assembly lines 429-459) */
             uint32_t func_addr =
                 battle_action_table[st->battle_action_id].battle_function_pointer;
-            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
             st->phase = PS_EXEC_STEP_DONE;
-            if (battle_action_dispatch(func_addr, &ba_init))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+            if (battle_action_dispatch(func_addr, &g_mode_push_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             continue;  /* ran inline */
         }
 
@@ -2480,13 +2472,13 @@ StepResult mode_step_use_item(ModeState *ms) {
                 if (can_use) {
                     st->can_use        = 1;
                     st->desc_text_addr = desc_text_addr;
-                    pm_child_init = (ModeState){0};
-                    pm_child_init.targeting.phase     = TGT_ENTER;
-                    pm_child_init.targeting.action_id = st->effect_id;
-                    pm_child_init.targeting.char_id   = st->char_id;
+                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                    g_mode_push_init.targeting.phase     = TGT_ENTER;
+                    g_mode_push_init.targeting.action_id = st->effect_id;
+                    g_mode_push_init.targeting.char_id   = st->char_id;
                     st->phase = UI_TARGET_RESULT;
                     return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING,
-                                                 &pm_child_init);
+                                                 &g_mode_push_init);
                 }
             }
 
@@ -2607,12 +2599,11 @@ StepResult mode_step_use_item(ModeState *ms) {
             /* Look up and dispatch the battle action function (assembly lines
              * 483-498): converted actions are a GAME_MODE_BATTLE_ACTION
              * STEP_PUSH, unconverted ones run inline-blocking. */
-            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
             st->phase = UI_EXEC_DONE;
             if (battle_action_dispatch(
                     battle_action_table[st->effect_id].battle_function_pointer,
-                    &ba_init))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+                    &g_mode_push_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             continue;  /* ran inline */
         }
 
@@ -2636,12 +2627,11 @@ StepResult mode_step_use_item(ModeState *ms) {
             battle_init_player_stats(member_id, &bt.battlers_table[1]);
 
             /* Look up and dispatch the action (assembly lines 422-435) */
-            static ModeState ba_init;  /* outlives the dispatch (pump copies it) */
             st->phase = UI_EXEC_STEP_DONE;
             if (battle_action_dispatch(
                     battle_action_table[st->effect_id].battle_function_pointer,
-                    &ba_init))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &ba_init);
+                    &g_mode_push_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             continue;  /* ran inline */
         }
 
@@ -2827,10 +2817,10 @@ static EB_NOINLINE bool pm_goods_char(PauseMenuState *st, StepResult *out) {
 
     /* Assembly: mode=0, allow_cancel=1, on_change=GET_WEAPON_ITEM_NAME
      * (shows inventory as cursor moves). */
-    char_select_make_init(&pm_child_init, 0, 1,
+    char_select_make_init(&g_mode_push_init, 0, 1,
                           CS_ONCHANGE_WEAPON_NAME, CS_CHECKVALID_NONE);
     st->phase = PM_GOODS_CHAR_RESULT;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
     return true;
 }
 
@@ -2965,12 +2955,12 @@ static EB_NOINLINE StepResult pm_action_menu(PauseMenuState *st) {
  * PM_USE_RESUME. */
 static StepResult pm_item_use(PauseMenuState *st) {
     st->action_reentry = 1;
-    pm_child_init = (ModeState){0};
-    pm_child_init.use_item.phase = UI_ENTER;
-    pm_child_init.use_item.char_id = st->goods_char;
-    pm_child_init.use_item.item_slot = st->item_slot;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.use_item.phase = UI_ENTER;
+    g_mode_push_init.use_item.char_id = st->goods_char;
+    g_mode_push_init.use_item.item_slot = st->item_slot;
     st->phase = PM_USE_RESUME;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_USE_ITEM, &pm_child_init);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_USE_ITEM, &g_mode_push_init);
 }
 
 /* @GOODS_ITEM_HELP (assembly lines 253-263):
@@ -3015,10 +3005,10 @@ static StepResult pm_item_give(PauseMenuState *st) {
 
     /* Select target character.
      * Assembly: mode=2, allow_cancel=1, on_change=GET_BODY_ITEM_NAME. */
-    char_select_make_init(&pm_child_init, 2, 1,
+    char_select_make_init(&g_mode_push_init, 2, 1,
                           CS_ONCHANGE_BODY_NAME, CS_CHECKVALID_NONE);
     st->phase = PM_GIVE_CHAR_RESULT;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
 }
 
 /* @GOODS_DROP (assembly lines 534-551):
@@ -3260,28 +3250,28 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             /* OVERWORLD_PSI_MENU, now GAME_MODE_PSI_MENU. The used/cancelled
              * branch + single-PSI sfx tail run in PM_PSI_RESUME. Note: assembly
              * does NOT set dt.force_left_text_alignment for PSI (only STATUS). */
-            pm_child_init = (ModeState){0};
-            pm_child_init.psi_menu.phase = PS_ENTER;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.psi_menu.phase = PS_ENTER;
             st->phase = PM_PSI_RESUME;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PSI_MENU, &pm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PSI_MENU, &g_mode_push_init);
 
         case PM_EQUIP_OPEN:
             /* OPEN_EQUIPMENT_MENU: character selection + equipment change, now
              * GAME_MODE_EQUIP_MENU. The single-party sfx tail (assembly lines
              * 576-583) runs in PM_EQUIP_RESUME after it pops. */
-            pm_child_init = (ModeState){0};
-            pm_child_init.equip_menu.phase = EQ_ENTER;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.equip_menu.phase = EQ_ENTER;
             st->phase = PM_EQUIP_RESUME;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_EQUIP_MENU, &pm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_EQUIP_MENU, &g_mode_push_init);
 
         case PM_STATUS_OPEN:
             /* OPEN_STATUS_MENU, now GAME_MODE_STATUS_MENU. The
              * FORCE_LEFT_TEXT_ALIGNMENT bracket lives inside the mode (set at
              * SU_SELECT, cleared at SU_EXIT); no resume tail. */
-            pm_child_init = (ModeState){0};
-            pm_child_init.status_menu.phase = SU_SELECT;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.status_menu.phase = SU_SELECT;
             st->phase = PM_MAIN;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_STATUS_MENU, &pm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_STATUS_MENU, &g_mode_push_init);
 
         case PM_GOODS_CHAR:
             if (pm_goods_char(st, &r)) return r;
@@ -3457,9 +3447,8 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
             text_ptr = MSG_SYS_NOTHING_WRONG_HERE;
 
         st->phase = QCT_FADE;
-        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
-        if (dt_make_child_init(&dt_init, text_ptr))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        if (dt_make_child_init(&g_mode_push_init, text_ptr))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", text_ptr);
         return STEP_RESULT_CONTINUE();
     }
@@ -3522,7 +3511,6 @@ static StepResult hd_cancel_close(HpppDisplayState *st) {
 
 StepResult mode_step_hppp_display(ModeState *ms) {
     HpppDisplayState *st = &ms->hppp_display;
-    static ModeState hd_child_init;  /* outlives the dispatch (pump copies it) */
 
     switch ((HpppDisplayPhase)st->phase) {
     case HD_ENTER:
@@ -3536,9 +3524,9 @@ StepResult mode_step_hppp_display(ModeState *ms) {
 
 #ifdef EB_B_OPENS_MAIN_MENU
         /* Skip the wait loop: fall straight into the main pause menu. */
-        hd_child_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
+        g_mode_push_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
         st->phase = HD_MENU_DONE;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &hd_child_init);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &g_mode_push_init);
 #else
         st->phase = HD_TICK;
         st->primed = 0;
@@ -3564,9 +3552,9 @@ StepResult mode_step_hppp_display(ModeState *ms) {
 
         /* A or L → open the full menu */
         if (core.pad1_pressed & PAD_CONFIRM) {
-            hd_child_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
+            g_mode_push_init = (ModeState){ .pause_menu = { .phase = PM_ENTER } };
             st->phase = HD_MENU_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &hd_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &g_mode_push_init);
         }
 
         /* B or Select → dismiss (assembly lines 17-26) */

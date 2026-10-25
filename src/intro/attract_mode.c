@@ -120,9 +120,8 @@ StepResult mode_step_attract_mode(ModeState *st) {
      * location, spawns entities with movement scripts, and pauses for the scene
      * duration. On its POP we resume at AT_MAIN to run the post-script frames. */
     s->phase = AT_MAIN;
-    static ModeState dt_init; /* must outlive this dispatch (pump copies it) */
-    if (dt_make_child_init(&dt_init, attract_mode_text_addrs[s->scene_index])) {
-      return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+    if (dt_make_child_init(&g_mode_push_init, attract_mode_text_addrs[s->scene_index])) {
+      return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     /* Unresolvable address: warn-and-continue, matching the blocking path. */
     LOG_WARN("attract: resolve_text_addr(0x%06X) returned NULL\n",

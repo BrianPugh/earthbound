@@ -155,15 +155,14 @@ static const uint16_t intro_logo_ids[3] = { LOGO_NINTENDO, LOGO_APE, LOGO_HALKEN
 
 /* Build a STEP_PUSH of a MOSAIC_FADE child. The pump copies *push_init into the
  * child's stack level synchronously right after this step returns (before any
- * other step runs), so a function-local static is a safe home for the init. */
+ * other step runs), so the shared g_mode_push_init is a safe home for the init. */
 static StepResult intro_logo_push_fade(MosaicFadeKind kind, uint8_t step, uint16_t delay) {
-    static ModeState child;
-    memset(&child, 0, sizeof(child));
-    child.mosaic_fade.kind  = (uint8_t)kind;
-    child.mosaic_fade.step  = step;
-    child.mosaic_fade.delay = delay;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.mosaic_fade.kind  = (uint8_t)kind;
+    g_mode_push_init.mosaic_fade.step  = step;
+    g_mode_push_init.mosaic_fade.delay = delay;
     /* mosaic_bgs = 0 (logos use no mosaic); final_hdma = 0; phase/delay_left = 0 */
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
 }
 
 /* Load logo[idx] and begin its fade-in (shared by initial entry + inter-logo

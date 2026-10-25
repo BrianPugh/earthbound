@@ -390,12 +390,11 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
     for (;;) {
         switch (st->phase) {
         case ASF_PUSH: {
-            static ModeState init;  /* outlives this dispatch (mode_push copies it) */
-            memset(&init, 0, sizeof(init));
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             st->phase = ASF_RESUME;
             switch (st->child_kind) {
             case AS_CHILD_TEXT:
-                if (!dt_make_child_init(&init, st->text_addr)) {
+                if (!dt_make_child_init(&g_mode_push_init, st->text_addr)) {
                     /* Unresolvable text address: warn and skip the child,
                      * matching display_text_from_addr(); the epilogue +
                      * frame continuation run in this same step. */
@@ -403,28 +402,28 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
                              st->text_addr);
                     break;
                 }
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             case AS_CHILD_MOSAIC:
-                init.mosaic_fade.kind       = MF_OUT;
-                init.mosaic_fade.step       = st->mf_step;
-                init.mosaic_fade.delay      = st->mf_delay;
-                init.mosaic_fade.mosaic_bgs = st->mf_mosaic_bgs;
-                init.mosaic_fade.final_hdma = 1;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &init);
+                g_mode_push_init.mosaic_fade.kind       = MF_OUT;
+                g_mode_push_init.mosaic_fade.step       = st->mf_step;
+                g_mode_push_init.mosaic_fade.delay      = st->mf_delay;
+                g_mode_push_init.mosaic_fade.mosaic_bgs = st->mf_mosaic_bgs;
+                g_mode_push_init.mosaic_fade.final_hdma = 1;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
             case AS_CHILD_FLYOVER:
-                init.flyover.kind                = FO_SCRIPT;
-                init.flyover.phase               = FOP_S_PARSE;
-                init.flyover.id                  = st->fo_id;
-                init.flyover.pos                 = 0;
-                init.flyover.script_size         = st->fo_script_size;
-                init.flyover.saved_ent23_tick_hi = st->fo_saved_tick_hi;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &init);
+                g_mode_push_init.flyover.kind                = FO_SCRIPT;
+                g_mode_push_init.flyover.phase               = FOP_S_PARSE;
+                g_mode_push_init.flyover.id                  = st->fo_id;
+                g_mode_push_init.flyover.pos                 = 0;
+                g_mode_push_init.flyover.script_size         = st->fo_script_size;
+                g_mode_push_init.flyover.saved_ent23_tick_hi = st->fo_saved_tick_hi;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &g_mode_push_init);
             case AS_CHILD_PP_RECOVERY:
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_PP_RECOVERY_FLASH, &init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PP_RECOVERY_FLASH, &g_mode_push_init);
             case AS_CHILD_PALETTE_FADE:
-                init.palette_fade.kind      = PF_ANIMATE_TO_MAP;
-                init.palette_fade.remaining = st->pf_frames;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &init);
+                g_mode_push_init.palette_fade.kind      = PF_ANIMATE_TO_MAP;
+                g_mode_push_init.palette_fade.remaining = st->pf_frames;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
             default:
                 break;
             }
@@ -517,10 +516,9 @@ bool run_actionscript_frame_step(void) {
 }
 
 StepResult actionscript_frame_take_push(void) {
-    static ModeState init;   /* outlives this dispatch (mode_push copies it) */
-    memset(&init, 0, sizeof(init));
-    init.actionscript_frame = g_asf_pending;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_ACTIONSCRIPT_FRAME, &init);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.actionscript_frame = g_asf_pending;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_ACTIONSCRIPT_FRAME, &g_mode_push_init);
 }
 
 /* run_actionscript_frame() (the blocking, pump_mode-bridging form) was deleted in

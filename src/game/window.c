@@ -1505,11 +1505,10 @@ void request_cursor_move_text(uint32_t addr) {
  * Returns CONTINUE (the caller's resume phase then finishes the menu) if the address
  * is unresolvable — matching the old blocking display_text_from_addr's warn+no-op. */
 static StepResult sm_push_pending_text(void) {
-    static ModeState init;   /* outlives this dispatch (the pump copies it) */
     uint32_t addr = sm_pending_cursor_text;
     sm_pending_cursor_text = 0;
-    if (dt_make_child_init(&init, addr))
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &init);
+    if (dt_make_child_init(&g_mode_push_init, addr))
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     return STEP_RESULT_CONTINUE();
 }

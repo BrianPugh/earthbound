@@ -58,9 +58,8 @@ StepResult mode_step_text_wait_fade(ModeState *st) {
         /* Assembly: DISABLE_ALL_ENTITIES then DISPLAY_TEXT. */
         disable_all_entities();
         s->phase = TWF_FADE;
-        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
-        if (dt_make_child_init(&dt_init, s->text_addr))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        if (dt_make_child_init(&g_mode_push_init, s->text_addr))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         /* Unresolvable address: the blocking form logged a warning and displayed
          * nothing, then still ran the fade-wait loop. Fall through to TWF_FADE. */
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", s->text_addr);
@@ -145,19 +144,17 @@ StepResult mode_step_process_interaction(ModeState *st) {
         case 8:   /* NPC interaction */
         case 9: { /* Text interaction (variant) */
             /* STEP_PUSH the dialogue; PI_RESUME does the trailing bookkeeping. */
-            static ModeState twf_init;  /* outlives this dispatch (pump copies it) */
-            twf_init.text_wait_fade = (TextWaitFadeState){ .phase = TWF_TEXT,
-                                                           .text_addr = data_ptr };
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &twf_init);
+            g_mode_push_init = (ModeState){ .text_wait_fade = {
+                .phase = TWF_TEXT, .text_addr = data_ptr } };
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &g_mode_push_init);
         }
         case 2: {
             /* Door interaction: STEP_PUSH the door-transition mode; PI_RESUME does
              * the trailing bookkeeping after it pops (matches the original, which
              * ran door_transition() then fell into the pending/clear update). */
-            static ModeState door_init;  /* outlives this dispatch (pump copies it) */
-            door_init.door_transition = (DoorTransitionState){ .phase = DTR_BEGIN,
-                                                               .door_ptr = data_ptr };
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DOOR_TRANSITION, &door_init);
+            g_mode_push_init = (ModeState){ .door_transition = {
+                .phase = DTR_BEGIN, .door_ptr = data_ptr } };
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DOOR_TRANSITION, &g_mode_push_init);
         }
         default:
             break;

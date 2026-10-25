@@ -132,11 +132,11 @@ typedef struct {
 #define STEP_RESULT_POP(r)      ((StepResult){ .kind = STEP_POP,  .pop_result = (int32_t)(r) })
 
 /* STEP_PUSH carrying an initial ModeState for the child. `init` must point at
- * storage that outlives the dispatch call — in practice a `static` ModeState in
- * the step function, or a field hoisted into the parent's own ModeState (which
- * lives in the serializable g_mode_stack, not on the C stack). The pump/root
- * copies *init into the child's level immediately, so the pointer is only
- * dereferenced within the same dispatch turn. */
+ * storage that outlives the dispatch call — in practice the shared
+ * g_mode_push_init (below), or a field hoisted into the parent's own ModeState
+ * (which lives in the serializable g_mode_stack, not on the C stack). The
+ * pump/root copies *init into the child's level immediately, so the pointer is
+ * only dereferenced within the same dispatch turn. */
 #define STEP_RESULT_PUSH_INIT(m, init) \
     ((StepResult){ .kind = STEP_PUSH, .push_mode = (m), .push_init = (init) })
 
@@ -2665,6 +2665,15 @@ typedef struct {
 } ModeStack;
 
 extern ModeStack g_mode_stack;
+
+/* The one push-init buffer shared by every STEP_RESULT_PUSH_INIT site (it
+ * replaced ~120 per-site `static ModeState`s, 160 B each). A step fills it
+ * completely (memset / `= (ModeState){...}` / a *_make_init helper that zeroes)
+ * and returns STEP_RESULT_PUSH_INIT(mode, &g_mode_push_init) in the same
+ * dispatch turn; mode_push copies it into the child's level before any other
+ * step runs. Never hold data in it across turns or across a call that may fill
+ * it again. Not serialized: it is dead between turns. */
+extern ModeState g_mode_push_init;
 
 /* Run one frame of `mode`'s step function. */
 StepResult mode_dispatch_step(GameMode mode, ModeState *st);

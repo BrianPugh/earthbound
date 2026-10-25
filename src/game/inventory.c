@@ -1817,11 +1817,10 @@ void level_up_make_init(ModeState *init, uint16_t char_id) {
 /* Push a DISPLAY_TEXT child for `addr`. If the address can't be resolved,
  * warn (like display_text_from_addr) and don't push — the step's for(;;)
  * falls through inline. Same idiom as menu_push_text (text.c). */
-static ModeState lu_child_init;  /* outlives the dispatch (the pump copies it) */
 static StepResult lu_push_text(uint32_t addr, bool *pushed) {
-    if (dt_make_child_init(&lu_child_init, addr)) {
+    if (dt_make_child_init(&g_mode_push_init, addr)) {
         *pushed = true;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &lu_child_init);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
     *pushed = false;

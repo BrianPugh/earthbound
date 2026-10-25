@@ -1702,12 +1702,11 @@ static StepResult dt_letter_delay(DisplayTextModeState *st, uint16_t delay) {
  * prompt's whole phase machine lives in mode_step_text_prompt. No post-work, so
  * the parent simply resumes DT_RUN (next byte) on POP. */
 static StepResult dt_push_text_prompt(int show_triangle, int skip_text_speed) {
-    static ModeState init;  /* outlives this dispatch (pump copies it) */
-    memset(&init, 0, sizeof(init));
-    init.text_prompt.phase           = TP_WAIT_PROMPT;
-    init.text_prompt.show_triangle   = (uint8_t)(show_triangle != 0);
-    init.text_prompt.skip_text_speed = (uint8_t)(skip_text_speed != 0);
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_PROMPT, &init);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.text_prompt.phase           = TP_WAIT_PROMPT;
+    g_mode_push_init.text_prompt.show_triangle   = (uint8_t)(show_triangle != 0);
+    g_mode_push_init.text_prompt.skip_text_speed = (uint8_t)(skip_text_speed != 0);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_PROMPT, &g_mode_push_init);
 }
 
 /* DT_DELAY: typewriter per-character delay. One window_tick_work() per frame;
@@ -1911,13 +1910,12 @@ static void dt_cc_store_to_argmem(ScriptReader *r) {
 static StepResult dt_cc_pause(ScriptReader *r) {
     uint8_t frames = script_read_byte(r);
     clear_instant_printing();
-    static ModeState init;  /* outlives this dispatch (pump copies it) */
-    memset(&init, 0, sizeof(init));
-    init.text_delay.remaining   = frames;
-    init.text_delay.cancelable  = 0;
-    init.text_delay.primed      = 0;
-    init.text_delay.lead_window = 1;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_DELAY, &init);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.text_delay.remaining   = frames;
+    g_mode_push_init.text_delay.cancelable  = 0;
+    g_mode_push_init.text_delay.primed      = 0;
+    g_mode_push_init.text_delay.lead_window = 1;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_DELAY, &g_mode_push_init);
 }
 
 /* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword address).
@@ -1939,9 +1937,8 @@ static void dt_cc_jump_if_flag_set(ScriptReader *r) {
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_call_text(ScriptReader *r, StepResult *out) {
     uint32_t target = script_read_dword(r);
-    static ModeState dt_call_init;  /* outlives this dispatch (pump copies it) */
-    if (dt_make_child_init(&dt_call_init, target)) {
-        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_call_init);
+    if (dt_make_child_init(&g_mode_push_init, target)) {
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         return true;
     }
     LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", target);
@@ -1998,12 +1995,11 @@ static bool dt_cc_create_selection_menu(DisplayTextModeState *st, StepResult *ou
         clear_focus_window_menu_options();
         return false;
     }
-    static ModeState sm_init;  /* outlives this dispatch (pump copies it) */
-    memset(&sm_init, 0, sizeof(sm_init));
-    sm_init.selection_menu.phase        = SM_SETUP;
-    sm_init.selection_menu.allow_cancel = 1;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.selection_menu.phase        = SM_SETUP;
+    g_mode_push_init.selection_menu.allow_cancel = 1;
     st->resume = DT_RESUME_CC11;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sm_init);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
     return true;
 }
 
@@ -2012,16 +2008,15 @@ static bool dt_cc_create_selection_menu(DisplayTextModeState *st, StepResult *ou
  * 0x08 cancel-jump target to resolve in DT_RESUME_CC18_SEL on POP.
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
-    static ModeState cc18_init;  /* outlives this dispatch (pump copies it) */
-    memset(&cc18_init, 0, sizeof(cc18_init));
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
     uint32_t cancel_target = 0;
-    if (cc_18_dispatch(r, &cc18_init, &child_mode, &child_resume,
+    if (cc_18_dispatch(r, &g_mode_push_init, &child_mode, &child_resume,
                        &cancel_target)) {
         st->resume = child_resume;
         st->cc18_cancel_target = cancel_target;
-        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc18_init);
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
     return false;
@@ -2032,18 +2027,17 @@ static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
  * carrying the window to close + argument_memory to restore on POP.
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_1a(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
-    static ModeState cc1a_init;  /* outlives this dispatch (pump copies it) */
-    memset(&cc1a_init, 0, sizeof(cc1a_init));
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
     uint16_t window_id = 0;
     uint32_t saved_argmem = 0;
-    if (cc_1a_dispatch(r, &cc1a_init, &child_mode, &child_resume,
+    if (cc_1a_dispatch(r, &g_mode_push_init, &child_mode, &child_resume,
                        &window_id, &saved_argmem)) {
         st->resume = child_resume;
         st->cc1a_window_id = window_id;
         st->cc1a_saved_argmem = saved_argmem;
-        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1a_init);
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
     return false;
@@ -2053,15 +2047,14 @@ static bool dt_cc_1a(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
  * mode 1/2) requests a GAME_MODE_WINDOW_BORDER_ANIM child push.
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_1c(ScriptReader *r, StepResult *out) {
-    static ModeState cc1c_init;  /* outlives this dispatch (pump copies it) */
-    memset(&cc1c_init, 0, sizeof(cc1c_init));
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     /* Its printers queue their letters for the drain at the loop top. */
     s_lq_capture = true;
-    bool pushed = cc_1c_dispatch(r, &cc1c_init, &child_mode);
+    bool pushed = cc_1c_dispatch(r, &g_mode_push_init, &child_mode);
     s_lq_capture = false;
     if (pushed) {
-        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1c_init);
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
     return false;
@@ -2071,13 +2064,12 @@ static bool dt_cc_1c(ScriptReader *r, StepResult *out) {
  * level-up pending requests a GAME_MODE_LEVEL_UP child push.
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_1e(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
-    static ModeState cc1e_init;  /* outlives this dispatch (pump copies it) */
-    memset(&cc1e_init, 0, sizeof(cc1e_init));
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
-    if (cc_1e_dispatch(r, &cc1e_init, &child_mode, &child_resume)) {
+    if (cc_1e_dispatch(r, &g_mode_push_init, &child_mode, &child_resume)) {
         st->resume = child_resume;
-        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1e_init);
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
     return false;
@@ -2087,16 +2079,15 @@ static bool dt_cc_1e(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
  * push (battle / entered value / delay / actionscript wait).
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_1f(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
-    static ModeState cc1f_init;  /* outlives this dispatch (pump copies it) */
-    memset(&cc1f_init, 0, sizeof(cc1f_init));
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
     uint16_t child_aux = 0;
-    if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume,
+    if (cc_1f_dispatch(r, &g_mode_push_init, &child_mode, &child_resume,
                        &child_aux)) {
         st->resume = child_resume;
         st->cc1f_aux = child_aux;
-        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1f_init);
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
     return false;
@@ -2110,26 +2101,24 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
      * WINDOW_TICK (its window render inline, then BW_TICK_PRESENT's entity
      * frame and present). */
     if (st->resume == DT_RESUME_CC18_CLOSE_HIDE) {
-        static ModeState cc18_close_init;
         bool wait = (win.battle_menu_current_character_id != -1);
         hide_hppp_windows();
         st->resume = DT_RESUME_CC18_CLOSE_TICK;
         if (wait) {
-            memset(&cc18_close_init, 0, sizeof(cc18_close_init));
-            cc18_close_init.battle_wait.kind = BW_VBLANK;
-            cc18_close_init.battle_wait.remaining = 1;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &cc18_close_init);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_VBLANK;
+            g_mode_push_init.battle_wait.remaining = 1;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
         }
     }
     if (st->resume == DT_RESUME_CC18_CLOSE_TICK) {
-        static ModeState cc18_tick_init;
         st->resume = DT_RESUME_NONE;
         (void)take_unpresented_ticks();
         window_tick_no_actionscript();
-        memset(&cc18_tick_init, 0, sizeof(cc18_tick_init));
-        cc18_tick_init.battle_wait.kind = BW_TICK_PRESENT;
-        cc18_tick_init.battle_wait.remaining = take_unpresented_ticks();
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &cc18_tick_init);
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
+        g_mode_push_init.battle_wait.remaining = take_unpresented_ticks();
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
     }
     dt_resume_after_child(st);
 
@@ -2282,9 +2271,14 @@ StepResult mode_step_display_text(ModeState *ms) {
  * rather than hang, degrading a bug to a glitch instead of a lockup. */
 void display_text_inline(const uint8_t *script, size_t script_size) {
     if (!script || script_size == 0) return;
-    ModeState init;
-    dt_setup_init(&init, script, script_size);
-    mode_push(GAME_MODE_DISPLAY_TEXT, &init);
+    /* The caller may be part-way through filling g_mode_push_init for its own
+     * push (text_input_prepare prints the keyboard after seeding its child),
+     * and the steps run below fill that buffer too. Park the caller's contents
+     * in the one local this frame already needed and put them back on exit;
+     * the DISPLAY_TEXT seed is built in g_mode_push_init itself. */
+    ModeState caller_push_init = g_mode_push_init;
+    dt_setup_init(&g_mode_push_init, script, script_size);
+    mode_push(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     uint8_t floor = g_mode_stack.depth;   /* pop below this => done */
 
     /* Instant text completes in one step; the bound is a runaway-loop backstop. */
@@ -2301,13 +2295,14 @@ void display_text_inline(const uint8_t *script, size_t script_size) {
         } else if (r.kind == STEP_POP) {
             mode_pop(r.pop_result);
             if (g_mode_stack.depth < floor)
-                return;   /* completed without consuming a host yield */
+                break;    /* completed without consuming a host yield */
         }
         /* STEP_CONTINUE: loop again — never host_process_frame() here. */
     }
     /* Guard hit or quit requested: unwind whatever is left of our sub-stack. */
     while (g_mode_stack.depth >= floor)
         mode_pop(0);
+    g_mode_push_init = caller_push_init;
 }
 
 /* Resolve a text address and run it instantly (no yield). Instant-print

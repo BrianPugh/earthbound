@@ -1107,10 +1107,9 @@ StepResult mode_step_door_transition(ModeState *ms) {
             st->phase = DTR_AFTER_TEXT;
             /* Assembly lines 11-19: display door text if non-NULL. */
             if (st->text_ptr != 0) {
-                static ModeState twf_init;  /* outlives this dispatch (pump copies it) */
-                twf_init.text_wait_fade = (TextWaitFadeState){
-                    .phase = TWF_TEXT, .text_addr = st->text_ptr };
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &twf_init);
+                g_mode_push_init = (ModeState){ .text_wait_fade = {
+                    .phase = TWF_TEXT, .text_addr = st->text_ptr } };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_WAIT_FADE, &g_mode_push_init);
             }
             continue;
         }
@@ -1164,17 +1163,15 @@ StepResult mode_step_door_transition(ModeState *ms) {
             if (st->transition_type >= SCREEN_TRANSITION_CONFIG_COUNT)
                 continue;  /* invalid type: no disable, no wait (phase = DTR_AFTER_OUT) */
             disable_all_entities();
-            static ModeState wf_init;  /* outlives this dispatch (pump copies it) */
-            wf_init.wait_frames = (WaitFramesState){ .phase = WF_FRAME, .remaining = 2 };
+            g_mode_push_init = (ModeState){ .wait_frames = { .phase = WF_FRAME, .remaining = 2 } };
             st->phase = DTR_EXIT_PREPARE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &wf_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &g_mode_push_init);
         }
 
         case DTR_EXIT_PREPARE: {
-            static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
-            if (screen_transition_prepare(st->transition_type, 1, &stx_init)) {
+            if (screen_transition_prepare(st->transition_type, 1, &g_mode_push_init)) {
                 st->phase = DTR_TRANS_OUT_FIN;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &g_mode_push_init);
             }
             st->phase = DTR_AFTER_OUT;
             continue;  /* invalid type: no push, no finalize (matches early return) */
@@ -1226,10 +1223,9 @@ StepResult mode_step_door_transition(ModeState *ms) {
                 fade_in(1, 1);
                 continue;
             }
-            static ModeState stn_init;  /* outlives this dispatch (pump copies it) */
-            if (screen_transition_prepare(st->transition_type, 0, &stn_init)) {
+            if (screen_transition_prepare(st->transition_type, 0, &g_mode_push_init)) {
                 st->phase = DTR_TRANS_IN_FIN;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stn_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &g_mode_push_init);
             }
             continue;
         }
@@ -1248,10 +1244,9 @@ StepResult mode_step_door_transition(ModeState *ms) {
              * display_text_from_addr(). */
             ow.stairs_direction = 0xFFFF;
             ow.player_has_done_something_this_frame = 0;
-            static ModeState bb_init;  /* outlives this dispatch (pump copies it) */
             st->phase = DTR_BUZZ_DONE;
-            if (dt_make_child_init(&bb_init, MSG_EVT0_BUZZBUZZ_CHECK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &bb_init);
+            if (dt_make_child_init(&g_mode_push_init, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                      (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
             continue;
@@ -1319,17 +1314,15 @@ StepResult mode_step_teleport_to(ModeState *ms) {
             if (dest->screen_transition >= SCREEN_TRANSITION_CONFIG_COUNT)
                 continue;  /* invalid type: no disable, no wait (phase = TT_AFTER_OUT) */
             disable_all_entities();
-            static ModeState wf_init;  /* outlives this dispatch (pump copies it) */
-            wf_init.wait_frames = (WaitFramesState){ .phase = WF_FRAME, .remaining = 2 };
+            g_mode_push_init = (ModeState){ .wait_frames = { .phase = WF_FRAME, .remaining = 2 } };
             st->phase = TT_EXIT_PREPARE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &wf_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_WAIT_FRAMES, &g_mode_push_init);
         }
 
         case TT_EXIT_PREPARE: {
-            static ModeState stx_init;  /* outlives this dispatch (pump copies it) */
-            if (screen_transition_prepare(dest->screen_transition, 1, &stx_init)) {
+            if (screen_transition_prepare(dest->screen_transition, 1, &g_mode_push_init)) {
                 st->phase = TT_TRANS_OUT_FIN;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stx_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &g_mode_push_init);
             }
             st->phase = TT_AFTER_OUT;
             continue;  /* invalid type: no push, no finalize (matches early return) */
@@ -1379,10 +1372,9 @@ StepResult mode_step_teleport_to(ModeState *ms) {
                 fade_in(1, 1);
                 continue;
             }
-            static ModeState stn_init;  /* outlives this dispatch (pump copies it) */
-            if (screen_transition_prepare(dest->screen_transition, 0, &stn_init)) {
+            if (screen_transition_prepare(dest->screen_transition, 0, &g_mode_push_init)) {
                 st->phase = TT_TRANS_IN_FIN;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &stn_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_SCREEN_TRANSITION, &g_mode_push_init);
             }
             continue;
         }
@@ -1400,10 +1392,9 @@ StepResult mode_step_teleport_to(ModeState *ms) {
              * does. Suppression is still 1 here (restored after the spawns), matching
              * the blocking order. */
             ow.stairs_direction = (uint16_t)-1;
-            static ModeState bb_init;  /* outlives this dispatch (pump copies it) */
             st->phase = TT_BUZZ_DONE;
-            if (dt_make_child_init(&bb_init, MSG_EVT0_BUZZBUZZ_CHECK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &bb_init);
+            if (dt_make_child_init(&g_mode_push_init, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                      (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
             continue;

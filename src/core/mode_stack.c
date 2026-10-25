@@ -16,6 +16,8 @@ ModeStack g_mode_stack = {
     .depth = 0,
 };
 
+ModeState g_mode_push_init;
+
 /* ---- mode step functions ------------------------------------------------- */
 
 /* GAME_MODE_FADE_WAIT — run per-frame "tick" work until the active brightness
@@ -219,9 +221,25 @@ void mode_push(GameMode mode, const ModeState *init) {
         return;
     }
     g_mode_stack.mode[d] = (uint8_t)mode;
-    if (init)
+    if (init) {
         g_mode_stack.state[d] = *init;
-    else
+#ifndef NDEBUG
+        /* Debug check of the g_mode_push_init contract: every push fully
+         * rewrites it in its own turn. Poison it after the copy; a push that
+         * still carries 8 poison bytes in a row reused stale contents. */
+        if (init == &g_mode_push_init) {
+            for (int i = 0, run = 0; i < (int)sizeof(ModeState); i++) {
+                run = g_mode_push_init._raw[i] == 0xA5 ? run + 1 : 0;
+                if (run == 8) {
+                    LOG_WARN("WARNING: mode %d pushed from a stale g_mode_push_init "
+                             "(byte %d)\n", (int)mode, i - 7);
+                    break;
+                }
+            }
+            memset(&g_mode_push_init, 0xA5, sizeof(ModeState));
+        }
+#endif
+    } else
         memset(&g_mode_stack.state[d], 0, sizeof(ModeState));
     g_mode_stack.child_result[d] = 0;
     g_mode_stack.depth = d + 1;

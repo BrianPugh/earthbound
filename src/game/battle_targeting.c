@@ -404,7 +404,6 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
          * target window gone, the command menu not back yet) before the
          * caller's menu loop resumes. */
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
-            static ModeState et_cancel_init;
             enemy_flashing_off();
             play_sfx(2);  /* SFX::CURSOR2 */
             (void)take_unpresented_ticks();
@@ -412,7 +411,7 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
             uint16_t ticks = take_unpresented_ticks();
             s->phase = ET_CANCELLED;
             if (ticks)
-                return battle_push_vblanks(&et_cancel_init, ticks);
+                return battle_push_vblanks(&g_mode_push_init, ticks);
             return STEP_RESULT_POP(0);
         }
 
@@ -611,7 +610,6 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
         /* B/SELECT: cancel (CLOSE_FOCUS_WINDOW's tick frame, as in
          * select_battle_target's cancel) */
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
-            static ModeState br_cancel_init;
             clear_battler_flashing();
             play_sfx(2);  /* SFX::CURSOR2 */
             (void)take_unpresented_ticks();
@@ -619,7 +617,7 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
             uint16_t ticks = take_unpresented_ticks();
             s->phase = BR_CANCELLED;
             if (ticks)
-                return battle_push_vblanks(&br_cancel_init, ticks);
+                return battle_push_vblanks(&g_mode_push_init, ticks);
             return STEP_RESULT_POP(0);
         }
 
@@ -696,7 +694,6 @@ static void row_select_make_init(ModeState *init, uint16_t allow_cancel) {
 StepResult mode_step_determine_targeting(ModeState *ms) {
     TargetingState *st = &ms->targeting;
     /* Child init for a push this dispatch turn (the pump copies it). */
-    static ModeState child_init;
 
     switch ((TargetingPhase)st->phase) {
 
@@ -724,10 +721,10 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
                 /* Single enemy selection via target picker
                  * (select_battle_target_dispatch mode 0, allow_cancel=1) */
                 st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_SINGLE;
-                enemy_select_make_init(&child_init, 1, st->action_id);
+                enemy_select_make_init(&g_mode_push_init, 1, st->action_id);
                 st->phase = TGT_PICK_RESULT;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT,
-                                             &child_init);
+                                             &g_mode_push_init);
 
             case ACTION_TARGET_RANDOM: {
                 /* Random enemy — pick from alive enemies */
@@ -743,10 +740,10 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
                 /* Row selection via target picker
                  * (select_battle_target_dispatch mode 1, allow_cancel=1) */
                 st->targeting_mode = TARGETTED_ENEMIES | TARGETTED_ROW;
-                row_select_make_init(&child_init, 1);
+                row_select_make_init(&g_mode_push_init, 1);
                 st->phase = TGT_PICK_RESULT;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ROW_SELECT,
-                                             &child_init);
+                                             &g_mode_push_init);
 
             case ACTION_TARGET_ALL:
             default:
@@ -780,12 +777,12 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
                 st->saved_argument_memory = get_argument_memory();
                 display_menu_header_text(3);
                 st->ally_window_id = char_select_overworld_prepare(NULL);
-                child_init = (ModeState){0};
-                child_init.selection_menu.phase        = SM_SETUP;
-                child_init.selection_menu.allow_cancel = 1;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.selection_menu.phase        = SM_SETUP;
+                g_mode_push_init.selection_menu.allow_cancel = 1;
                 st->phase = TGT_ALLY_RESULT;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU,
-                                             &child_init);
+                                             &g_mode_push_init);
             }
 
             case ACTION_TARGET_RANDOM: {

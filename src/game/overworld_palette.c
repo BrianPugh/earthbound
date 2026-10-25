@@ -162,9 +162,8 @@ StepResult mode_step_hp_alert(ModeState *st) {
         create_window(0x01);  /* WINDOW::TEXT_STANDARD */
         set_battle_attacker_name((const char *)cs->name, sizeof(cs->name));
         hs->phase = HA_CLOSE;
-        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
-        if (dt_make_child_init(&dt_init, MSG_SYS_HP_CRITICAL_WARNING))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        if (dt_make_child_init(&g_mode_push_init, MSG_SYS_HP_CRITICAL_WARNING))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                  (uint32_t)MSG_SYS_HP_CRITICAL_WARNING);
         return STEP_RESULT_CONTINUE();
@@ -781,7 +780,6 @@ static void game_over_screen_setup(void) {
  * core/mode_stack.h. Pops -1 ("Continue") or 0 ("No Continue"). */
 StepResult mode_step_game_over(ModeState *mst) {
     GameOverState *st = &mst->game_over;
-    static ModeState child;  /* outlives this dispatch (pump/root copies it) */
 
     /* play_comeback_sequence's no-continue branch: an 8-step fade chain
      * (pause0, anim1, pause, anim2, pause, anim3, pause, anim4). Each entry is a
@@ -806,32 +804,32 @@ StepResult mode_step_game_over(ModeState *mst) {
             disable_all_entities();
             st->phase = GO_SETUP;
             if (game_over_screen_begin())
-                return push_fade_out_with_mosaic(&child, 1, 1);
+                return push_fade_out_with_mosaic(&g_mode_push_init, 1, 1);
             continue;  /* party not all-dead: no fade, straight to setup */
 
         case GO_SETUP:
             game_over_screen_setup();
             /* fade-in started: wait for it */
             st->phase = GO_CB_PAUSE;
-            child = (ModeState){0};
-            child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &g_mode_push_init);
 
         case GO_CB_PAUSE:
             /* play_comeback_sequence: initial skippable_pause(60), result ignored */
             st->phase = GO_CB_TEXT;
-            child = (ModeState){0};
-            child.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
-            child.palette_fade.remaining = 60;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
+            g_mode_push_init.palette_fade.remaining = 60;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
 
         case GO_CB_TEXT:
             /* DISPLAY_TEXT_PTR MSG_SYS_REVIVE_AFTER_KO (the comeback dialogue,
              * which sets EVENT_FLAG_NOCONTINUE_SELECTED on the player's choice) */
             st->phase = GO_CB_CLOSE;
             st->teardown = 0;
-            if (dt_make_child_init(&child, MSG_SYS_REVIVE_AFTER_KO))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (dt_make_child_init(&g_mode_push_init, MSG_SYS_REVIVE_AFTER_KO))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                      (uint32_t)MSG_SYS_REVIVE_AFTER_KO);
             continue;
@@ -841,7 +839,7 @@ StepResult mode_step_game_over(ModeState *mst) {
              * WINDOW_TICK, HIDE_HPPP_WINDOWS (its wait when an indicator is
              * up), WINDOW_TICK; a presented frame each, in asm order. */
             StepResult r;
-            if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, &r))
+            if (close_all_windows_and_hide_hppp_step(&st->teardown, &g_mode_push_init, &r))
                 return r;
             st->phase = GO_CB_DECIDE;
             continue;
@@ -851,10 +849,10 @@ StepResult mode_step_game_over(ModeState *mst) {
             if (!event_flag_get(EVENT_FLAG_NOCONTINUE_SELECTED)) {
                 /* "Continue": skippable_pause(60) (result ignored) then -1 */
                 st->phase = GO_CONT_FADE;
-                child = (ModeState){0};
-                child.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
-                child.palette_fade.remaining = 60;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.palette_fade.kind      = PF_SKIPPABLE_PAUSE;
+                g_mode_push_init.palette_fade.remaining = 60;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
             }
             /* "No Continue": run the fade chain */
             st->nc_step = 0;
@@ -865,7 +863,7 @@ StepResult mode_step_game_over(ModeState *mst) {
             /* spawn() Continue path (asm/overworld/spawn.asm):
              * LDY #0; LDX #1; LDA #2; JSL FADE_OUT_WITH_MOSAIC */
             st->phase = GO_CONT_DONE;
-            return push_fade_out_with_mosaic(&child, 2, 1);
+            return push_fade_out_with_mosaic(&g_mode_push_init, 2, 1);
 
         case GO_CONT_DONE:
             enable_all_entities();
@@ -873,16 +871,16 @@ StepResult mode_step_game_over(ModeState *mst) {
 
         case GO_NC_SEQ:
             if (st->nc_step >= 8) { st->phase = GO_NC_WHITE; continue; }
-            child = (ModeState){0};
-            child.palette_fade.kind      = nc_seq[st->nc_step].pf_kind;
-            child.palette_fade.remaining = nc_seq[st->nc_step].frames;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.palette_fade.kind      = nc_seq[st->nc_step].pf_kind;
+            g_mode_push_init.palette_fade.remaining = nc_seq[st->nc_step].frames;
             if (nc_seq[st->nc_step].pf_kind == PF_MAP_CHANGE) {
                 /* animate_map_palette_change setup runs inline before the push */
                 load_map_palette_animation_frame(nc_seq[st->nc_step].frame_index);
                 initialize_map_palette_fade(nc_seq[st->nc_step].frames);
             }
             st->phase = GO_NC_SEQ_CHECK;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
 
         case GO_NC_SEQ_CHECK:
             if (mode_child_result() != 0) {
@@ -899,10 +897,10 @@ StepResult mode_step_game_over(ModeState *mst) {
             load_palette_to_fade_buffer(100);
             prepare_palette_fade_slopes(32, 0xFFFF);
             st->phase = GO_NC_REINIT;
-            child = (ModeState){0};
-            child.palette_fade.kind      = PF_TO_WHITE;
-            child.palette_fade.remaining = 32;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.palette_fade.kind      = PF_TO_WHITE;
+            g_mode_push_init.palette_fade.remaining = 32;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
 
         case GO_NC_REINIT:
             /* Stop audio effects (WRITE_APU_PORT1 2); TM_MIRROR = $17; invalidate
@@ -949,8 +947,8 @@ StepResult mode_step_game_over(ModeState *mst) {
              * codes gated by flags); spawn_delivery_entities() runs on resume,
              * exactly the door DTR_FINALIZE/DTR_BUZZ_DONE split. */
             st->phase = GO_NC_BUZZ_DONE;
-            if (dt_make_child_init(&child, MSG_EVT0_BUZZBUZZ_CHECK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (dt_make_child_init(&g_mode_push_init, MSG_EVT0_BUZZBUZZ_CHECK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                      (uint32_t)MSG_EVT0_BUZZBUZZ_CHECK);
             continue;
@@ -967,10 +965,10 @@ StepResult mode_step_game_over(ModeState *mst) {
             /* animate_palette_fade_with_rendering(32) */
             prepare_palette_fade_slopes(32, 0xFFFF);
             st->phase = GO_NC_FINISH;
-            child = (ModeState){0};
-            child.palette_fade.kind      = PF_WITH_RENDERING;
-            child.palette_fade.remaining = 32;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.palette_fade.kind      = PF_WITH_RENDERING;
+            g_mode_push_init.palette_fade.remaining = 32;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PALETTE_FADE, &g_mode_push_init);
 
         case GO_NC_FINISH:
         default:

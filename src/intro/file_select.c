@@ -1413,11 +1413,6 @@ static const struct {
     { NAME_TARGET_THING,  6 },
 };
 
-/* Child init for GAME_MODE_NEW_GAME_NAMING's STEP_PUSHes (NAMING_PROMPT /
- * TEXT_INPUT / NAMING_EVENTS / SELECTION_MENU). Copied by STEP_RESULT_PUSH_INIT
- * immediately; a file-static is fine (one child pending at a time). */
-static ModeState ngn_child_init;
-
 /*
  * GAME_MODE_NEW_GAME_NAMING step — run-to-completion port of new_game_naming().
  * See NewGameNamingState in mode_stack.h for the phase machine. Folds in the
@@ -1487,21 +1482,21 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             rng_next_byte();
             rng_next_byte();
             rng_next_byte();
-            ngn_child_init = (ModeState){0};
-            ngn_child_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
             st->phase = NGN_PROMPT_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_PROMPT, &ngn_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_PROMPT, &g_mode_push_init);
         }
 
         case NGN_PROMPT_DONE: {
             /* name_a_character() step 5: the on-screen keyboard. Name display
                goes in the name box window at text row 0. */
             int i = st->char_i;
-            text_input_prepare(&ngn_child_init, ng_name_targets[i].target,
+            text_input_prepare(&g_mode_push_init, ng_name_targets[i].target,
                                ng_name_targets[i].max_len, i,
                                WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
             st->phase = NGN_INPUT_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &ngn_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &g_mode_push_init);
         }
 
         case NGN_INPUT_DONE: {
@@ -1509,11 +1504,11 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* Assembly (@NAMING_ADVANCE): ALWAYS run INIT_NAMING_SCREEN_EVENTS
                for the current index BEFORE advancing — the return animation
                (entities walk off) + wait for all entity scripts to finish. */
-            ngn_child_init = (ModeState){0};
-            ngn_child_init.naming_events.phase = NE_WAIT_PENDING;
-            ngn_child_init.naming_events.naming_index = (uint16_t)st->char_i;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.naming_events.phase = NE_WAIT_PENDING;
+            g_mode_push_init.naming_events.naming_index = (uint16_t)st->char_i;
             st->phase = NGN_EVENTS_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_EVENTS, &ngn_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NAMING_EVENTS, &g_mode_push_init);
         }
 
         case NGN_EVENTS_DONE:
@@ -1619,11 +1614,11 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             create_file_select_party_sprites();
 
             /* SELECTION_MENU(1): B enabled, returns 0 (same as "Nope"). */
-            ngn_child_init = (ModeState){0};
-            ngn_child_init.selection_menu.phase        = SM_SETUP;
-            ngn_child_init.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             st->phase = NGN_CONFIRM_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &ngn_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
 
         case NGN_CONFIRM_DONE: {
@@ -1762,11 +1757,6 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
  * Main file select loop.
  * Ported from FILE_SELECT_INIT + RUN_FILE_MENU in assembly.
  */
-/* Initial state for a pushed GAME_MODE_SELECTION_MENU child. Must outlive the
- * dispatch turn (STEP_RESULT_PUSH_INIT copies it immediately); a file-static is
- * fine since only one selection menu is ever pending at a time. */
-static ModeState fm_child_init;
-
 /* @FINALIZE_AND_START (file_select_menu_loop.asm:662-689), shared by Continue
  * and New Game: item transformations, the HP-meter rolling speed from
  * HP_METER_SPEEDS, SELECTED_TEXT_SPEED (the per-letter delay), TEXT_SPEED_BASED_WAIT,
@@ -1807,10 +1797,10 @@ static StepResult fm_push_selection(FileMenuState *st, uint8_t result_phase,
         return STEP_RESULT_CONTINUE();
     }
     st->result_ready = 0;
-    fm_child_init = (ModeState){0};
-    fm_child_init.selection_menu.phase        = SM_SETUP;
-    fm_child_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &fm_child_init);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.selection_menu.phase        = SM_SETUP;
+    g_mode_push_init.selection_menu.allow_cancel = (uint8_t)allow_cancel;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 }
 
 /* Read the result of the menu a *_RESULT phase is processing: the popped child's
@@ -2107,10 +2097,10 @@ StepResult mode_step_file_menu(ModeState *ms) {
             /* Naming screen — GAME_MODE_NEW_GAME_NAMING (pops 1 = started, 0 =
              * backed out past the first name). */
             current_save_slot = (uint8_t)st->selected;
-            fm_child_init = (ModeState){0};
-            fm_child_init.new_game_naming.phase = NGN_ENTER;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.new_game_naming.phase = NGN_ENTER;
             st->phase = FM_NG_NAMING_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_NEW_GAME_NAMING, &fm_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_NEW_GAME_NAMING, &g_mode_push_init);
 
         case FM_NG_NAMING_RESULT:
             if (mode_child_result() == 0) {

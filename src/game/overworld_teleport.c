@@ -862,9 +862,8 @@ StepResult mode_step_teleport(ModeState *st) {
              * the destination load. */
             ts->phase = TP_ARRIVE_DEST;
             if (init_teleport_arrival_setup()) {
-                static ModeState fw_init;  /* outlives this dispatch (pump copies it) */
-                fw_init.fade_wait = (FadeWaitState){ .tick_kind = FADE_TICK_OVERWORLD_RENDER };
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &fw_init);
+                g_mode_push_init = (ModeState){ .fade_wait = { .tick_kind = FADE_TICK_OVERWORLD_RENDER } };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &g_mode_push_init);
             }
             continue;
         }
@@ -879,9 +878,8 @@ StepResult mode_step_teleport(ModeState *st) {
                 center_screen(game_state.leader_x_coord, game_state.leader_y_coord);
                 fade_in(1, 1);
                 ts->phase = TP_ARRIVE_DONE;
-                static ModeState fw_init;  /* outlives this dispatch (pump copies it) */
-                fw_init.fade_wait = (FadeWaitState){ .tick_kind = FADE_TICK_OVERWORLD_RENDER };
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &fw_init);
+                g_mode_push_init = (ModeState){ .fade_wait = { .tick_kind = FADE_TICK_OVERWORLD_RENDER } };
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &g_mode_push_init);
             }
             ts->phase = TP_DEPART_SETUP;
             continue;
@@ -1087,9 +1085,8 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
         create_window(0x01);  /* WINDOW::TEXT_STANDARD */
         set_working_memory(1);
         bs->phase = BD_CLOSE;
-        static ModeState dt_init;  /* outlives this dispatch (pump copies it) */
-        if (dt_make_child_init(&dt_init, MSG_SYS_BIKE_GOT_OFF))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+        if (dt_make_child_init(&g_mode_push_init, MSG_SYS_BIKE_GOT_OFF))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                  (uint32_t)MSG_SYS_BIKE_GOT_OFF);
         return STEP_RESULT_CONTINUE();

@@ -842,12 +842,11 @@ StepResult mode_step_debug_goods(ModeState *mst) {
              * step) -- a plain local here is a dangling pointer the instant
              * this function returns, the same bug class found and fixed at
              * display_text_menus.c's mode_step_enter_name/special_event. */
-            static ModeState child;
-            child = (ModeState){0};  /* zero per use, as the former local was */
-            child.selection_menu.phase        = SM_SETUP;
-            child.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));  /* zero per use, as the former local was */
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             s->phase = DG_GIVE_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         } else if (core.pad1_pressed & PAD_CANCEL) {
             close_window(WINDOW_FILE_SELECT_MENU);
             return STEP_RESULT_POP(0);
@@ -915,7 +914,6 @@ StepResult mode_step_debug_goods(ModeState *mst) {
  */
 StepResult mode_step_debug_menu(ModeState *mst) {
     DebugMenuState *s = &mst->debug_menu;
-    static ModeState child; /* child init: pump copies it immediately */
 
     switch ((DebugMenuPhase)s->phase) {
     case DM_ENTER:
@@ -956,11 +954,11 @@ StepResult mode_step_debug_menu(ModeState *mst) {
         add_menu_item_no_position("TEST1",    22);
         add_menu_item_no_position("TEST2",    23);
         open_window_and_print_menu(1, 0);
-        child = (ModeState){0};
-        child.selection_menu.phase        = SM_SETUP;
-        child.selection_menu.allow_cancel = 1;
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.selection_menu.phase        = SM_SETUP;
+        g_mode_push_init.selection_menu.allow_cancel = 1;
         s->phase = DM_DISPATCH;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 
     case DM_DISPATCH: {
         /* The selection menu popped: dispatch the chosen command. Pushes set their
@@ -971,19 +969,19 @@ StepResult mode_step_debug_menu(ModeState *mst) {
         switch (result) {
         case 1:
             /* FLAGS — assembly @CMD_FLAGS: JSL DEBUG_Y_BUTTON_FLAG. */
-            child = (ModeState){0};
-            child.debug_ymenu.phase = DY_DRAW;
-            child.debug_ymenu.kind  = DBG_YMENU_FLAG;
-            child.debug_ymenu.index = 1;  /* Start at FLG_TEMP_0 (index 1) */
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.debug_ymenu.phase = DY_DRAW;
+            g_mode_push_init.debug_ymenu.kind  = DBG_YMENU_FLAG;
+            g_mode_push_init.debug_ymenu.index = 1;  /* Start at FLG_TEMP_0 (index 1) */
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &g_mode_push_init);
         case 2:
             /* GOODS — assembly @CMD_GOODS: JSL DEBUG_Y_BUTTON_GOODS. */
-            child = (ModeState){0};
-            child.debug_goods.phase   = DG_DRAW;
-            child.debug_goods.item_id = 0;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.debug_goods.phase   = DG_DRAW;
+            g_mode_push_init.debug_goods.item_id = 0;
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_GOODS, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_GOODS, &g_mode_push_init);
         case 3:
             /* SAVE — assembly @CMD_SAVE: save + update respawn coordinates. */
             save_game(current_save_slot - 1);
@@ -1037,15 +1035,15 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             /* Tea (COFFEE/TEA) — assembly @CMD_COFFEE_TEA: random coffee/tea scene.
              * Push GAME_MODE_FLYOVER (FO_COFFEETEA), the coffeetea_scene() init. */
             uint16_t type = rng_next_byte() & 1;
-            child = (ModeState){0};
-            child.flyover.kind        = FO_COFFEETEA;
-            child.flyover.phase       = FOP_CT_FADEOUT1;
-            child.flyover.id          = type;
-            child.flyover.pos         = 0;
-            child.flyover.script_size =
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.flyover.kind        = FO_COFFEETEA;
+            g_mode_push_init.flyover.phase       = FOP_CT_FADEOUT1;
+            g_mode_push_init.flyover.id          = type;
+            g_mode_push_init.flyover.pos         = 0;
+            g_mode_push_init.flyover.script_size =
                 (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &g_mode_push_init);
         }
         case 10:
             /* Teleport (PSI_1) — assembly @CMD_PSI_1: learn special PSI type 1. */
@@ -1066,56 +1064,56 @@ StepResult mode_step_debug_menu(ModeState *mst) {
         case 13:
             /* Player 0 (NAME_0) — assembly @CMD_NAME_0: name character 0 (Ness).
              * The M2/EB name prompt is GAME_MODE_ENTER_NAME (param 0). */
-            child = (ModeState){0};
-            child.enter_name.phase = EN_ENTER;
-            child.enter_name.param = 0;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.enter_name.phase = EN_ENTER;
+            g_mode_push_init.enter_name.param = 0;
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &g_mode_push_init);
         case 14:
             /* Player 1 (NAME_1) — assembly @CMD_NAME_1: name character 1 (Paula). */
-            child = (ModeState){0};
-            child.enter_name.phase = EN_ENTER;
-            child.enter_name.param = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.enter_name.phase = EN_ENTER;
+            g_mode_push_init.enter_name.param = 1;
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &g_mode_push_init);
         case 15:
             /* GUIDE — assembly @CMD_TOWN_MAP: JSL RUN_TOWN_MAP_MENU. (The label
              * says "GUIDE" but the assembly dispatches to the town map.) */
-            run_town_map_menu_prepare(&child);
+            run_town_map_menu_prepare(&g_mode_push_init);
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &g_mode_push_init);
         case 16:
             /* TRACK — assembly @CMD_GUIDE: JSL DEBUG_Y_BUTTON_GUIDE (script counter). */
-            child = (ModeState){0};
-            child.debug_ymenu.phase = DY_DRAW;
-            child.debug_ymenu.kind  = DBG_YMENU_GUIDE;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.debug_ymenu.phase = DY_DRAW;
+            g_mode_push_init.debug_ymenu.kind  = DBG_YMENU_GUIDE;
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_YMENU, &g_mode_push_init);
         case 17:
             /* CAST — assembly @CMD_CAST: play cast scene, then teleport to dest 1.
              * The cast scene is GAME_MODE_ENDING (run-to-completion); on its pop,
              * DM_ENDING_TELEPORT STEP_PUSHes the GAME_MODE_TELEPORT_TO teleport-back
              * (resume DM_AFTER). */
-            child = (ModeState){0};
-            child.ending.phase = EN_CAST_SETUP;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.ending.phase = EN_CAST_SETUP;
             s->phase = DM_ENDING_TELEPORT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &g_mode_push_init);
         case 18:
             /* STONE — assembly @CMD_SOUND_STONE: sound stone melody (cancellable). */
-            child = (ModeState){0};
-            child.sound_stone.phase       = SS_SETUP1;
-            child.sound_stone.cancellable = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.sound_stone.phase       = SS_SETUP1;
+            g_mode_push_init.sound_stone.cancellable = 1;
             s->phase = DM_AFTER;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &g_mode_push_init);
         case 19:
             /* STAFF (CREDITS) — assembly @CMD_CREDITS: play credits, then dest 1.
              * Credits are GAME_MODE_ENDING (run-to-completion); on its pop,
              * DM_ENDING_TELEPORT STEP_PUSHes the GAME_MODE_TELEPORT_TO teleport-back
              * (resume DM_AFTER). */
-            child = (ModeState){0};
-            child.ending.phase = EN_CR_SETUP;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.ending.phase = EN_CR_SETUP;
             s->phase = DM_ENDING_TELEPORT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &g_mode_push_init);
         case 20:
             /* Meter (FLIPOUT) — assembly @CMD_FLIPOUT: toggle HP/PP flipout mode. */
             toggle_hppp_flipout_mode(bt.hppp_meter_flipout_mode ? 0 : 1);
@@ -1133,8 +1131,8 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             close_all_windows();
             hide_hppp_windows();
             s->phase = DM_CLEANUP;
-            if (dt_make_child_init(&child, MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (dt_make_child_init(&g_mode_push_init, MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("debug menu: resolve_text_addr(0x%06X) returned NULL\n",
                      (unsigned)MSG_EVT5_NESS_WAKES_KIDNAP_AFTERMATH);
             return STEP_RESULT_CONTINUE();
@@ -1150,11 +1148,11 @@ StepResult mode_step_debug_menu(ModeState *mst) {
 
     case DM_ENDING_TELEPORT:
         /* CAST/STAFF ending finished — teleport back to dest 1 (resume DM_AFTER). */
-        child = (ModeState){0};
-        child.teleport_to.phase   = TT_BEGIN;
-        child.teleport_to.dest_id = 1;
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.teleport_to.phase   = TT_BEGIN;
+        g_mode_push_init.teleport_to.dest_id = 1;
         s->phase = DM_AFTER;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TELEPORT_TO, &g_mode_push_init);
 
     case DM_AFTER:
         /* Assembly @AFTER_COMMAND: if a command set a message address, close the
@@ -1166,8 +1164,8 @@ StepResult mode_step_debug_menu(ModeState *mst) {
             close_focus_window();
             create_window(WINDOW_TEXT_STANDARD);
             s->phase = DM_BUILD;
-            if (dt_make_child_init(&child, addr))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (dt_make_child_init(&g_mode_push_init, addr))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             LOG_WARN("debug menu: resolve_text_addr(0x%06X) returned NULL\n",
                      (unsigned)addr);
             return STEP_RESULT_CONTINUE();
@@ -1321,7 +1319,6 @@ static bool overworld_boot_step(void) {
  * (no yield) and returns on a PUSH/CONTINUE/POP. The root never pops. */
 StepResult mode_step_overworld(ModeState *mst) {
     OverworldModeState *st = &mst->overworld;
-    static ModeState child;  /* outlives this dispatch (root/pump copies it) */
 
     for (;;) {
         switch ((OverworldPhase)st->phase) {
@@ -1382,10 +1379,10 @@ StepResult mode_step_overworld(ModeState *mst) {
                 !ow.battle_swirl_countdown &&
                 !ow.enemy_has_been_touched &&
                 !ow.battle_mode) {
-                child = (ModeState){0};
-                child.process_interaction.phase = PI_DISPATCH;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.process_interaction.phase = PI_DISPATCH;
                 st->phase = OWP_RESUME_INTERACTION;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_PROCESS_INTERACTION, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_PROCESS_INTERACTION, &g_mode_push_init);
             }
             /* Assembly lines 43-52: skip input in special modes -> loop_end. */
             if (game_state.camera_mode == 2 ||
@@ -1396,19 +1393,19 @@ StepResult mode_step_overworld(ModeState *mst) {
             }
             /* Assembly lines 52-56: battle-mode transition. */
             if (ow.battle_mode) {
-                child = (ModeState){0};
-                child.battle_entry.phase = BE_ENTER;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_entry.phase = BE_ENTER;
                 st->phase = OWP_RESUME_BATTLE;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENTRY, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENTRY, &g_mode_push_init);
             }
             /* Assembly lines 57-66: bicycle dismount (A/L while on the bicycle). */
             if ((core.pad1_pressed & PAD_CONFIRM) &&
                 game_state.walking_style == WALKING_STYLE_BICYCLE) {
                 disable_all_entities();
-                child = (ModeState){0};
-                child.bicycle_dismount.phase = BD_TEXT;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.bicycle_dismount.phase = BD_TEXT;
                 st->phase = OWP_RESUME_BICYCLE;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BICYCLE_DISMOUNT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BICYCLE_DISMOUNT, &g_mode_push_init);
             }
             st->phase = OWP_POST_DEBUG;
             continue;
@@ -1441,10 +1438,10 @@ StepResult mode_step_overworld(ModeState *mst) {
                 if (debug_menu_requested ||
                     ((core.pad1_held & PAD_CANCEL) && (core.pad1_pressed & PAD_R))) {
                     debug_menu_requested = false;
-                    child = (ModeState){0};
-                    child.debug_menu.phase = DM_ENTER;
+                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                    g_mode_push_init.debug_menu.phase = DM_ENTER;
                     st->phase = OWP_RENDER;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_MENU, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DEBUG_MENU, &g_mode_push_init);
                 }
             }
             debug_menu_requested = false;
@@ -1464,29 +1461,29 @@ StepResult mode_step_overworld(ModeState *mst) {
                 ow.input_disable_frame_counter--;
             } else if (!ow.pending_interactions) {
                 if (core.pad1_pressed & PAD_A) {
-                    child = (ModeState){0};
-                    child.pause_menu.phase = PM_ENTER;
+                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                    g_mode_push_init.pause_menu.phase = PM_ENTER;
                     st->phase = OWP_POST_TELEPORT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &g_mode_push_init);
                 } else if ((core.pad1_pressed & PAD_CANCEL) &&
                            game_state.walking_style != WALKING_STYLE_BICYCLE) {
-                    child = (ModeState){0};
-                    child.hppp_display.phase = HD_ENTER;
+                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                    g_mode_push_init.hppp_display.phase = HD_ENTER;
                     st->phase = OWP_POST_TELEPORT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_HPPP_DISPLAY, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_HPPP_DISPLAY, &g_mode_push_init);
                 } else if (core.pad1_pressed & PAD_X) {
                     /* show_town_map(): push the display variant if there is a map;
                      * OWP_RESUME_TOWNMAP re-enables entities afterward. No map ->
                      * fall through to the teleport check (no push). */
-                    if (show_town_map_prepare(&child)) {
+                    if (show_town_map_prepare(&g_mode_push_init)) {
                         st->phase = OWP_RESUME_TOWNMAP;
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &g_mode_push_init);
                     }
                 } else if (core.pad1_pressed & PAD_L) {
-                    child = (ModeState){0};
-                    child.quick_checktalk.phase = QCT_TEXT;
+                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                    g_mode_push_init.quick_checktalk.phase = QCT_TEXT;
                     st->phase = OWP_POST_TELEPORT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_QUICK_CHECKTALK, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_QUICK_CHECKTALK, &g_mode_push_init);
                 }
             }
             st->phase = OWP_POST_TELEPORT;
@@ -1519,16 +1516,16 @@ StepResult mode_step_overworld(ModeState *mst) {
              * stay in OWP_LOOP_END, which does NOT reset st->dmg). On completion,
              * a total HP of 0 pushes GAME_MODE_GAME_OVER (spawn()). */
             if (ow_damage_step(&st->dmg) == OW_DMG_ALERT) {
-                child = (ModeState){0};
-                child.hp_alert.phase = HA_TEXT;
-                child.hp_alert.party_index = st->dmg.i;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_HP_ALERT, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.hp_alert.phase = HA_TEXT;
+                g_mode_push_init.hp_alert.party_index = st->dmg.i;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_HP_ALERT, &g_mode_push_init);
             }
             if (st->dmg.total_hp == 0) {
-                child = (ModeState){0};
-                child.game_over.phase = GO_ENTER;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.game_over.phase = GO_ENTER;
                 st->phase = OWP_GAMEOVER_RESULT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_GAME_OVER, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_GAME_OVER, &g_mode_push_init);
             }
             st->phase = OWP_RENDER;
             continue;

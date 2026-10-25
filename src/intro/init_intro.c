@@ -58,11 +58,6 @@ static const uint16_t init_intro_attract_scenes[] = { 0, 2, 3, 4, 5, 6, 7, 9 };
 #define INIT_INTRO_ATTRACT_COUNT \
     ((int)(sizeof(init_intro_attract_scenes) / sizeof(init_intro_attract_scenes[0])))
 
-/* Initial state for a pushed intro child (INTRO_LOGO / GAS_STATION / TITLE_SCREEN).
- * Must outlive the dispatch turn (STEP_RESULT_PUSH_INIT copies it immediately);
- * only one child is ever pending at a time. */
-static ModeState ii_child_init;
-
 /*
  * GAME_MODE_INIT_INTRO step — run-to-completion port of INIT_INTRO's state
  * machine (asm/intro/init_intro.asm, US retail path). See InitIntroState in
@@ -82,11 +77,11 @@ StepResult mode_step_init_intro(ModeState *ms) {
         switch ((InitIntroPhase)st->phase) {
         case II_LOGO:
             /* Logo screens (Nintendo, APE, HAL). No yield-free setup needed. */
-            ii_child_init = (ModeState){0};
-            ii_child_init.intro_logo.phase    = LG_LOAD;
-            ii_child_init.intro_logo.logo_idx = 0;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.intro_logo.phase    = LG_LOAD;
+            g_mode_push_init.intro_logo.logo_idx = 0;
             st->phase = II_LOGO_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_INTRO_LOGO, &ii_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_INTRO_LOGO, &g_mode_push_init);
 
         case II_LOGO_RESULT:
             if (mode_child_result() != 0) {
@@ -105,13 +100,13 @@ StepResult mode_step_init_intro(ModeState *ms) {
             /* Gas station prologue. */
             change_music(1); /* MUSIC::GAS_STATION */
             gas_station_setup();
-            ii_child_init = (ModeState){0};
-            ii_child_init.gas_station.phase            = GS_PH1;
-            ii_child_init.gas_station.fade_delay_left  = 11;
-            ii_child_init.gas_station.brightness_fading = 1;
-            ii_child_init.gas_station.remaining        = 236;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.gas_station.phase            = GS_PH1;
+            g_mode_push_init.gas_station.fade_delay_left  = 11;
+            g_mode_push_init.gas_station.brightness_fading = 1;
+            g_mode_push_init.gas_station.remaining        = 236;
             st->phase = II_GAS_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_GAS_STATION, &ii_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_GAS_STATION, &g_mode_push_init);
 
         case II_GAS_RESULT:
             if (mode_child_result() != 0) {
@@ -133,12 +128,12 @@ StepResult mode_step_init_intro(ModeState *ms) {
             /* Title screen. */
             change_music(175); /* MUSIC::TITLE_SCREEN */
             title_screen_setup(st->title_quick_mode);
-            ii_child_init = (ModeState){0};
-            ii_child_init.title_screen.phase      = TS_WARMUP;
-            ii_child_init.title_screen.quick_mode = st->title_quick_mode;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.title_screen.phase      = TS_WARMUP;
+            g_mode_push_init.title_screen.quick_mode = st->title_quick_mode;
             st->title_quick_mode = 0;   /* consumed (asm clears title_quick_mode) */
             st->phase = II_TITLE_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &ii_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &g_mode_push_init);
 
         case II_TITLE_RESULT:
             if (mode_child_result() != 0) {
@@ -161,11 +156,11 @@ StepResult mode_step_init_intro(ModeState *ms) {
                 change_music(157); /* MUSIC::ATTRACT_MODE (first scene only) */
             uint16_t scene = init_intro_attract_scenes[st->attract_index];
             run_attract_mode_prepare(scene);
-            ii_child_init = (ModeState){0};
-            ii_child_init.attract.phase       = AT_SCRIPT;
-            ii_child_init.attract.scene_index = scene;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.attract.phase       = AT_SCRIPT;
+            g_mode_push_init.attract.scene_index = scene;
             st->phase = II_ATTRACT_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_ATTRACT, &ii_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_ATTRACT, &g_mode_push_init);
         }
 
         case II_ATTRACT_RESULT:
@@ -192,10 +187,10 @@ StepResult mode_step_init_intro(ModeState *ms) {
             init_intro_exit_cleanup();
             change_music(3); /* MUSIC::SETUP_SCREEN */
             file_menu_setup();
-            ii_child_init = (ModeState){0};
-            ii_child_init.file_menu.phase = FM_FADEIN_WAIT;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.file_menu.phase = FM_FADEIN_WAIT;
             st->phase = II_FILE_MENU_POST;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_FILE_MENU, &ii_child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_FILE_MENU, &g_mode_push_init);
 
         case II_FILE_MENU_POST:
             /* RUN_FILE_MENU post-cleanup (run_file_menu.asm:13-17). The single
@@ -217,19 +212,18 @@ StepResult mode_step_init_intro(ModeState *ms) {
              * prologue script's CAMERA_FOLLOW / TELEPORT_TO repositions the camera.
              * MF_OUT ends force-blanked (inidisp=0x80), so the boot FADE_IN then
              * correctly ramps up from black and masks the camera reposition. */
-            static ModeState fade_child;
-            memset(&fade_child, 0, sizeof(fade_child));
-            fade_child.mosaic_fade.kind       = (uint8_t)MF_OUT;
-            fade_child.mosaic_fade.step        = 1;
-            fade_child.mosaic_fade.delay       = 1;
-            fade_child.mosaic_fade.mosaic_bgs  = 0;  /* Y = 0: no mosaic */
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.mosaic_fade.kind       = (uint8_t)MF_OUT;
+            g_mode_push_init.mosaic_fade.step        = 1;
+            g_mode_push_init.mosaic_fade.delay       = 1;
+            g_mode_push_init.mosaic_fade.mosaic_bgs  = 0;  /* Y = 0: no mosaic */
             /* final_hdma = 1: FADE_OUT_WITH_MOSAIC's @FADE_DONE always clears
              * HDMAEN_MIRROR/HDMAEN and waits one trailing vblank (not gated on a
              * param). Matches the real asm function (vs. the logo/flyover ramps
              * which only borrow the brightness loop). */
-            fade_child.mosaic_fade.final_hdma  = 1;
+            g_mode_push_init.mosaic_fade.final_hdma  = 1;
             st->phase = II_FILE_MENU_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &fade_child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
         }
 
         case II_FILE_MENU_DONE:

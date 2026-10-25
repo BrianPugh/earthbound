@@ -1338,7 +1338,6 @@ void setup_battle_enemy_sprites(void) {
  */
 StepResult mode_step_load_battle_scene(ModeState *ms) {
     LoadBattleSceneState *s = &ms->load_battle_scene;
-    static ModeState child;  /* outlives this step (the pump copies it on push) */
 
     for (;;) {
         switch ((LoadBattleScenePhase)s->phase) {
@@ -1353,9 +1352,9 @@ StepResult mode_step_load_battle_scene(ModeState *ms) {
             /* Swirl in (if applicable) */
             if (!s->skip_swirl) {
                 start_battle_swirl(6, 1, 30);
-                memset(&child, 0, sizeof(child));
-                child.battle_wait.kind = BW_SWIRL_WINDOW;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_wait.kind = BW_SWIRL_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
             }
             /* skip_swirl path: no yield before the load (matches the original
              * blocking flow) — continue into LBS_LOAD in the same step. */
@@ -1407,17 +1406,17 @@ StepResult mode_step_load_battle_scene(ModeState *ms) {
                 /* Quick fade in (step=1, delay=4 frames) — the former
                  * wait_for_fade_with_tick() is a FADE_WAIT push. */
                 fade_in(1, 4);
-                memset(&child, 0, sizeof(child));
-                child.fade_wait.tick_kind = FADE_TICK_WINDOW;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.fade_wait.tick_kind = FADE_TICK_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &g_mode_push_init);
             }
             /* Full fade in (step=15, delay=1 frame) + swirl out */
             fade_in(15, 1);
             if (s->group != ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL) {
                 start_battle_swirl(6, 0, 5);
-                memset(&child, 0, sizeof(child));
-                child.battle_wait.kind = BW_SWIRL_WINDOW;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_wait.kind = BW_SWIRL_WINDOW;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
             }
             return STEP_RESULT_POP(0);
         }

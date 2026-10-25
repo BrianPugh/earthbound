@@ -388,7 +388,6 @@ void battle_decrease_defense(Battler *target) {
  * epilogue.
  */
 static StepResult bc_psi_shield_nullify_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *tgt;
 
     for (;;) {
@@ -418,14 +417,14 @@ static StepResult bc_psi_shield_nullify_step(BattleCalcState *st) {
             if (shield == STATUS_6_PSI_SHIELD_POWER) {
                 /* PSI Shield Power — reflect attack */
                 st->pc = 1;
-                if (battle_push_text(&child, MSG_BTL5_PSI_POWER_SHIELD_DEFLECTED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_PSI_POWER_SHIELD_DEFLECTED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             } else if (shield == STATUS_6_PSI_SHIELD) {
                 /* PSI Shield — absorb attack */
                 st->pc = 2;
-                if (battle_push_text(&child, MSG_BTL5_PSYCHIC_SHIELD_NULLIFIED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_PSYCHIC_SHIELD_NULLIFIED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -444,8 +443,8 @@ static StepResult bc_psi_shield_nullify_step(BattleCalcState *st) {
             if (tgt->shield_hp == 0) {
                 tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
                 st->pc = 3;
-                if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_SHIELD_DISAPPEARED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             return STEP_RESULT_POP(1);  /* Attack nullified */
@@ -502,7 +501,6 @@ uint16_t battle_get_action_type(uint16_t action_id) {
  * epilogue.
  */
 static StepResult bc_calc_damage_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *tgt;
 
     for (;;) {
@@ -513,8 +511,8 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
             if (st->arg1 == 0) {
                 /* "It didn't work" text */
                 st->pc = 3;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -541,12 +539,12 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
                 play_sfx(73);  /* SFX::REFLECT_DAMAGE (assembly: calc_damage.asm line 66) */
                 st->pc = 1;
                 {
-                    ModeState *w = &child;
+                    ModeState *w = &g_mode_push_init;
                     memset(w, 0, sizeof(*w));
                     w->battle_wait.kind = BW_FRAMES;
                     w->battle_wait.remaining = HALF_OF_A_SECOND;
                 }
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
             }
             st->pc = 1;
             break;
@@ -643,8 +641,8 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
             }
 
             st->pc = 2;
-            if (battle_push_text_ex(&child, msg, false, true, damage))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text_ex(&g_mode_push_init, msg, false, true, damage))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
@@ -732,7 +730,6 @@ static StepResult bc_calc_damage_step(BattleCalcState *st) {
  * epilogue.
  */
 static StepResult bc_resist_damage_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *tgt;
 
     for (;;) {
@@ -785,8 +782,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
 
             /* Apply damage */
             st->pc = 1;
-            battle_calc_make_init(&child, BC_CALC_DAMAGE, bt.current_target, damage);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_CALC_DAMAGE, bt.current_target, damage);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
 
         case 1:
@@ -795,8 +792,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             /* Check for KO (a GAME_MODE_BATTLE_KO child push) */
             st->pc = 8;
             if (st->arg0 != 0 && tgt->hp == 0) {
-                battle_ko_make_init(&child, bt.current_target);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
+                battle_ko_make_init(&g_mode_push_init, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
             }
             break;
 
@@ -827,8 +824,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
                     st->local[0] = reflected;
 
                     st->pc = 2;
-                    if (battle_push_text(&child, MSG_BTL5_POWER_SHIELD_DEFLECTED))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_POWER_SHIELD_DEFLECTED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                     break;
                 }
                 st->pc = 4;  /* Fall through to weaken shield */
@@ -845,9 +842,9 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             dt.blinking_triangle_flag = 0;
             swap_attacker_with_target();
             st->pc = 3;
-            battle_calc_make_init(&child, BC_CALC_DAMAGE, bt.current_target,
+            battle_calc_make_init(&g_mode_push_init, BC_CALC_DAMAGE, bt.current_target,
                                   st->local[0]);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
 
         case 3: {
             /* Check if reflected damage KO'd the original attacker
@@ -855,8 +852,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             Battler *reflected_tgt = battler_from_offset(bt.current_target);
             st->pc = 9;
             if (reflected_tgt->hp == 0) {
-                battle_ko_make_init(&child, bt.current_target);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
+                battle_ko_make_init(&g_mode_push_init, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
             }
             break;
         }
@@ -873,8 +870,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
             if (tgt->shield_hp == 0) {
                 tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
                 st->pc = 5;
-                if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_SHIELD_DISAPPEARED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 6;
@@ -901,8 +898,8 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
                     tgt->current_action = 0;
                     tgt->afflictions[STATUS_GROUP_TEMPORARY] = 0;
                     st->pc = 7;
-                    if (battle_push_text(&child, MSG_BTL5_CURED_ASLEEP))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_CURED_ASLEEP))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                     break;
                 }
             }
@@ -948,7 +945,6 @@ static StepResult bc_resist_damage_step(BattleCalcState *st) {
  * text's epilogue.
  */
 static StepResult bc_miss_calc_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1002,10 +998,10 @@ static StepResult bc_miss_calc_step(BattleCalcState *st) {
         if ((miss_chance - 1) >= roll) {
             /* Miss! Display appropriate text */
             st->pc = 1;
-            if (battle_push_text(&child, st->arg0 != 0
+            if (battle_push_text(&g_mode_push_init, st->arg0 != 0
                                              ? MSG_BTL4_RESULT_NARROWLY_MISSED  /* gun miss */
                                              : MSG_BTL4_RESULT_JUST_MISSED))    /* physical miss */
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             /* FALLTHROUGH — unresolvable text: epilogue inline */
         } else {
             return STEP_RESULT_POP(0);
@@ -1046,7 +1042,6 @@ static StepResult bc_miss_calc_step(BattleCalcState *st) {
  * BC_RESIST_DAMAGE; pc 2 = pop 1.
  */
 static StepResult bc_smaaaash_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1074,8 +1069,8 @@ static StepResult bc_smaaaash_step(BattleCalcState *st) {
             msg = MSG_BTL4_RESULT_SMAASH_MONSTER;
         }
         st->pc = 1;
-        if (battle_push_text(&child, msg))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 1: {
@@ -1095,8 +1090,8 @@ static StepResult bc_smaaaash_step(BattleCalcState *st) {
         /* Calculate SMAAAASH damage: offense * 4 - defense */
         uint16_t smash_damage = (atk->offense * 4) - tgt->defense;
         st->pc = 2;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, smash_damage, 0xFF);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, smash_damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     case 2:
     default:
@@ -1118,7 +1113,6 @@ static StepResult bc_smaaaash_step(BattleCalcState *st) {
  * Resumable (BC_HEAL_STRANGENESS): single tail text.
  */
 static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1129,8 +1123,8 @@ static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
 
         tgt->afflictions[STATUS_GROUP_STRANGENESS] = 0;
         st->pc = 1;
-        if (battle_push_text(&child, MSG_BTL5_CURED_STRANGE))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, MSG_BTL5_CURED_STRANGE))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 1:
@@ -1157,7 +1151,6 @@ static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
  * clear runs after the text, as in the blocking form.
  */
 static StepResult bc_weaken_shield_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1174,8 +1167,8 @@ static StepResult bc_weaken_shield_step(BattleCalcState *st) {
         if (tgt->shield_hp == 0) {
             tgt->afflictions[STATUS_GROUP_SHIELD] = 0;
             st->pc = 1;
-            if (battle_push_text(&child, MSG_BTL5_SHIELD_DISAPPEARED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL5_SHIELD_DISAPPEARED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             /* FALLTHROUGH — unresolvable text: epilogue inline */
         } else {
             bt.damage_is_reflected = 0;
@@ -1289,7 +1282,6 @@ uint16_t battle_success_luck80(void) {
  * Resumable (BC_FAIL_ON_NPCS): single tail text, pops the NPC test.
  */
 static StepResult bc_fail_on_npcs_step(BattleCalcState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1298,8 +1290,8 @@ static StepResult bc_fail_on_npcs_step(BattleCalcState *st) {
             return STEP_RESULT_POP(0);
 
         st->pc = 1;
-        if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 1:

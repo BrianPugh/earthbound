@@ -98,7 +98,6 @@ StepResult mode_step_enter_name(ModeState *st) {
          * here is a dangling pointer the moment control leaves this case,
          * the same bug class found and fixed at this file's own
          * mode_step_special_event() below. */
-        static ModeState child;
         if (s->param != 0) {
             /* --- Mother 2 player name path (param=1) ---
              * Assembly lines 21-56: shows EB name at row 0, M2 name input at row 1. */
@@ -122,7 +121,7 @@ StepResult mode_step_enter_name(ModeState *st) {
 
             /* Keyboard input for M2 name (12 chars, no Don't Care). Name display
              * goes in NAMING_PROMPT at text row 1 (below EB name). */
-            text_input_prepare(&child, NAME_TARGET_M2_PLAYER, 12, -1,
+            text_input_prepare(&g_mode_push_init, NAME_TARGET_M2_PLAYER, 12, -1,
                                WINDOW_NAMING_PROMPT, 1, existing_m2);
         } else {
             /* --- EarthBound player name path (param=0) ---
@@ -145,12 +144,12 @@ StepResult mode_step_enter_name(ModeState *st) {
 
             /* Keyboard input for EB name (24 chars, no Don't Care). Name display
              * goes in NAMING_PROMPT at text row 1 (below prompt). */
-            text_input_prepare(&child, NAME_TARGET_EB_PLAYER, 24, -1,
+            text_input_prepare(&g_mode_push_init, NAME_TARGET_EB_PLAYER, 24, -1,
                                WINDOW_NAMING_PROMPT, 1, existing_eb);
         }
 
         s->phase = EN_DONE;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &g_mode_push_init);
     }
 
     case EN_DONE:
@@ -593,28 +592,27 @@ StepResult mode_step_special_event(ModeState *st) {
      * the exact "screen goes black, music plays, but no text or background
      * ever appears" symptom reported after Master Belch's Saturn Valley
      * aftermath. */
-    static ModeState child;
-    child = (ModeState){0};  /* zero per use, as the former local was */
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));  /* zero per use, as the former local was */
     switch (s->event_id) {
     case 1:   /* COFFEE_SCENE: coffeetea_scene(0) */
     case 2: { /* TEA_SCENE:    coffeetea_scene(1) */
         uint16_t type = (s->event_id == 2) ? 1 : 0;
-        child.flyover.kind        = FO_COFFEETEA;
-        child.flyover.phase       = FOP_CT_FADEOUT1;
-        child.flyover.id          = type;
-        child.flyover.pos         = 0;
-        child.flyover.script_size =
+        g_mode_push_init.flyover.kind        = FO_COFFEETEA;
+        g_mode_push_init.flyover.phase       = FOP_CT_FADEOUT1;
+        g_mode_push_init.flyover.id          = type;
+        g_mode_push_init.flyover.pos         = 0;
+        g_mode_push_init.flyover.script_size =
             (uint32_t)ASSET_SIZE(type == 0 ? ASSET_COFFEE_BIN : ASSET_TEA_BIN);
         s->result = 0;
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_FLYOVER, &g_mode_push_init);
     }
     case 3:  /* REGISTER_REAL_NAME:   enter_your_name_please(0) */
     case 4:  /* REGISTER_REAL_NAME_2: enter_your_name_please(1) */
-        child.enter_name.phase = EN_ENTER;
-        child.enter_name.param = (s->event_id == 4) ? 1 : 0;
+        g_mode_push_init.enter_name.phase = EN_ENTER;
+        g_mode_push_init.enter_name.param = (s->event_id == 4) ? 1 : 0;
         s->phase = SE_RESULT_CHILD;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &g_mode_push_init);
     case 5:  /* SET_OVERWORLD_STATUS_SUPPRESSION(1) */
         ow.overworld_status_suppression = 1;
         return STEP_RESULT_POP(0);
@@ -624,12 +622,12 @@ StepResult mode_step_special_event(ModeState *st) {
     case 7: { /* DISPLAY_TOWN_MAP — port of display_town_map(). Returns the map_id
                * that was displayed (0 if none); the TOWN_MAP child's result is
                * unused, so we carry map_id precomputed. */
-        uint16_t map_id = display_town_map_prepare(&child);
+        uint16_t map_id = display_town_map_prepare(&g_mode_push_init);
         if (map_id == 0)
             return STEP_RESULT_POP(0);
         s->result = map_id;
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TOWN_MAP, &g_mode_push_init);
     }
     case 8: {
         /* IS_ATTACKER_ENEMY: Port of asm/battle/is_attacker_enemy.asm.
@@ -639,28 +637,28 @@ StepResult mode_step_special_event(ModeState *st) {
     }
     case 9:   /* USE_SOUND_STONE(cancellable=1) */
     case 16:  /* USE_SOUND_STONE(cancellable=0) */
-        child.sound_stone.phase       = SS_SETUP1;
-        child.sound_stone.cancellable = (uint8_t)(s->event_id == 9);
+        g_mode_push_init.sound_stone.phase       = SS_SETUP1;
+        g_mode_push_init.sound_stone.cancellable = (uint8_t)(s->event_id == 9);
         s->result = 0;  /* use_sound_stone() always returned 0 */
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SOUND_STONE, &g_mode_push_init);
     case 10:  /* SHOW_TITLE_SCREEN(1) — the yield-free setup runs inline. */
         title_screen_setup(1);
-        child.title_screen.phase      = TS_WARMUP;
-        child.title_screen.quick_mode = 1;
+        g_mode_push_init.title_screen.phase      = TS_WARMUP;
+        g_mode_push_init.title_screen.quick_mode = 1;
         s->result = 0;
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_TITLE_SCREEN, &g_mode_push_init);
     case 11:  /* PLAY_CAST_SCENE — run-to-completion GAME_MODE_ENDING (cast scene). */
-        child.ending.phase = EN_CAST_SETUP;
+        g_mode_push_init.ending.phase = EN_CAST_SETUP;
         s->result = 0;
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &g_mode_push_init);
     case 12:  /* PLAY_CREDITS — run-to-completion GAME_MODE_ENDING (staff credits). */
-        child.ending.phase = EN_CR_SETUP;
+        g_mode_push_init.ending.phase = EN_CR_SETUP;
         s->result = 0;
         s->phase = SE_RESULT;
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_ENDING, &g_mode_push_init);
     case 13:  /* TOGGLE_HPPP_FLIPOUT_MODE(1) — enable */
         toggle_hppp_flipout_mode(1);
         return STEP_RESULT_POP(0);
@@ -900,12 +898,11 @@ StepResult mode_step_store_menu(ModeState *ms) {
          * 0 without pumping for a null/empty menu — replicate that early-out. */
         WindowInfo *w = get_window(win.current_focus_window);
         if (w && w->menu_count != 0) {
-            static ModeState sel_init;
-            sel_init = (ModeState){0};
-            sel_init.selection_menu.phase        = SM_SETUP;
-            sel_init.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             st->phase = STM_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
         /* Empty menu: result 0, fall through to the shared cleanup. */
         break;
@@ -1021,12 +1018,11 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
             open_window_and_print_menu(1, 0);
             /* SELECTION_MENU(1) — the window cleanup runs in TPM_RESULT
              * after it pops. Outlives this dispatch (the pump copies it). */
-            static ModeState sel_init;
-            sel_init = (ModeState){0};
-            sel_init.selection_menu.phase        = SM_SETUP;
-            sel_init.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             st->phase = TPM_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
 
         /* No unlocked destinations: same cleanup, result 0, no push. */
@@ -1110,12 +1106,11 @@ StepResult mode_step_escargo_menu(ModeState *ms) {
          * replicate that early-out. */
         WindowInfo *w = get_window(win.current_focus_window);
         if (w && w->menu_count != 0) {
-            static ModeState sel_init;
-            sel_init = (ModeState){0};
-            sel_init.selection_menu.phase        = SM_SETUP;
-            sel_init.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             st->phase = EEM_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
         /* Empty menu: result 0, fall through to the shared cleanup. */
         break;
@@ -1202,12 +1197,11 @@ StepResult mode_step_telephone_menu(ModeState *ms) {
             open_window_and_print_menu(1, 0);
             /* selection_menu(1) — STEP_PUSH; cleanup + optional call text run in
              * TPH_AFTER_MENU after it pops. */
-            static ModeState sel_init;
-            sel_init = (ModeState){0};
-            sel_init.selection_menu.phase        = SM_SETUP;
-            sel_init.selection_menu.allow_cancel = 1;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.selection_menu.phase        = SM_SETUP;
+            g_mode_push_init.selection_menu.allow_cancel = 1;
             st->phase = TPH_AFTER_MENU;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sel_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
 
         /* No contacts available: result 0, run the shared cleanup and POP. */
@@ -1233,10 +1227,9 @@ StepResult mode_step_telephone_menu(ModeState *ms) {
                 if (offset + TELEPHONE_CONTACT_ENTRY_SIZE <= telephone_contacts_size) {
                     const uint8_t *entry = telephone_contacts_data + offset;
                     uint32_t text_addr = read_u32_le(&entry[27]);
-                    static ModeState dt_init;
-                    if (text_addr != 0 && dt_make_child_init(&dt_init, text_addr)) {
+                    if (text_addr != 0 && dt_make_child_init(&g_mode_push_init, text_addr)) {
                         st->phase = TPH_AFTER_TEXT;
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_init);
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                     }
                 }
             }

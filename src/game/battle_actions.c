@@ -102,21 +102,20 @@ static StepResult btlact_phys_attack_step(BattleActionState *st,
                                           uint16_t miss_type, bool do_smaaaash,
                                           uint16_t mult,
                                           uint32_t dodge_msg, bool heal_strange) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_MISS_CALC, miss_type, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_MISS_CALC, miss_type, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);  /* missed */
             if (do_smaaaash) {
                 st->pc = 2;
-                battle_calc_make_init(&child, BC_SMAAAASH, 0, 0);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                battle_calc_make_init(&g_mode_push_init, BC_SMAAAASH, 0, 0);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
             st->pc = 3;
             break;
@@ -128,21 +127,21 @@ static StepResult btlact_phys_attack_step(BattleActionState *st,
         case 3: {
             if (battle_determine_dodge()) {
                 st->pc = 5;
-                if (battle_push_text(&child, dodge_msg))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, dodge_msg))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
             st->pc = 4;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                   phys_attack_damage(mult), 0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
         case 4:
             if (heal_strange) {
                 st->pc = 6;
-                battle_calc_make_init(&child, BC_HEAL_STRANGENESS, 0, 0);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                battle_calc_make_init(&g_mode_push_init, BC_HEAL_STRANGENESS, 0, 0);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
             return STEP_RESULT_POP(0);
         case 5:  /* dodge text epilogue */
@@ -192,66 +191,65 @@ static StepResult btlact_shoot_step(BattleActionState *st) {
  * AFTER its text completes.
  */
 static StepResult btlact_spy_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *tgt = battler_from_offset(bt.current_target);
 
     for (;;) {
         switch (st->pc) {
         case 0:  /* offense */
             st->pc = 1;
-            if (battle_push_text_ex(&child, MSG_BTL5_CHECK_OFFENSE_STAT,
+            if (battle_push_text_ex(&g_mode_push_init, MSG_BTL5_CHECK_OFFENSE_STAT,
                                     false, true, tgt->offense))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 1:  /* defense */
             dt.blinking_triangle_flag = 0;
             st->pc = 2;
-            if (battle_push_text_ex(&child, MSG_BTL5_CHECK_DEFENSE_STAT,
+            if (battle_push_text_ex(&g_mode_push_init, MSG_BTL5_CHECK_DEFENSE_STAT,
                                     false, true, tgt->defense))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         /* Elemental resistances — display if 0xFF (complete immunity) */
         case 2:
             dt.blinking_triangle_flag = 0;
             st->pc = 3;
             if (tgt->fire_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FIRE))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_VULN_PSI_FIRE))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 3:
             dt.blinking_triangle_flag = 0;
             st->pc = 4;
             if (tgt->freeze_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FREEZE))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_VULN_PSI_FREEZE))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 4:
             dt.blinking_triangle_flag = 0;
             st->pc = 5;
             if (tgt->flash_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PSI_FLASH))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_VULN_PSI_FLASH))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 5:
             dt.blinking_triangle_flag = 0;
             st->pc = 6;
             if (tgt->paralysis_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_VULN_PARALYSIS))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_VULN_PARALYSIS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 6:
             dt.blinking_triangle_flag = 0;
             st->pc = 7;
             if (tgt->hypnosis_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_OPEN_TO_HYPNOSIS))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_OPEN_TO_HYPNOSIS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 7:
             dt.blinking_triangle_flag = 0;
             st->pc = 8;
             if (tgt->brainshock_resist == 0xFF &&
-                battle_push_text(&child, MSG_BTL5_CHECK_VULN_BRAIN_SHOCK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                battle_push_text(&g_mode_push_init, MSG_BTL5_CHECK_VULN_BRAIN_SHOCK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         case 8:  /* stealable item drop */
             dt.blinking_triangle_flag = 0;
@@ -259,8 +257,8 @@ static StepResult btlact_spy_step(BattleActionState *st) {
                 bt.item_dropped != 0) {
                 set_current_item((uint8_t)bt.item_dropped);
                 st->pc = 9;  /* the item_dropped clear runs after the text */
-                if (battle_push_text(&child, MSG_BTL8_PRESENT_BEHIND_ENEMY))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL8_PRESENT_BEHIND_ENEMY))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             return STEP_RESULT_POP(0);
@@ -312,13 +310,12 @@ static StepResult btlact_level_4_attack_step(BattleActionState *st) {
  * the raw > 0 variance gate, straight into CALC_RESIST_DAMAGE.
  */
 static StepResult btlact_level_2_attack_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     if (st->pc == 0) {
         st->pc = 1;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                               phys_attack_damage(2), 0xFF);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     return STEP_RESULT_POP(0);
 }
@@ -333,15 +330,14 @@ static StepResult btlact_level_2_attack_step(BattleActionState *st) {
  * ---------------------------------------------------------------------- */
 static StepResult btlact_single_text_step_ex(BattleActionState *st, uint32_t msg,
                                              bool has_cnum, uint32_t cnum) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0:
         if (msg == 0)
             return STEP_RESULT_POP(0);
         st->pc = 1;
-        if (battle_push_text_ex(&child, msg, false, has_cnum, cnum))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text_ex(&g_mode_push_init, msg, false, has_cnum, cnum))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         EB_FALLTHROUGH; /* unresolvable text: epilogue inline */
     case 1:
     default:
@@ -480,7 +476,6 @@ static StepResult btlact_healing_beta_step(BattleActionState *st) {
  * revive failure has its own text; falls back to Healing Beta. The 75% roll
  * happens at pc 0 only (the original sequence point). */
 static StepResult btlact_healing_gamma_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -492,18 +487,18 @@ static StepResult btlact_healing_gamma_step(BattleActionState *st) {
                 if (battle_success_255(192)) {
                     /* Revive with hp_max / 4 */
                     st->pc = 2;
-                    battle_revive_make_init(&child, bt.current_target,
+                    battle_revive_make_init(&g_mode_push_init, bt.current_target,
                                             tgt->hp_max >> 2);
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &g_mode_push_init);
                 }
                 st->pc = 1;
-                if (battle_push_text(&child, MSG_BTL5_REVIVE_FAILED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_REVIVE_FAILED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 1;
-            if (battle_push_text(&child, healing_gamma_cures(tgt)))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, healing_gamma_cures(tgt)))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 1:
@@ -520,7 +515,6 @@ static StepResult btlact_healing_gamma_step(BattleActionState *st) {
  * revives with full HP (a BATTLE_REVIVE child push); falls back to Healing
  * Gamma's cures (γ's own unconscious branch is unreachable from here). */
 static StepResult btlact_healing_omega_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -529,12 +523,12 @@ static StepResult btlact_healing_omega_step(BattleActionState *st) {
             if (tgt->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
                 STATUS_0_UNCONSCIOUS) {
                 st->pc = 2;
-                battle_revive_make_init(&child, bt.current_target, tgt->hp_max);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+                battle_revive_make_init(&g_mode_push_init, bt.current_target, tgt->hp_max);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &g_mode_push_init);
             }
             st->pc = 1;
-            if (battle_push_text(&child, healing_gamma_cures(tgt)))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, healing_gamma_cures(tgt)))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 1:
@@ -679,14 +673,13 @@ static StepResult btlact_pp_recovery_80_step(BattleActionState *st) {
  * child (exec_i counts the iterations).
  */
 static StepResult btlact_double_bash_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     if (st->exec_i >= 2)
         return STEP_RESULT_POP(0);
     st->exec_i++;
-    memset(&child, 0, sizeof(child));
-    child.battle_action.table_index = (uint16_t)btlact_find(0xC2859F); /* bash */
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.battle_action.table_index = (uint16_t)btlact_find(0xC2859F); /* bash */
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
 }
 
 
@@ -698,7 +691,6 @@ static StepResult btlact_double_bash_step(BattleActionState *st) {
  * Each hit picks a random target from the current target set.
  */
 static StepResult btlact_freezetime_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     /* exec_i = hit counter; scratch16[0] = hits; scratch32 = saved flags. */
     for (;;) {
@@ -747,10 +739,10 @@ static StepResult btlact_freezetime_step(BattleActionState *st) {
             }
             fix_target_name();
 
-            memset(&child, 0, sizeof(child));
-            child.battle_action.table_index =
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_action.table_index =
                 (uint16_t)btlact_find(0xC2859F); /* bash */
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
         }
 
         case 2:
@@ -759,8 +751,8 @@ static StepResult btlact_freezetime_step(BattleActionState *st) {
             bt.disable_hppp_rolling = 0;
 
             st->pc = 3;
-            if (battle_push_text(&child, MSG_BTL8_TIME_STARTED_AGAIN))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL8_TIME_STARTED_AGAIN))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
 
         case 3:
@@ -912,43 +904,42 @@ void btlact_null12(void) {}
  */
 static StepResult btlact_l2_status_attack_step(BattleActionState *st,
                                                bool diamondize) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             st->pc = 2;
-            battle_calc_make_init(&child, BC_MISS_CALC, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_MISS_CALC, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 2:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             st->pc = 3;
-            battle_calc_make_init(&child, BC_SMAAAASH, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_SMAAAASH, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 3:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             if (battle_determine_dodge()) {
                 st->pc = 6;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DODGE_ATTACK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DODGE_ATTACK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 4;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                   phys_attack_damage(2), 0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 4:
             st->pc = 5;
-            battle_calc_make_init(&child, BC_HEAL_STRANGENESS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_HEAL_STRANGENESS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 5: {
             Battler *target = battler_from_offset(bt.current_target);
             uint32_t msg;
@@ -981,8 +972,8 @@ static StepResult btlact_l2_status_attack_step(BattleActionState *st,
                 msg = MSG_BTL5_STATUS_POISONED;
             }
             st->pc = 6;
-            if (battle_push_text(&child, msg))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 6:  /* dodge / status text epilogue */
@@ -1016,13 +1007,12 @@ static StepResult btlact_level_2_attack_diamondize_step(BattleActionState *st) {
 static StepResult btlact_psi_fire_step_common(BattleActionState *st,
                                               uint16_t base_damage,
                                               bool use_fire_resist) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0:
         st->pc = 1;
-        battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_PSI_SHIELD_NULLIFY, 0, 0);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     case 1: {
         if (mode_child_result() != 0)
             return STEP_RESULT_POP(0);
@@ -1031,13 +1021,13 @@ static StepResult btlact_psi_fire_step_common(BattleActionState *st,
         if (use_fire_resist)
             resist = battler_from_offset(bt.current_target)->fire_resist;
         st->pc = 2;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, resist);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage, resist);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     case 2:
         st->pc = 3;
-        battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_WEAKEN_SHIELD, 0, 0);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     case 3:
     default:
         return STEP_RESULT_POP(0);
@@ -1054,29 +1044,28 @@ static StepResult btlact_psi_fire_step_common(BattleActionState *st,
  */
 static StepResult btlact_psi_freeze_step_common(BattleActionState *st,
                                                 uint16_t base_damage) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             st->pc = 2;
-            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 2: {
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             uint16_t damage = battle_25pct_variance(base_damage);
             Battler *target = battler_from_offset(bt.current_target);
             st->pc = 3;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage,
                                   target->freeze_resist);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
         case 3: {
             uint16_t dealt = (uint16_t)mode_child_result();
@@ -1095,9 +1084,9 @@ static StepResult btlact_psi_freeze_step_common(BattleActionState *st,
                 if (battle_inflict_status(target, STATUS_GROUP_TEMPORARY,
                                           STATUS_2_SOLIDIFIED) != 0) {
                     st->pc = 4;
-                    if (battle_push_text(&child, MSG_BTL5_STATUS_SOLIDIFIED))
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_STATUS_SOLIDIFIED))
                         return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
-                                                     &child);
+                                                     &g_mode_push_init);
                 }
             }
             break;
@@ -1108,8 +1097,8 @@ static StepResult btlact_psi_freeze_step_common(BattleActionState *st,
             break;
         case 5:
             st->pc = 6;
-            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 6:
         default:
             return STEP_RESULT_POP(0);
@@ -1126,27 +1115,26 @@ static StepResult btlact_psi_freeze_step_common(BattleActionState *st,
  */
 static StepResult btlact_psi_rockin_step_common(BattleActionState *st,
                                                 uint16_t base_damage) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1: {
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             uint16_t damage = battle_50pct_variance(base_damage);
             if (battle_determine_dodge()) {
                 st->pc = 2;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 3;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage, 0xFF);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
         case 2:
             dt.blinking_triangle_flag = 0;
@@ -1157,8 +1145,8 @@ static StepResult btlact_psi_rockin_step_common(BattleActionState *st,
             break;
         case 4:
             st->pc = 5;
-            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 5:
         default:
             return STEP_RESULT_POP(0);
@@ -1178,7 +1166,6 @@ static StepResult btlact_psi_rockin_step_common(BattleActionState *st,
 static StepResult btlact_psi_thunder_step_common(BattleActionState *st,
                                                  uint16_t base_damage,
                                                  uint16_t hits) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     /* exec_i = hit counter; scratch16[0] = effective hit chance;
      * scratch16[1] = Franklin-badge flag for the current hit;
@@ -1242,27 +1229,27 @@ static StepResult btlact_psi_thunder_step_common(BattleActionState *st,
             if (battle_success_255(st->scratch16[0])) {
                 /* Hit — display text based on damage tier */
                 st->pc = 2;
-                if (battle_push_text(&child, base_damage == 120
+                if (battle_push_text(&g_mode_push_init, base_damage == 120
                                                  ? MSG_BTL0_PSI_THUNDER_HIT_SMALL
                                                  : MSG_BTL0_PSI_THUNDER_HIT_LARGE))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             /* Miss */
             st->pc = 7;
-            if (battle_push_text(&child, MSG_BTL0_PSI_THUNDER_MISS))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL0_PSI_THUNDER_MISS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
         case 2: {
             /* Wait for the PSI animation to finish */
             dt.blinking_triangle_flag = 0;
-            ModeState *w = &child;
+            ModeState *w = &g_mode_push_init;
             memset(w, 0, sizeof(*w));
             w->battle_wait.kind = BW_PSI_ANIM;
             st->pc = 3;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
         }
 
         case 3: {
@@ -1276,9 +1263,9 @@ static StepResult btlact_psi_thunder_step_common(BattleActionState *st,
                 if (find_item_in_inventory2(char_id, 1)) { /* 1 = FRANKLIN_BADGE */
                     st->scratch16[1] = 1;
                     st->pc = 4;
-                    if (battle_push_text(&child, MSG_BTL5_FRANKLIN_BADGE_DEFLECTED))
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_FRANKLIN_BADGE_DEFLECTED))
                         return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
-                                                     &child);
+                                                     &g_mode_push_init);
                     break;
                 }
             }
@@ -1304,30 +1291,30 @@ static StepResult btlact_psi_thunder_step_common(BattleActionState *st,
 
             /* PSI shield nullify check */
             st->pc = 5;
-            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
 
         case 5:
             if (mode_child_result() == 0) {
                 st->pc = 6;
-                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                       battle_50pct_variance(base_damage), 0xFF);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
             st->pc = 6;
             break;
 
         case 6:
             st->pc = 8;
-            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
 
         case 7:  /* miss text 1 → miss text 2 */
             dt.blinking_triangle_flag = 0;
             st->pc = 8;
-            if (battle_push_text(&child, MSG_BTL6_THUNDER_MISSED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL6_THUNDER_MISSED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
 
         case 8:
@@ -1471,7 +1458,6 @@ static StepResult btlact_lifeup_omega_step(BattleActionState *st) {
  */
 static StepResult btlact_bottle_rocket_step_common(BattleActionState *st,
                                                    uint16_t count) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1482,15 +1468,15 @@ static StepResult btlact_bottle_rocket_step_common(BattleActionState *st,
         }
         if (hits == 0) {
             st->pc = 1;
-            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             /* FALLTHROUGH — unresolvable text: epilogue inline */
             goto epilogue;
         }
         uint16_t damage = battle_25pct_variance(hits * 120);
         st->pc = 2;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     case 1:
     epilogue:
@@ -1528,7 +1514,6 @@ static StepResult btlact_multi_bottle_rocket_step(BattleActionState *st) {
 static StepResult btlact_spray_step_common(BattleActionState *st,
                                            uint16_t enemy_type,
                                            uint16_t base_damage) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -1542,15 +1527,15 @@ static StepResult btlact_spray_step_common(BattleActionState *st,
         }
         if (failed) {
             st->pc = 1;
-            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             /* FALLTHROUGH — unresolvable text: epilogue inline */
             goto epilogue;
         }
         uint16_t damage = battle_50pct_variance(base_damage);
         st->pc = 2;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage, 0xFF);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     case 1:
     epilogue:
@@ -1586,16 +1571,15 @@ static StepResult btlact_rust_promoter_dx_step(BattleActionState *st) {
  */
 static StepResult btlact_bomb_step_common(BattleActionState *st,
                                           uint16_t base_damage) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             /* Phase 1: Primary damage with 50% variance, full resist (0xFF) */
             st->pc = 1;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                   battle_50pct_variance(base_damage), 0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
 
         case 1: {
             /* Phase 2: find adjacent battlers. 0xFFFF = no adjacent found
@@ -1672,10 +1656,10 @@ static StepResult btlact_bomb_step_common(BattleActionState *st,
                 bt.current_target = adjacent_left;
                 fix_target_name();
                 st->pc = 2;
-                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                       battle_50pct_variance(base_damage >> 1),
                                       0xFF);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
             st->pc = 2;
             break;
@@ -1686,10 +1670,10 @@ static StepResult btlact_bomb_step_common(BattleActionState *st,
                 bt.current_target = st->scratch16[1];
                 fix_target_name();
                 st->pc = 3;
-                battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+                battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                                       battle_50pct_variance(base_damage >> 1),
                                       0xFF);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
             st->pc = 3;
             break;
@@ -1726,7 +1710,6 @@ static StepResult btlact_super_bomb_step(BattleActionState *st) {
  * blocking form, so they run at its resume pc.
  */
 static StepResult btlact_teleport_box_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -1736,8 +1719,8 @@ static StepResult btlact_teleport_box_step(BattleActionState *st) {
                 game_state.leader_x_coord, game_state.leader_y_coord);
             if (attrs & 0x0080) {
                 st->pc = 1;
-                if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_CANT_USE_HERE))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_GOODS1_TELEPORT_BOX_CANT_USE_HERE))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -1766,8 +1749,8 @@ static StepResult btlact_teleport_box_step(BattleActionState *st) {
 
             if (failed) {
                 st->pc = 1;
-                if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_MALFUNCTION))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_GOODS1_TELEPORT_BOX_MALFUNCTION))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -1775,8 +1758,8 @@ static StepResult btlact_teleport_box_step(BattleActionState *st) {
             uint8_t slot = attacker->action_item_slot & 0xFF;
             remove_item_from_inventory(attacker->id, slot);
             st->pc = 2;
-            if (battle_push_text(&child, MSG_GOODS1_TELEPORT_BOX_SUCCESS))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_GOODS1_TELEPORT_BOX_SUCCESS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 2:
@@ -2021,7 +2004,6 @@ static StepResult btlact_sow_seeds_step(BattleActionState *st) {
  * KOs target if HP reaches 0.
  */
 static StepResult btlact_hp_sucker_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -2041,8 +2023,8 @@ static StepResult btlact_hp_sucker_step(BattleActionState *st) {
             }
             if (fail_msg != 0) {
                 st->pc = 1;
-                if (battle_push_text(&child, fail_msg))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, fail_msg))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -2055,9 +2037,9 @@ static StepResult btlact_hp_sucker_step(BattleActionState *st) {
             battle_reduce_hp(target, drain_amount);
 
             st->pc = 2;
-            if (battle_push_text_ex(&child, MSG_BTL4_RESULT_HP_DRAINED_FROM,
+            if (battle_push_text_ex(&g_mode_push_init, MSG_BTL4_RESULT_HP_DRAINED_FROM,
                                     false, true, drain_amount))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 2: {
@@ -2072,8 +2054,8 @@ static StepResult btlact_hp_sucker_step(BattleActionState *st) {
             Battler *target = battler_from_offset(bt.current_target);
             if (target->hp == 0) {
                 st->pc = 3;
-                battle_ko_make_init(&child, bt.current_target);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
+                battle_ko_make_init(&g_mode_push_init, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
             }
             return STEP_RESULT_POP(0);
         }
@@ -2358,7 +2340,6 @@ static void eat_food_boost(uint16_t which, uint8_t amount,
 }
 
 static StepResult btlact_eat_food_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     /* scratch16[0] = amount; scratch16[1] = effect_type | (special << 8).
      * The condiment params pointer is consumed entirely at pc 0 — no ROM
@@ -2374,8 +2355,8 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
             if (party_characters[idx].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL]
                     == STATUS_0_UNCONSCIOUS) {
                 st->pc = 6;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -2393,8 +2374,8 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
             st->scratch16[1] = (uint16_t)(params[0] | ((uint16_t)params[3] << 8));
 
             st->pc = 1;
-            if (condiment_msg != 0 && battle_push_text(&child, condiment_msg))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (condiment_msg != 0 && battle_push_text(&g_mode_push_init, condiment_msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
@@ -2425,9 +2406,9 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
                         : battle_25pct_variance((uint16_t)amount * 6), &tail);
                 st->pc = 2;
                 if (tail.msg != 0 &&
-                    battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                    battle_push_text_ex(&g_mode_push_init, tail.msg, false, tail.has_cnum,
                                         tail.cnum))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 continue;  /* re-dispatch at pc 2 inline */
 
             case 3: /* Random stat boost (one of IQ/Guts/Speed/Vitality) */
@@ -2442,17 +2423,17 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
 
             case 9: /* Heal status (BTLACT_HEALING_A: cures cold/sunstroke/sleep) */
                 st->pc = 5;
-                memset(&child, 0, sizeof(child));
-                child.battle_action.table_index =
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_action.table_index =
                     (uint16_t)btlact_find(0xC29AEA); /* healing_alpha */
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
 
             case 10: /* Cure poison */
                 st->pc = 5;
-                memset(&child, 0, sizeof(child));
-                child.battle_action.table_index =
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_action.table_index =
                     (uint16_t)btlact_find(0xC2A39D); /* heal_poison */
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
 
             default:
                 break;
@@ -2460,9 +2441,9 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
 
             st->pc = 5;
             if (tail.msg != 0 &&
-                battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                battle_push_text_ex(&g_mode_push_init, tail.msg, false, tail.has_cnum,
                                     tail.cnum))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
@@ -2477,9 +2458,9 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
                     : battle_25pct_variance(amount), &tail);
             st->pc = 5;
             if (tail.msg != 0 &&
-                battle_push_text_ex(&child, tail.msg, false, tail.has_cnum,
+                battle_push_text_ex(&g_mode_push_init, tail.msg, false, tail.has_cnum,
                                     tail.cnum))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
@@ -2516,16 +2497,15 @@ static StepResult btlact_eat_food_step(BattleActionState *st) {
  * Fixed 350 fire damage with 25% variance, modified by fire resistance.
  */
 static StepResult btlact_350_fire_damage_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
         uint16_t damage = battle_25pct_variance(350);
         Battler *target = battler_from_offset(bt.current_target);
         st->pc = 1;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage,
                               target->fire_resist);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     case 1:
     default:
@@ -2540,15 +2520,14 @@ static StepResult btlact_350_fire_damage_step(BattleActionState *st) {
  * Fixed 800 fire damage with 25% variance, modified by fire resistance.
  */
 static StepResult btlact_bag_of_dragonite_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     if (st->pc == 0) {
         uint16_t damage = battle_25pct_variance(800);
         Battler *target = battler_from_offset(bt.current_target);
         st->pc = 1;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, damage,
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, damage,
                               target->fire_resist);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     }
     return STEP_RESULT_POP(0);
 }
@@ -2560,19 +2539,18 @@ static StepResult btlact_bag_of_dragonite_step(BattleActionState *st) {
  * Speed-based check, then 1-4 damage.
  */
 static StepResult btlact_yogurt_dispenser_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0:
         if (!battle_success_speed(250)) {
             st->pc = 2;
-            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             goto epilogue;
         }
         st->pc = 1;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE, rand_limit(4) + 1, 0xFF);
-        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, rand_limit(4) + 1, 0xFF);
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
     case 2:
     epilogue:
         dt.blinking_triangle_flag = 0;
@@ -2590,27 +2568,26 @@ static StepResult btlact_yogurt_dispenser_step(BattleActionState *st) {
  * 1-4 damage, 50% chance to poison. Fails on NPCs.
  */
 static StepResult btlact_snake_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             if (!battle_success_speed(250)) {
                 st->pc = 4;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 2;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE, rand_limit(4) + 1,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, rand_limit(4) + 1,
                                   0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 2:
             /* 50% chance to poison */
             if (battle_success_255(128)) {
@@ -2619,9 +2596,9 @@ static StepResult btlact_snake_step(BattleActionState *st) {
                         STATUS_GROUP_PERSISTENT_EASYHEAL,
                         STATUS_0_POISONED) != 0) {
                     st->pc = 3;
-                    if (battle_push_text(&child, MSG_BTL5_STATUS_POISONED))
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_STATUS_POISONED))
                         return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT,
-                                                     &child);
+                                                     &g_mode_push_init);
                     break;
                 }
             }
@@ -2879,7 +2856,6 @@ static StepResult btlact_diamondize_step(BattleActionState *st) {
  * spawns a Tiny Lil' Ghost there as an NPC ally for the possessor.
  */
 static StepResult btlact_possess_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -2897,8 +2873,8 @@ static StepResult btlact_possess_step(BattleActionState *st) {
             possessed = true;
         }
         st->pc = possessed ? 2 : 1;
-        if (battle_push_text(&child, msg))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, msg))
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         /* FALLTHROUGH — unresolvable text: resume inline */
         if (!possessed) {
             dt.blinking_triangle_flag = 0;
@@ -3082,15 +3058,14 @@ static StepResult btlact_reduce_pp_step(BattleActionState *st) {
  * rand_limit(4) + rand_limit(4) + 2, clamped to target's current PP.
  */
 static StepResult btlact_magnet_a_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
         Battler *target = battler_from_offset(bt.current_target);
         if (target->pp_target == 0) {
             st->pc = 1;
-            if (battle_push_text(&child, MSG_BTL6_TARGET_HAS_NO_PP))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL6_TARGET_HAS_NO_PP))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             goto epilogue;
         }
         /* Assembly lines 15-28: drain = rand(4) + rand(4) + 2 → range [2..9] */
@@ -3100,9 +3075,9 @@ static StepResult btlact_magnet_a_step(BattleActionState *st) {
             drain = target->pp_target;
         st->scratch16[0] = drain;
         st->pc = 2;
-        if (battle_push_text_ex(&child, MSG_BTL4_RESULT_PP_DRAINED_FROM,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL4_RESULT_PP_DRAINED_FROM,
                                 false, true, drain))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 2: {
@@ -3153,43 +3128,42 @@ static StepResult btlact_magnet_o_step(BattleActionState *st) {
  */
 static StepResult btlact_strap_step_common(BattleActionState *st,
                                            int16_t base_damage) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1: {
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             if (!battle_success_speed(250)) {
                 st->pc = 4;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             Battler *target = battler_from_offset(bt.current_target);
             int16_t damage = base_damage - (int16_t)target->defense;
             if (damage <= 0) {
                 st->pc = 4;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             st->pc = 2;
-            battle_calc_make_init(&child, BC_RESIST_DAMAGE, (uint16_t)damage,
+            battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE, (uint16_t)damage,
                                   0xFF);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         }
         case 2:
             if (battle_inflict_status(battler_from_offset(bt.current_target),
                                       STATUS_GROUP_TEMPORARY,
                                       STATUS_2_SOLIDIFIED) != 0) {
                 st->pc = 3;
-                if (battle_push_text(&child, MSG_BTL5_STATUS_SOLIDIFIED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL5_STATUS_SOLIDIFIED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
             return STEP_RESULT_POP(0);
@@ -3276,21 +3250,20 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
                                                int16_t ko_max,
                                                int16_t para_idx,
                                                int16_t strange_idx) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
         case 0:
             st->pc = 1;
-            battle_calc_make_init(&child, BC_FAIL_ON_NPCS, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_FAIL_ON_NPCS, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 1:
             if (mode_child_result() != 0)
                 return STEP_RESULT_POP(0);
             /* flash_immunity_test: shield nullify first... */
             st->pc = 2;
-            battle_calc_make_init(&child, BC_PSI_SHIELD_NULLIFY, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_PSI_SHIELD_NULLIFY, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 2: {
             if (mode_child_result() != 0) {
                 st->pc = 5;  /* nullified: straight to weaken */
@@ -3300,8 +3273,8 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
             Battler *target = battler_from_offset(bt.current_target);
             if (!battle_success_255(target->flash_resist)) {
                 st->pc = 3;
-                if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -3311,8 +3284,8 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
                 /* KO outcome: a BATTLE_KO child push, resuming at the
                  * shield-weaken pc */
                 st->pc = 5;
-                battle_ko_make_init(&child, bt.current_target);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child);
+                battle_ko_make_init(&g_mode_push_init, bt.current_target);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
             }
             uint32_t msg;
             if (roll == para_idx) {
@@ -3326,8 +3299,8 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
                                      MSG_BTL5_STATUS_CRYING);
             }
             st->pc = 4;
-            if (battle_push_text(&child, msg))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 3:
@@ -3337,8 +3310,8 @@ static StepResult btlact_psi_flash_step_common(BattleActionState *st,
             break;
         case 5:
             st->pc = 6;
-            battle_calc_make_init(&child, BC_WEAKEN_SHIELD, 0, 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+            battle_calc_make_init(&g_mode_push_init, BC_WEAKEN_SHIELD, 0, 0);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         case 6:
         default:
             return STEP_RESULT_POP(0);
@@ -3764,7 +3737,6 @@ static StepResult btlact_reduce_offense_step(BattleActionState *st) {
  * runs after the offense text completes, as in the blocking form.
  */
 static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -3772,8 +3744,8 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
         if (target->npc_id != 0) {
             /* battle_fail_attack_on_npcs */
             st->pc = 3;
-            if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL4_RESULT_DID_NOT_WORK))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             goto epilogue;
         }
 
@@ -3782,9 +3754,9 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
         battle_decrease_offense(target);
         uint16_t off_diff = old_offense - target->offense;
         st->pc = 1;
-        if (battle_push_text_ex(&child, MSG_BTL6_OFFENSE_WENT_DOWN, false,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL6_OFFENSE_WENT_DOWN, false,
                                 true, off_diff))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 1: {
@@ -3796,9 +3768,9 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
         battle_decrease_defense(target);
         uint16_t def_diff = old_defense - target->defense;
         st->pc = 2;
-        if (battle_push_text_ex(&child, MSG_BTL6_DEFENSE_WENT_DOWN, false,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL6_DEFENSE_WENT_DOWN, false,
                                 true, def_diff))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 2:
@@ -3973,15 +3945,14 @@ static StepResult btlact_pray_aroma_step(BattleActionState *st) {
  * push); otherwise a no-op (no text, no yield).
  */
 static StepResult btlact_pray_rainbow_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     if (st->pc == 0) {
         Battler *target = battler_from_offset(bt.current_target);
         if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] ==
             STATUS_0_UNCONSCIOUS) {
             st->pc = 1;
-            battle_revive_make_init(&child, bt.current_target, target->hp_max);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &child);
+            battle_revive_make_init(&g_mode_push_init, bt.current_target, target->hp_max);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_REVIVE, &g_mode_push_init);
         }
     }
     return STEP_RESULT_POP(0);
@@ -4029,7 +4000,6 @@ static StepResult btlact_pray_rending_sound_step(BattleActionState *st) {
  * the blocking form passed by pointer).
  */
 static StepResult btlact_pray_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     /* PRAYER_LIST: 16-entry weighted probability table (asm/data/battle/prayer_list.asm) */
     static const uint8_t prayer_list[16] = {
@@ -4074,8 +4044,8 @@ static StepResult btlact_pray_step(BattleActionState *st) {
 
             /* Display prayer text */
             st->pc = 1;
-            if (battle_push_text(&child, prayer_text_addrs[st->scratch16[0]]))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, prayer_text_addrs[st->scratch16[0]]))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 1: {
@@ -4120,10 +4090,10 @@ static StepResult btlact_pray_step(BattleActionState *st) {
 
             /* Apply the prayer action to all targets */
             st->pc = 2;
-            battle_apply_make_init(&child, prayer_type <= 9
+            battle_apply_make_init(&g_mode_push_init, prayer_type <= 9
                                                ? prayer_action_addrs[prayer_type]
                                                : 0);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &g_mode_push_init);
         }
         case 2:
         default:
@@ -4143,7 +4113,6 @@ static StepResult btlact_pray_step(BattleActionState *st) {
  * applies btlact_neutralize to each (a BATTLE_APPLY child push).
  */
 static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -4161,8 +4130,8 @@ static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
                     battle_copy_mirror_data(b, &bt.mirror_battler_backup);
                     b->current_action = 0;
                     st->pc = 3;
-                    if (battle_push_text(&child, MSG_BTL5_MORPH_NEUTRALIZED))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    if (battle_push_text(&g_mode_push_init, MSG_BTL5_MORPH_NEUTRALIZED))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                     break;  /* only cure one */
                 }
             }
@@ -4175,8 +4144,8 @@ static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
             battle_target_all();
             battle_remove_dead_targeting();
             st->pc = 2;
-            battle_apply_make_init(&child, 0xC29051 /* btlact_neutralize */);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &child);
+            battle_apply_make_init(&g_mode_push_init, 0xC29051 /* btlact_neutralize */);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &g_mode_push_init);
         case 2:
         default:
             bt.battler_target_flags = 0;
@@ -4209,7 +4178,6 @@ static StepResult apply_neutralize_to_all_step(BattleActionState *st) {
  * scratch16[1] = the dispatched action 4/5).
  */
 static StepResult btlact_switch_weapons_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -4245,8 +4213,8 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
             }
 
             st->pc = 1;
-            if (push_plain_text(&child, msg))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (push_plain_text(&g_mode_push_init, msg))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 1: {
@@ -4269,9 +4237,9 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
                 break;
             }
             st->pc = 2;
-            if (push_plain_text(&child,
+            if (push_plain_text(&g_mode_push_init,
                                 battle_action_table[action].description_text_pointer))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 2:
@@ -4280,8 +4248,8 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
             st->pc = 3;
             if (battle_action_dispatch(
                     battle_action_table[st->scratch16[1]].battle_function_pointer,
-                    &child))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child);
+                    &g_mode_push_init))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             break;
         case 3:
         default:
@@ -4306,7 +4274,6 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
  * scratch16[0]/[1]/scratch32 (defense/speed/luck).
  */
 static StepResult btlact_switch_armor_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -4319,8 +4286,8 @@ static StepResult btlact_switch_armor_step(BattleActionState *st) {
             /* Check if the character can use this item */
             if (!check_item_usable_by(char_id, attacker->current_action_argument)) {
                 st->pc = 1;
-                if (push_plain_text(&child, MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (push_plain_text(&g_mode_push_init, MSG_GOODS4_EQUIP_WEAPON_FAIL_OLD_WEAPON))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 break;
             }
 
@@ -4333,8 +4300,8 @@ static StepResult btlact_switch_armor_step(BattleActionState *st) {
             equip_item(char_id, (uint16_t)attacker->action_item_slot);
 
             st->pc = 2;
-            if (push_plain_text(&child, MSG_GOODS4_EQUIP_ITEM_SUCCESS))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (push_plain_text(&g_mode_push_init, MSG_GOODS4_EQUIP_ITEM_SUCCESS))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 2: {
@@ -4388,7 +4355,6 @@ static StepResult btlact_switch_armor_step(BattleActionState *st) {
  *   - Flag not set: teleport to destination 13, bt.special_defeat=1
  */
 static StepResult btlact_clumsydeath_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0: {
@@ -4405,10 +4371,10 @@ static StepResult btlact_clumsydeath_step(BattleActionState *st) {
 
         st->scratch16[0] = event_flag_get(event_flag) ? 1 : 0;
         st->pc = 1;
-        if (battle_push_text(&child, st->scratch16[0]
+        if (battle_push_text(&g_mode_push_init, st->scratch16[0]
                                          ? MSG_BTL4_RUNAWAY5_RESCUE
                                          : MSG_BTL4_ENEMY_ESCAPE_SMOKE_FAIL))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     }
     EB_FALLTHROUGH;
     case 1:
@@ -4442,7 +4408,6 @@ static StepResult btlact_clumsydeath_step(BattleActionState *st) {
  * The saved attacker/target cross the pushes in scratch16[0]/[1].
  * ====================================================================== */
 static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->pc) {
@@ -4453,7 +4418,7 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
              * frame (US) before clearing the attacker's turn highlight. */
             st->pc = 3;
             if (win.battle_menu_current_character_id != -1)
-                return battle_push_vblanks(&child, 1);
+                return battle_push_vblanks(&g_mode_push_init, 1);
             break;
         case 3: {
             /* Hide HP/PP windows, add Poo to party */
@@ -4474,7 +4439,7 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
 
             /* SELECT_BATTLE_MENU_CHARACTER waits a frame (US) before drawing. */
             st->pc = 4;
-            return battle_push_vblanks(&child, 1);
+            return battle_push_vblanks(&g_mode_push_init, 1);
         }
         case 4: {
             /* Find Poo's position in party_members and select menu character */
@@ -4487,9 +4452,9 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
 
             /* Display Poo's entrance text (the with-prompt variant) */
             st->pc = 1;
-            if (battle_push_text_ex(&child, MSG_BTL4_POO_USES_STARSTORM,
+            if (battle_push_text_ex(&g_mode_push_init, MSG_BTL4_POO_USES_STARSTORM,
                                     true, false, 0))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
         case 1: {
@@ -4504,8 +4469,8 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
             st->exec_i = 0;
             if (battle_action_table != NULL) {
                 uint32_t desc_addr = battle_action_table[30].description_text_pointer;
-                if (desc_addr != 0 && battle_push_text(&child, desc_addr))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (desc_addr != 0 && battle_push_text(&g_mode_push_init, desc_addr))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             }
             break;
         }
@@ -4523,9 +4488,9 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
                 fix_target_name();
                 uint16_t damage = battle_25pct_variance(STARSTORM_ALPHA_DAMAGE);
                 st->exec_i = (uint8_t)(i + 1);
-                battle_calc_make_init(&child, BC_CALC_DAMAGE,
+                battle_calc_make_init(&g_mode_push_init, BC_CALC_DAMAGE,
                                       bt.current_target, damage);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
             }
 
             /* Restore original attacker and target */
@@ -4605,24 +4570,23 @@ static StepResult push_load_battle_scene(ModeState *child, uint16_t group,
 static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
                                 uint16_t group, uint16_t music, uint32_t text,
                                 StepResult *out) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc - base) {
     case 0:
         fade_out(1, 4);
         st->teardown = 0;
         st->pc = base + 1;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     case 1:
         bt.battle_mode_flag = 0;
         ml.current_map_music_track = 0;
         /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: a presented frame per tick/wait */
-        if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, out))
+        if (close_all_windows_and_hide_hppp_step(&st->teardown, &g_mode_push_init, out))
             return true;
         st->pc = base + 2;
-        if (battle_push_text(&child, text)) {
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, text)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             return true;
         }
         EB_FALLTHROUGH; /* unresolvable text: continue inline */
@@ -4630,18 +4594,18 @@ static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
         dt.blinking_triangle_flag = 0;
         fade_out(1, 2);
         st->pc = base + 3;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     case 3:
         st->pc = base + 4;
-        *out = push_load_battle_scene(&child, group, music);
+        *out = push_load_battle_scene(&g_mode_push_init, group, music);
         return true;
     case 4:
         bt.battle_mode_flag = 1;
         redirect_show_hppp_windows();
         create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
         st->pc = base + 5;
-        *out = push_battle_wait_frames(&child, FRAMES_PER_SECOND);
+        *out = push_battle_wait_frames(&g_mode_push_init, FRAMES_PER_SECOND);
         return true;
     default:
         return false;  /* complete (st->pc == base + 5) */
@@ -4655,7 +4619,6 @@ static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
 static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
                                uint16_t music, uint32_t text,
                                StepResult *out) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc - base) {
     case 0:
@@ -4663,27 +4626,27 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
         write_apu_port1(2);
         st->teardown = 0;
         st->pc = base + 1;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     case 1:
         bt.battle_mode_flag = 0;
         /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: a presented frame per tick/wait */
-        if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, out))
+        if (close_all_windows_and_hide_hppp_step(&st->teardown, &g_mode_push_init, out))
             return true;
         ppu.tm = 0x04;  /* BG3 only */
         change_music(191);  /* MUSIC::GIYGAS_WEAKENED */
         fade_in(1, 1);
         st->pc = base + 2;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     case 2:
         st->pc = base + 3;
-        *out = push_battle_wait_frames(&child, 20);  /* 2 * SIXTHS_OF_A_SECOND */
+        *out = push_battle_wait_frames(&g_mode_push_init, 20);  /* 2 * SIXTHS_OF_A_SECOND */
         return true;
     case 3:
         st->pc = base + 4;
-        if (battle_push_text(&child, text)) {
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+        if (battle_push_text(&g_mode_push_init, text)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             return true;
         }
         EB_FALLTHROUGH; /* unresolvable text: continue inline */
@@ -4691,13 +4654,13 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
         dt.blinking_triangle_flag = 0;
         bt.battle_mode_flag = 1;
         st->pc = base + 5;
-        *out = push_battle_wait_frames(&child, 20);
+        *out = push_battle_wait_frames(&g_mode_push_init, 20);
         return true;
     case 5:
         write_apu_port1(2);
         fade_out(1, 1);
         st->pc = base + 6;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     case 6:
         redirect_show_hppp_windows();
@@ -4706,7 +4669,7 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
         change_music(music);
         fade_in(1, 1);
         st->pc = base + 7;
-        *out = push_fade_wait_window(&child);
+        *out = push_fade_wait_window(&g_mode_push_init);
         return true;
     default:
         return false;  /* complete (st->pc == base + 7) */
@@ -4719,12 +4682,11 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
  * 1-second wait. Occupies 3 yield pcs. */
 static bool hurt_prayer_steps(BattleActionState *st, uint8_t base,
                               uint16_t base_damage, StepResult *out) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc - base) {
     case 0:
         st->pc = base + 1;
-        *out = push_battle_wait_frames(&child, FRAMES_PER_SECOND);
+        *out = push_battle_wait_frames(&g_mode_push_init, FRAMES_PER_SECOND);
         return true;
     case 1:
         /* Target Giygas (slot 8 = first enemy) */
@@ -4735,13 +4697,13 @@ static bool hurt_prayer_steps(BattleActionState *st, uint8_t base,
         bt.is_smaaaash_attack = 1;
 
         st->pc = base + 2;
-        battle_calc_make_init(&child, BC_RESIST_DAMAGE,
+        battle_calc_make_init(&g_mode_push_init, BC_RESIST_DAMAGE,
                               battle_25pct_variance(base_damage), 0xFF);
-        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &child);
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_CALC, &g_mode_push_init);
         return true;
     case 2:
         st->pc = base + 3;
-        *out = push_battle_wait_frames(&child, FRAMES_PER_SECOND);
+        *out = push_battle_wait_frames(&g_mode_push_init, FRAMES_PER_SECOND);
         return true;
     default:
         return false;  /* complete (st->pc == base + 3) */
@@ -4758,20 +4720,19 @@ static bool hurt_prayer_steps(BattleActionState *st, uint8_t base,
  * replaces with GIYGAS_4, loads phase 2 scene.
  * ====================================================================== */
 static StepResult btlact_pokey_speech_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0:
         bt.giygas_phase = GIYGAS_DEVILS_MACHINE_OFF;
         replace_boss_battler(ENEMY_GIYGAS_3);
         st->pc = 1;
-        return push_load_battle_scene(&child, ENEMY_GROUP_BOSS_GIYGAS_PHASE_1,
+        return push_load_battle_scene(&g_mode_push_init, ENEMY_GROUP_BOSS_GIYGAS_PHASE_1,
                                       MUSIC_GIYGAS_PHASE1);
     case 1:
         st->pc = 2;
-        if (battle_push_text_ex(&child, MSG_BTL6_MECH_POKEY_SPEECH_1B,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL6_MECH_POKEY_SPEECH_1B,
                                 true, false, 0))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         EB_FALLTHROUGH;
     case 2:
         dt.blinking_triangle_flag = 0;
@@ -4783,7 +4744,7 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
          * Always passes for legitimate ROM; not applicable to C port. */
         replace_boss_battler(ENEMY_GIYGAS_4);
         st->pc = 3;
-        return push_load_battle_scene(&child, ENEMY_GROUP_BOSS_GIYGAS_PHASE_2,
+        return push_load_battle_scene(&g_mode_push_init, ENEMY_GROUP_BOSS_GIYGAS_PHASE_2,
                                       MUSIC_GIYGAS_PHASE2);
     case 3:
     default:
@@ -4800,21 +4761,20 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
  * shows/hides slot 9, displays text, replaces boss with GIYGAS_5.
  * ====================================================================== */
 static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     switch (st->pc) {
     case 0:
         bt.giygas_phase = GIYGAS_START_PRAYING;
         st->pc = 1;
-        return push_battle_wait_frames(&child, 2 * FRAMES_PER_SECOND);
+        return push_battle_wait_frames(&g_mode_push_init, 2 * FRAMES_PER_SECOND);
     case 1:
         /* Show slot 9 consciousness */
         bt.battlers_table[9].consciousness = 1;
         render_all_battle_sprites();
         st->pc = 2;
-        if (battle_push_text_ex(&child, MSG_BTL6_MECH_POKEY_SPEECH_2,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL6_MECH_POKEY_SPEECH_2,
                                 true, false, 0))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         EB_FALLTHROUGH;
     case 2:
         dt.blinking_triangle_flag = 0;
@@ -4822,11 +4782,11 @@ static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
         bt.battlers_table[9].consciousness = 0;
         render_all_battle_sprites();
         st->pc = 3;
-        return push_battle_wait_frames(&child, FRAMES_PER_SECOND);
+        return push_battle_wait_frames(&g_mode_push_init, FRAMES_PER_SECOND);
     case 3:
         replace_boss_battler(ENEMY_GIYGAS_5);
         st->pc = 4;
-        return push_load_battle_scene(&child,
+        return push_load_battle_scene(&g_mode_push_init,
                                       ENEMY_GROUP_BOSS_GIYGAS_DURING_PRAYER_1,
                                       MUSIC_GIYGAS_PHASE3);
     case 4:
@@ -4844,7 +4804,6 @@ static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
  * replaces boss, loads after-prayer scene.
  * ====================================================================== */
 static StepResult btlact_giygas_prayer_1_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     StepResult r;
 
     if (cutscene_text_steps(st, 0, ENEMY_GROUP_BOSS_GIYGAS_DURING_PRAYER_1,
@@ -4855,25 +4814,25 @@ static StepResult btlact_giygas_prayer_1_step(BattleActionState *st) {
     switch (st->pc - CUTSCENE_TEXT_PCS) {
     case 0:
         st->pc++;
-        return push_battle_wait_frames(&child, 2 * FRAMES_PER_SECOND);
+        return push_battle_wait_frames(&g_mode_push_init, 2 * FRAMES_PER_SECOND);
     case 1:
         play_sfx(SFX_PSI_STARSTORM);
         st->pc++;
-        return push_battle_wait_frames(&child, 30);  /* HALF_OF_A_SECOND */
+        return push_battle_wait_frames(&g_mode_push_init, 30);  /* HALF_OF_A_SECOND */
     case 2:
         bt.vertical_shake_duration = FRAMES_PER_SECOND;
         bt.vertical_shake_hold_duration = 12;  /* FIFTH_OF_A_SECOND */
         st->pc++;
-        if (battle_push_text_ex(&child, MSG_BTL7_GIYGAS_DEFENSES_UNSTABLE,
+        if (battle_push_text_ex(&g_mode_push_init, MSG_BTL7_GIYGAS_DEFENSES_UNSTABLE,
                                 true, false, 0))
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         EB_FALLTHROUGH;
     case 3:
         dt.blinking_triangle_flag = 0;
         bt.giygas_phase = GIYGAS_PRAYER_1_USED;
         replace_boss_battler(ENEMY_GIYGAS_6);
         st->pc++;
-        return push_load_battle_scene(&child,
+        return push_load_battle_scene(&g_mode_push_init,
                                       ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
                                       MUSIC_NONE);
     case 4:
@@ -4936,7 +4895,6 @@ static StepResult btlact_giygas_prayer_6_step(BattleActionState *st) {
  * AFTER_PRAYER_7 group and weakened music.
  * ====================================================================== */
 static StepResult btlact_giygas_prayer_7_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     StepResult r;
 
     if (cutscene_text_steps(st, 0, ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_1,
@@ -4951,7 +4909,7 @@ static StepResult btlact_giygas_prayer_7_step(BattleActionState *st) {
     if (st->pc == tail) {
         bt.giygas_phase = GIYGAS_PRAYER_7_USED;
         st->pc = tail + 1;
-        return push_load_battle_scene(&child,
+        return push_load_battle_scene(&g_mode_push_init,
                                       ENEMY_GROUP_BOSS_GIYGAS_AFTER_PRAYER_7,
                                       MUSIC_GIYGAS_WEAKENED2);
     }
@@ -4997,7 +4955,6 @@ static StepResult btlact_giygas_prayer_8_step(BattleActionState *st) {
  * (byte 0 apu toggle, byte 1 shake countdown, byte 2 shake repeats).
  * ====================================================================== */
 static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     static const uint32_t pair_texts[4] = {
         MSG_BTL7_PRAY_RESPONSE_STRANGER,
         MSG_BTL7_PRAY_KEPT_PRAYING_1,
@@ -5045,7 +5002,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             {
                 uint16_t ticks = take_unpresented_ticks();
                 if (ticks)
-                    return battle_push_vblanks(&child, ticks);
+                    return battle_push_vblanks(&g_mode_push_init, ticks);
             }
             continue;
 
@@ -5053,7 +5010,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             /* HIDE_HPPP_WINDOWS: the indicator clear waits a frame first. */
             st->pc = 27;
             if (win.battle_menu_current_character_id != -1)
-                return battle_push_vblanks(&child, 1);
+                return battle_push_vblanks(&g_mode_push_init, 1);
             continue;
 
         case 27:
@@ -5091,7 +5048,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
                 st->pc = 15;
                 break;
             }
-            return push_battle_wait_frames(&child, delay);  /* stay at pc 14 */
+            return push_battle_wait_frames(&g_mode_push_init, delay);  /* stay at pc 14 */
         }
 
         case 15:
@@ -5099,15 +5056,15 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             change_music(MUSIC_GIYGAS_DEATH2);
             bt.giygas_phase = 0;
             st->pc = 16;
-            return push_battle_wait_frames(&child, 8 * FRAMES_PER_SECOND);
+            return push_battle_wait_frames(&g_mode_push_init, 8 * FRAMES_PER_SECOND);
 
         case 16:
             /* Briefly show Pokey (battler slot 9), display his text, then hide */
             bt.battlers_table[9].consciousness = 1;
             render_all_battle_sprites();
             st->pc = 17;
-            if (battle_push_text(&child, MSG_BTL6_POKEY_ESCAPES))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL6_POKEY_ESCAPES))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
 
         case 17:
@@ -5115,7 +5072,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             bt.battlers_table[9].consciousness = 0;
             render_all_battle_sprites();
             st->pc = 18;
-            return push_battle_wait_frames(&child, FRAMES_PER_SECOND);
+            return push_battle_wait_frames(&g_mode_push_init, FRAMES_PER_SECOND);
 
         case 18:
             /* Static transition setup: alternate distortion + APU port 2
@@ -5182,28 +5139,28 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             /* Play static noise music */
             change_music(MUSIC_GIYGAS_STATIC);
             st->pc = 22;
-            return push_battle_wait_frames(&child, 10 * FRAMES_PER_SECOND);
+            return push_battle_wait_frames(&g_mode_push_init, 10 * FRAMES_PER_SECOND);
 
         case 22:
             /* Final swirl and scene transition */
             play_sfx(SFX_PSI_THUNDER_DAMAGE);
             stop_music();
             start_battle_swirl(5, 0, 0);
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_SWIRL_WINDOW;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_SWIRL_WINDOW;
             st->pc = 23;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 23:
             stop_music();
             st->pc = 24;
-            return push_load_battle_scene(&child,
+            return push_load_battle_scene(&g_mode_push_init,
                                           ENEMY_GROUP_BOSS_GIYGAS_PHASE_FINAL,
                                           MUSIC_NONE);
 
         case 24:
             st->pc = 25;
-            return push_battle_wait_frames(&child, 8 * FRAMES_PER_SECOND);
+            return push_battle_wait_frames(&g_mode_push_init, 8 * FRAMES_PER_SECOND);
 
         case 25:
         default:

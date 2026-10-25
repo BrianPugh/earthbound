@@ -345,27 +345,26 @@ static StepResult cs_render_tick(CharSelectState *st) {
      *   stage 1/2 (mode 0): SELECT_BATTLE_MENU_CHARACTER (US) waits a frame before
      *            clearing the previous indicator and again before drawing the new
      *            one (BW_VBLANK). */
-    static ModeState cs_wait_init;
     if (st->sel_stage == 0) {
         uint16_t owed = take_unpresented_ticks();
         st->sel_stage = (st->mode == 0) ? 1 : 3;
         if (owed) {
             st->phase = CSP_RENDER;
-            return push_wait_frames(&cs_wait_init, BW_TICK_PRESENT, owed);
+            return push_wait_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
         }
     }
     if (st->sel_stage == 1) {
         st->sel_stage = 2;
         if (win.battle_menu_current_character_id != -1) {
             st->phase = CSP_RENDER;
-            return push_wait_frames(&cs_wait_init, BW_VBLANK, 1);
+            return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
         }
     }
     if (st->sel_stage == 2) {
         clear_battle_menu_character_indicator();
         st->sel_stage = 3;
         st->phase = CSP_RENDER;
-        return push_wait_frames(&cs_wait_init, BW_VBLANK, 1);
+        return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
     }
     st->sel_stage = 0;
     if (st->mode == 0)
@@ -383,10 +382,6 @@ static StepResult cs_render_tick(CharSelectState *st) {
 
 StepResult mode_step_char_select(ModeState *ms) {
     CharSelectState *st = &ms->char_select;
-
-    /* Outlives the dispatch turn (pump_mode copies the init immediately): holds the
-     * DISPLAY_TEXT child init for an on_change callback that requests a STEP_PUSH. */
-    static ModeState cs_onchange_init;
 
     /* Resume after a parked actionscript frame (overworld equip menu reaches here):
      * finish that frame's render, run the deferred tail, advance, then continue. */
@@ -431,12 +426,12 @@ StepResult mode_step_char_select(ModeState *ms) {
          * original's order (on_change completes before pagination_animation_frame=0).
          * The no-push path falls through to the first render with no extra yield. */
         uint8_t mid = game_state.party_members[st->current_index] & 0xFF;
-        memset(&cs_onchange_init, 0, sizeof(cs_onchange_init));
-        if (cs_invoke_on_change(st->on_change_id, mid, &cs_onchange_init)) {
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        if (cs_invoke_on_change(st->on_change_id, mid, &g_mode_push_init)) {
             /* on_change pushed a DISPLAY_TEXT child; the pagination reset + first
              * render run in CS_RESUME_INIT after it pops. */
             st->resume = CS_RESUME_INIT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &cs_onchange_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         }
         dt.pagination_animation_frame = 0;
         return cs_render_tick(st);
@@ -482,8 +477,7 @@ StepResult mode_step_char_select(ModeState *ms) {
             /* CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a frame first. */
             st->phase = CSP_CANCEL;
             if (win.battle_menu_current_character_id != -1) {
-                static ModeState cs_cancel_init;
-                return push_wait_frames(&cs_cancel_init, BW_VBLANK, 1);
+                return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
             }
             return cs_cancel_finish(st);
         } else {
@@ -536,12 +530,12 @@ StepResult mode_step_char_select(ModeState *ms) {
             play_sfx(nav_sfx);
             st->current_index = (uint16_t)new_index;
             uint8_t mid = game_state.party_members[st->current_index] & 0xFF;
-            memset(&cs_onchange_init, 0, sizeof(cs_onchange_init));
-            if (cs_invoke_on_change(st->on_change_id, mid, &cs_onchange_init)) {
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            if (cs_invoke_on_change(st->on_change_id, mid, &g_mode_push_init)) {
                 /* on_change pushed a DISPLAY_TEXT child; the delay reset + re-render
                  * tail runs in the CS_RESUME_NAV handler when it pops. */
                 st->resume = CS_RESUME_NAV;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &cs_onchange_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             }
         }
 
@@ -1092,16 +1086,15 @@ void battle_apply_make_init(ModeState *init, uint32_t action_addr) {
 
 StepResult mode_step_battle_apply(ModeState *ms) {
     BattleApplyState *s = &ms->battle_apply;
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (s->pc) {
         case 0:
             /* Wait for PSI animation to finish */
             s->pc = 1;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_PSI_ANIM;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_PSI_ANIM;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 1:
             /* Pass start: enemies (8..BATTLER_COUNT-1) first, then party (0..7) */
@@ -1126,9 +1119,9 @@ StepResult mode_step_battle_apply(ModeState *ms) {
                      * call; battle_action_dispatch does the same, pushing
                      * converted actions and running pure ones inline. */
                     s->pc = 3;
-                    if (battle_action_dispatch(s->action_addr, &child))
+                    if (battle_action_dispatch(s->action_addr, &g_mode_push_init))
                         return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION,
-                                                     &child);
+                                                     &g_mode_push_init);
                     break;  /* ran inline — advance in pc 3 */
                 }
             }
@@ -1555,7 +1548,6 @@ void battle_ko_make_init(ModeState *init, uint16_t target_offset) {
 
 StepResult mode_step_battle_ko(ModeState *ms) {
     BattleKoState *s = &ms->battle_ko;
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *target = battler_from_offset(s->target);
 
     for (;;) {
@@ -1630,8 +1622,8 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 if (battle_action_table) {
                     uint32_t desc_addr = battle_action_table[edata->final_action].description_text_pointer;
                     if (desc_addr != 0 &&
-                        battle_push_text_ex(&child, desc_addr, true, false, 0))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                        battle_push_text_ex(&g_mode_push_init, desc_addr, true, false, 0))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 }
                 break;
             }
@@ -1651,8 +1643,8 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 func_ptr = battle_action_table[enemy_config_table[target->id].final_action]
                                .battle_function_pointer;
             s->pc = 2;
-            battle_apply_make_init(&child, func_ptr);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &child);
+            battle_apply_make_init(&g_mode_push_init, func_ptr);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &g_mode_push_init);
         }
 
         case 2:
@@ -1682,8 +1674,8 @@ StepResult mode_step_battle_ko(ModeState *ms) {
             s->pc = 4;
             if (enemy_config_table != NULL) {
                 uint32_t death_addr = enemy_config_table[target->id].death_text_ptr;
-                if (death_addr != 0 && battle_push_text(&child, death_addr))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                if (death_addr != 0 && battle_push_text(&g_mode_push_init, death_addr))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             }
             break;
 
@@ -1702,10 +1694,10 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 setup_battle_sprite_palette_effect(pal_offset, 31, 31, 31);
             }
             s->pc = 5;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_FRAMES;
-            child.battle_wait.remaining = SIXTH_OF_A_SECOND;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_FRAMES;
+            g_mode_push_init.battle_wait.remaining = SIXTH_OF_A_SECOND;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 5:
             /* Fade to black */
@@ -1715,10 +1707,10 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 setup_battle_sprite_palette_effect(pal_offset, 0, 0, 0);
             }
             s->pc = 6;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_FRAMES;
-            child.battle_wait.remaining = THIRD_OF_A_SECOND;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_FRAMES;
+            g_mode_push_init.battle_wait.remaining = THIRD_OF_A_SECOND;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 6:
             /* Apply KO status */
@@ -1750,10 +1742,10 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                     setup_battle_sprite_palette_effect(pal, 31, 31, 31);
                 }
                 s->pc = 7;
-                memset(&child, 0, sizeof(child));
-                child.battle_wait.kind = BW_FRAMES;
-                child.battle_wait.remaining = SIXTH_OF_A_SECOND;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.battle_wait.kind = BW_FRAMES;
+                g_mode_push_init.battle_wait.remaining = SIXTH_OF_A_SECOND;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
             }
             s->pc = 9;
             break;
@@ -1766,10 +1758,10 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 setup_battle_sprite_palette_effect(pal, 0, 0, 0);
             }
             s->pc = 8;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_FRAMES;
-            child.battle_wait.remaining = 20;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_FRAMES;
+            g_mode_push_init.battle_wait.remaining = 20;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 8:
             /* KO all remaining enemies */
@@ -1858,8 +1850,8 @@ StepResult mode_step_battle_ko(ModeState *ms) {
                 s->pc = 11;
                 if (enemy_config_table != NULL) {
                     uint32_t death_addr = enemy_config_table[target->id].death_text_ptr;
-                    if (death_addr != 0 && battle_push_text(&child, death_addr))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+                    if (death_addr != 0 && battle_push_text(&g_mode_push_init, death_addr))
+                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
                 }
                 break;
             }
@@ -1872,8 +1864,8 @@ StepResult mode_step_battle_ko(ModeState *ms) {
 
             /* Display KO text */
             s->pc = 12;
-            if (battle_push_text(&child, MSG_BTL5_ALLY_COLLAPSED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL5_ALLY_COLLAPSED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
         }
 
@@ -1958,7 +1950,6 @@ void battle_revive_make_init(ModeState *init, uint16_t target_offset, uint16_t h
 
 StepResult mode_step_battle_revive(ModeState *ms) {
     BattleReviveState *s = &ms->battle_revive;
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
     Battler *target = battler_from_offset(s->target);
 
     for (;;) {
@@ -1966,8 +1957,8 @@ StepResult mode_step_battle_revive(ModeState *ms) {
         case 0:
             /* Display revive text */
             s->pc = 1;
-            if (battle_push_text(&child, MSG_BTL5_REVIVED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL5_REVIVED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
 
         case 1: {
@@ -2018,10 +2009,10 @@ StepResult mode_step_battle_revive(ModeState *ms) {
                 setup_battle_sprite_palette_effect(pal_offset, 31, 31, 31);
             }
             s->pc = 2;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_FRAMES;
-            child.battle_wait.remaining = SIXTH_OF_A_SECOND;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_FRAMES;
+            g_mode_push_init.battle_wait.remaining = SIXTH_OF_A_SECOND;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
         }
 
         case 2:
@@ -2036,10 +2027,10 @@ StepResult mode_step_battle_revive(ModeState *ms) {
                 setup_battle_sprite_palette_effect(pal_word_index, red, green, blue);
             }
             s->pc = 3;
-            memset(&child, 0, sizeof(child));
-            child.battle_wait.kind = BW_FRAMES;
-            child.battle_wait.remaining = THIRD_OF_A_SECOND * 2;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child);
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_FRAMES;
+            g_mode_push_init.battle_wait.remaining = THIRD_OF_A_SECOND * 2;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case 3:
         default:
@@ -2393,7 +2384,6 @@ void check_dead_players_make_init(ModeState *init) {
 
 StepResult mode_step_check_dead_players(ModeState *ms) {
     CheckDeadPlayersState *s = &ms->check_dead;
-    static ModeState child;  /* outlives the dispatch (the pump copies it) */
 
     /* Resume after a collapse's KO text (pc 1): the battle-text epilogue + this
      * battler's affliction-sync tail, then advance and fall into the loop. */
@@ -2439,8 +2429,8 @@ StepResult mode_step_check_dead_players(ModeState *ms) {
             s->existing = (get_window(0x0E) != NULL) ? 1 : 0;
             create_window(0x0E);  /* WINDOW::TEXT_BATTLE */
             s->pc = 1;
-            if (battle_push_text(&child, MSG_BTL5_ALLY_COLLAPSED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
+            if (battle_push_text(&g_mode_push_init, MSG_BTL5_ALLY_COLLAPSED))
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             /* Unresolvable text (warn) — run the after-text path inline. */
             dt.blinking_triangle_flag = 0;
             if (!s->existing)
@@ -2506,7 +2496,6 @@ static StepResult bm_item_done(BattleMenuState *st) {
  * pop), false when mode_step_battle_menu should run the next phase in this
  * step. The per-phase helpers are EB_NOINLINE: inlined, their locals all add
  * up in the step's frame (more stack on the RP2040 than the unsplit step). */
-static ModeState bm_child;  /* push buffer; outlives the dispatch (the pump copies it) */
 
 /* Weapon type (@LOCAL06): 0=bash, 1=shoot (gun), 2=paralyzed/immobilized */
 static uint8_t bm_weapon_type(const CharStruct *ch) {
@@ -2812,11 +2801,11 @@ static EB_NOINLINE StepResult bm_main(BattleMenuState *st) {
     }
 
     /* Run selection menu (allow cancel = 1) */
-    bm_child = (ModeState){0};
-    bm_child.selection_menu.phase        = SM_SETUP;
-    bm_child.selection_menu.allow_cancel = 1;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.selection_menu.phase        = SM_SETUP;
+    g_mode_push_init.selection_menu.allow_cancel = 1;
     st->phase = BM_MAIN_RESULT;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &bm_child);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 }
 
 /* Menu cancelled (B button): debug controls, then @CANCEL_MENU. */
@@ -2875,9 +2864,9 @@ static StepResult bm_push_enemy_select(BattleMenuState *st, uint16_t action) {
     st->selected_action = action;
     bt.battle_menu_selected_action = st->selected_action;
     bt.battle_menu_targetting = 17;
-    enemy_select_make_init(&bm_child, 1, st->selected_action);
+    enemy_select_make_init(&g_mode_push_init, 1, st->selected_action);
     st->phase = BM_TARGET_RESULT;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &bm_child);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &g_mode_push_init);
 }
 
 /* Pray (Paula): the Giygas prayer sequence picks the final prayers. */
@@ -2932,11 +2921,11 @@ static bool bm_process_selection(BattleMenuState *st, uint16_t selection,
         }
         /* PSI menu */
         bt.battle_menu_user = (uint8_t)st->char_id;
-        bm_child = (ModeState){0};
-        bm_child.battle_psi_menu.phase   = BP_OPEN;
-        bm_child.battle_psi_menu.char_id = bt.battle_menu_user;
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.battle_psi_menu.phase   = BP_OPEN;
+        g_mode_push_init.battle_psi_menu.char_id = bt.battle_menu_user;
         st->phase = BM_PSI_RESULT;
-        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_PSI_MENU, &bm_child);
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_PSI_MENU, &g_mode_push_init);
         return true;
 
     case 5:  /* Defend/Guard (assembly: @ACTION_GUARD, menu_handler.asm:726) */
@@ -3068,11 +3057,11 @@ static EB_NOINLINE bool bm_item(BattleMenuState *st, StepResult *out) {
      * accepted precedent (the pause menu's Goods path calls it the
      * same way from a step). */
     inventory_get_item_name(st->char_id, WINDOW_INVENTORY);
-    bm_child = (ModeState){0};
-    bm_child.selection_menu.phase        = SM_SETUP;
-    bm_child.selection_menu.allow_cancel = 1;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.selection_menu.phase        = SM_SETUP;
+    g_mode_push_init.selection_menu.allow_cancel = 1;
     st->phase = BM_ITEM_RESULT;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &bm_child);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
     return true;
 }
 
@@ -3085,7 +3074,7 @@ static EB_NOINLINE bool bm_item_result(BattleMenuState *st, StepResult *out) {
     st->phase = BM_ITEM_AFTER;
     uint16_t ticks = take_unpresented_ticks();
     if (ticks) {
-        *out = push_wait_frames(&bm_child, BW_VBLANK, ticks);
+        *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, ticks);
         return true;
     }
     return false;
@@ -3156,12 +3145,12 @@ static EB_NOINLINE bool bm_item_after(BattleMenuState *st, StepResult *out) {
         return true;
     }
 
-    bm_child = (ModeState){0};
-    bm_child.targeting.phase     = TGT_ENTER;
-    bm_child.targeting.action_id = st->item_effect;
-    bm_child.targeting.char_id   = user_id;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.targeting.phase     = TGT_ENTER;
+    g_mode_push_init.targeting.action_id = st->item_effect;
+    g_mode_push_init.targeting.char_id   = user_id;
     st->phase = BM_ITEM_TGT_RESULT;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &bm_child);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &g_mode_push_init);
     return true;
 }
 
@@ -4606,29 +4595,28 @@ static void btl_ending_post_cleanup(void) {
  * (push, frame or pop), false when mode_step_battle should run the next phase
  * in this step. The per-phase helpers are EB_NOINLINE so their locals don't
  * add up in the step's frame. */
-static ModeState btl_child;  /* push buffer; outlives the dispatch (the pump copies it) */
 
 /* Push battle text `addr` as a GAME_MODE_DISPLAY_TEXT child. False (no push)
  * when the text can't be resolved: the caller carries on inline. */
 static bool btl_push_text(uint32_t addr, StepResult *out) {
-    if (!battle_push_text(&btl_child, addr))
+    if (!battle_push_text(&g_mode_push_init, addr))
         return false;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
     return true;
 }
 
 /* STEP_PUSH a GAME_MODE_BATTLE_WAIT child of `kind`. */
 static StepResult btl_push_wait(uint8_t kind) {
-    btl_child = (ModeState){0};
-    btl_child.battle_wait.kind = kind;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &btl_child);
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.battle_wait.kind = kind;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 }
 
 /* STEP_PUSH a GAME_MODE_CHECK_DEAD_PLAYERS child, resuming at `next`. */
 static StepResult btl_push_dead_check(BattleRoutineState *st, uint8_t next) {
-    check_dead_players_make_init(&btl_child);
+    check_dead_players_make_init(&g_mode_push_init);
     st->phase = next;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &btl_child);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &g_mode_push_init);
 }
 
 /* reinit_battle (lines 134-480) */
@@ -4758,7 +4746,7 @@ static EB_NOINLINE bool btl_step_menu_body(BattleRoutineState *st, StepResult *o
          * BTL_MENU_SELECT's and BTL_MENU_OPEN's present-only pushes. */
         st->phase = BTL_MENU_SELECT;
         if (win.battle_menu_current_character_id != -1) {
-            *out = push_wait_frames(&btl_child, BW_VBLANK, 1);
+            *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
             return true;
         }
         return false;
@@ -4770,12 +4758,12 @@ static EB_NOINLINE bool btl_step_menu_body(BattleRoutineState *st, StepResult *o
 static EB_NOINLINE StepResult btl_step_menu_open(BattleRoutineState *st) {
     uint8_t member_id = game_state.party_members[st->party_slot];
     select_battle_menu_character_far(st->party_slot);
-    btl_child = (ModeState){0};
-    btl_child.battle_menu.phase        = BM_ENTER;
-    btl_child.battle_menu.char_id      = member_id;
-    btl_child.battle_menu.num_selected = st->num_selected;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.battle_menu.phase        = BM_ENTER;
+    g_mode_push_init.battle_menu.char_id      = member_id;
+    g_mode_push_init.battle_menu.num_selected = st->num_selected;
     st->phase = BTL_MENU_RESULT;
-    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &btl_child);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &g_mode_push_init);
 }
 
 /* BATTLE_SELECTION_MENU returned. Its last window close (the target picker,
@@ -4791,7 +4779,7 @@ static EB_NOINLINE bool btl_step_menu_result(BattleRoutineState *st, StepResult 
         frames++;
     st->phase = BTL_MENU_CLOSE;
     if (frames) {
-        *out = push_wait_frames(&btl_child, BW_VBLANK, frames);
+        *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, frames);
         return true;
     }
     return false;
@@ -4806,7 +4794,7 @@ static EB_NOINLINE bool btl_step_menu_close(BattleRoutineState *st, StepResult *
     uint16_t frames = take_unpresented_ticks();
     st->phase = BTL_MENU_DECIDE;
     if (frames) {
-        *out = push_wait_frames(&btl_child, BW_TICK_PRESENT, frames);
+        *out = push_wait_frames(&g_mode_push_init, BW_TICK_PRESENT, frames);
         return true;
     }
     return false;
@@ -4940,9 +4928,9 @@ static EB_NOINLINE bool btl_step_exec_body(BattleRoutineState *st, StepResult *o
     }
     st->phase = BTL_EXEC_DMG;
     if (dmg_text != 0 &&
-        battle_push_text_ex(&btl_child, dmg_text, false,
+        battle_push_text_ex(&g_mode_push_init, dmg_text, false,
                             true, st->status_damage)) {
-        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         return true;
     }
     return false;
@@ -4958,8 +4946,8 @@ static EB_NOINLINE bool btl_step_exec_dmg(BattleRoutineState *st, StepResult *ou
 
         if (attacker->hp == 0) {
             st->phase = BTL_EXEC_DMG_KO;
-            battle_ko_make_init(&btl_child, battler_to_offset(attacker));
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &btl_child);
+            battle_ko_make_init(&g_mode_push_init, battler_to_offset(attacker));
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
             return true;
         }
     }
@@ -4978,7 +4966,7 @@ static EB_NOINLINE bool btl_step_exec_setup(BattleRoutineState *st, StepResult *
     if (st->hilite_slot >= 0) {
         st->phase = BTL_EXEC_HILITE;
         if (win.battle_menu_current_character_id != -1) {
-            *out = push_wait_frames(&btl_child, BW_VBLANK, 1);
+            *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
             return true;
         }
         return false;
@@ -5023,11 +5011,11 @@ static EB_NOINLINE bool btl_step_exec_pp(BattleRoutineState *st, StepResult *out
 
     /* Animate attacker (12-frame bob) */
     attacker->shake_timer = 12;
-    btl_child = (ModeState){0};
-    btl_child.battle_wait.kind = BW_FRAMES;
-    btl_child.battle_wait.remaining = 12;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.battle_wait.kind = BW_FRAMES;
+    g_mode_push_init.battle_wait.remaining = 12;
     st->phase = BTL_EXEC_RETARGET1;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &btl_child);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
     return true;
 }
 
@@ -5040,8 +5028,8 @@ static EB_NOINLINE bool btl_step_exec_desc(BattleRoutineState *st, StepResult *o
         uint32_t desc_addr =
             battle_action_table[attacker->current_action].description_text_pointer;
         if (desc_addr != 0 &&
-            battle_push_text_ex(&btl_child, desc_addr, true, false, 0)) {
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+            battle_push_text_ex(&g_mode_push_init, desc_addr, true, false, 0)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             return true;
         }
     }
@@ -5115,8 +5103,8 @@ static EB_NOINLINE bool btl_step_target(BattleRoutineState *st, StepResult *out)
     if (battle_action_table) {
         uint32_t func_ptr =
             battle_action_table[attacker->current_action].battle_function_pointer;
-        if (func_ptr != 0 && battle_action_dispatch(func_ptr, &btl_child)) {
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &btl_child);
+        if (func_ptr != 0 && battle_action_dispatch(func_ptr, &g_mode_push_init)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
             return true;
         }
     }
@@ -5252,9 +5240,9 @@ static EB_NOINLINE bool btl_step_victory(BattleRoutineState *st, StepResult *out
         ? MSG_BTL8_PLAYER_VICTORY_BOSS
         : MSG_BTL8_PLAYER_VICTORY;
     st->phase = BTL_VICTORY_DROP;
-    if (battle_push_text_ex(&btl_child, victory_addr, false,
+    if (battle_push_text_ex(&g_mode_push_init, victory_addr, false,
                             true, bt.battle_exp_scratch)) {
-        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         return true;
     }
     return false;
@@ -5287,9 +5275,9 @@ static EB_NOINLINE bool btl_step_victory_exp(BattleRoutineState *st, StepResult 
         if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) continue;
 
         if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
-            level_up_make_init(&btl_child, b->id);
+            level_up_make_init(&g_mode_push_init, b->id);
             /* phase stays BTL_VICTORY_EXP — the resume re-enters the loop */
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &btl_child);
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &g_mode_push_init);
             return true;
         }
     }
@@ -5312,10 +5300,10 @@ static EB_NOINLINE bool btl_step_ending_cleanup(BattleRoutineState *st, StepResu
      * Assembly: LDX #1; TXA; JSL FADE_OUT → step 1, delay 1 (one
      * brightness step every 2 frames, ~30 frames to black). */
     fade_out(1, 1);
-    btl_child = (ModeState){0};
-    btl_child.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
     st->phase = BTL_EXIT;
-    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &btl_child);
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &g_mode_push_init);
     return true;
 }
 
@@ -5392,7 +5380,7 @@ StepResult mode_step_battle(ModeState *ms) {
         case BTL_MENU_SELECT:
             clear_battle_menu_character_indicator_far();
             st->phase = BTL_MENU_OPEN;
-            return push_wait_frames(&btl_child, BW_VBLANK, 1);
+            return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
 
         case BTL_MENU_OPEN:
             return btl_step_menu_open(st);
@@ -5464,7 +5452,7 @@ StepResult mode_step_battle(ModeState *ms) {
         case BTL_EXEC_HILITE:
             clear_battle_menu_character_indicator_far();
             st->phase = BTL_EXEC_HILITE_DRAW;
-            return push_wait_frames(&btl_child, BW_VBLANK, 1);
+            return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
 
         case BTL_EXEC_HILITE_DRAW:
             select_battle_menu_character_far((uint16_t)st->hilite_slot);
@@ -5527,7 +5515,7 @@ StepResult mode_step_battle(ModeState *ms) {
              * frame first when one is drawn) */
             st->phase = BTL_AFTER_STATUS_CLEAR;
             if (win.battle_menu_current_character_id != -1)
-                return push_wait_frames(&btl_child, BW_VBLANK, 1);
+                return push_wait_frames(&g_mode_push_init, BW_VBLANK, 1);
             break;
 
         case BTL_AFTER_STATUS_CLEAR:
@@ -5633,7 +5621,7 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
 
         case BTL_EXIT_TEARDOWN:
-            if (close_all_windows_and_hide_hppp_step(&st->teardown, &btl_child, &r))
+            if (close_all_windows_and_hide_hppp_step(&st->teardown, &g_mode_push_init, &r))
                 return r;
             clear_battle_visual_effects();
             return STEP_RESULT_POP(st->battle_result);
@@ -6307,7 +6295,6 @@ static void iw_roll_drop(void) {
  */
 StepResult mode_step_instant_win(ModeState *state) {
     InstantWinState *st = &state->instant_win;
-    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->phase) {
@@ -6365,9 +6352,9 @@ StepResult mode_step_instant_win(ModeState *state) {
             iw_victory_setup();
             st->phase = IW_EXP;
             st->battler_i = 0;
-            if (battle_push_text_ex(&child_init, MSG_BTL8_PLAYER_VICTORY_FORCED,
+            if (battle_push_text_ex(&g_mode_push_init, MSG_BTL8_PLAYER_VICTORY_FORCED,
                                     false, true, bt.battle_exp_scratch))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             break;
 
         case IW_EXP:
@@ -6392,9 +6379,9 @@ StepResult mode_step_instant_win(ModeState *state) {
                 if (status0 == STATUS_0_DIAMONDIZED) continue;
 
                 if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
-                    level_up_make_init(&child_init, b->id);
+                    level_up_make_init(&g_mode_push_init, b->id);
                     /* phase stays IW_EXP — the resume re-enters the loop */
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &child_init);
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &g_mode_push_init);
                 }
             }
             st->phase = IW_DROP;
@@ -6405,8 +6392,8 @@ StepResult mode_step_instant_win(ModeState *state) {
             st->phase = IW_FINISH;
             if (bt.item_dropped != 0) {
                 set_current_item((uint8_t)bt.item_dropped);
-                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_PRESENT_DROPPED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                if (battle_push_text(&g_mode_push_init, MSG_BTL8_ENEMY_PRESENT_DROPPED))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             }
             break;
 
@@ -6420,7 +6407,7 @@ StepResult mode_step_instant_win(ModeState *state) {
              * its three WINDOW_TICKs (and the indicator wait) take a frame each. */
             {
                 StepResult r;
-                if (close_all_windows_and_hide_hppp_step(&st->teardown, &child_init, &r))
+                if (close_all_windows_and_hide_hppp_step(&st->teardown, &g_mode_push_init, &r))
                     return r;
             }
 
@@ -6525,7 +6512,6 @@ static void battle_mosaic_fade_out_init(ModeState *child) {
  */
 StepResult mode_step_battle_entry(ModeState *state) {
     BattleEntryState *st = &state->battle_entry;
-    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->phase) {
@@ -6552,24 +6538,24 @@ StepResult mode_step_battle_entry(ModeState *state) {
 
             /* Check for instant win (high level vs weak enemies) */
             if (instant_win_check()) {
-                child_init = (ModeState){0};
-                child_init.instant_win.phase = IW_BEGIN;
+                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+                g_mode_push_init.instant_win.phase = IW_BEGIN;
                 st->phase = BE_IW_DONE;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_INSTANT_WIN, &child_init);
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_INSTANT_WIN, &g_mode_push_init);
             }
 
             /* Run the battle — init_battle_common's front half:
              * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0),
              * which blocks until the screen is black before BATTLE_ROUTINE. */
-            battle_mosaic_fade_out_init(&child_init);
+            battle_mosaic_fade_out_init(&g_mode_push_init);
             st->phase = BE_FADE_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
 
         case BE_FADE_DONE:
-            child_init = (ModeState){0};
-            child_init.battle.phase = BTL_BEGIN;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle.phase = BTL_BEGIN;
             st->phase = BE_BATTLE_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &g_mode_push_init);
 
         case BE_DEBUG_WAIT:
             if (core.pad1_held & PAD_B) {
@@ -6668,7 +6654,6 @@ StepResult mode_step_battle_entry(ModeState *state) {
  */
 StepResult mode_step_battle_scripted(ModeState *state) {
     BattleScriptedState *st = &state->battle_scripted;
-    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
 
     for (;;) {
         switch (st->phase) {
@@ -6721,24 +6706,24 @@ StepResult mode_step_battle_scripted(ModeState *state) {
              * Assembly: JSL WAIT_UNTIL_NEXT_FRAME; JSL UPDATE_SWIRL_EFFECT
              * (yield-before-update; BW_SWIRL_UPDATE preserves that interleave). */
             battle_swirl_sequence();
-            child_init = (ModeState){0};
-            child_init.battle_wait.kind = BW_SWIRL_UPDATE;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_SWIRL_UPDATE;
             st->phase = BS_SWIRL_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
 
         case BS_SWIRL_DONE:
             /* Run the actual battle — init_battle_common's front half:
              * FADE_OUT_WITH_MOSAIC(A=step, X=delay, Y=mosaic_enable) → (1, 1, 0),
              * which blocks until the screen is black before BATTLE_ROUTINE. */
-            battle_mosaic_fade_out_init(&child_init);
+            battle_mosaic_fade_out_init(&g_mode_push_init);
             st->phase = BS_FADE_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
 
         case BS_FADE_DONE:
-            child_init = (ModeState){0};
-            child_init.battle.phase = BTL_BEGIN;
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle.phase = BTL_BEGIN;
             st->phase = BS_BATTLE_DONE;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &child_init);
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE, &g_mode_push_init);
 
         case BS_BATTLE_DONE: {
             /* init_battle_common's tail */
