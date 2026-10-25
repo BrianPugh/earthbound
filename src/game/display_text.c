@@ -2105,6 +2105,32 @@ static bool dt_cc_1f(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
 /* DT_RUN: apply any popped child's result, then interpret script bytes until
  * a yield point (typewriter delay, child push, or end of text). */
 static StepResult step_display_text_run(DisplayTextModeState *st) {
+    /* CC_18_04 (CLOSE_ALL_WINDOWS) beats after CLOSE_ALL_WINDOWS' tick frame:
+     * HIDE_HPPP_WINDOWS (its indicator wait is a bare frame), then the
+     * WINDOW_TICK (its window render inline, then BW_TICK_PRESENT's entity
+     * frame and present). */
+    if (st->resume == DT_RESUME_CC18_CLOSE_HIDE) {
+        static ModeState cc18_close_init;
+        bool wait = (win.battle_menu_current_character_id != -1);
+        hide_hppp_windows();
+        st->resume = DT_RESUME_CC18_CLOSE_TICK;
+        if (wait) {
+            memset(&cc18_close_init, 0, sizeof(cc18_close_init));
+            cc18_close_init.battle_wait.kind = BW_VBLANK;
+            cc18_close_init.battle_wait.remaining = 1;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &cc18_close_init);
+        }
+    }
+    if (st->resume == DT_RESUME_CC18_CLOSE_TICK) {
+        static ModeState cc18_tick_init;
+        st->resume = DT_RESUME_NONE;
+        (void)take_unpresented_ticks();
+        window_tick_no_actionscript();
+        memset(&cc18_tick_init, 0, sizeof(cc18_tick_init));
+        cc18_tick_init.battle_wait.kind = BW_TICK_PRESENT;
+        cc18_tick_init.battle_wait.remaining = take_unpresented_ticks();
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &cc18_tick_init);
+    }
     dt_resume_after_child(st);
 
     ScriptReader *r = &st->reader;

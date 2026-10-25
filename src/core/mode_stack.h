@@ -2226,6 +2226,8 @@ typedef enum {
     DT_RESUME_CC18_SEL,         /* CC_18_08 selection menu: store result + cancel-jump on 0 */
     DT_RESUME_CC18_SEL_RESTORE, /* CC_18_09 selection menu: restore text attrs + store result */
     DT_RESUME_MENU_RESULT,      /* STORE/ESCARGO/TELEPHONE menu: store result to working_memory */
+    DT_RESUME_CC18_CLOSE_HIDE,  /* CC_18_04 after CLOSE_ALL_WINDOWS' tick: HIDE_HPPP_WINDOWS (+ its wait) */
+    DT_RESUME_CC18_CLOSE_TICK,  /* CC_18_04 after the hide: the trailing WINDOW_TICK frame */
 } DisplayTextResume;
 
 typedef struct {

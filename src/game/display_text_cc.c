@@ -1625,10 +1625,19 @@ bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          * The trailing "show cleared windows" WINDOW_TICK is a no-actionscript
          * render: DISPLAY_TEXT (this CC's caller) owns the per-char yield and
          * re-renders; a nested run_actionscript_frame would pump/park here. */
-        close_all_windows();
-        hide_hppp_windows();
-        window_tick_no_actionscript();
-        break;
+        {
+            /* Each of the three beats takes a frame at its asm point:
+             * CLOSE_ALL_WINDOWS' tick (presented here), then
+             * DT_RESUME_CC18_CLOSE_HIDE (HIDE_HPPP_WINDOWS and its indicator
+             * wait) and DT_RESUME_CC18_CLOSE_TICK (the WINDOW_TICK). */
+            (void)take_unpresented_ticks();
+            close_all_windows();
+            out_init->battle_wait.kind = BW_TICK_PRESENT;
+            out_init->battle_wait.remaining = take_unpresented_ticks();
+            *out_mode = GAME_MODE_BATTLE_WAIT;
+            *out_resume = DT_RESUME_CC18_CLOSE_HIDE;
+            return true;
+        }
     case 0x05: {
         /* FORCE_TEXT_ALIGNMENT: 2 args (x, y).
          * Port of CC_18_05 (asm/text/ccs/force_text_alignment.asm).
@@ -2575,8 +2584,19 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         /* OPEN_HP_PP_WINDOWS: 0 args.
          * Port of tree_1C.asm @SHOW_HPPP_WINDOWS → SHOW_HPPP_WINDOWS.
          * Sets ow.render_hppp_windows=1, ow.redraw_all_windows=1,
-         * ow.currently_drawn_hppp_windows=-1. */
-        show_hppp_windows();
+         * ow.currently_drawn_hppp_windows=-1. Its
+         * CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a frame (US) when an
+         * indicator is up. */
+        {
+            bool wait = (win.battle_menu_current_character_id != -1);
+            show_hppp_windows();
+            if (wait) {
+                out_init->battle_wait.kind = BW_VBLANK;
+                out_init->battle_wait.remaining = 1;
+                *out_mode = GAME_MODE_BATTLE_WAIT;
+                return true;
+            }
+        }
         break;
     case 0x05: {
         /* PRINT_ITEM_NAME: 1 arg (item_id).
