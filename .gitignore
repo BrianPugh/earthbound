@@ -14,6 +14,7 @@ savestate.bin.*
 *.log
 *.txt
 !**/CMakeLists.txt
+!tests/c/battle_cases.txt
 __pycache__/
 *.pyc
 *.pyo

@@ -262,6 +262,11 @@ uint16_t try_fix_broken_item(uint16_t fix_probability);
  * char_id: 1-indexed. target_level: desired level. set_exp: boolean. */
 void reset_char_level_one(uint16_t char_id, uint16_t target_level, uint16_t set_exp);
 
+#ifdef EB_HOST_TEST
+/* LEVEL_UP_CHAR with play_sound = 0 (the silent path), for tests/c only. */
+void host_test_level_up_char_silent(uint16_t char_id);
+#endif
+
 /* GET_REQUIRED_EXP: Port of asm/misc/get_required_exp.asm.
  * Returns EXP needed for the character's next level, or 0 if at max level.
  * char_id: 1-indexed (1=Ness, 2=Paula, 3=Jeff, 4=Poo). */

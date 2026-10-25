@@ -1700,6 +1700,13 @@ static void level_up_char_silent(uint16_t char_id) {
     }
 }
 
+#ifdef EB_HOST_TEST
+/* tests/c/battle_math_test.c calls LEVEL_UP_CHAR with play_sound = 0. */
+void host_test_level_up_char_silent(uint16_t char_id) {
+    level_up_char_silent(char_id);
+}
+#endif
+
 /* Helper: read 32-bit LE from exp_table_data at byte offset. */
 static uint32_t read_exp_at(size_t offset) {
     return read_u32_le(&exp_table_data[offset]);
