@@ -960,10 +960,12 @@ StepResult mode_step_debug_menu(ModeState *mst) {
                 update_hppp_meter_and_render();
                 update_hppp_meter_and_render();
             }
-            fade_out(1, 0);
+            /* Assembly (y_button_menu.asm @CMD_WARP): LDX #1; TXA; JSL FADE_OUT
+             * and LDX #1; TXA; JSL FADE_IN → step 1, delay 1. */
+            fade_out(1, 1);
             load_map_at_position(7696, 2280);
             set_leader_position_and_load_party(7696, 2280, 0);
-            fade_in(1, 0);
+            fade_in(1, 1);
             s->phase = DM_AFTER;
             return STEP_RESULT_CONTINUE();
         }
