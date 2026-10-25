@@ -711,6 +711,17 @@ typedef enum {
     BP_LIST_RESULT,     /* cancel -> category; PP-fail text; else targeting */
     BP_PP_RESUME,       /* after the PP-fail text pops: close, retry the list */
     BP_TARGET_RESULT,   /* close windows; cancel -> BP_OPEN; else store + pop 1 */
+    /* Each CLOSE_WINDOW's tick is its own presented frame (BW_VBLANK): */
+    BP_SINGLE_CLOSE4,   /* single target: close the target/cost window */
+    BP_SINGLE_CLOSE1,   /* single target: close the ability list */
+    BP_TARGET,          /* single target: action-name window; push targeting */
+    BP_TGT_CLOSE4,      /* after targeting: close the target/cost window */
+    BP_TGT_CLOSE1,      /* after targeting: close the ability list */
+    BP_AFTER_CLOSE,     /* @AFTER_CLOSE: cancel -> BP_OPEN; else @CHECK_RESULT */
+    BP_STORE,           /* store the selection, then @CLOSE_AND_RETURN */
+    BP_RET_CLOSE_STD,   /* @CLOSE_AND_RETURN: close the ability list */
+    BP_RET_CLOSE_CAT,   /* @CLOSE_AND_RETURN: close the category window */
+    BP_RET,             /* pop `result` */
 } BattlePsiMenuPhase;
 
 typedef struct {
@@ -722,6 +733,8 @@ typedef struct {
     uint16_t category;         /* selected PSI category */
     uint16_t psi_selection;    /* selected ability id */
     uint16_t battle_action_id; /* selected ability's battle action */
+    uint16_t check_result;     /* @LOCAL02: DETERMINE_TARGETTING's result */
+    uint8_t  result;           /* @VIRTUAL02 popped at BP_RET (0 cancel, 1 chosen) */
 } BattlePsiMenuState;
 
 /* GAME_MODE_BATTLE_MENU phases. Port of battle_selection_menu()

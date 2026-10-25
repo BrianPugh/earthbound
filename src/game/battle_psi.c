@@ -493,6 +493,38 @@ void display_psi_description(uint16_t ability_id) {
 }
 
 
+/* BATTLE_PSI_MENU's CLOSE_WINDOWs each run a WINDOW_TICK (US), one
+ * presented frame apiece. close_window() runs it inline without presenting
+ * (render_frame_tick_no_actionscript), so each close is its own phase and the
+ * tick's frame is presented (BW_VBLANK: the tick already stepped the battle
+ * background) before the next close, showing the asm's intermediate screens.
+ * `child` is the caller's push buffer (free between pushes).
+ * bp_flush presents the ticks counted since the phase's take_unpresented_ticks();
+ * bp_close closes `window_id` and flushes. Both set *phase = next and return
+ * true with *out = the push when frames are owed. */
+static bool bp_flush(ModeState *child, uint8_t *phase, uint8_t next,
+                     StepResult *out) {
+    uint16_t ticks = take_unpresented_ticks();
+    *phase = next;
+    if (ticks == 0)
+        return false;
+    *out = battle_push_vblanks(child, ticks);
+    return true;
+}
+
+static bool bp_close(ModeState *child, uint16_t window_id, uint8_t *phase,
+                     uint8_t next, StepResult *out) {
+    (void)take_unpresented_ticks();
+    close_window(window_id);
+    return bp_flush(child, phase, next, out);
+}
+
+/* direction 0 with target 1 or 3: the PSI name goes in BATTLE_ACTION_NAME. */
+static bool bp_single_target(const BattlePsiMenuState *st) {
+    return st->action_direction == 0 &&
+           (st->action_target == 1 || st->action_target == 3);
+}
+
 /*
  * BATTLE_PSI_MENU (asm/battle/battle_psi_menu.asm)
  *
@@ -509,6 +541,7 @@ void display_psi_description(uint16_t ability_id) {
 StepResult mode_step_battle_psi_menu(ModeState *ms) {
     BattlePsiMenuState *st = &ms->battle_psi_menu;
     static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+    StepResult r;
 
     if (!ensure_battle_psi_table()) return STEP_RESULT_POP(0);
 
@@ -559,9 +592,9 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
             st->category = (uint16_t)mode_child_result();
             if (st->category == 0) {
                 /* Cancelled: @CLOSE_AND_RETURN with result 0 */
-                close_window(WINDOW_TEXT_STANDARD);
-                close_window(WINDOW_PSI_CATEGORY);
-                return STEP_RESULT_POP(0);
+                st->result = 0;
+                st->phase = BP_RET_CLOSE_STD;
+                break;
             }
             /* Empty category for this character re-loops */
             if (check_psi_category_available(st->category, st->char_id) == 0) {
@@ -589,8 +622,9 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
             if (st->psi_selection == 0) {
                 /* @PSI_CANCELLED: check_result=1 -> @CHECK_RESULT closes the
                  * target/cost window and returns to the category menu. */
-                close_window(0x04);
-                st->phase = BP_CATEGORY;
+                if (bp_close(&child_init, WINDOW_PSI_TARGET_COST, &st->phase,
+                             BP_CATEGORY, &r))
+                    return r;
                 break;
             }
 
@@ -618,65 +652,122 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
             st->action_target = battle_action_table ? battle_action_table[st->battle_action_id].target : 0;
 
             /* Assembly: for single-target PSI (direction==0 with target==1
-             * or 3), close the PSI windows and show the PSI name in
-             * BATTLE_ACTION_NAME */
-            if (st->action_direction == 0 && (st->action_target == 1 || st->action_target == 3)) {
-                close_window(WINDOW_PSI_CATEGORY);
-                close_window(0x04);
-                close_window(WINDOW_TEXT_STANDARD);
+             * or 3), close the PSI windows (a CLOSE_WINDOW tick frame each)
+             * and show the PSI name in BATTLE_ACTION_NAME */
+            if (bp_single_target(st)) {
+                if (bp_close(&child_init, WINDOW_PSI_CATEGORY, &st->phase,
+                             BP_SINGLE_CLOSE4, &r))
+                    return r;
+                break;
+            }
+            st->phase = BP_TARGET;
+            break;
+        }
+
+        case BP_SINGLE_CLOSE4:
+            if (bp_close(&child_init, WINDOW_PSI_TARGET_COST, &st->phase,
+                         BP_SINGLE_CLOSE1, &r))
+                return r;
+            break;
+
+        case BP_SINGLE_CLOSE1:
+            if (bp_close(&child_init, WINDOW_TEXT_STANDARD, &st->phase, BP_TARGET, &r))
+                return r;
+            break;
+
+        case BP_TARGET:
+            if (bp_single_target(st)) {
                 create_window(WINDOW_BATTLE_ACTION_NAME);
                 set_window_palette_index(6);
                 print_psi_ability_name(st->psi_selection);
                 set_window_palette_index(0);
             }
 
-            /* Determine targeting for the selected PSI */
+            /* @DETERMINE_TARGET: targeting for the selected PSI */
             child_init = (ModeState){0};
             child_init.targeting.phase     = TGT_ENTER;
             child_init.targeting.action_id = st->battle_action_id;
             child_init.targeting.char_id   = st->char_id;
             st->phase = BP_TARGET_RESULT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &child_init);
-        }
 
         case BP_PP_RESUME:
             /* The PP-failure text popped: CLEAR_BLINKING_PROMPT, close the
-             * message window, reopen the ability list (@CHECK_RESULT == 0). */
+             * message window (its tick frame), reopen the ability list
+             * (@CHECK_RESULT == 0). */
             dt.blinking_triangle_flag = 0;
+            (void)take_unpresented_ticks();
             close_focus_window();
-            st->phase = BP_LIST;
+            if (bp_flush(&child_init, &st->phase, BP_LIST, &r))
+                return r;
             break;
 
         case BP_TARGET_RESULT:
-        default: {
-            uint16_t check_result = (uint16_t)mode_child_result();
-
-            /* Close windows based on whether we opened BATTLE_ACTION_NAME */
-            if (st->action_direction == 0 && (st->action_target == 1 || st->action_target == 3)) {
-                close_window(WINDOW_BATTLE_ACTION_NAME);
+            st->check_result = (uint16_t)mode_child_result();
+            /* Assembly: direction 0 closes BATTLE_ACTION_NAME (open only for
+             * the single-target abilities; the all/row ones keep their PSI
+             * windows up until @CHECK_RESULT / @CLOSE_AND_RETURN), any other
+             * direction closes the category, target/cost and list windows. */
+            if (st->action_direction == 0) {
+                if (bp_close(&child_init, WINDOW_BATTLE_ACTION_NAME, &st->phase,
+                             BP_AFTER_CLOSE, &r))
+                    return r;
             } else {
-                close_window(WINDOW_PSI_CATEGORY);
-                close_window(0x04);
-                close_window(WINDOW_TEXT_STANDARD);
+                if (bp_close(&child_init, WINDOW_PSI_CATEGORY, &st->phase,
+                             BP_TGT_CLOSE4, &r))
+                    return r;
             }
+            break;
 
-            if ((check_result & 0xFF) == 0) {
+        case BP_TGT_CLOSE4:
+            if (bp_close(&child_init, WINDOW_PSI_TARGET_COST, &st->phase,
+                         BP_TGT_CLOSE1, &r))
+                return r;
+            break;
+
+        case BP_TGT_CLOSE1:
+            if (bp_close(&child_init, WINDOW_TEXT_STANDARD, &st->phase,
+                         BP_AFTER_CLOSE, &r))
+                return r;
+            break;
+
+        case BP_AFTER_CLOSE:
+            if ((st->check_result & 0xFF) == 0) {
                 /* Targeting cancelled - go back to a fresh category window */
                 st->phase = BP_OPEN;
                 break;
             }
+            /* @CHECK_RESULT (nonzero): close the target/cost info window
+             * (already closed on both paths: no tick). */
+            if (bp_close(&child_init, WINDOW_PSI_TARGET_COST, &st->phase, BP_STORE, &r))
+                return r;
+            break;
 
-            /* @CHECK_RESULT (nonzero): close the target/cost info window,
-             * store the selection, @CLOSE_AND_RETURN with result 1. */
-            close_window(0x04);
+        case BP_STORE:
             bt.battle_menu_param1 = (uint8_t)st->psi_selection;
             bt.battle_menu_selected_action = battle_psi_table[st->psi_selection].battle_action;
-            bt.battle_menu_targetting = (uint8_t)(check_result >> 8);
-            bt.battle_menu_selected_target = (uint8_t)(check_result & 0xFF);
-            close_window(WINDOW_TEXT_STANDARD);
-            close_window(WINDOW_PSI_CATEGORY);
-            return STEP_RESULT_POP(1);
-        }
+            bt.battle_menu_targetting = (uint8_t)(st->check_result >> 8);
+            bt.battle_menu_selected_target = (uint8_t)(st->check_result & 0xFF);
+            st->result = 1;
+            st->phase = BP_RET_CLOSE_STD;
+            break;
+
+        case BP_RET_CLOSE_STD:
+            /* @CLOSE_AND_RETURN: CLOSE_WINDOW TEXT_STANDARD, then the
+             * category window, a tick frame each when still open. */
+            if (bp_close(&child_init, WINDOW_TEXT_STANDARD, &st->phase,
+                         BP_RET_CLOSE_CAT, &r))
+                return r;
+            break;
+
+        case BP_RET_CLOSE_CAT:
+            if (bp_close(&child_init, WINDOW_PSI_CATEGORY, &st->phase, BP_RET, &r))
+                return r;
+            break;
+
+        case BP_RET:
+        default:
+            return STEP_RESULT_POP(st->result);
         }
     }
 }
