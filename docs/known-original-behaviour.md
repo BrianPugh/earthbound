@@ -126,6 +126,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Summers museum charges the $3 admission again after you leave and come back | run-51.srm, museum lobby ticket lady npc1033 | DOOR_SCRIPTS `TEXT_DOOR_647` clears FLG_GLOBAL_MUSEUM_PAID; port run52a | 2026-10-24 |
 | Checking the hieroglyph plaque (8040,9560, facing UP) only prints the exhibit description while Poo is unconscious; Poo reads the hieroglyphs (and Omar then hands over the Hieroglyph copy) only when he is conscious | run-51.srm, hieroglyph room | EBGMESS `MSG_SIGN_SUMMERS_HIEROGLYPHS_PYRAMID` (`MSG_SYS_CHECK_CHAR_KO` on Poo → `_READ_SUMS_HIERO_DEAD`); port run52a | 2026-10-24 |
 | The Shattered Man vases (npc1039/1040) start their battle when you walk into them, no Talk needed | run-51.srm, hieroglyph room ~8038,9568 | NPC script MSG_BTL9_FMON_HIEROGLYPH_SHATTERED_A/B (touch-triggered field monster); port run52a | 2026-10-24 |
+| Talking to the Saturn Valley hotel clerk (npc710) again right after sleeping prints "Healthful and dandy!" instead of offering slumber, until you leave the hotel | run-66/67 save, hotel 6467,8029 facing LEFT, sleep then talk again | E08DOSEI.yml `MSG_DOSEI_HOTEL_SLEEP`: `jump_if_flag_set FLG_TEMP_9` → `_DOSEI_HOTEL_TMP`; the accept branch sets FLG_TEMP_9; port run67a, not emu-checked | 2026-10-25 |
 
 ## Audio
 
