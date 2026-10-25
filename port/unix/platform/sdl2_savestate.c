@@ -3,13 +3,20 @@
  *
  * Two slots back the crash-safe savestate (build-order item #5): each slot is a
  * file "savestate.bin.<slot>". A write is bracketed by _begin (truncate) and
- * _commit (fflush + fsync + close) so a power loss between them leaves the prior
- * slot's file untouched. See state_dump.c for the format/ping-pong logic and
+ * _commit (fflush + fsync + close, then an fsync of the containing directory so a
+ * newly created slot file's directory entry is durable too) so a power loss between
+ * them leaves the prior slot's file untouched. See state_dump.c for the format/ping-pong logic and
  * src/platform/platform.h for the interface contract.
  */
 #include "platform/platform.h"
 #include <stdio.h>
-#include <unistd.h>
+#include <string.h>
+#ifdef _WIN32
+#include <io.h>        /* _commit, _fileno */
+#else
+#include <unistd.h>    /* fsync, fileno, close */
+#include <fcntl.h>     /* open, O_RDONLY */
+#endif
 
 /* Slot files are "<prefix>.0" / "<prefix>.1". The playtest harness points the
  * prefix at a named snapshot (snaps/NAME) around a snap/restore. */
@@ -24,6 +31,27 @@ static const char *slot_path(int slot) {
     snprintf(path, sizeof(path), "%s.%d", slot_prefix, slot);
     return path;
 }
+
+#ifndef _WIN32
+/* Best-effort fsync of the directory holding `path` (as sdl2_save.c does for the
+ * SRAM file): the first write of a slot creates its file, and the new directory
+ * entry needs its own flush to survive a power loss. */
+static void fsync_containing_dir(const char *path) {
+    char dir[sizeof(slot_prefix) + 4];
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *slash = strrchr(dir, '/');
+    const char *dir_path = ".";
+    if (slash) {
+        *slash = '\0';
+        dir_path = dir[0] != '\0' ? dir : "/";
+    }
+    int fd = open(dir_path, O_RDONLY);
+    if (fd >= 0) {
+        fsync(fd);
+        close(fd);
+    }
+}
+#endif
 
 /* In-progress writers, one per slot (NULL when no write is open). */
 static FILE *slot_writer[SAVESTATE_SLOTS];
@@ -56,10 +84,19 @@ bool platform_savestate_commit(int slot) {
     FILE *f = slot_writer[slot];
     slot_writer[slot] = NULL;
     bool ok = (fflush(f) == 0);
+#ifdef _WIN32
+    if (ok && _commit(_fileno(f)) != 0) /* durability: the new slot must hit stable storage */
+        ok = false;
+#else
     if (ok && fsync(fileno(f)) != 0) /* durability: the new slot must hit stable storage */
         ok = false;
+#endif
     if (fclose(f) != 0)
         ok = false;
+#ifndef _WIN32
+    if (ok)
+        fsync_containing_dir(slot_path(slot));
+#endif
     return ok;
 }
 

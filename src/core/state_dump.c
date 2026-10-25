@@ -1186,6 +1186,10 @@ bool state_dump_save_slots(void) {
     bool h1 = read_slot_header(1, &s1, &c1, &p1);
 
     int newest = -1;
+    /* Equal seq (both slots valid) never comes out of this writer: every save writes
+     * the newest seq + 1, or the older seq + 1 over a torn newest slot. Only the
+     * self-tests' fixed-seq images tie, and either slot is then a whole valid image,
+     * so slot 0 winning the tie (here and in load_slots) is as good as any rule. */
     if (h0 && h1) newest = (s0 >= s1) ? 0 : 1;
     else if (h0)  newest = 0;
     else if (h1)  newest = 1;
