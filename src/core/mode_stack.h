@@ -840,6 +840,7 @@ typedef enum {
     BTL_EXEC_HILITE_DRAW, /* turn highlight: draw the attacker's indicator */
     BTL_EXEC_PP,          /* PP cost / attack palette / action (after the highlight) */
     BTL_AFTER_STATUS_CLEAR, /* clear the indicator after its wait, then dead-check */
+    BTL_EXIT_TEARDOWN,    /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP's frames, then pop */
 } BattleRoutinePhase;
 
 typedef struct {
@@ -865,6 +866,7 @@ typedef struct {
     uint16_t exp_i;             /* BTL_VICTORY_EXP loop index */
     uint16_t menu_action;       /* BTL_MENU_RESULT: the popped battle-menu action */
     int16_t  hilite_slot;       /* BTL_EXEC_SETUP: party slot to highlight, -1 none */
+    uint8_t  teardown;          /* BTL_EXIT: CLOSE_ALL_WINDOWS_AND_HIDE_HPPP beat stage */
 } BattleRoutineState;
 
 /* GAME_MODE_INSTANT_WIN — run-to-completion port of instant_win_handler()
@@ -892,6 +894,7 @@ typedef struct {
     uint8_t flash_i;    /* IW_FLASH index into the 7-color flash sequence */
     uint8_t fade_i;     /* IW_FADE frames run (0 = setup pending) */
     uint8_t battler_i;  /* IW_EXP battler loop index */
+    uint8_t teardown;   /* IW_FINISH: CLOSE_ALL_WINDOWS_AND_HIDE_HPPP beat stage */
 } InstantWinState;
 
 /* GAME_MODE_BATTLE_ENTRY — run-to-completion port of init_battle_overworld()

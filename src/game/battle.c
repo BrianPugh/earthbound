@@ -3279,6 +3279,71 @@ void set_battler_target(uint16_t attacker_offset, uint16_t target_index) {
     }
 }
 
+/* Mode-step form of CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: CLOSE_ALL_WINDOWS (its
+ * WINDOW_TICK), WINDOW_TICK, HIDE_HPPP_WINDOWS (the indicator clear's US wait,
+ * when one is up), WINDOW_TICK, one presented frame each, in that order. Call
+ * once per step with `*stage` starting at 0: returns true with *out set while a
+ * frame (or a parked actionscript frame) is owed, false once the teardown is
+ * done (the caller carries on in the same step). */
+static bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
+                                                 StepResult *out) {
+    switch (*stage) {
+    case 0: {
+        /* CLOSE_ALL_WINDOWS: its tick ran inline (window_tick_no_actionscript);
+         * the frame's entity step and present come from BW_TICK_PRESENT. */
+        (void)take_unpresented_ticks();
+        close_all_windows();
+        uint16_t ticks = take_unpresented_ticks();
+        *stage = 1;
+        if (ticks) {
+            *out = push_wait_frames(child, BW_TICK_PRESENT, ticks);
+            return true;
+        }
+    }
+        EB_FALLTHROUGH;
+    case 1:
+        *stage = 3;
+        if (window_tick_work_step()) {
+            *stage = 2;
+            *out = actionscript_frame_take_push();
+            return true;
+        }
+        *out = STEP_RESULT_CONTINUE();
+        return true;
+    case 2:
+        window_tick_work_flush();
+        *stage = 3;
+        *out = STEP_RESULT_CONTINUE();
+        return true;
+    case 3: {
+        bool waits = (win.battle_menu_current_character_id != -1);
+        hide_hppp_windows();
+        *stage = 4;
+        if (waits) {
+            *out = STEP_RESULT_CONTINUE();  /* the bare wait */
+            return true;
+        }
+    }
+        EB_FALLTHROUGH;
+    case 4:
+        *stage = 6;
+        if (window_tick_work_step()) {
+            *stage = 5;
+            *out = actionscript_frame_take_push();
+            return true;
+        }
+        *out = STEP_RESULT_CONTINUE();
+        return true;
+    case 5:
+        window_tick_work_flush();
+        *stage = 6;
+        *out = STEP_RESULT_CONTINUE();
+        return true;
+    default:
+        return false;
+    }
+}
+
 /*
  * CLOSE_ALL_WINDOWS_AND_HIDE_HPPP (asm/text/hp_pp_window/close_all_windows_and_hide_hppp.asm)
  *
@@ -5374,13 +5439,22 @@ StepResult mode_step_battle(ModeState *ms) {
             st->phase = BTL_EXIT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child_init);
 
-        case BTL_EXIT:
-        default:
-            clear_hppp_window_header();
-            force_blank_and_wait_vblank();
-            close_all_windows_and_hide_hppp();
+        case BTL_EXIT_TEARDOWN: {
+            StepResult r;
+            if (close_all_windows_and_hide_hppp_step(&st->teardown, &child_init, &r))
+                return r;
             clear_battle_visual_effects();
             return STEP_RESULT_POP(st->battle_result);
+        }
+
+        case BTL_EXIT:
+        default:
+            /* FORCE_BLANK_AND_WAIT_VBLANK's bare frame is this step's yield. */
+            clear_hppp_window_header();
+            (void)force_blank_and_wait_vblank_work_step();  /* never parks */
+            st->teardown = 0;
+            st->phase = BTL_EXIT_TEARDOWN;
+            return STEP_RESULT_CONTINUE();
         }
     }
 }
@@ -6150,14 +6224,14 @@ StepResult mode_step_instant_win(ModeState *state) {
             /* display_in_battle_text_addr's epilogue */
             dt.blinking_triangle_flag = 0;
 
-            /* --- Restore music and re-enable entities --- */
-            close_all_windows();
-            hide_hppp_windows();
-            /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP (instant_win_handler.asm:327) runs
-             * 2 more WINDOW_TICKs after close_all_windows' own; each starts
-             * with JSL RAND. */
-            rng_next_byte();
-            rng_next_byte();
+            /* --- Restore music and re-enable entities ---
+             * CLOSE_ALL_WINDOWS_AND_HIDE_HPPP (instant_win_handler.asm:327):
+             * its three WINDOW_TICKs (and the indicator wait) take a frame each. */
+            {
+                StepResult r;
+                if (close_all_windows_and_hide_hppp_step(&st->teardown, &child_init, &r))
+                    return r;
+            }
 
             if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
                 change_music(82);  /* MUSIC::BICYCLE */
