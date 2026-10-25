@@ -5186,8 +5186,10 @@ StepResult mode_step_battle(ModeState *ms) {
             }
 
             /* Fade out; the former loop body (update_battle_screen_effects)
-             * is the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick. */
-            fade_out(1, 0);
+             * is the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick.
+             * Assembly: LDX #1; TXA; JSL FADE_OUT → step 1, delay 1 (one
+             * brightness step every 2 frames, ~30 frames to black). */
+            fade_out(1, 1);
             child_init = (ModeState){0};
             child_init.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
             st->phase = BTL_EXIT;
