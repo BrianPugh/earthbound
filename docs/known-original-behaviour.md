@@ -37,6 +37,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| Battle entry and exit timings: swirl ~37 frames, swirl hold ~75, fade to black ~14, battle fade-in 28; the original stays black ~60-100 frames longer while it loads the battle / the map (SNES lag), the port shows the next scene almost at once. Battle BG animates every frame in both, no repeated frames | 17-GoldMine, `teleport 3424 9312; until battle 900 LEFT`, Auto Fight | per-frame luminance/duplicate scan, emu hto2 vs port ht2 (`shot` every frame); the exit fade was 2x too fast in the port (fade_out(1,0) vs asm `LDX #1; TXA; JSL FADE_OUT`), fixed in battle.c | 2026-10-25 |
 | Nuclear Reactor Robot "replenished a fuel supply!" and its HP are maxed out, again and again; Auto Fight (bashes, many misses) never gets it below ~600 of 798 HP in ~30000 frames | run-68 Cave of the Past, 623,6229 (right column, 4-member party L73/55/50/50) | battle action text in EBATTLE2 (`replenished a fuel supply`, SFX REFILLED, full-HP heal); fight needs PSI | 2026-10-25 |
 | Final Starman deflects every PSI back at the caster from its first turn ("The psychic power shield deflected PSI ...!", e.g. Freeze Ω reflected for 840 to Paula); later it also casts Shield β | run-69 Cave of the Past, 1129,7416 and 340,6352 (chained after a Nuclear Reactor Robot group) | ROM data: FINAL_STARMAN_1 (enemy 75) has `initial_status` 2 = INITIAL_STATUS::PSI_SHIELD_POWER, applied in asm/battle/init_enemy_stats.asm:192-202; bash it or Run Away | 2026-10-25 |
 | Giygas prayer phase: "You cannot grasp the true form of Giygas' attack!" then members collapse with no damage line ("X got hurt and collapsed...", meter snaps to 0), sometimes the whole party at once | 36-CavePast, Giygas prayer phase (relay run69a, snap pr10) | the INCOMPREHENSIBLE_ATTACK_FLASH_GAMMA* actions (ACTION_TARGET::ALL) run BTLACT_PSI_FLASH_G per target: FLASH_IMMUNITY_TEST, then RAND&7 = 0/1 → KO_TARGET (2/8; current_hp=1, target 0, MSG_BTL5_ALLY_COLLAPSED, no damage text), 2 numb, 3 strange, else crying; btlact_psi_flash_gamma_step matches. Emu gzo (evo1 snap p1, `rng 30010 1286`) shot 0173-0178: "It did not work on Ness!", "Paula got hurt and collapsed..."; port run69a log 13650-13655 prints the same. The Thunder β / Freeze α variants print damage lines | 2026-10-25 |
@@ -69,6 +70,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| The $ money window (B on the overworld) shows all digits on the first frame, no typewriter | 17-GoldMine, overworld, `press B` | emu hto2 vs port ht2 sheet-0009 (per-frame shots). CC_1C_0B (PRINT_MONEY_AMOUNT, the typed path) is not used by any retail US text | 2026-10-25 |
 | "Paula could not use the Broken tube very well." | Paula Uses the Big bottle rocket from her slot 12 (run-32) | emu run32o/0001; USE_ITEM sets argument memory to the inventory *slot*, item 12 is the Broken tube (original bug) | 2026-10-24 |
 | "There is a IQ capsule inside!" | present npc1499, 6248,5176 (save 17) | emu run35o/0004 | 2026-10-24 |
 | "(There's no response.)" for a failed Talk to | inside the Happy Happy HQ | script (FLG_HAPPY_SYSMSGCHG) | 2026-10-23 |
@@ -83,6 +85,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| PSI Teleport arrival: the screen stays black ~90 frames longer in the original before the fade-in (map-load lag); the run-in itself (30 bare frames, then 72 decelerating steps from speed 8, ending ~313 px left of the landing) matches, ±1 px from the carried sub-pixel | 24-Museum, Teleport α from 4000,9300 to Twoson (lands 1411-1412,6560) | per-frame `state`/`shot`, emu hto1 vs port ht1; F6/F7 mid-arrival restores frame-exact | 2026-10-25 |
 | UP+LEFT doesn't move Ness; LEFT does | Giant Step north path, 1976,1024 / 1997,928 / 1926,925 | emu gso1 vs port gs2 | 2026-10-24 |
 | Walking diagonally into a wall doesn't slide along it | anywhere | TEST_COLLISION_DIAGONAL | 2026-10-23 |
 | Talk to range is \|dy\|≤12/\|dx\|≤15 or \|dy\|≤7/\|dx\|≤25 | anywhere | asm | 2026-10-23 |

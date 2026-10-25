@@ -2067,7 +2067,8 @@ void select_battle_menu_character(uint16_t party_slot) {
      * own next frame, so the render is dropped. This keeps the function a pure
      * non-yielding draw — no nested pump and no run_actionscript_frame in a context
      * (overworld equip menu) where it could park and freeze entities. The marker
-     * appears one frame earlier (imperceptible). */
+     * appears earlier: see render_frame_tick_no_actionscript for the measured
+     * battle-menu gap. */
     uint16_t row_offset = ((ACTIVE_HPPP_WINDOW_Y_OFFSET + HPPP_WINDOW_HEIGHT) * 32) * 2;
     uint16_t x_offset = calc_character_indicator_x_offset(win.battle_menu_current_character_id);
     uint16_t offset = row_offset + x_offset;

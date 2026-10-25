@@ -1551,7 +1551,15 @@ void render_frame_tick_work_flush(void) {
  * there would either pump or, if it parked, leave ert.disable_actionscript set and
  * freeze entities. The enclosing menu mode-step advances entities and owns the
  * yield; this just refreshes the window VRAM. OAM is left as last frame's (no
- * oam_clear), so sprites are unchanged. */
+ * oam_clear), so sprites are unchanged.
+ *
+ * Known deviation (hand-tested 2026-10-25, emu vs port): no frame is presented
+ * here, so a chain of these beats collapses into the caller's single frame. In a
+ * battle, confirming Ness's target to Paula's command menu takes 0 frames in the
+ * port; the original spends ~5 logic frames (CLOSE_WINDOW ticks, the
+ * CLEAR_/SELECT_BATTLE_MENU_CHARACTER waits, the first SELECTION_MENU tick) plus
+ * ~8 lag frames, ~13 SNES frames in all. Making each beat yield needs a phase at
+ * every caller (dozens of sites), so it is left as is. */
 void render_frame_tick_no_actionscript(void) {
     if (ow.render_hppp_windows & 0xFF)
         update_text_window_palette();
