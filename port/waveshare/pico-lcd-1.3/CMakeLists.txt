@@ -137,13 +137,16 @@ pico_add_extra_outputs(earthbound_pico)
 # Static RAM budget: the build fails when .data + .bss exceeds RAM_BUDGET_BYTES
 # (.data includes the .time_critical PPU functions copied to SRAM). Measured
 # 2026-10-25, pico-sdk 2.2.0 + arm-none-eabi-gcc 15.3, Release, single core:
-# .data 49,864 + .bss 157,772 = 207,636 bytes. The budget leaves ~1.8 KB of
-# headroom; the rest of the 264 KB is the stacks (scratch banks) and the
-# vector table. Raise it only for intended growth, in the same commit, saying
-# why. Builds with EB_ENABLE_DUAL_CORE_PPU need their own -DRAM_BUDGET_BYTES.
-# It is a cache variable, so an existing build dir keeps its old value until
-# reconfigured with -U RAM_BUDGET_BYTES.
-set(RAM_BUDGET_BYTES 209408 CACHE STRING "Max .data + .bss bytes for earthbound_pico")
+# .data 34,936 + .bss 133,496 = 168,432 bytes. The budget is a growth ratchet
+# 4 KB above that, not a hardware limit: main SRAM is 256 KB (0x20000000-
+# 0x2003FFFF) and holds only the 192-byte vector table, .data and .bss (the
+# heap is empty), so ~91 KB of it is free. The two 4 KB scratch banks hold the
+# core 0 stack (SCRATCH_Y) and the save sector buffer (SCRATCH_X, core 1's
+# stack in dual-core builds). Raise the budget only for intended growth, in
+# the same commit, saying why. Builds with EB_ENABLE_DUAL_CORE_PPU need their
+# own -DRAM_BUDGET_BYTES. It is a cache variable, so an existing build dir
+# keeps its old value until reconfigured with -U RAM_BUDGET_BYTES.
+set(RAM_BUDGET_BYTES 172528 CACHE STRING "Max .data + .bss bytes for earthbound_pico")
 get_filename_component(EB_ARM_TOOLCHAIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
 find_program(EB_ARM_SIZE arm-none-eabi-size HINTS "${EB_ARM_TOOLCHAIN_DIR}" REQUIRED)
 add_custom_command(TARGET earthbound_pico POST_BUILD

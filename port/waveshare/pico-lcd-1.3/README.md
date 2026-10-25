@@ -55,10 +55,13 @@ Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.dat
 | Section | Bytes |
 |---|---|
 | `.ram_vector_table` | 192 |
-| `.data` | 49,864 |
-| `.bss` | 157,772 |
+| `.data` | 34,936 |
+| `.bss` | 133,496 |
+| `.scratch_x` | 4,096 (save sector buffer) |
 | `.stack_dummy` | 2,048 |
-| **`.data + .bss`** | **207,636** (budget 209,408) |
+| **`.data + .bss`** | **168,432** (budget 172,528) |
+
+Main SRAM is 256 KB and holds only the vector table, `.data` and `.bss` (the heap is empty), so about 91 KB of it is free; the core 0 stack has the 4 KB SCRATCH_Y bank to itself, and SCRATCH_X holds the save sector buffer (core 1's stack in dual-core builds, which keep the buffer in `.bss`).
 
 The `EB_ENABLE_DUAL_CORE_PPU=ON` build doesn't link on that toolchain (`platform_worker_init`: "dangerous relocation: unsupported relocation" in `main.c`), so it has no recorded figure; pass `-DRAM_BUDGET_BYTES=...` when it does.
 
@@ -69,10 +72,10 @@ The `EB_ENABLE_DUAL_CORE_PPU=ON` build doesn't link on that toolchain (`platform
 
 ### Audio
 
-Audio is disabled by default — the RP2040's 264KB RAM is nearly filled by game state (~250KB BSS), leaving no room for the SPC700/DSP emulator's 64KB APU RAM. To enable audio (e.g. on an RP2350 with 520KB RAM), set `ENABLE_AUDIO ON` in `CMakeLists.txt`. PWM output goes to GPIO 0 (`PIN_AUDIO_PWM` in `board.h`); wire through an RC low-pass filter (1 kΩ + 100 nF) to an amplifier/speaker.
+Audio is disabled by default. The SPC700/DSP emulator needs ~70 KB (64 KB of APU RAM), which no longer exceeds the ~91 KB of free main SRAM, but the APU state is heap-allocated (the Pico heap is empty) and the RP2040's CPU budget for emulating it is unmeasured. To enable audio (e.g. on an RP2350 with 520KB RAM), set `ENABLE_AUDIO ON` in `CMakeLists.txt`. PWM output goes to GPIO 0 (`PIN_AUDIO_PWM` in `board.h`); wire through an RC low-pass filter (1 kΩ + 100 nF) to an amplifier/speaker.
 
 ## Known Limitations
 
-- **No audio** — RP2040 lacks sufficient RAM for the SPC700 emulator (see above).
+- **No audio** — the SPC700 emulator is not built for the RP2040 (see above).
 - **Video performance** — the display path currently uses per-pixel writes via libdriver. A windowed write + DMA path is needed to hit 60fps.
 - **Missing buttons** — Select, L, and R have no physical mapping. A chord/combo scheme (e.g. joystick press + A = Select) could be added.
