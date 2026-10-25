@@ -427,7 +427,7 @@ void write_spritemap_to_oam(const uint8_t *spritemap, int16_t base_x,
             continue;
         }
         uint8_t x_lo = (uint8_t)(sx & 0xFF);
-        uint8_t x_hi_bit = (uint8_t)((sx >> 8) & 1);
+        uint8_t x_hi_bit = (uint8_t)(((uint16_t)sx >> 8) & 1);
 
         /* Size bit from special_flags bit 0 */
         uint8_t size_bit = (flags & 0x01);

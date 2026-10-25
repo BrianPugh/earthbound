@@ -84,10 +84,8 @@ static void init_path_matrix_borders(void) {
     /* Mark first and last column of each row as walls */
     for (int16_t row = 0; row < path_matrix_rows; row++) {
         int16_t last_col = path_matrix_columns - 1;
-        /* Last column */
+        /* Last column (the asm writes 253 unconditionally) */
         int idx = row * path_matrix_columns + last_col;
-        if (path_matrix[idx] != PATH_CELL_WALL)
-            ; /* assembly always writes 253 regardless */
         path_matrix[idx] = PATH_CELL_WALL;
         /* First column */
         idx = row * path_matrix_columns;

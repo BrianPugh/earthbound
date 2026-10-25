@@ -1028,6 +1028,8 @@ uint16_t equip_item(uint16_t char_id, uint16_t item_slot) {
  * This C version uses loops to avoid the ~500 lines of repetitive assembly. */
 void swap_item_into_equipment(uint16_t source_char_id, uint16_t item_slot,
                                uint16_t target_char_id) {
+    /* item_slot >= 1: the only caller (Goods -> Give in text.c) has already
+     * returned on a cancelled (0) inventory selection; the asm has no guard. */
     uint16_t src_idx = source_char_id - 1;  /* 0-based */
     uint16_t slot_0 = item_slot - 1;        /* 0-based */
 

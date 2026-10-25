@@ -357,9 +357,7 @@ void title_screen_setup(uint16_t quick_mode) {
         {
             /* Re-save: fade->target already has the target from above */
             /* Accumulators start at 0 (current palette is 0) */
-            memset(fade->slope_r, 0, sizeof(fade->slope_r) + sizeof(fade->slope_g)
-                   + sizeof(fade->slope_b) + sizeof(fade->accum_r)
-                   + sizeof(fade->accum_g) + sizeof(fade->accum_b));
+            palette_fade_clear_slopes(fade);
 
             /* Compute slopes for palette group 8 (colors 128-143) */
             for (int i = 128; i < 144; i++) {

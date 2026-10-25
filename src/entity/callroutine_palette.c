@@ -36,9 +36,7 @@ void copy_fade_buffer_to_palettes(void) {
 
 void prepare_palette_fade_slopes(int16_t frames, uint16_t mask) {
     PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
-    memset(fade->slope_r, 0, sizeof(fade->slope_r) + sizeof(fade->slope_g)
-           + sizeof(fade->slope_b) + sizeof(fade->accum_r)
-           + sizeof(fade->accum_g) + sizeof(fade->accum_b));
+    palette_fade_clear_slopes(fade);
 
     uint16_t group_mask = mask;
     for (int group = 0; group < 16; group++) {

@@ -279,8 +279,10 @@ static void set_teleport_velocity_by_direction(void) {
     case 6: sx = -5; break;                /* LEFT */
     case 7: sy = -5; sx = -5; break;       /* UP_LEFT */
     }
-    ow.psi_teleport_speed_x = (int32_t)sx << 16;
-    ow.psi_teleport_speed_y = (int32_t)sy << 16;
+    /* 16.16 fixed point, integer part in the high word (shifted unsigned:
+     * a left shift of a negative int is undefined in C). */
+    ow.psi_teleport_speed_x = (int32_t)((uint32_t)sx << 16);
+    ow.psi_teleport_speed_y = (int32_t)((uint32_t)sy << 16);
 }
 
 /* ---- UPDATE_TELEPORT_BETA_INPUT (port of asm/overworld/teleport/update_teleport_beta_input.asm) ----

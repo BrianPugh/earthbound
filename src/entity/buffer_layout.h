@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 /* ===== Palette Fade Engine (callroutine_palette.c, title_screen.c, gas_station.c) ===== */
 /* 256 colors × 2 bytes = 512 bytes per array; total 3584 bytes (0x0E00). */
@@ -179,6 +180,13 @@ _Static_assert(offsetof(PaletteFadeBuffer, slope_r) == BUF_FADE_SLOPE_R,
                "slope_r offset mismatch");
 _Static_assert(offsetof(PaletteFadeBuffer, accum_b) == BUF_FADE_ACCUM_B,
                "accum_b offset mismatch");
+
+/* Zero the six slope/accumulator arrays (everything after target[]) in one
+ * pass, through the struct's bytes so the write may span members. */
+static inline void palette_fade_clear_slopes(PaletteFadeBuffer *fade) {
+    memset((uint8_t *)fade + offsetof(PaletteFadeBuffer, slope_r), 0,
+           sizeof(*fade) - offsetof(PaletteFadeBuffer, slope_r));
+}
 
 /* Map Palette Fade: 7 parallel arrays × 96 entries.
  * Overlays ert.buffer[BUF_MAP_FADE_TARGET .. BUF_MAP_FADE_TARGET + 6*0x100].

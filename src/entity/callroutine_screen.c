@@ -62,7 +62,8 @@ int16_t cr_load_title_palette(int16_t ent, int16_t scr,
     }
 
     copy_fade_buffer_to_palettes();
-    memset(ert.palettes, 0, 256);
+    /* asm: MEMSET16 of BPP4PALETTE_SIZE * 8 bytes = colours 0-127 only */
+    memset(&ert.palettes[0], 0, 128 * sizeof(ert.palettes[0]));
     prepare_palette_fade_slopes(165, 0xFFFF);
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
     return 0;
