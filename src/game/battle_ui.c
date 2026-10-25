@@ -1224,32 +1224,29 @@ void load_battle_sprite(uint16_t sprite_id) {
         return;
     }
 
-    const uint8_t *compressed = ASSET_DATA(ASSET_BATTLE_SPRITES(sprite_id - 1));
-    size_t compressed_size = ASSET_SIZE(ASSET_BATTLE_SPRITES(sprite_id - 1));
-    if (!compressed) return;
-
-    /* Decompress to decomp_staging (shared_scratch.decomp) to avoid aliasing
-     * with the scatter-copy destinations in ert.buffer (buffer_offsets[], all < $4000).
-     * Assembly uses BUFFER+$8000; we use decomp_staging (32 KB, free during
-     * battle) to avoid the high ert.buffer offset. */
-    size_t decompressed_size = decomp(compressed, compressed_size,
-                                       decomp_staging, SHARED_SCRATCH_SIZE);
-    if (decompressed_size == 0) return;
-    const uint8_t *decompressed = decomp_staging;
+    /* The asm decompresses the sprite to BUFFER+$8000 and scatter-copies it
+     * from there. Here pack-all stores it decompressed (N.gfx.raw), so the
+     * copy reads the asset in place (flash on embedded ports). */
+    const uint8_t *decompressed = ASSET_DATA(ASSET_BATTLE_SPRITES(sprite_id - 1));
+    size_t decompressed_size = ASSET_SIZE(ASSET_BATTLE_SPRITES(sprite_id - 1));
+    if (!decompressed || decompressed_size == 0) return;
 
     /* Copy decompressed tiles to ert.buffer at correct offsets (lines 393-446).
      * Each tile slot is 4 rows of 128 bytes, placed 0x200 apart in the ert.buffer
      * (matching the SNES VRAM sprite tile row stride of 16 tiles). */
     uint16_t total_tiles = width * height;
-    const uint8_t *src = decompressed;
+    size_t src_off = 0;
     for (uint16_t t = 0; t < total_tiles; t++) {
         if (bt.current_battle_spritemaps_allocated >= 32) break;
         uint16_t dest_base = read_u16_le(buffer_offsets
                                          + bt.current_battle_spritemaps_allocated * 2);
         bt.current_battle_spritemaps_allocated++;
         for (uint16_t row = 0; row < 4; row++) {
-            memcpy(&ert.buffer[dest_base + row * 0x200], src, 128);
-            src += 128;
+            /* Every sprite's GFX is width × height × 512 bytes (all 110
+             * checked); don't read past the end of a shorter edited one. */
+            if (src_off + 128 <= decompressed_size)
+                memcpy(&ert.buffer[dest_base + row * 0x200], decompressed + src_off, 128);
+            src_off += 128;
         }
     }
 }

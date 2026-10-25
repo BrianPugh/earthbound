@@ -718,6 +718,9 @@ def pack_all(
     # --- Wide-viewport gutter overrides (authored, src/custom_assets/) ---
     packed += _pack_gutter_overrides(custom_dir or assets_dir.parent / "custom_assets", output_dir)
 
+    # --- Decompressed copies for read-in-place (no RAM staging in the C port) ---
+    packed += _pack_raw_decompressed(bin_dir, output_dir)
+
     # --- Inline string table ---
     string_table_data = string_table.build()
     if string_table_data:
@@ -1418,6 +1421,44 @@ def _pack_all_battle_bgs(assets_dir: Path, output_dir: Path) -> int:
             count += 1
     if count:
         print(f"  Packed {count} battle backgrounds")
+    return count
+
+
+# Compressed families the C port reads decompressed, straight from the
+# embedded asset (flash on embedded ports), instead of decompressing them into
+# a RAM scratch buffer: the map tile arrangement stays live for the whole
+# overworld, and the sanctuary tileset GFX and battle sprite GFX are only
+# copied out piecewise. The .lzhal originals are excluded from the embed.
+RAW_DECOMPRESSED_FAMILIES = (
+    ("maps/arrangements", ".arr.lzhal", ".arr.raw"),
+    ("US/maps/arrangements", ".arr.lzhal", ".arr.raw"),
+    ("maps/gfx", ".gfx.lzhal", ".gfx.raw"),
+    ("US/maps/gfx", ".gfx.lzhal", ".gfx.raw"),
+    ("battle_sprites", ".gfx.lzhal", ".gfx.raw"),
+    ("US/battle_sprites", ".gfx.lzhal", ".gfx.raw"),
+)
+
+
+def _pack_raw_decompressed(bin_dir: Path, output_dir: Path) -> int:
+    from ebtools.hallz import decompress
+
+    count = 0
+    for rel_dir, src_ext, raw_ext in RAW_DECOMPRESSED_FAMILIES:
+        # Packed (edited) assets override the extracted originals.
+        sources: dict[str, Path] = {}
+        for base in (bin_dir / rel_dir, output_dir / rel_dir):
+            if base.is_dir():
+                for path in base.glob(f"*{src_ext}"):
+                    sources[path.name[: -len(src_ext)]] = path
+        if not sources:
+            continue
+        out_dir = output_dir / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for stem, path in sorted(sources.items()):
+            (out_dir / f"{stem}{raw_ext}").write_bytes(decompress(path.read_bytes()))
+            count += 1
+    if count:
+        print(f"  Decompressed {count} map/battle-sprite assets for in-place reads")
     return count
 
 

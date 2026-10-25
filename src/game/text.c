@@ -191,11 +191,9 @@ void text_load_window_gfx(void) {
     }
 
     /* Text window GFX processing needs up to ~19 KB (memmove to 0x4A00).
-     * Uses ert.buffer — MUST NOT use decomp_staging (arrangement_buffer)
-     * because arrangement data is needed for ongoing overworld tile lookups.
-     * Using decomp_staging here caused Tenda Village sprite corruption: the
-     * map arrangement was clobbered, so tile rendering produced garbage on
-     * first movement after a text/window GFX reload.
+     * Uses ert.buffer. (It once staged in the scratch that also held the map
+     * arrangement, which clobbered it: Tenda Village tiles turned to garbage
+     * on the first move after a text/window GFX reload.)
      *
      * This function is the sole reason BUFFER_SIZE is 20 KB instead of 16 KB.
      * To reduce further, the in-place rearrangement (memmove from 0x1000 to

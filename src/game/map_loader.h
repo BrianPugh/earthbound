@@ -299,23 +299,4 @@ extern const int16_t sprite_hitbox_enable[17];
  * Port of ANIMATE_TILESET (asm/system/animate_tileset.asm). */
 void animate_tileset(void);
 
-/* Shared 32 KB scratch buffer, time-shared across exclusive game phases.
- * Access via the appropriate union member to document which phase is active.
- *
- * Never concurrent — map arrangement is only live during overworld rendering,
- * sanctuary decomp only during the sanctuary screen, and battle sprite decomp
- * only during battle init. */
-#define SHARED_SCRATCH_SIZE 0x8000
-
-typedef union {
-    uint8_t arrangement[SHARED_SCRATCH_SIZE]; /* Overworld: map tile arrangement lookup */
-    uint8_t decomp[SHARED_SCRATCH_SIZE];      /* Sanctuary/battle: decompression staging */
-} SharedScratch;
-
-extern SharedScratch shared_scratch;
-
-/* Convenience accessors */
-#define arrangement_buffer (shared_scratch.arrangement)
-#define decomp_staging     (shared_scratch.decomp)
-
 #endif /* GAME_MAP_LOADER_H */

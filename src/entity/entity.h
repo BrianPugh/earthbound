@@ -256,13 +256,12 @@ typedef struct {
  *     - PSI GFX:           decomp → buffer[BUF_PSI_GFX], to VRAM
  *     - Ending credits:    decomp → BUF_CREDITS_GFX_1/2, BUF_CREDITS_PALETTE
  *     - Town map GFX:      decomp → buffer[0x0000]
- *     - Battle sprites:    decomp → buffer[BUF_BATTLE_SPRITE_DECOMP]
  *   Optimized to bypass ert.buffer (decompress directly to destination):
  *     - Intro GFX/tilemaps: → ppu.vram
  *     - Game-over GFX:      → ppu.vram
  *     - Map tileset GFX:    → ppu.vram
- *     - Sanctuary arrangements: → arrangement_buffer (static 32 KB)
- *     - Sanctuary tile GFX:    → arrangement_buffer, then tile-by-tile to ppu.vram
+ *     - Map/sanctuary arrangements, map tileset GFX, battle sprite GFX:
+ *       stored decompressed (N.arr.raw / N.gfx.raw) and read in place
  *
  * YOUR SANCTUARY TILEMAP BUILDER (map_loader.c)
  *   Assembly: display_your_sanctuary_location.asm
@@ -271,7 +270,7 @@ typedef struct {
  *   BUF_SANCTUARY_PALETTES   0x4000  8 palettes (8 × 256 B)      2 KB
  *   BUF_SANCTUARY_MAP_BLOCKS 0x4800  Tile usage map (2 KB)       transient during load
  *   Caches all 8 locations like the assembly (the tiles accumulate in VRAM).
- *   Arrangement/GFX decomp uses arrangement_buffer (not ert.buffer).
+ *   Arrangement/GFX are read in place from their .raw assets (no staging).
  *
  * SANCTUARY FLASH FADE (map_loader.c)
  *   Active during: sanctuary screen (exclusive phase, shares buffer with above)
@@ -314,7 +313,7 @@ typedef struct {
  * Lumine Hall wall text: BUF_PORTRAIT_* (0x0000-0x39D8); clobbers the
  *             palette fade and entity fade areas, which are idle then
  * Sanctuary:  BUF_SANCTUARY_TILEMAPS + BUF_SANCTUARY_PALETTES + BUF_SANCTUARY_MAP_BLOCKS (20 KB)
- *             + BUF_FLASH_* [exclusive] (decomp uses arrangement_buffer)
+ *             + BUF_FLASH_* [exclusive] (arrangement/GFX read in place)
  * Intro:      BUF_FADE_* only (GFX decompresses directly to ppu.vram)
  * Ending:     BUF_CREDITS_* [exclusive]
  *
@@ -375,8 +374,8 @@ typedef struct {
  *   Overworld:   ~17 KB (palette fade + entity fade + pathfinding at 0x3000
  *                + pf_heap at 0x4000, ends at 0x4C00)
  *   Battle:      ~4 KB (palette fade + scatter-copy to ~0x3A00 in ert.buffer,
- *                decomp uses arrangement_buffer; PSI uses bundled format)
- *   Sanctuary:   ~2.3 KB (single-slot on-demand; decomp uses arrangement_buffer)
+ *                sprites read in place from .raw; PSI uses bundled format)
+ *   Sanctuary:   20 KB (all 8 tilemaps + palettes + LOADED_MAP_BLOCKS)
  *   Lumine Hall wall text: 14.4 KB (ends at 0x39D8; staging 0x0000-0x1C00
  *                then scroll columns overlay it, columns 0x1C00-0x39D8)
  *   Ending:      ~10 KB transient (cast tile GFX direct to ppu.vram)
@@ -387,14 +386,13 @@ typedef struct {
  *
  * Highest concurrent offset during overworld: ~0x4C00 (pathfinding + heap).
  * Most exclusive phases fit within ~15 KB, but text_load_window_gfx()
- * peaks at 0x4A00 (~19 KB) and runs during overworld (cannot use
- * decomp_staging because it aliases arrangement_buffer which must persist).
+ * peaks at 0x4A00 (~19 KB) and runs during overworld, and the sanctuary
+ * screen fills it to 0x5000.
  * BUFFER_SIZE is therefore 0x5000 (20 KB). No features are degraded.
  */
 /* 20 KB. The bottleneck is text_load_window_gfx() in text.c, which uses
  * ert.buffer for in-place tile rearrangement peaking at offset 0x4A00.
- * It cannot use decomp_staging (arrangement_buffer) because arrangement
- * data must survive across text reloads during overworld gameplay.
+ * The sanctuary screen also fills it exactly (BUF_SANCTUARY_MAP_BLOCKS).
  * See the comment in text_load_window_gfx() for optimization notes. */
 #define BUFFER_SIZE 0x5000
 

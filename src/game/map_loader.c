@@ -184,14 +184,64 @@ void invalidate_loaded_tileset_combo(void) {
     ow.loaded_map_tile_combo = -1;
 }
 
-/* --- Map tile arrangement ert.buffer ---
- * Decompressed from maps/arrangements/{id}.arr.lzhal.
- * This is a BLOCK LOOKUP TABLE, not a spatial map.
+/* --- Map tile arrangement ---
+ * maps/arrangements/{id}: a BLOCK LOOKUP TABLE, not a spatial map.
  * Each block has 16 entries (4 columns × 4 rows), each 2 bytes.
- * Index: arrangement_buffer[(block_id * 16 + sub_row * 4 + sub_col) * 2] */
-SharedScratch shared_scratch;
+ * Index: (block_id * 16 + sub_row * 4 + sub_col) * 2
+ *
+ * The asm decompresses it into BUFFER+$8000 (a 32 KB window = 1024 blocks)
+ * and REPLACE_BLOCK copies 32-byte blocks around inside that copy. Here the
+ * decompressed asset (N.arr.raw, written by pack-all) is read in place, so it
+ * stays in flash on embedded ports, and arrangement_block_src[] records which
+ * original block each block currently holds: a block copy is
+ * arrangement_block_src[dest] = arrangement_block_src[src], which reads the
+ * same bytes the asm's copy would hold.
+ *
+ * The sanctuary screen decompresses its tileset GFX over that buffer, so until
+ * the next map load the asm reads those GFX bytes as the arrangement (visible
+ * for a few frames as the montage fades out). arrangement_overlay mirrors
+ * that: offsets below its size read the overlay instead of the arrangement.
+ * (Battle sprite GFX land there too in the asm, but every way out of a battle
+ * loads a map before one is drawn, so that is not mirrored.) */
+#define ARRANGEMENT_MAX_BLOCKS 1024
+#define ARRANGEMENT_BLOCK_BYTES 32
+static const uint8_t *arrangement_data = NULL;
 static size_t arrangement_size = 0;
 static bool arrangement_loaded = false;
+static uint16_t arrangement_block_src[ARRANGEMENT_MAX_BLOCKS];
+static const uint8_t *arrangement_overlay = NULL;
+static size_t arrangement_overlay_size = 0;
+
+/* Point the arrangement at tileset_id's data with no blocks replaced
+ * (the asm's DECOMP into BUFFER+$8000). */
+static bool load_arrangement(uint16_t tileset_id) {
+    arrangement_data = ASSET_DATA(ASSET_MAPS_ARRANGEMENTS(tileset_id));
+    arrangement_size = arrangement_data ? ASSET_SIZE(ASSET_MAPS_ARRANGEMENTS(tileset_id)) : 0;
+    /* The asm's window holds 1024 blocks (the old 32 KB decomp cap). */
+    if (arrangement_size > (size_t)ARRANGEMENT_MAX_BLOCKS * ARRANGEMENT_BLOCK_BYTES)
+        arrangement_size = (size_t)ARRANGEMENT_MAX_BLOCKS * ARRANGEMENT_BLOCK_BYTES;
+    for (uint16_t i = 0; i < ARRANGEMENT_MAX_BLOCKS; i++)
+        arrangement_block_src[i] = i;
+    arrangement_overlay = NULL;
+    arrangement_overlay_size = 0;
+    arrangement_loaded = (arrangement_size > 0);
+    if (!arrangement_loaded)
+        LOG_WARN("map_loader: no arrangement for tileset %u\n", tileset_id);
+    return arrangement_loaded;
+}
+
+/* Copy a whole asset (stored decompressed) to dst, up to dst_max bytes. */
+static size_t copy_raw_asset(AssetId id, uint8_t *dst, size_t dst_max) {
+    const uint8_t *data = ASSET_DATA(id);
+    if (!data) {
+        LOG_WARN("map_loader: failed to load asset %d\n", (int)id);
+        return 0;
+    }
+    size_t size = ASSET_SIZE(id);
+    if (size > dst_max) size = dst_max;
+    memcpy(dst, data, size);
+    return size;
+}
 
 /* --- Map chunk data (spatial layout) ---
  * 10 chunk files: chunks 1-8 hold low bytes of block IDs,
@@ -274,11 +324,20 @@ static uint16_t get_block_id(uint16_t bx, uint16_t by) {
  * per block in row-major order: row offset = (tile_y & 3) * 4,
  * column offset = (tile_x & 3). */
 static uint16_t get_arrangement_tile(uint16_t block_id, uint8_t sub_col, uint8_t sub_row) {
-    size_t index = (size_t)block_id * 16 + sub_row * 4 + sub_col;
-    size_t byte_offset = index * 2;
-    if (byte_offset + 2 > arrangement_size)
+    size_t entry = (size_t)sub_row * 4 + sub_col;
+    if (((size_t)block_id * 16 + entry) * 2 + 2 > arrangement_size)
         return 0;
-    return read_u16_le(&arrangement_buffer[byte_offset]);
+    /* block_id < ARRANGEMENT_MAX_BLOCKS here: arrangement_size is capped. */
+    size_t src_offset = ((size_t)arrangement_block_src[block_id] * 16 + entry) * 2;
+    if (src_offset + 2 > arrangement_size)
+        return 0;
+    if (src_offset < arrangement_overlay_size) {
+        uint8_t lo = arrangement_overlay[src_offset];
+        uint8_t hi = src_offset + 1 < arrangement_overlay_size ? arrangement_overlay[src_offset + 1]
+                                                               : arrangement_data[src_offset + 1];
+        return (uint16_t)(lo | (hi << 8));
+    }
+    return read_u16_le(&arrangement_data[src_offset]);
 }
 
 bool map_loader_init(void) {
@@ -434,17 +493,15 @@ static void load_tile_collision(uint16_t tileset_id) {
  * Port of asm/overworld/replace_block.asm.
  *
  * Copies one block's arrangement data (32 bytes = 16 tile entries × 2 bytes)
- * from source block to destination block in arrangement_buffer.
+ * from source block to destination block (see arrangement_block_src).
  * Also copies the ml.tile_collision_buffer entry.
  *
  * dest_block: destination block ID
  * src_block: source block ID */
 static void replace_block(uint16_t dest_block, uint16_t src_block) {
-    uint32_t dest_off = (uint32_t)dest_block * 32;
-    uint32_t src_off = (uint32_t)src_block * 32;
-    if (dest_off + 32 > SHARED_SCRATCH_SIZE || src_off + 32 > SHARED_SCRATCH_SIZE)
+    if (dest_block >= ARRANGEMENT_MAX_BLOCKS || src_block >= ARRANGEMENT_MAX_BLOCKS)
         return;
-    memcpy(arrangement_buffer + dest_off, arrangement_buffer + src_off, 32);
+    arrangement_block_src[dest_block] = arrangement_block_src[src_block];
     if (dest_block < 960 && src_block < 960) {
         ml.tile_collision_buffer[dest_block] = ml.tile_collision_buffer[src_block];
     }
@@ -516,8 +573,8 @@ void load_current_map_block_events(void) {
  * loaded. The serialized snapshot carries the live map STATE (ml: collision
  * grid, tileset combo, palettes; the VRAM tileset GFX + tilemaps in the PPU
  * section) but NOT the file-static scratch that load_map_at_sector() populates:
- * `arrangement_buffer` (= shared_scratch.arrangement, deliberately non-serialized
- * scratch) and the `arrangement_loaded`/`chunks_loaded` flags + the compile-time
+ * the arrangement pointer + arrangement_block_src (deliberately non-serialized)
+ * and the `arrangement_loaded`/`chunks_loaded` flags + the compile-time
  * table pointers (tilesetpalette_data, chunk_data[], collision_arrangement_table).
  * On an in-process F7 load those are already live; on a cold boot the boot path
  * that would have set them is bypassed, so fill_tilemaps()/fill_collision_tiles()
@@ -534,10 +591,8 @@ void map_loader_savestate_rebind(void) {
 
     uint16_t tileset_id = get_tileset_id((uint16_t)ml.loaded_tileset_combo);
 
-    /* Re-decompress the tileset's block→tile arrangement into the scratch buffer. */
-    arrangement_size = load_and_decompress(ASSET_MAPS_ARRANGEMENTS(tileset_id),
-                                           arrangement_buffer, SHARED_SCRATCH_SIZE);
-    arrangement_loaded = (arrangement_size > 0);
+    /* Re-bind the tileset's block→tile arrangement. */
+    load_arrangement(tileset_id);
 
     /* Rebuild the collision pointer buffer, then re-apply event-driven block
      * swaps (same order as load_map_at_sector) so both the arrangement and the
@@ -1758,9 +1813,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     uint16_t tileset_id = get_tileset_id(tileset_combo);
 
     /* Load tile arrangement data (always reload — different tilesets may share IDs). */
-    arrangement_size = load_and_decompress(ASSET_MAPS_ARRANGEMENTS(tileset_id),
-                                           arrangement_buffer, SHARED_SCRATCH_SIZE);
-    arrangement_loaded = (arrangement_size > 0);
+    load_arrangement(tileset_id);
 
     /* Load collision pointer array for this tileset (unconditional).
      * Port of load_map_at_sector.asm line 73: JSR LOAD_TILE_COLLISION.
@@ -1793,7 +1846,7 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
          * credits put the photo frame's BG2 tiles at word $2000 (byte $4000),
          * which a full tileset upload would overwrite. */
         size_t gfx_max = photograph_map_loading_mode ? 0x4000 : sizeof(ppu.vram);
-        load_and_decompress(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
+        copy_raw_asset(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
         /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
          * so any cell not overwritten by fill_collision_tiles() blocks movement.
          * This prevents walking into out-of-bounds areas at map edges. */
@@ -1980,17 +2033,13 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     }
 
     /*
-     * --- Step 3: Decompress arrangement data directly into arrangement_buffer ---
-     * Port of DECOMP(src=MAP_DATA_TILE_ARRANGEMENT_N, dst=BUFFER+$8000).
-     * Intentional divergence: assembly stages through BUFFER+$8000 then copies
-     * to the arrangement lookup buffer. We decompress directly, avoiding the
-     * intermediate copy and freeing ert.buffer from sanctuary decomp usage.
+     * --- Step 3: Load the arrangement ---
+     * Port of DECOMP(src=MAP_DATA_TILE_ARRANGEMENT_N, dst=BUFFER+$8000): the
+     * same buffer the overworld arrangement lives in, so this replaces the
+     * loaded map's arrangement (without its event block changes) like the asm.
+     * Step 5 then puts the tileset GFX over it (arrangement_overlay).
      */
-    arrangement_size = load_and_decompress(ASSET_MAPS_ARRANGEMENTS(tileset_id),
-                                           arrangement_buffer,
-                                           SHARED_SCRATCH_SIZE);
-    arrangement_loaded = (arrangement_size > 0);
-    if (!arrangement_loaded) {
+    if (!load_arrangement(tileset_id)) {
         LOG_WARN("load_your_sanctuary_location: failed to load arrangement for tileset %u\n", tileset_id);
         return;
     }
@@ -2009,7 +2058,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
      *   world_ty = start_tile_y + row
      *   block_id = get_block_id(world_tx >> 2, world_ty >> 2)
      *   arr_index = block_id * 16 + (world_ty & 3) * 4 + (world_tx & 3)
-     *   tile_entry = arrangement_buffer[arr_index]  (16-bit tilemap word)
+     *   tile_entry = arrangement[arr_index]  (16-bit tilemap word)
      *   Mark LOADED_MAP_BLOCKS[tile_entry & 0x3FF] = 0xFFFF (tile is used)
      *   Write tile_entry to tilemap at ert.buffer[sanctuary_idx * 0x800 + row * 64 + col * 2]
      *
@@ -2090,14 +2139,15 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     }
 
     /*
-     * --- Step 5: Decompress tileset graphics into decomp_staging ---
-     * Arrangement data was consumed in step 4, so the shared scratch is free.
-     * Intentional divergence: assembly uses BUFFER+$8000; we use decomp_staging
-     * (shared_scratch.decomp) to avoid ert.buffer dependency entirely.
+     * --- Step 5: Tileset graphics ---
+     * The asm decompresses them to BUFFER+$8000; here the decompressed asset
+     * (N.gfx.raw) is read in place, so no RAM staging is needed.
      */
-    size_t gfx_size = load_and_decompress(ASSET_MAPS_GFX(tileset_id),
-                                          decomp_staging,
-                                          SHARED_SCRATCH_SIZE);
+    const uint8_t *gfx = ASSET_DATA(ASSET_MAPS_GFX(tileset_id));
+    size_t gfx_size = gfx ? ASSET_SIZE(ASSET_MAPS_GFX(tileset_id)) : 0;
+    /* The asm decompresses the GFX over the arrangement it just used. */
+    arrangement_overlay = gfx;
+    arrangement_overlay_size = gfx_size;
     if (gfx_size == 0) {
         LOG_WARN("load_your_sanctuary_location: failed to load gfx for tileset %u\n", tileset_id);
         return;
@@ -2109,7 +2159,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
      *
      * For each tile_idx 0..1023:
      *   If loaded_map_blocks[tile_idx] != 0 (used):
-     *     - src = decomp_staging[tile_idx * 32]  (32 bytes = 8x8 4bpp tile)
+     *     - src = gfx[tile_idx * 32]  (32 bytes = 8x8 4bpp tile)
      *     - dst VRAM word addr = 0x6000 + next_tile_index * 16  (16 words = 32 bytes)
      *     - dst VRAM byte addr = 0xC000 + next_tile_index * 32
      *     - loaded_map_blocks[tile_idx] = next_tile_index (remap index)
@@ -2130,7 +2180,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
          * accumulating across the 8 locations, as in the assembly. */
         uint16_t next_idx = ml.next_your_sanctuary_location_tile_index;
         uint16_t vram_word = (uint16_t)((0x6000 + next_idx * 16) & 0x7FFF);
-        memcpy(&ppu.vram[(uint32_t)vram_word * 2], &decomp_staging[src_off], 32);
+        memcpy(&ppu.vram[(uint32_t)vram_word * 2], &gfx[src_off], 32);
 
         /* Record the new VRAM tile index in loaded_map_blocks for remapping */
         loaded_map_blocks[tile_idx] = next_idx;

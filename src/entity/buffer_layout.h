@@ -99,7 +99,7 @@ _Static_assert(BUF_TILE_MERGE_SLOTS + BUF_TILE_MERGE_SLOTS_SIZE <= BUF_PATHFINDI
  * Assembly: tilemaps at BUFFER + idx*$800, palettes at BUFFER+$4000 + idx*$200.
  * Palettes are packed at a $100 stride here (only 256 bytes of each $200 slot
  * are used) so the transient LOADED_MAP_BLOCKS scratch fits in BUFFER_SIZE.
- * Arrangement/GFX decomp uses arrangement_buffer (not ert.buffer). */
+ * Arrangement/GFX are read in place from their decompressed .raw assets. */
 #define BUF_SANCTUARY_TILEMAPS   0x0000  /* 8 × 0x800 (30×32×2 = 0x780 bytes used) */
 #define BUF_SANCTUARY_TILEMAP_STRIDE 0x0800
 #define BUF_SANCTUARY_PALETTES   0x4000  /* 8 × 256 bytes */
