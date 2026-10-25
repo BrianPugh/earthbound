@@ -70,6 +70,10 @@ typedef enum {
  * aligned word accesses are atomic on the Cortex-M targets, which is all the
  * handshake needs. */
 static volatile RootAction g_pending_root_action = ROOT_ACTION_NONE;
+/* Free-run frames spent on the pending request (>= 0). With no request pending, a
+ * negative value counts up to 0 while the "SAVESTATE FAIL" notice is on screen after
+ * a failed or abandoned save/load (CAPTURE_NOTICE_FRAMES), so the notice needs no
+ * state of its own. Every new request resets it to 0. */
 static volatile int g_capture_unwind_frames = 0;
 
 /* Sticky outcome of the last save/load request, polled by the firmware power-off
@@ -86,6 +90,9 @@ static volatile HostCaptureStatus g_capture_status = HOST_CAPTURE_IDLE;
  * finite blocker (fades, teleport, battle actions); long finite sequences such as the
  * end credits intentionally exceed it (no one needs to resume into the credits). */
 #define CAPTURE_UNWIND_FRAME_CAP 600
+
+/* How long the notice for a failed/abandoned save or load stays on screen. */
+#define CAPTURE_NOTICE_FRAMES 120
 
 /* Dynamic frame-skipping state.
  * When the system falls behind real-time, skip PPU rendering (but keep
@@ -166,7 +173,27 @@ static struct {
     int n_lines;
 } fps_overlay;
 
-static void fps_overlay_prepare(void) {
+static int fps_overlay_timing_lines(void);
+
+/* Fill the overlay: the FPS/timing lines when `fps`, and the savestate failure notice
+ * when `notice` (it takes the last line if the timing lines fill the overlay). */
+static void fps_overlay_prepare(bool fps, bool notice) {
+    int n = 0;
+    if (fps)
+        n = fps_overlay_timing_lines();
+    if (notice) {
+        if (n == FPS_OVERLAY_LINES)
+            n--;
+        snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]), "SAVESTATE FAIL");
+        fps_overlay.colors[n++] = PIXEL_RGB(0xFF, 0x44, 0x44);
+    }
+    fps_overlay.n_lines = n;
+    uint8_t h = font_get_height(FONT_ID_TINY);
+    fps_overlay.total_h = (h + 1) * n;
+}
+
+/* The FPS/timing lines, from line 0; returns how many. */
+static int fps_overlay_timing_lines(void) {
     uint32_t fps10 = platform_timer_get_fps_tenths();
     if (fps10 > 999) fps10 = 999;
     uint32_t logic10 = debug_logic_acc >> DEBUG_IIR_SHIFT;
@@ -242,9 +269,7 @@ static void fps_overlay_prepare(void) {
     }
 #endif
 
-    fps_overlay.n_lines = n;
-    uint8_t h = font_get_height(FONT_ID_TINY);
-    fps_overlay.total_h = (h + 1) * n;
+    return n;
 }
 
 /* Stamp FPS overlay text into a scanline pixel buffer.
@@ -259,6 +284,12 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
     if (text_row >= fps_overlay.n_lines || glyph_y >= h) return;
 
     int overlay_w = 46;
+    /* A line wider than the timing column (the savestate notice) grows leftward. */
+    int text_w = 0;
+    for (const char *s = fps_overlay.lines[text_row]; *s; s++)
+        text_w += font_get_width(FONT_ID_TINY, (uint8_t)(ascii_to_eb_char(*s) - 0x50));
+    if (text_w > overlay_w)
+        overlay_w = text_w;
     int ox = EB_VIEWPORT_WIDTH - overlay_w - 1;
     pixel_t color = fps_overlay.colors[text_row];
 
@@ -309,10 +340,14 @@ void host_process_frame(void) {
                  g_pending_root_action == ROOT_ACTION_LOAD ? "load" : "capture",
                  CAPTURE_UNWIND_FRAME_CAP);
         g_pending_root_action = ROOT_ACTION_NONE;
-        g_capture_unwind_frames = 0;
+        g_capture_unwind_frames = -CAPTURE_NOTICE_FRAMES;
         capture_unwinding = false;
         g_capture_status = HOST_CAPTURE_FAILED;  /* never reached the boundary → fail safe */
     }
+    /* Count down the failure notice (see g_capture_unwind_frames). */
+    bool capture_notice = !capture_unwinding && g_capture_unwind_frames < 0;
+    if (capture_notice)
+        g_capture_unwind_frames = g_capture_unwind_frames + 1;
 
     /* Reset per-frame fade guard so fade_update runs exactly once this frame,
      * matching the assembly NMI handler which updates fade once per vblank. */
@@ -395,8 +430,8 @@ void host_process_frame(void) {
          * Dual-core platforms distribute scanlines across cores. */
         {
             scanline_stamp_cb_t fps_cb = NULL;
-            if (show_fps && font_get_glyph(FONT_ID_TINY, 0)) {
-                fps_overlay_prepare();
+            if ((show_fps || capture_notice) && font_get_glyph(FONT_ID_TINY, 0)) {
+                fps_overlay_prepare(show_fps, capture_notice);
                 fps_cb = fps_overlay_stamp_scanline;
             }
             platform_render_frame(fps_cb);
@@ -612,8 +647,11 @@ void host_root_boundary(void) {
     /* A request made from the ISR while this one ran is still PENDING; reporting
      * this result would let the firmware poll read the load's COMMITTED as its
      * save's. */
-    if (g_pending_root_action == ROOT_ACTION_NONE)
+    if (g_pending_root_action == ROOT_ACTION_NONE) {
         g_capture_status = result;
+        if (result == HOST_CAPTURE_FAILED)
+            g_capture_unwind_frames = -CAPTURE_NOTICE_FRAMES;
+    }
 
     platform_savestate_freeze_audio(false);
 }
