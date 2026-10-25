@@ -38,6 +38,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | What you see | Where | Verified | Date |
 |---|---|---|---|
 | Nuclear Reactor Robot "replenished a fuel supply!" and its HP are maxed out, again and again; Auto Fight (bashes, many misses) never gets it below ~600 of 798 HP in ~30000 frames | run-68 Cave of the Past, 623,6229 (right column, 4-member party L73/55/50/50) | battle action text in EBATTLE2 (`replenished a fuel supply`, SFX REFILLED, full-HP heal); fight needs PSI | 2026-10-25 |
+| Final Starman deflects every PSI back at the caster from its first turn ("The psychic power shield deflected PSI ...!", e.g. Freeze Ω reflected for 840 to Paula); later it also casts Shield β | run-69 Cave of the Past, 1129,7416 and 340,6352 (chained after a Nuclear Reactor Robot group) | ROM data: FINAL_STARMAN_1 (enemy 75) has `initial_status` 2 = INITIAL_STATUS::PSI_SHIELD_POWER, applied in asm/battle/init_enemy_stats.asm:192-202; bash it or Run Away | 2026-10-25 |
 | Bash does only 40-50 to Mondo Mole | Lilliput Steps (save 09) | ROM enemy data (defense 50) | 2026-10-24 |
 | Jeff's Shoot does 1 HP to Master Belch | Belch Base | ROM enemy data (defense 88) | 2026-10-24 |
 | Huge enemy hits (Skelpion 118, Mystical Record 207) with no SMAAAASH text | desert, Dungeon Man | `asm/battle/smaaaash.asm` 4×offense−defense; `MSG_BTL4_RESULT_SMAASH_MONSTER` is a special-gfx glyph the TEXT decoder doesn't show | 2026-10-24 |
