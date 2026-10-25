@@ -531,6 +531,7 @@ int main(void) {
     FIELD(WindowSystemState, upload_hppp_meter_tiles, "u8"); SEP();
     FIELD(WindowSystemState, used_bg2_tile_map, "u16[32]"); SEP();
     BLOB_FIELD(WindowSystemState, windows); SEP();
+    BLOB_FIELD(WindowSystemState, menu_options); SEP();
     FIELD(WindowSystemState, titled_windows, "u16[5]"); SEP();
     FIELD(WindowSystemState, menu_backup_text_x, "u16"); SEP();
     FIELD(WindowSystemState, menu_backup_text_y, "u16"); SEP();

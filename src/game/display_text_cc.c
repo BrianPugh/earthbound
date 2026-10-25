@@ -1816,7 +1816,7 @@ static void cc_19_load_string_to_memory(ScriptReader *r) {
                 add_menu_item(label_buf, (uint16_t)(w->menu_count + 1),
                               w->text_x, w->text_y);
                 /* Store callback on the just-added item (asm: menu_option::script) */
-                w->menu_items[w->menu_count - 1].script = callback;
+                window_menu_item(w, w->menu_count - 1)->script = callback;
             }
             break;
         } else if (b == 0x02) {

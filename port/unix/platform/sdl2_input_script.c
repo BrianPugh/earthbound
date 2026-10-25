@@ -441,7 +441,7 @@ static void print_windows(void) {
     if (f && f->menu_count > 0) {
         printf("MENU w%u|", f->id);
         for (int i = 0; i < f->menu_count && i < 24; i++)
-            printf(" %s%s%s", i == f->current_option ? ">[" : "[", f->menu_items[i].label, "]");
+            printf(" %s%s%s", i == f->current_option ? ">[" : "[", window_menu_item(f, i)->label, "]");
         printf("\n");
     }
     fflush(stdout);

@@ -67,6 +67,13 @@
 #define WINDOW_NAMING_PROMPT           0x27
 #define WINDOW_SINGLE_CHARACTER_SELECT 0x33
 
+/* MENU_OPTIONS (asm ram.asm): one pool of NUM_MENU_OPTIONS (include/enums.asm)
+ * options that every window's menu draws from; win.menu_options here. */
+#define NUM_MENU_OPTIONS 70
+/* Port cap on one window's items (the asm chains any number from the pool);
+ * add_menu_item drops the rest. */
+#define MAX_WINDOW_MENU_ITEMS 24
+
 /* Menu option - matches menu_option from structs.asm (45 bytes in asm) */
 #define MENU_LABEL_SIZE 26  /* asm: 25-byte label at offset 19, +1 for null */
 typedef struct {
@@ -148,7 +155,12 @@ typedef struct {
     uint8_t  title_tile_count;        /* number of VWF tile columns rendered for title (set once at set_window_title time) */
     char     title[WINDOW_TITLE_SIZE]; /* asm offset 60: window title text (tiny font) */
     uint8_t   palette_index;
-    MenuItem  menu_items[24];
+    /* The window's items, in order, as win.menu_options indices (the asm links
+     * them through menu_option::next instead). Entries [0, menu_items_reserved)
+     * stay this window's until it closes, so re-filling an open window reuses
+     * them (see alloc_menu_item in window.c). */
+    uint8_t   menu_item_idx[MAX_WINDOW_MENU_ITEMS];
+    uint8_t   menu_items_reserved;
     uint8_t   menu_count;
     uint8_t   current_option;       /* asm offset 43 */
     uint16_t *ABI_PTR_ALIGN content_tilemap; /* pointer into shared tilemap pool
@@ -212,6 +224,9 @@ typedef struct {
     /* Active windows array. */
     WindowInfo windows[MAX_WINDOWS];
 
+    /* MENU_OPTIONS: the menu item pool all windows share. */
+    MenuItem menu_options[NUM_MENU_OPTIONS];
+
     /* Draw-order doubly-linked list over windows[] (asm WINDOW_HEAD / WINDOW_TAIL).
      * head = bottom-most (drawn first), tail = top-most (drawn last). -1 = empty. */
     int8_t window_head;
@@ -235,6 +250,11 @@ typedef struct {
 } WindowSystemState;
 
 extern WindowSystemState win;
+
+/* Item i (< menu_count) of window w. */
+static inline MenuItem *window_menu_item(const WindowInfo *w, unsigned i) {
+    return &win.menu_options[w->menu_item_idx[i]];
+}
 
 /* SET_WINDOW_FOCUS — Port of asm/text/set_window_focus.asm.
  * Sets the current focus window to the given window ID. */

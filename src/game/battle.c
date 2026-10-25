@@ -2980,7 +2980,7 @@ static EB_NOINLINE bool bm_main_result(BattleMenuState *st, StepResult *out) {
         *out = bm_close_menu(st);
         return true;
     }
-    return bm_process_selection(st, w->menu_items[w->selected_option].userdata,
+    return bm_process_selection(st, window_menu_item(w, w->selected_option)->userdata,
                                 out);
 }
 

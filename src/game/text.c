@@ -710,7 +710,7 @@ static void build_command_menu(void) {
          * Port of ADD_MENU_ITEM_WITH_SOUND (asm/text/menu/add_menu_item_with_sound.asm). */
         WindowInfo *w = get_window(win.current_focus_window);
         if (w && w->menu_count > 0) {
-            w->menu_items[w->menu_count - 1].sound_effect = sfx;
+            window_menu_item(w, w->menu_count - 1)->sound_effect = sfx;
         }
     }
 
@@ -1665,7 +1665,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
                 WindowInfo *w = get_window(win.current_focus_window);
                 if (w && w->menu_count > 0) {
-                    w->menu_items[w->menu_count - 1].sound_effect = 115;
+                    window_menu_item(w, w->menu_count - 1)->sound_effect = 115;
                 }
 
                 item_count++;

@@ -166,7 +166,7 @@ _Static_assert(sizeof(event_flags)          == 128,   "ABI: event_flags");
 _Static_assert(sizeof(ow)                   == 392,   "ABI: ow");
 _Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
 _Static_assert(sizeof(dt)                   == 284,   "ABI: dt");
-_Static_assert(sizeof(win)                  == 12952, "ABI: win");
+_Static_assert(sizeof(win)                  == 8264,  "ABI: win");
 _Static_assert(sizeof(ml)                   == 6732,  "ABI: ml");
 /* SECTION_PPU serializes only the fixed PREFIX of PPUState — everything before the
  * per-scanline HDMA tables (wh0/wh1/wh2/wh3_table, tm/ts_per_scanline), which are
@@ -891,6 +891,14 @@ typedef struct {
     FC_ARRAY(sec_, offsetof(st_, arr_) + offsetof(elem_, fld_), n_, sizeof(elem_), \
              type_, lo_, hi_, flags_, 0)
 
+/* Window k's menu_item_idx[] (one entry per window: FC_ARRAY has one stride). */
+#define FC_MENU_ITEM_IDX(k_)                                                         \
+    FC_ARRAY(SECTION_WINDOW,                                                         \
+             offsetof(WindowSystemState, windows) + (k_) * sizeof(WindowInfo) +     \
+                 offsetof(WindowInfo, menu_item_idx),                                \
+             MAX_WINDOW_MENU_ITEMS, 1, uint8_t, 0, NUM_MENU_OPTIONS - 1, 0u, 0)
+_Static_assert(MAX_WINDOWS == 8, "FC_MENU_ITEM_IDX rows cover windows 0-7");
+
 static const FieldCheck k_field_checks[] = {
     /* Party lists are walked up to these counts. */
     FC_ONE(SECTION_GAME_STATE, GameState, party_count, uint8_t, 0, 6),
@@ -903,8 +911,13 @@ static const FieldCheck k_field_checks[] = {
            MAX_WINDOWS, int8_t, -1, MAX_WINDOWS - 1, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, title_slot,
            MAX_WINDOWS, uint8_t, 0, MAX_TITLED_WINDOWS, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, menu_items_reserved,
+           MAX_WINDOWS, uint8_t, 0, MAX_WINDOW_MENU_ITEMS, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, menu_count,
-           MAX_WINDOWS, uint8_t, 0, 24, 0u),
+           MAX_WINDOWS, uint8_t, 0, MAX_WINDOW_MENU_ITEMS, 0u),
+    /* Each window's items as win.menu_options indices (window_menu_item). */
+    FC_MENU_ITEM_IDX(0), FC_MENU_ITEM_IDX(1), FC_MENU_ITEM_IDX(2), FC_MENU_ITEM_IDX(3),
+    FC_MENU_ITEM_IDX(4), FC_MENU_ITEM_IDX(5), FC_MENU_ITEM_IDX(6), FC_MENU_ITEM_IDX(7),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_size,
            MAX_WINDOWS, uint16_t, 0, WINDOW_TILEMAP_POOL_SIZE, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_offset,
