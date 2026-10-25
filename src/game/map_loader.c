@@ -87,7 +87,6 @@ static const uint8_t *event_control_ptr_table_data = NULL;
 static size_t event_control_ptr_table_size = 0;
 static const uint8_t *tile_event_data = NULL;
 static size_t tile_event_data_size = 0;
-#define NUM_TILESETS 20
 
 /* NpcConfig struct defined in map_loader.h (17 bytes) */
 
@@ -1405,9 +1404,12 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
  *
  * PALETTES is at $7E:0200. The MVN destination $0240 = PALETTES + $40 = ert.palettes[32]. */
 void load_bg_palette(uint16_t index) {
+    if (ml.animated_map_palette_id == 0) return;  /* no animation loaded yet */
+    const uint8_t *frames = ASSET_DATA(ASSET_MAPS_ANIM_PAL(ml.animated_map_palette_id));
+    size_t frames_size = ASSET_SIZE(ASSET_MAPS_ANIM_PAL(ml.animated_map_palette_id));
     uint32_t offset = (uint32_t)index * 192;
-    if (offset + 192 > sizeof(ml.animated_map_palette_buffer)) return;
-    memcpy(&ert.palettes[32], ml.animated_map_palette_buffer + offset, 192);
+    if (!frames || offset + 192 > frames_size) return;
+    memcpy(&ert.palettes[32], frames + offset, 192);
     ert.palette_upload_mode = PALETTE_UPLOAD_BG_ONLY;
 }
 
@@ -1443,9 +1445,13 @@ void animate_palette(void) {
  * When it expires:
  *   1. Reset counter to frame_delay
  *   2. If current_frame >= animation_limit: wrap to 0, reset source offset
- *   3. Copy copy_size bytes from ml.animated_tileset_buffer to ppu.vram
- *   4. Advance source offset and frame counter */
+ *   3. Copy copy_size bytes of the animation GFX to ppu.vram
+ *   4. Advance source offset and frame counter
+ * The GFX is read in place from the decompressed maps/anim_gfx asset (the asm
+ * copies from ANIMATED_TILESET_BUFFER, where LOAD_TILESET_ANIM unpacked it). */
 void animate_tileset(void) {
+    const uint8_t *gfx = ASSET_DATA(ASSET_MAPS_ANIM_GFX(ml.animated_tileset_gfx_id));
+    size_t gfx_size = gfx ? ASSET_SIZE(ASSET_MAPS_ANIM_GFX(ml.animated_tileset_gfx_id)) : 0;
     for (int i = 0; i < ml.loaded_animated_tile_count; i++) {
         OverworldTilesetAnim *anim = &ml.overworld_tileset_anim[i];
 
@@ -1468,10 +1474,9 @@ void animate_tileset(void) {
         uint32_t src_offset = anim->current_source_offset;
         uint16_t size = anim->copy_size;
 
-        if (src_offset + size <= sizeof(ml.animated_tileset_buffer) &&
+        if (src_offset + size <= gfx_size &&
             vram_byte_offset + size <= sizeof(ppu.vram)) {
-            memcpy(&ppu.vram[vram_byte_offset],
-                   ml.animated_tileset_buffer + src_offset, size);
+            memcpy(&ppu.vram[vram_byte_offset], gfx + src_offset, size);
         }
 
         /* Advance source offset and frame counter */
@@ -1486,7 +1491,8 @@ void animate_tileset(void) {
  * Called from load_map_at_sector after loading tileset GFX.
  *
  * 1. Look up TILESET_ANIMATION_PROPERTIES for current tileset
- * 2. If count > 0, decompress tile animation GFX into ml.animated_tileset_buffer
+ * 2. If count > 0, select the tile animation GFX (the asm decompresses it into
+ *    ANIMATED_TILESET_BUFFER; here the decompressed asset is read in place)
  * 3. Parse per-entry metadata into ml.overworld_tileset_anim[] */
 static void load_tileset_anim(uint16_t tileset_id) {
     ml.loaded_animated_tile_count = 0;
@@ -1511,14 +1517,15 @@ static void load_tileset_anim(uint16_t tileset_id) {
         return;
     }
 
-    /* Load and decompress tile animation GFX.
+    /* Tile animation GFX.
      * Assembly: MAP_DATA_TILE_ANIMATION_PTR_TABLE[LOADED_MAP_TILESET]
-     * → compressed tile data → ANIMATED_TILESET_BUFFER. */
-    size_t gfx_size = load_and_decompress(ASSET_MAPS_ANIM_GFX(tileset_id), ml.animated_tileset_buffer,
-                                          sizeof(ml.animated_tileset_buffer));
-    if (gfx_size == 0) {
+     * → compressed tile data → ANIMATED_TILESET_BUFFER. pack-all stores it
+     * decompressed (N.gfx.raw); animate_tileset reads it in place. */
+    if (!ASSET_DATA(ASSET_MAPS_ANIM_GFX(tileset_id)) ||
+        ASSET_SIZE(ASSET_MAPS_ANIM_GFX(tileset_id)) == 0) {
         return;
     }
+    ml.animated_tileset_gfx_id = (uint8_t)tileset_id;
 
     /* Parse properties into ml.overworld_tileset_anim[] entries.
      * Each entry in the properties file (overworld_tileset_anim_entry):
@@ -1554,7 +1561,8 @@ static void load_tileset_anim(uint16_t tileset_id) {
  *
  * The secondary table (maps/anim_pal/meta_table.bin) contains 31 variable-length
  * entries, each: 4 bytes pointer (ROM, ignored in C) + 1 byte count + count delay
- * bytes. The compressed palette data is in maps/anim_pal/{index}.pal.lzhal. */
+ * bytes. The palette frames are in maps/anim_pal/{index}.pal.raw (pack-all
+ * decompresses the .pal.lzhal), read in place by load_bg_palette. */
 static void load_palette_anim(void) {
     ml.map_palette_animation_loaded = 0;
     memset(&ml.overworld_palette_anim, 0, sizeof(ml.overworld_palette_anim));
@@ -1595,13 +1603,14 @@ static void load_palette_anim(void) {
     for (int i = 0; i < count; i++)
         ml.overworld_palette_anim.delays[i] = p[5 + i];
 
-    /* Load compressed palette animation data.
-     * Assembly: dereferences the ptr field to find compressed data.
-     * C port: loads from maps/anim_pal/{index}.pal.lzhal. */
-    size_t decomp_size = load_and_decompress(ASSET_MAPS_ANIM_PAL(anim_index),
-                                             ml.animated_map_palette_buffer,
-                                             sizeof(ml.animated_map_palette_buffer));
-    if (decomp_size == 0) return;
+    /* Palette animation frames.
+     * Assembly: dereferences the ptr field to find compressed data and
+     * decompresses it into ANIMATED_MAP_PALETTE_BUFFER. C port: the
+     * decompressed maps/anim_pal/{index}.pal.raw, read in place. */
+    if (!ASSET_DATA(ASSET_MAPS_ANIM_PAL(anim_index)) ||
+        ASSET_SIZE(ASSET_MAPS_ANIM_PAL(anim_index)) == 0)
+        return;
+    ml.animated_map_palette_id = (uint8_t)anim_index;
 
     /* Initialize animation state.
      * Assembly: timer = delays[0], index = 1, MAP_PALETTE_ANIMATION_LOADED = 1. */

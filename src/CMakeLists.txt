@@ -110,10 +110,10 @@ list(APPEND EMBED_EXCLUDE_ARGS --exclude "US/overworld_sprites/gfx/*")
 # .arr.bundled (8-frame bundles) for streaming decompression instead.
 list(APPEND EMBED_EXCLUDE_ARGS --exclude "psianims/arrangements/*.arr.lzhal")
 
-# Exclude the compressed map arrangements, map tileset GFX and battle sprite
-# GFX -- pack-all writes decompressed .raw copies that the C port reads in
-# place, so no RAM scratch buffer is needed to stage them.
-foreach(_raw_family maps/arrangements maps/gfx battle_sprites)
+# Exclude the compressed map arrangements, map tileset GFX, tile/palette
+# animation frames and battle sprite GFX -- pack-all writes decompressed .raw
+# copies that the C port reads in place, so no RAM buffer is needed to stage them.
+foreach(_raw_family maps/arrangements maps/gfx maps/anim_gfx maps/anim_pal battle_sprites)
     list(APPEND EMBED_EXCLUDE_ARGS
         --exclude "${_raw_family}/*.lzhal" --exclude "US/${_raw_family}/*.lzhal")
 endforeach()

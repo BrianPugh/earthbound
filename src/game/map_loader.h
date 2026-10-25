@@ -158,6 +158,12 @@ typedef struct {
     uint16_t delays[9];
 } OverworldPaletteAnim;
 
+/* Map tilesets (maps/gfx, maps/anim_gfx, maps/anim_props: 0-19). */
+#define NUM_TILESETS 20
+/* Palette animations with frames: maps/anim_pal/1-8 (meta-table entries 9-31
+ * have a frame count of 0, so load_palette_anim never selects them). */
+#define NUM_MAP_PALETTE_ANIMS 8
+
 /* --- Tileset animation state (port of OVERWORLD_TILESET_ANIM) --- */
 typedef struct {
     uint16_t animation_limit;
@@ -197,8 +203,12 @@ typedef struct {
     int16_t loaded_palette_index;
     OverworldPaletteAnim overworld_palette_anim;
     OverworldTilesetAnim overworld_tileset_anim[8];
-    uint8_t animated_map_palette_buffer[2048];
-    uint8_t animated_tileset_buffer[8192];
+    /* The asm decompresses the frames into ANIMATED_MAP_PALETTE_BUFFER /
+     * ANIMATED_TILESET_BUFFER; pack-all stores them decompressed (N.pal.raw /
+     * N.gfx.raw), so the port reads them in place and keeps only which asset
+     * the last successful load_palette_anim / load_tileset_anim chose. */
+    uint8_t animated_map_palette_id;  /* maps/anim_pal asset, 1-8 (0 = none yet) */
+    uint8_t animated_tileset_gfx_id;  /* maps/anim_gfx asset, 0-19 */
     int16_t screen_left_x;
     int16_t screen_top_y;
 

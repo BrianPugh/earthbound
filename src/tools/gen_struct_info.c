@@ -556,8 +556,8 @@ int main(void) {
     FIELD(MapLoaderState, loaded_palette_index, "i16"); SEP();
     BLOB_FIELD(MapLoaderState, overworld_palette_anim); SEP();
     BLOB_FIELD(MapLoaderState, overworld_tileset_anim); SEP();
-    BLOB_FIELD(MapLoaderState, animated_map_palette_buffer); SEP();
-    BLOB_FIELD(MapLoaderState, animated_tileset_buffer); SEP();
+    FIELD(MapLoaderState, animated_map_palette_id, "u8"); SEP();
+    FIELD(MapLoaderState, animated_tileset_gfx_id, "u8"); SEP();
     FIELD(MapLoaderState, screen_left_x, "i16"); SEP();
     FIELD(MapLoaderState, screen_top_y, "i16"); SEP();
     BLOB_FIELD(MapLoaderState, tile_collision_buffer); SEP();

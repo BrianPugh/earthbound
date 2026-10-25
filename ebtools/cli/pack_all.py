@@ -1438,13 +1438,16 @@ def _pack_all_battle_bgs(assets_dir: Path, output_dir: Path) -> int:
 # Compressed families the C port reads decompressed, straight from the
 # embedded asset (flash on embedded ports), instead of decompressing them into
 # a RAM scratch buffer: the map tile arrangement stays live for the whole
-# overworld, and the sanctuary tileset GFX and battle sprite GFX are only
-# copied out piecewise. The .lzhal originals are excluded from the embed.
+# overworld, the sanctuary tileset GFX and battle sprite GFX are only copied
+# out piecewise, and the tile/palette animation frames are copied a strip at a
+# time. The .lzhal originals are excluded from the embed.
 RAW_DECOMPRESSED_FAMILIES = (
     ("maps/arrangements", ".arr.lzhal", ".arr.raw"),
     ("US/maps/arrangements", ".arr.lzhal", ".arr.raw"),
     ("maps/gfx", ".gfx.lzhal", ".gfx.raw"),
     ("US/maps/gfx", ".gfx.lzhal", ".gfx.raw"),
+    ("maps/anim_gfx", ".gfx.lzhal", ".gfx.raw"),
+    ("maps/anim_pal", ".pal.lzhal", ".pal.raw"),
     ("battle_sprites", ".gfx.lzhal", ".gfx.raw"),
     ("US/battle_sprites", ".gfx.lzhal", ".gfx.raw"),
 )

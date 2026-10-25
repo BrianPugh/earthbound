@@ -167,7 +167,7 @@ _Static_assert(sizeof(ow)                   == 392,   "ABI: ow");
 _Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
 _Static_assert(sizeof(dt)                   == 284,   "ABI: dt");
 _Static_assert(sizeof(win)                  == 12952, "ABI: win");
-_Static_assert(sizeof(ml)                   == 16970, "ABI: ml");
+_Static_assert(sizeof(ml)                   == 6732,  "ABI: ml");
 /* SECTION_PPU serializes only the fixed PREFIX of PPUState — everything before the
  * per-scanline HDMA tables (wh0/wh1/wh2/wh3_table, tm/ts_per_scanline), which are
  * EB_VIEWPORT_HEIGHT-sized derived render scratch deliberately excluded so the format
@@ -913,6 +913,11 @@ static const FieldCheck k_field_checks[] = {
     FC_ONE(SECTION_WINDOW, WindowSystemState, window_tail, int8_t, -1, MAX_WINDOWS - 1),
     /* A tileset combo is 5 bits of the sector tileset/palette byte. */
     FC_ONE(SECTION_MAP_LOADER, MapLoaderState, loaded_tileset_combo, int16_t, -1, 31),
+    /* The tile/palette animation assets animate_tileset/load_bg_palette read. */
+    FC_ONE(SECTION_MAP_LOADER, MapLoaderState, animated_tileset_gfx_id, uint8_t,
+           0, NUM_TILESETS - 1),
+    FC_ONE(SECTION_MAP_LOADER, MapLoaderState, animated_map_palette_id, uint8_t,
+           0, NUM_MAP_PALETTE_ANIMS),
     /* Script free-list head; entity fade entries live in a fixed ert.buffer region. */
     FC_ONE(SECTION_ENTITY_RUNTIME, EntityRuntimeState, last_allocated_script, int16_t,
            -1, MAX_SCRIPTS - 1),
