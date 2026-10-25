@@ -37,6 +37,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| Nuclear Reactor Robot "replenished a fuel supply!" and its HP are maxed out, again and again; Auto Fight (bashes, many misses) never gets it below ~600 of 798 HP in ~30000 frames | run-68 Cave of the Past, 623,6229 (right column, 4-member party L73/55/50/50) | battle action text in EBATTLE2 (`replenished a fuel supply`, SFX REFILLED, full-HP heal); fight needs PSI | 2026-10-25 |
 | Bash does only 40-50 to Mondo Mole | Lilliput Steps (save 09) | ROM enemy data (defense 50) | 2026-10-24 |
 | Jeff's Shoot does 1 HP to Master Belch | Belch Base | ROM enemy data (defense 88) | 2026-10-24 |
 | Huge enemy hits (Skelpion 118, Mystical Record 207) with no SMAAAASH text | desert, Dungeon Man | `asm/battle/smaaaash.asm` 4×offense−defense; `MSG_BTL4_RESULT_SMAASH_MONSTER` is a special-gfx glyph the TEXT decoder doesn't show | 2026-10-24 |
@@ -127,6 +128,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Checking the hieroglyph plaque (8040,9560, facing UP) only prints the exhibit description while Poo is unconscious; Poo reads the hieroglyphs (and Omar then hands over the Hieroglyph copy) only when he is conscious | run-51.srm, hieroglyph room | EBGMESS `MSG_SIGN_SUMMERS_HIEROGLYPHS_PYRAMID` (`MSG_SYS_CHECK_CHAR_KO` on Poo → `_READ_SUMS_HIERO_DEAD`); port run52a | 2026-10-24 |
 | The Shattered Man vases (npc1039/1040) start their battle when you walk into them, no Talk needed | run-51.srm, hieroglyph room ~8038,9568 | NPC script MSG_BTL9_FMON_HIEROGLYPH_SHATTERED_A/B (touch-triggered field monster); port run52a | 2026-10-24 |
 | Talking to the Saturn Valley hotel clerk (npc710) again right after sleeping prints "Healthful and dandy!" instead of offering slumber, until you leave the hotel | run-66/67 save, hotel 6467,8029 facing LEFT, sleep then talk again | E08DOSEI.yml `MSG_DOSEI_HOTEL_SLEEP`: `jump_if_flag_set FLG_TEMP_9` → `_DOSEI_HOTEL_TMP`; the accept branch sets FLG_TEMP_9; port run67a, not emu-checked | 2026-10-25 |
+| After PD2 and the Starstorm, walking into the PD3 hotspot (5904-5952,216-240) does nothing until you have crossed hotspot 7, the vertical line x 5856-5864, y 152-192 west of the horn (walk LEFT along y≈178); y 192 is on the edge and does not count | run-67.srm → PD2, Lost Underworld 5931,321 | script: PD2 arrival arms slot 1 = hotspot 7 (`MSG_EVT5_DKFD_HOTSPOT_ST3_SETUP_A`), which re-arms slot 1 = hotspot 8 (`MSG_EVT5_PHASE_DISTORTER_3_COMPLETED`), EEVENT5.yml | 2026-10-25 |
+| Andonuts (npc1269) blocks the 1-tile path north of the PD3 after the Apple Kid scene; talking to him ("This is very hard for me to tell you, but...") makes him walk off, and npc1270 then waits at ~5809,176 for the robot talk | run-67.srm → PD3, 5928,234 facing UP | npc_config 1269/1270 flags 328/331 (`MSG_EVT5_ANDONUT_HARD_TO_TELL_YOU`) | 2026-10-25 |
 
 ## Audio
 
