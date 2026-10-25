@@ -3082,10 +3082,22 @@ StepResult mode_step_battle_menu(ModeState *ms) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
 
         case BM_ITEM_RESULT: {
-            uint16_t selection = (uint16_t)mode_child_result();
-
-            /* Close the inventory window */
+            /* Close the inventory window: CLOSE_WINDOW's tick takes a frame
+             * before the cancel or the item targeting. */
+            st->item_slot = (uint16_t)mode_child_result();
+            (void)take_unpresented_ticks();
             close_window(WINDOW_INVENTORY);
+            st->phase = BM_ITEM_AFTER;
+            {
+                uint16_t ticks = take_unpresented_ticks();
+                if (ticks)
+                    return push_wait_frames(&child_init, BW_VBLANK, ticks);
+            }
+            break;
+        }
+
+        case BM_ITEM_AFTER: {
+            uint16_t selection = st->item_slot;
 
             if (selection == 0) {
                 /* Cancelled: back to the command menu */

@@ -1875,10 +1875,11 @@ StepResult mode_step_status_menu(ModeState *ms) {
             if (category_selection == 0) {
                 /* Assembly lines 103-111: close the cascade, restore focus;
                  * SU_SELECT re-sets the alignment (the loop-bottom store). */
+                StepResult r;
+                (void)take_unpresented_ticks();
                 close_window(WINDOW_STATUS_PSI_CATEGORY);
-                close_window(WINDOW_TEXT_STANDARD);
-                win.current_focus_window = WINDOW_STATUS_MENU;
-                st->phase = SU_SELECT;
+                if (menu_flush_ticks(&st->phase, SU_CAT_CLOSE2, &r))
+                    return r;
                 continue;
             }
 
@@ -1909,20 +1910,51 @@ StepResult mode_step_status_menu(ModeState *ms) {
                 continue;
             }
 
-            /* Assembly lines 95-101: clean up the PSI description windows. */
+            /* Assembly lines 95-101: clean up the PSI description windows
+             * (a CLOSE_WINDOW tick frame each). */
+            StepResult r;
             clear_cursor_move_callback();
+            (void)take_unpresented_ticks();
             close_window(WINDOW_PSI_TARGET_COST);
-            close_window(WINDOW_PSI_DESCRIPTION);
-            bt.last_selected_psi_description = 0x00FF;
-            st->phase = SU_CAT_HEAD;
+            if (menu_flush_ticks(&st->phase, SU_PSI_CLOSE2, &r))
+                return r;
             continue;
         }
 
-        case SU_EXIT:
-        default:
-            /* Assembly lines 115-116, plus the caller's alignment clear (the
-             * pause menu's bracket now lives inside the mode). */
+        case SU_PSI_CLOSE2: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_PSI_DESCRIPTION);
+            bt.last_selected_psi_description = 0x00FF;
+            if (menu_flush_ticks(&st->phase, SU_CAT_HEAD, &r))
+                return r;
+            continue;
+        }
+
+        case SU_CAT_CLOSE2: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_TEXT_STANDARD);
+            win.current_focus_window = WINDOW_STATUS_MENU;
+            if (menu_flush_ticks(&st->phase, SU_SELECT, &r))
+                return r;
+            continue;
+        }
+
+        case SU_EXIT: {
+            /* Assembly lines 115-116 (CLOSE_WINDOW's tick frame), plus the
+             * caller's alignment clear (the pause menu's bracket now lives
+             * inside the mode). */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_STATUS_MENU);
+            if (menu_flush_ticks(&st->phase, SU_EXIT_DONE, &r))
+                return r;
+            continue;
+        }
+
+        case SU_EXIT_DONE:
+        default:
             dt.force_left_text_alignment = 0;
             return STEP_RESULT_POP(0);
         }

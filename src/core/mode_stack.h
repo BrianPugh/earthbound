@@ -457,6 +457,9 @@ typedef enum {
     SU_PSI_RESULT,    /* non-zero stays browsing; cancel closes PSI windows */
     SU_EXIT,          /* close STATUS_MENU window, alignment off, POP */
     SU_CAT_HEAD_FLUSH, /* park-propagating resume of SU_CAT_HEAD's first-display frame */
+    SU_CAT_CLOSE2,    /* category cancel: close the PSI list after the category close's tick */
+    SU_PSI_CLOSE2,    /* PSI browse cancel: close the description after the cost window's tick */
+    SU_EXIT_DONE,     /* clear the alignment and POP after the status window's close tick */
 } StatusMenuPhase;
 
 typedef struct {
@@ -750,6 +753,7 @@ typedef enum {
     BM_ITEM_TGT_RESULT, /* after the item's DETERMINE_TARGETING pops */
     BM_CYCLE_FIND,      /* debug CYCLE_BATTLE_TARGET: skip unconscious, WINDOW_TICK */
     BM_CYCLE_POLL,      /* debug CYCLE_BATTLE_TARGET: per-frame LEFT/RIGHT/press poll */
+    BM_ITEM_AFTER,      /* item result, after the inventory close's tick frame */
 } BattleMenuPhase;
 
 typedef struct {
@@ -763,6 +767,7 @@ typedef struct {
     uint16_t item_effect;     /* Goods: effect id carried across DETERMINE_TARGETING */
     uint8_t  cycle_index;     /* CYCLE_BATTLE_TARGET @LOCAL01: battler slot */
     int8_t   cycle_dir;       /* CYCLE_BATTLE_TARGET @LOCAL02: +1 / -1 */
+    uint16_t item_slot;       /* Goods: the inventory selection (0 = cancelled) */
 } BattleMenuState;
 
 /* GAME_MODE_BATTLE phases. Port of battle_routine()
