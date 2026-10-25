@@ -22,7 +22,7 @@
 
 static st7789_t lcd;
 
-#ifndef ENABLE_DUAL_CORE_PPU
+#ifndef EB_ENABLE_DUAL_CORE_PPU
 /* Double-buffered scanline buffers (BGR565) -- single-core only.
  * Dual-core mode has its own per-core buffers in rp2040_worker.c. */
 static uint16_t scanline_buf[2][EB_VIEWPORT_WIDTH];
@@ -51,14 +51,14 @@ bool platform_video_init(void) {
 
     /* Set up DMA for 16-bit pixel streaming */
     hal_spi_set_format(16);
-#ifndef ENABLE_DUAL_CORE_PPU
+#ifndef EB_ENABLE_DUAL_CORE_PPU
     dma_chan = st7789_rp2040_claim_dma();
     active_buf = 0;
 #endif
     return true;
 }
 
-#ifndef ENABLE_DUAL_CORE_PPU
+#ifndef EB_ENABLE_DUAL_CORE_PPU
 void platform_video_shutdown(void) {
     st7789_rp2040_dma_wait(dma_chan);
     st7789_rp2040_release_dma(dma_chan);
@@ -74,7 +74,7 @@ void platform_video_begin_frame(void) {
     st7789_rp2040_begin_frame(&lcd);
 }
 
-#ifndef ENABLE_DUAL_CORE_PPU
+#ifndef EB_ENABLE_DUAL_CORE_PPU
 void platform_video_send_scanline(int y, const pixel_t *pixels) {
     if (platform_headless)
         return;
@@ -97,7 +97,7 @@ pixel_t *platform_video_get_framebuffer(void) {
 }
 
 void platform_video_end_frame(void) {
-#ifndef ENABLE_DUAL_CORE_PPU
+#ifndef EB_ENABLE_DUAL_CORE_PPU
     st7789_rp2040_dma_finish(dma_chan);
 #endif
     st7789_rp2040_end_frame();

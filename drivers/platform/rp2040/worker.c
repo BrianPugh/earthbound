@@ -5,7 +5,7 @@
  * Pico SDK multicore APIs and the st7789_rp2040 DMA interface.
  */
 
-#ifdef ENABLE_DUAL_CORE_PPU
+#ifdef EB_ENABLE_DUAL_CORE_PPU
 
 #include "platform/platform.h"
 #include "snes/ppu.h"
@@ -14,6 +14,7 @@
 #include <string.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
+#include "hardware/sync.h"
 
 /* Per-core double buffers for scanline DMA.
  * Each core renders into one buffer while the previous DMA runs from the other. */
@@ -24,6 +25,13 @@ static pixel_t dma_buf[2][2][EB_VIEWPORT_WIDTH];  /* [core][active_buf][pixels] 
  * Each core waits for its turn, sends via DMA, then advances the counter. */
 static int worker_dma_chan = -1;
 static volatile int next_dma_y;
+
+/* Frame handshake. Not the inter-core FIFO: multicore_lockout_victim_init()
+ * gives core 1 a FIFO IRQ handler that drains every word while looking for
+ * lockout requests, so a FIFO "start" message would never reach core1_entry.
+ * Core 0 bumps frame_start_seq; core 1 echoes it into frame_done_seq. */
+static volatile uint32_t frame_start_seq;
+static volatile uint32_t frame_done_seq;
 
 /* FPS overlay */
 static volatile scanline_stamp_cb_t fps_stamp_cb;
@@ -70,12 +78,18 @@ static void core1_entry(void) {
     /* Enable multicore lockout so flash writes can pause this core. */
     multicore_lockout_victim_init();
 
+    uint32_t seen = 0;
     for (;;) {
-        multicore_fifo_pop_blocking();
+        while (frame_start_seq == seen)
+            __wfe();
+        seen = frame_start_seq;
+        __dmb();
 
         ppu_render_frame_ex(1, 1, EB_VIEWPORT_HEIGHT, 2, core1_send);
 
-        multicore_fifo_push_blocking(1);
+        __dmb();
+        frame_done_seq = seen;
+        __sev();
     }
 }
 
@@ -95,7 +109,10 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb) {
     ppu_prepare_palette();
 
     /* Signal core 1 to start rendering odd scanlines */
-    multicore_fifo_push_blocking(1);
+    __dmb();
+    uint32_t seq = frame_start_seq + 1;
+    frame_start_seq = seq;
+    __sev();
 
     /* Set up LCD window (while core 1 starts rendering) */
     platform_video_begin_frame();
@@ -104,7 +121,9 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb) {
     ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 2, core0_send);
 
     /* Wait for core 1 to finish */
-    multicore_fifo_pop_blocking();
+    while (frame_done_seq != seq)
+        __wfe();
+    __dmb();
 
     /* Wait for final DMA + SPI drain */
     st7789_rp2040_dma_finish(worker_dma_chan);
@@ -112,4 +131,4 @@ void platform_render_frame(scanline_stamp_cb_t fps_overlay_cb) {
     platform_video_end_frame();
 }
 
-#endif /* ENABLE_DUAL_CORE_PPU */
+#endif /* EB_ENABLE_DUAL_CORE_PPU */

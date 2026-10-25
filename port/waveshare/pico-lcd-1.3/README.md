@@ -63,7 +63,7 @@ Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.dat
 
 Main SRAM is 256 KB and holds only the vector table, `.data` and `.bss` (the heap is empty), so about 91 KB of it is free; the core 0 stack has the 4 KB SCRATCH_Y bank to itself, and SCRATCH_X holds the save sector buffer (core 1's stack in dual-core builds, which keep the buffer in `.bss`).
 
-The `EB_ENABLE_DUAL_CORE_PPU=ON` build doesn't link on that toolchain (`platform_worker_init`: "dangerous relocation: unsupported relocation" in `main.c`), so it has no recorded figure; pass `-DRAM_BUDGET_BYTES=...` when it does.
+The `EB_ENABLE_DUAL_CORE_PPU=ON` build (even/odd scanlines split across the 2 cores) is .data 33,376 + .bss 143,012 = 176,388 B, over the single-core budget, so configure it with its own `-DRAM_BUDGET_BYTES=180000`. On 2026-10-25 it measured 52.4 fps outside Ness's house at night, against 40.6 fps single core (FPS overlay, same spot).
 
 ## Flashing
 
