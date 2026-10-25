@@ -192,6 +192,15 @@ void ppu_prepare_palette(void);
 void ppu_render_frame_ex(int ctx_id, int y_start, int y_end, int y_stride,
                          scanline_callback_t send_scanline);
 
+#ifdef EB_SMOOTH_CAMERA
+/* Smooth camera (desktop presentation option, game/smooth_camera.h): while
+ * set, each render also writes mask_out[y * EB_VIEWPORT_WIDTH + x] = 1 where
+ * the output pixel is an OBJ pixel from an OAM entry with oam_tags[i] != 0 that
+ * won the main-screen priority test, else 0. NULL, NULL turns it off (the
+ * default); the renderer then does no extra work. */
+void ppu_set_obj_mask(const uint8_t *oam_tags, uint8_t *mask_out);
+#endif
+
 #ifdef EB_PPU_PROFILE
 typedef struct {
     /* total = whole-frame duration of ppu_render_frame_ex.

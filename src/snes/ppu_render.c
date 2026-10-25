@@ -1172,6 +1172,87 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
     return any;
 }
 
+#ifdef EB_SMOOTH_CAMERA
+/* Smooth camera party mask (see ppu_set_obj_mask in ppu.h). Desktop only: the
+ * whole block compiles out unless the port defines EB_SMOOTH_CAMERA, and when
+ * the mask is off the scanline loop pays one predictable branch per line. */
+static const uint8_t *obj_mask_tags;  /* [128]: nonzero = tagged OAM entry */
+static uint8_t *obj_mask_out;         /* [EB_VIEWPORT_HEIGHT][EB_VIEWPORT_WIDTH] */
+static uint8_t obj_tag_line[LINE_BUF_WIDTH];
+
+void ppu_set_obj_mask(const uint8_t *oam_tags, uint8_t *mask_out) {
+    obj_mask_tags = oam_tags;
+    obj_mask_out = mask_out;
+}
+
+/* Write this output row of the mask. Re-walks OAM in the same 127 -> 0 order
+ * as render_obj_scanline (lowest index wins) to learn which entry owns each
+ * opaque OBJ pixel, then applies the compositor's OBJ-vs-BG test to the merged
+ * BG buffer (called before the compositor consumes best_bg). */
+static __attribute__((noinline)) void obj_mask_scanline(
+        int scanline, int out_y, int fb_x_offset, int x_start, int x_end,
+        bool obj_enabled, bool no_layer_windows, const uint8_t *eff_tm_line,
+        const uint8_t *obj_prio, const uint32_t *best_bg,
+        const uint8_t *obj_thresh) {
+    uint8_t *row = obj_mask_out + (size_t)out_y * EB_VIEWPORT_WIDTH;
+    if (!obj_enabled)
+        return; /* the row stays as cleared at frame start */
+    if (ppu.sprite_y_offset) {
+        int snes_sl = scanline - ppu.sprite_y_offset;
+        if (snes_sl < 0 || snes_sl >= SNES_HEIGHT)
+            return;
+    }
+
+    memset(obj_tag_line, 0, sizeof(obj_tag_line));
+    uint32_t obj_base = (uint32_t)(ppu.obsel & 0x07) * 0x4000;
+    uint32_t obj_gap = (uint32_t)((ppu.obsel >> 3) & 0x03) * 0x2000 + 0x2000;
+    int size_sel = (ppu.obsel >> 5) & 0x07;
+    for (int i = 127; i >= 0; i--) {
+        const OAMEntry *spr = &ppu.oam[i];
+        int size_bit = (ppu.oam_hi[i >> 2] >> ((i & 3) * 2 + 1)) & 1;
+        int spr_x = ppu.oam_full_x[i] + ppu.sprite_x_offset;
+        int spr_y = ppu.oam_full_y[i] + ppu.sprite_y_offset + OBJ_LINE_DELAY;
+        int w = obj_sizes[size_sel][size_bit][0];
+        int h = obj_sizes[size_sel][size_bit][1];
+        int r = scanline - spr_y;
+        if (r < 0 || r >= h || spr_x >= LINE_BUF_WIDTH || spr_x + w <= 0)
+            continue;
+        bool vflip = (spr->attr >> 7) & 1;
+        bool hflip = (spr->attr >> 6) & 1;
+        if (vflip) r = h - 1 - r;
+        uint16_t tile_num = spr->tile | ((uint16_t)(spr->attr & 1) << 8);
+        uint8_t tag = obj_mask_tags[i] ? 1 : 0;
+        int tiles_wide = w >> 3;
+        for (int tc = 0; tc < tiles_wide; tc++) {
+            int eff_tc = hflip ? (tiles_wide - 1 - tc) : tc;
+            uint16_t t = tile_num + eff_tc + (r >> 3) * 16;
+            uint32_t tile_addr = t >= 256 ? obj_base + obj_gap + (uint32_t)(t - 256) * 32
+                                          : obj_base + (uint32_t)t * 32;
+            if (tile_addr + 32 > VRAM_SIZE) continue;
+            int tile_screen_x = spr_x + tc * 8;
+            if (tile_screen_x >= LINE_BUF_WIDTH || tile_screen_x + 8 <= 0)
+                continue;
+            uint8_t indices[8];
+            decode_4bpp_row(&ppu.vram[tile_addr], r & 7, indices);
+            for (int px = 0; px < 8; px++) {
+                int sx = tile_screen_x + px;
+                if (sx < 0 || sx >= LINE_BUF_WIDTH) continue;
+                if (indices[hflip ? 7 - px : px])
+                    obj_tag_line[sx] = tag;
+            }
+        }
+    }
+
+    for (int x = x_start; x < x_end; x++) {
+        if (!obj_tag_line[x]) continue;
+        if (!no_layer_windows && !(eff_tm_line[x] & LAYER_OBJ)) continue;
+        uint8_t obj_pk = obj_prio[x];
+        if (obj_pk > 0 && GP_LM_GP(best_bg[x]) < obj_thresh[obj_pk])
+            row[x + fb_x_offset] = 1;
+    }
+}
+#endif /* EB_SMOOTH_CAMERA */
+
 /* Layer bit masks for window iteration (file scope to avoid .rodata
  * reference issues when the function is placed in RAM). */
 static const uint8_t win_layer_bits[5] = {
@@ -2109,6 +2190,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
     TileRowCacheEntry *tile_cache = tile_row_cache[ctx_id];
 
+#ifdef EB_SMOOTH_CAMERA
+    if (obj_mask_out)
+        memset(obj_mask_out, 0, (size_t)EB_VIEWPORT_WIDTH * EB_VIEWPORT_HEIGHT);
+#endif
+
     /* Check force blank */
     if (ppu.inidisp & 0x80) {
         for (int y = y_start; y < y_end; y += y_stride) {
@@ -2761,6 +2847,20 @@ merge_done:
             scanline_has_obj = render_obj_scanline(scanline, obj_color, obj_prio, tile_cache);
         }
         PROF_END(obj, prof_obj);
+
+#ifdef EB_SMOOTH_CAMERA
+        if (obj_mask_out) {
+            int mx_start = fb_x_offset < 0 ? -fb_x_offset : 0;
+            int mx_end = render_width;
+            if (fb_x_offset + mx_end > EB_VIEWPORT_WIDTH)
+                mx_end = EB_VIEWPORT_WIDTH - fb_x_offset;
+            bool obj_on = scanline_has_obj &&
+                (!no_layer_windows || (base_tm & LAYER_OBJ));
+            obj_mask_scanline(scanline, out_y, fb_x_offset, mx_start, mx_end,
+                              obj_on, no_layer_windows, eff_tm_line, obj_prio,
+                              best_bg, obj_thresh);
+        }
+#endif
 
         /* --- Compositing: OBJ vs merged BG --- */
         PROF_SECTION(comp);

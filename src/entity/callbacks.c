@@ -24,6 +24,7 @@
 #include "snes/ppu.h"
 #include "core/log.h"
 #include "core/math.h"
+#include "game/smooth_camera.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -472,6 +473,12 @@ void write_spritemap_to_oam(const uint8_t *spritemap, int16_t base_x,
  *
  * bank: SMAP_BANK_TITLE (frame index) or SMAP_BANK_OVERWORLD (ert.buffer offset).
  */
+#ifdef EB_SMOOTH_CAMERA
+/* Smooth camera (presentation only): which entity queued each spritemap, so
+ * render_all_priority_sprites can tag the OAM entries it writes. */
+static uint8_t sprite_queue_owner[4][MAX_PRIORITY_SPRITES];
+#endif
+
 void queue_sprite_draw(uint16_t smap_id, int16_t x, int16_t y,
                        uint16_t priority, uint16_t bank) {
     if (priority >= 4)
@@ -485,6 +492,9 @@ void queue_sprite_draw(uint16_t smap_id, int16_t x, int16_t y,
     q->sprite_x[off] = x;
     q->sprite_y[off] = y;
     q->spritemap_banks[off] = bank;
+#ifdef EB_SMOOTH_CAMERA
+    sprite_queue_owner[priority][off] = smooth_camera_draw_owner;
+#endif
     q->offset = off + 1;
 }
 
@@ -852,6 +862,10 @@ void render_all_priority_sprites(void) {
         ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
         ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
+#ifdef EB_SMOOTH_CAMERA
+    if (smooth_camera_enabled)
+        memset(smooth_camera_oam_owner, 0, sizeof(smooth_camera_oam_owner));
+#endif
 
     for (int prio = 0; prio < 4; prio++) {
         SpritePriorityQueue *q = &sprite_priority[prio];
@@ -884,8 +898,17 @@ void render_all_priority_sprites(void) {
             }
 
             if (spritemap) {
+#ifdef EB_SMOOTH_CAMERA
+                uint16_t first_oam = ert.oam_write_index;
+#endif
                 write_spritemap_to_oam(spritemap,
                                        q->sprite_x[i], q->sprite_y[i]);
+#ifdef EB_SMOOTH_CAMERA
+                if (smooth_camera_enabled) {
+                    for (uint16_t oi = first_oam; oi < ert.oam_write_index && oi < 128; oi++)
+                        smooth_camera_oam_owner[oi] = sprite_queue_owner[prio][i];
+                }
+#endif
             }
         }
     }
@@ -933,6 +956,9 @@ static void call_entity_draw(int16_t entity_offset) {
             return;
     }
 
+#ifdef EB_SMOOTH_CAMERA
+    smooth_camera_draw_owner = (uint8_t)(entity_offset + 1);
+#endif
     switch (entities.draw_callback[entity_offset]) {
     case CB_DRAW_ENTITY_SPRITE:
         draw_entity_sprite(entity_offset);
@@ -943,6 +969,9 @@ static void call_entity_draw(int16_t entity_offset) {
     default:
         break;
     }
+#ifdef EB_SMOOTH_CAMERA
+    smooth_camera_draw_owner = 0;
+#endif
 }
 
 /*

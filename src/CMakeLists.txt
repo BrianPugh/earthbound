@@ -46,6 +46,13 @@ target_compile_definitions(earthbound_game PUBLIC
     EB_VIEWPORT_HEIGHT=${EB_VIEWPORT_HEIGHT}
 )
 
+# Smooth camera presentation option (game/smooth_camera.h). Desktop ports turn
+# it on; embedded ports leave it off so its buffers and hooks compile out.
+option(EB_SMOOTH_CAMERA "Build the smooth-camera presentation hooks" OFF)
+if(EB_SMOOTH_CAMERA)
+    target_compile_definitions(earthbound_game PUBLIC EB_SMOOTH_CAMERA=1)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/EbWarnings.cmake)
 eb_target_warnings(earthbound_game)
 if(NOT MSVC)
