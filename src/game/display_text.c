@@ -1710,49 +1710,47 @@ static StepResult dt_push_text_prompt(int show_triangle, int skip_text_speed) {
     return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_PROMPT, &init);
 }
 
-StepResult mode_step_display_text(ModeState *ms) {
-    DisplayTextModeState *st = &ms->display_text;
-
-    /* DT_DELAY: typewriter per-character delay. One window_tick_work() per frame;
-     * the pump owns the yield. Mirrors the blocking for(i<delay) window_tick().
-     * If this frame's actionscript render parks a callroutine, STEP_PUSH the
-     * frame and count it at DT_DELAY_FLUSH when the child pops. */
-    if (st->phase == DT_DELAY) {
-        if (window_tick_work_step()) {
-            st->phase = DT_DELAY_FLUSH;
-            return actionscript_frame_take_push();
-        }
-        if (--st->delay_remaining == 0)
-            st->phase = DT_RUN;
-        return STEP_RESULT_CONTINUE();
+/* DT_DELAY: typewriter per-character delay. One window_tick_work() per frame;
+ * the pump owns the yield. Mirrors the blocking for(i<delay) window_tick().
+ * If this frame's actionscript render parks a callroutine, STEP_PUSH the
+ * frame and count it at DT_DELAY_FLUSH when the child pops. */
+static StepResult step_display_text_delay(DisplayTextModeState *st) {
+    if (window_tick_work_step()) {
+        st->phase = DT_DELAY_FLUSH;
+        return actionscript_frame_take_push();
     }
-
-    /* DT_DELAY_FLUSH: resume after a parked typewriter-frame actionscript render.
-     * Finish the render (update_screen) and count this frame against the delay. */
-    if (st->phase == DT_DELAY_FLUSH) {
-        window_tick_work_flush();
-        if (--st->delay_remaining == 0)
-            st->phase = DT_RUN;
-        else
-            st->phase = DT_DELAY;
-        return STEP_RESULT_CONTINUE();
-    }
-
-    /* DT_ENTER: per-call prologue (save the parent's g_cc18_attrs_saved, zero the
-     * global, reset the word counter), then fall through to DT_RUN with no yield —
-     * mirroring PUSH_TEXT_STACK_FRAME / the blocking display_text() entry. Each
-     * call level (including a nested CC_08 child) gets a clean flag; the parent's
-     * value is restored before this level pops. */
-    if (st->phase == DT_ENTER) {
-        st->saved_cc18_attrs = dt.g_cc18_attrs_saved;
-        dt.g_cc18_attrs_saved = 0;
-        dt.upcoming_word_length = 0;
+    if (--st->delay_remaining == 0)
         st->phase = DT_RUN;
-    }
+    return STEP_RESULT_CONTINUE();
+}
 
-    /* Post-child resume: a CC that STEP_PUSHed a child and needs its result does
-     * its post-work here, on the frame the child pops back into DT_RUN, before the
-     * next byte is read. */
+/* DT_DELAY_FLUSH: resume after a parked typewriter-frame actionscript render.
+ * Finish the render (update_screen) and count this frame against the delay. */
+static StepResult step_display_text_delay_flush(DisplayTextModeState *st) {
+    window_tick_work_flush();
+    if (--st->delay_remaining == 0)
+        st->phase = DT_RUN;
+    else
+        st->phase = DT_DELAY;
+    return STEP_RESULT_CONTINUE();
+}
+
+/* DT_ENTER: per-call prologue (save the parent's g_cc18_attrs_saved, zero the
+ * global, reset the word counter), then fall through to DT_RUN with no yield —
+ * mirroring PUSH_TEXT_STACK_FRAME / the blocking display_text() entry. Each
+ * call level (including a nested CC_08 child) gets a clean flag; the parent's
+ * value is restored before this level pops. */
+static void step_display_text_enter(DisplayTextModeState *st) {
+    st->saved_cc18_attrs = dt.g_cc18_attrs_saved;
+    dt.g_cc18_attrs_saved = 0;
+    dt.upcoming_word_length = 0;
+    st->phase = DT_RUN;
+}
+
+/* Post-child resume: a CC that STEP_PUSHed a child and needs its result does
+ * its post-work here, on the frame the child pops back into DT_RUN, before the
+ * next byte is read. */
+static void dt_resume_after_child(DisplayTextModeState *st) {
     if (st->resume == DT_RESUME_CC11) {
         /* CC_11 (selection_menu): store the chosen userdata (0 on cancel) to
          * working memory, then clear the menu — the tail of the former CC_11. */
@@ -1847,8 +1845,270 @@ StepResult mode_step_display_text(ModeState *ms) {
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
     }
+}
+
+/* START_NEW_LINE: 0 args. Port of CC_01.
+ * Like LINE_BREAK but only if not already at start of line. */
+static void dt_cc_start_new_line(void) {
+    WindowInfo *w = get_focus_window_info();
+    if (w && w->text_x > 0) {
+        print_newline();
+    }
+}
+
+/* CHECK_EVENT_FLAG: 2 args (word) → store flag value to working memory.
+ * Port of CC_07 (asm/text/ccs/get_event_flag.asm). */
+static void dt_cc_check_event_flag(ScriptReader *r) {
+    uint16_t flag = script_read_word(r);
+    int16_t val = event_flag_get(flag);
+    set_working_memory((uint32_t)(int32_t)val);
+}
+
+/* TEST_IF_WORKMEM_TRUE: 1 arg. If working_memory == arg, set 1; else 0.
+ * Port of CC_0B (asm/text/ccs/check_equal.asm). */
+static void dt_cc_test_workmem_true(ScriptReader *r) {
+    uint8_t val = script_read_byte(r);
+    uint32_t wm = get_working_memory();
+    set_working_memory((uint32_t)((uint16_t)wm == (uint16_t)val ? 1 : 0));
+}
+
+/* TEST_IF_WORKMEM_FALSE: 1 arg. If working_memory != arg, set 1; else 0.
+ * Port of CC_0C (asm/text/ccs/check_not_equal.asm). */
+static void dt_cc_test_workmem_false(ScriptReader *r) {
+    uint8_t val = script_read_byte(r);
+    uint32_t wm = get_working_memory();
+    set_working_memory((uint32_t)((uint16_t)wm != (uint16_t)val ? 1 : 0));
+}
+
+/* COPY_TO_ARGMEM: 1 arg. If arg != 0, copy secondary → argument.
+ * If arg == 0, copy working → argument.
+ * Port of CC_0D (asm/text/ccs/copy_to_argmem.asm). */
+static void dt_cc_copy_to_argmem(ScriptReader *r) {
+    uint8_t val = script_read_byte(r);
+    if (val != 0) {
+        set_argument_memory((uint32_t)get_secondary_memory());
+    } else {
+        set_argument_memory(get_working_memory());
+    }
+}
+
+/* STORE_TO_ARGMEM: 1 arg. If arg != 0, set secondary = arg.
+ * If arg == 0, set secondary = low byte of argument_memory.
+ * Port of CC_0E (asm/text/ccs/set_secmem.asm). */
+static void dt_cc_store_to_argmem(ScriptReader *r) {
+    uint8_t val = script_read_byte(r);
+    if (val != 0) {
+        set_secondary_memory(val);
+    } else {
+        set_secondary_memory((uint16_t)(get_argument_memory() & 0xFF));
+    }
+}
+
+/* PAUSE (CC_10): read the frame count, clear instant printing, then
+ * STEP_PUSH GAME_MODE_TEXT_DELAY (lead_window=1, non-cancelable) — the
+ * former cc_pause() -> pump_mode(GAME_MODE_TEXT_DELAY). No post-work;
+ * the parent resumes DT_RUN on POP. */
+static StepResult dt_cc_pause(ScriptReader *r) {
+    uint8_t frames = script_read_byte(r);
+    clear_instant_printing();
+    static ModeState init;  /* outlives this dispatch (pump copies it) */
+    memset(&init, 0, sizeof(init));
+    init.text_delay.remaining   = frames;
+    init.text_delay.cancelable  = 0;
+    init.text_delay.primed      = 0;
+    init.text_delay.lead_window = 1;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_DELAY, &init);
+}
+
+/* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword address).
+ * Port of CC_06. If event flag is set, jump to target; else skip. */
+static void dt_cc_jump_if_flag_set(ScriptReader *r) {
+    uint16_t flag = script_read_word(r);
+    uint32_t target = script_read_dword(r);
+    if (event_flag_get(flag)) {
+        resolve_text_jump(r, target);
+    }
+}
+
+/* CALL_TEXT: 4 args (dword address). Port of CC_08. The blocking form
+ * recursed via display_text_from_addr(); now it STEP_PUSHes a nested
+ * GAME_MODE_DISPLAY_TEXT child so the recursion lives on the mode stack
+ * (serializable), not the C stack. The parent resumes DT_RUN on POP.
+ * One yield is inserted at the push (and one at the child's pop) — an
+ * accepted imperceptible shift on text that already yields per char.
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_call_text(ScriptReader *r, StepResult *out) {
+    uint32_t target = script_read_dword(r);
+    static ModeState dt_call_init;  /* outlives this dispatch (pump copies it) */
+    if (dt_make_child_init(&dt_call_init, target)) {
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_call_init);
+        return true;
+    }
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", target);
+    return false;
+}
+
+/* JUMP_MULTI: 1 byte count + count*4 byte addresses.
+ * Port of CC_09 (asm/text/ccs/jump_multi.asm).
+ * Uses working_memory as 1-indexed selector into address table. */
+static void dt_cc_jump_multi(ScriptReader *r) {
+    uint8_t count = script_read_byte(r);
+    uint32_t wm = get_working_memory();
+    if (wm > 0 && wm <= count) {
+        script_skip(r, (wm - 1) * 4);
+        uint32_t target = script_read_dword(r);
+        resolve_text_jump(r, target);
+    } else {
+        /* Out of range or 0 — skip all destinations */
+        script_skip(r, count * 4);
+    }
+}
+
+/* JUMP: 4 args (dword address).
+ * Port of CC_0A. Unconditional jump. */
+static void dt_cc_jump(ScriptReader *r) {
+    uint32_t target = script_read_dword(r);
+    resolve_text_jump(r, target);
+}
+
+/* CLEAR_TEXT_LINE: 0 args. Port of CC_12 (clear_line.asm).
+ * Assembly: FREE_WINDOW_TEXT_ROW, then SET_FOCUS_TEXT_CURSOR(x=0, y=text_y).
+ * SET_FOCUS_TEXT_CURSOR calls ADVANCE_VWF_TILE (lightweight advance
+ * to next tile boundary), NOT RESET_VWF_TEXT_STATE (full VWF reset). */
+static void dt_cc_clear_text_line(void) {
+    WindowInfo *w = get_focus_window_info();
+    if (w) {
+        free_window_text_row(w);
+        set_focus_text_cursor(0, w->text_y);
+    }
+}
+
+/* CREATE_SELECTION_MENU: 0 args. Port of CC_11. STEP_PUSHes
+ * GAME_MODE_SELECTION_MENU (allow_cancel=1) instead of the former
+ * selection_menu() -> pump_mode; the result is stored to working memory
+ * in the DT_RESUME_CC11 handler when the menu pops. Assembly:
+ * JSR SELECTION_MENU; SET_WORKING_MEMORY; JSR CLEAR_FOCUS_WINDOW_MENU_OPTIONS.
+ * selection_menu() returns 0 without pumping for a null/empty menu —
+ * replicate that early-out here (no push, no resume).
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_create_selection_menu(DisplayTextModeState *st, StepResult *out) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0) {
+        set_working_memory(0);
+        clear_focus_window_menu_options();
+        return false;
+    }
+    static ModeState sm_init;  /* outlives this dispatch (pump copies it) */
+    memset(&sm_init, 0, sizeof(sm_init));
+    sm_init.selection_menu.phase        = SM_SETUP;
+    sm_init.selection_menu.allow_cancel = 1;
+    st->resume = DT_RESUME_CC11;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sm_init);
+    return true;
+}
+
+/* CC_18 tree. Most CC_18 sub-ops run inline; the focus-window selection menus
+ * (sub 0x08/0x09) request a SELECTION_MENU child push, carrying the
+ * 0x08 cancel-jump target to resolve in DT_RESUME_CC18_SEL on POP.
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
+    static ModeState cc18_init;  /* outlives this dispatch (pump copies it) */
+    memset(&cc18_init, 0, sizeof(cc18_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    uint8_t  child_resume = DT_RESUME_NONE;
+    uint32_t cancel_target = 0;
+    if (cc_18_dispatch(r, &cc18_init, &child_mode, &child_resume,
+                       &cancel_target)) {
+        st->resume = child_resume;
+        st->cc18_cancel_target = cancel_target;
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc18_init);
+        return true;
+    }
+    return false;
+}
+
+/* CC_1A tree. Most CC_1A sub-ops run inline; the overworld party-member selection
+ * (sub 0x00/0x01, mode byte == 1) requests a SELECTION_MENU child push,
+ * carrying the window to close + argument_memory to restore on POP.
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_1a(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
+    static ModeState cc1a_init;  /* outlives this dispatch (pump copies it) */
+    memset(&cc1a_init, 0, sizeof(cc1a_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    uint8_t  child_resume = DT_RESUME_NONE;
+    uint16_t window_id = 0;
+    uint32_t saved_argmem = 0;
+    if (cc_1a_dispatch(r, &cc1a_init, &child_mode, &child_resume,
+                       &window_id, &saved_argmem)) {
+        st->resume = child_resume;
+        st->cc1a_window_id = window_id;
+        st->cc1a_saved_argmem = saved_argmem;
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1a_init);
+        return true;
+    }
+    return false;
+}
+
+/* CC_1C tree. Most CC_1C sub-ops run inline; the window border flash (sub 0x08,
+ * mode 1/2) requests a GAME_MODE_WINDOW_BORDER_ANIM child push.
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_1c(ScriptReader *r, StepResult *out) {
+    static ModeState cc1c_init;  /* outlives this dispatch (pump copies it) */
+    memset(&cc1c_init, 0, sizeof(cc1c_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    /* Its printers queue their letters for the drain at the loop top. */
+    s_lq_capture = true;
+    bool pushed = cc_1c_dispatch(r, &cc1c_init, &child_mode);
+    s_lq_capture = false;
+    if (pushed) {
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1c_init);
+        return true;
+    }
+    return false;
+}
+
+/* CC_1E tree. Most CC_1E sub-ops run inline; GIVE_EXPERIENCE (sub 0x09) with a
+ * level-up pending requests a GAME_MODE_LEVEL_UP child push.
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_1e(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
+    static ModeState cc1e_init;  /* outlives this dispatch (pump copies it) */
+    memset(&cc1e_init, 0, sizeof(cc1e_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    uint8_t  child_resume = DT_RESUME_NONE;
+    if (cc_1e_dispatch(r, &cc1e_init, &child_mode, &child_resume)) {
+        st->resume = child_resume;
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1e_init);
+        return true;
+    }
+    return false;
+}
+
+/* CC_1F tree. Most CC_1F sub-ops run inline; the yielding ones request a child
+ * push (battle / entered value / delay / actionscript wait).
+ * Returns true (with *out set) when it pushes. */
+static bool dt_cc_1f(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
+    static ModeState cc1f_init;  /* outlives this dispatch (pump copies it) */
+    memset(&cc1f_init, 0, sizeof(cc1f_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    uint8_t  child_resume = DT_RESUME_NONE;
+    uint16_t child_aux = 0;
+    if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume,
+                       &child_aux)) {
+        st->resume = child_resume;
+        st->cc1f_aux = child_aux;
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &cc1f_init);
+        return true;
+    }
+    return false;
+}
+
+/* DT_RUN: apply any popped child's result, then interpret script bytes until
+ * a yield point (typewriter delay, child push, or end of text). */
+static StepResult step_display_text_run(DisplayTextModeState *st) {
+    dt_resume_after_child(st);
 
     ScriptReader *r = &st->reader;
+    StepResult res;
 
     for (;;) {
         /* Type out letters a control code queued (see "Letter queue") before
@@ -1915,284 +2175,71 @@ StepResult mode_step_display_text(ModeState *ms) {
 
         /* Control codes */
         switch (byte) {
-        case 0x00: {
-            /* LINE_BREAK: 0 args. Port of CC_00 → PRINT_NEWLINE.
-             * Advances text cursor to next line (text_x=0, text_y++). */
-            print_newline();
-            break;
-        }
-        case 0x01: {
-            /* START_NEW_LINE: 0 args. Port of CC_01.
-             * Like LINE_BREAK but only if not already at start of line. */
-            WindowInfo *w = get_focus_window_info();
-            if (w && w->text_x > 0) {
-                print_newline();
-            }
-            break;
-        }
-        case 0x03:
-            /* HALT_WITH_PROMPT: 0 args. Port of CC_03.
-             * Assembly: calls CC_13_14 with A=1, X=0 → show triangle, allow text speed delay. */
-            return dt_push_text_prompt(1, 0);
+        /* LINE_BREAK: 0 args. Port of CC_00 → PRINT_NEWLINE.
+         * Advances text cursor to next line (text_x=0, text_y++). */
+        case 0x00: print_newline(); break;
+        case 0x01: dt_cc_start_new_line(); break;
+        /* HALT_WITH_PROMPT: 0 args. Port of CC_03.
+         * Assembly: calls CC_13_14 with A=1, X=0 → show triangle, allow text speed delay. */
+        case 0x03: return dt_push_text_prompt(1, 0);
 
         /* Implemented CCs */
         case 0x04: cc_set_event_flag(r); break;
         case 0x05: cc_clear_event_flag(r); break;
-        case 0x07: {
-            /* CHECK_EVENT_FLAG: 2 args (word) → store flag value to working memory.
-             * Port of CC_07 (asm/text/ccs/get_event_flag.asm). */
-            uint16_t flag = script_read_word(r);
-            int16_t val = event_flag_get(flag);
-            set_working_memory((uint32_t)(int32_t)val);
-            break;
-        }
-        case 0x0B: {
-            /* TEST_IF_WORKMEM_TRUE: 1 arg. If working_memory == arg, set 1; else 0.
-             * Port of CC_0B (asm/text/ccs/check_equal.asm). */
-            uint8_t val = script_read_byte(r);
-            uint32_t wm = get_working_memory();
-            set_working_memory((uint32_t)((uint16_t)wm == (uint16_t)val ? 1 : 0));
-            break;
-        }
-        case 0x0C: {
-            /* TEST_IF_WORKMEM_FALSE: 1 arg. If working_memory != arg, set 1; else 0.
-             * Port of CC_0C (asm/text/ccs/check_not_equal.asm). */
-            uint8_t val = script_read_byte(r);
-            uint32_t wm = get_working_memory();
-            set_working_memory((uint32_t)((uint16_t)wm != (uint16_t)val ? 1 : 0));
-            break;
-        }
-        case 0x0D: {
-            /* COPY_TO_ARGMEM: 1 arg. If arg != 0, copy secondary → argument.
-             * If arg == 0, copy working → argument.
-             * Port of CC_0D (asm/text/ccs/copy_to_argmem.asm). */
-            uint8_t val = script_read_byte(r);
-            if (val != 0) {
-                set_argument_memory((uint32_t)get_secondary_memory());
-            } else {
-                set_argument_memory(get_working_memory());
-            }
-            break;
-        }
-        case 0x0E: {
-            /* STORE_TO_ARGMEM: 1 arg. If arg != 0, set secondary = arg.
-             * If arg == 0, set secondary = low byte of argument_memory.
-             * Port of CC_0E (asm/text/ccs/set_secmem.asm). */
-            uint8_t val = script_read_byte(r);
-            if (val != 0) {
-                set_secondary_memory(val);
-            } else {
-                set_secondary_memory((uint16_t)(get_argument_memory() & 0xFF));
-            }
-            break;
-        }
-        case 0x0F:
-            /* INCREMENT_SECONDARY_MEMORY: 0 args.
-             * Port of CC_0F → INCREMENT_SECONDARY_MEMORY (asm/text/increment_secondary_memory.asm). */
-            increment_secondary_memory();
-            break;
-        case 0x10: {
-            /* PAUSE (CC_10): read the frame count, clear instant printing, then
-             * STEP_PUSH GAME_MODE_TEXT_DELAY (lead_window=1, non-cancelable) — the
-             * former cc_pause() -> pump_mode(GAME_MODE_TEXT_DELAY). No post-work;
-             * the parent resumes DT_RUN on POP. */
-            uint8_t frames = script_read_byte(r);
-            clear_instant_printing();
-            static ModeState init;  /* outlives this dispatch (pump copies it) */
-            memset(&init, 0, sizeof(init));
-            init.text_delay.remaining   = frames;
-            init.text_delay.cancelable  = 0;
-            init.text_delay.primed      = 0;
-            init.text_delay.lead_window = 1;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_DELAY, &init);
-        }
+        case 0x07: dt_cc_check_event_flag(r); break;
+        case 0x0B: dt_cc_test_workmem_true(r); break;
+        case 0x0C: dt_cc_test_workmem_false(r); break;
+        case 0x0D: dt_cc_copy_to_argmem(r); break;
+        case 0x0E: dt_cc_store_to_argmem(r); break;
+        /* INCREMENT_SECONDARY_MEMORY: 0 args.
+         * Port of CC_0F → INCREMENT_SECONDARY_MEMORY (asm/text/increment_secondary_memory.asm). */
+        case 0x0F: increment_secondary_memory(); break;
+        case 0x10: return dt_cc_pause(r);
 
         /* Jump CCs */
-        case 0x06: {
-            /* JUMP_IF_FLAG_SET: 2+4 args (word flag + dword address).
-             * Port of CC_06. If event flag is set, jump to target; else skip. */
-            uint16_t flag = script_read_word(r);
-            uint32_t target = script_read_dword(r);
-            if (event_flag_get(flag)) {
-                resolve_text_jump(r, target);
-            }
-            break;
-        }
-        case 0x08: {
-            /* CALL_TEXT: 4 args (dword address). Port of CC_08. The blocking form
-             * recursed via display_text_from_addr(); now it STEP_PUSHes a nested
-             * GAME_MODE_DISPLAY_TEXT child so the recursion lives on the mode stack
-             * (serializable), not the C stack. The parent resumes DT_RUN on POP.
-             * One yield is inserted at the push (and one at the child's pop) — an
-             * accepted imperceptible shift on text that already yields per char. */
-            uint32_t target = script_read_dword(r);
-            static ModeState dt_call_init;  /* outlives this dispatch (pump copies it) */
-            if (dt_make_child_init(&dt_call_init, target))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &dt_call_init);
-            LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", target);
-            break;
-        }
-        case 0x09: {
-            /* JUMP_MULTI: 1 byte count + count*4 byte addresses.
-             * Port of CC_09 (asm/text/ccs/jump_multi.asm).
-             * Uses working_memory as 1-indexed selector into address table. */
-            uint8_t count = script_read_byte(r);
-            uint32_t wm = get_working_memory();
-            if (wm > 0 && wm <= count) {
-                script_skip(r, (wm - 1) * 4);
-                uint32_t target = script_read_dword(r);
-                resolve_text_jump(r, target);
-            } else {
-                /* Out of range or 0 — skip all destinations */
-                script_skip(r, count * 4);
-            }
-            break;
-        }
-        case 0x0A: {
-            /* JUMP: 4 args (dword address).
-             * Port of CC_0A. Unconditional jump. */
-            uint32_t target = script_read_dword(r);
-            resolve_text_jump(r, target);
-            break;
-        }
+        case 0x06: dt_cc_jump_if_flag_set(r); break;
+        case 0x08: if (dt_cc_call_text(r, &res)) return res; break;
+        case 0x09: dt_cc_jump_multi(r); break;
+        case 0x0A: dt_cc_jump(r); break;
 
-        case 0x12: {
-            /* CLEAR_TEXT_LINE: 0 args. Port of CC_12 (clear_line.asm).
-             * Assembly: FREE_WINDOW_TEXT_ROW, then SET_FOCUS_TEXT_CURSOR(x=0, y=text_y).
-             * SET_FOCUS_TEXT_CURSOR calls ADVANCE_VWF_TILE (lightweight advance
-             * to next tile boundary), NOT RESET_VWF_TEXT_STATE (full VWF reset). */
-            WindowInfo *w = get_focus_window_info();
-            if (w) {
-                free_window_text_row(w);
-                set_focus_text_cursor(0, w->text_y);
-            }
-            break;
-        }
-        case 0x11: {
-            /* CREATE_SELECTION_MENU: 0 args. Port of CC_11. STEP_PUSHes
-             * GAME_MODE_SELECTION_MENU (allow_cancel=1) instead of the former
-             * selection_menu() -> pump_mode; the result is stored to working memory
-             * in the DT_RESUME_CC11 handler when the menu pops. Assembly:
-             * JSR SELECTION_MENU; SET_WORKING_MEMORY; JSR CLEAR_FOCUS_WINDOW_MENU_OPTIONS.
-             * selection_menu() returns 0 without pumping for a null/empty menu —
-             * replicate that early-out here (no push, no resume). */
-            WindowInfo *w = get_window(win.current_focus_window);
-            if (!w || w->menu_count == 0) {
-                set_working_memory(0);
-                clear_focus_window_menu_options();
-                break;
-            }
-            static ModeState sm_init;  /* outlives this dispatch (pump copies it) */
-            memset(&sm_init, 0, sizeof(sm_init));
-            sm_init.selection_menu.phase        = SM_SETUP;
-            sm_init.selection_menu.allow_cancel = 1;
-            st->resume = DT_RESUME_CC11;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &sm_init);
-        }
-        case 0x13:
-            /* HALT_WITHOUT_PROMPT: 0 args. Port of CC_13.
-             * Assembly: calls CC_13_14 with A=0, X=0 → no triangle. */
-            return dt_push_text_prompt(0, 0);
-        case 0x14:
-            /* HALT_WITH_PROMPT_ALWAYS: 0 args. Port of CC_14.
-             * Assembly: calls CC_13_14 with A=1, X=1 → show triangle, skip text speed delay. */
-            return dt_push_text_prompt(1, 1);
+        case 0x12: dt_cc_clear_text_line(); break;
+        case 0x11: if (dt_cc_create_selection_menu(st, &res)) return res; break;
+        /* HALT_WITHOUT_PROMPT: 0 args. Port of CC_13.
+         * Assembly: calls CC_13_14 with A=0, X=0 → no triangle. */
+        case 0x13: return dt_push_text_prompt(0, 0);
+        /* HALT_WITH_PROMPT_ALWAYS: 0 args. Port of CC_14.
+         * Assembly: calls CC_13_14 with A=1, X=1 → show triangle, skip text speed delay. */
+        case 0x14: return dt_push_text_prompt(1, 1);
 
         /* Tree dispatchers */
-        case 0x18: {
-            /* Most CC_18 sub-ops run inline; the focus-window selection menus
-             * (sub 0x08/0x09) request a SELECTION_MENU child push, carrying the
-             * 0x08 cancel-jump target to resolve in DT_RESUME_CC18_SEL on POP. */
-            static ModeState cc18_init;  /* outlives this dispatch (pump copies it) */
-            memset(&cc18_init, 0, sizeof(cc18_init));
-            GameMode child_mode = GAME_MODE_NONE;
-            uint8_t  child_resume = DT_RESUME_NONE;
-            uint32_t cancel_target = 0;
-            if (cc_18_dispatch(r, &cc18_init, &child_mode, &child_resume,
-                               &cancel_target)) {
-                st->resume = child_resume;
-                st->cc18_cancel_target = cancel_target;
-                return STEP_RESULT_PUSH_INIT(child_mode, &cc18_init);
-            }
-            break;
-        }
+        case 0x18: if (dt_cc_18(st, r, &res)) return res; break;
         case 0x19: cc_19_dispatch(r); break;
-        case 0x1A: {
-            /* Most CC_1A sub-ops run inline; the overworld party-member selection
-             * (sub 0x00/0x01, mode byte == 1) requests a SELECTION_MENU child push,
-             * carrying the window to close + argument_memory to restore on POP. */
-            static ModeState cc1a_init;  /* outlives this dispatch (pump copies it) */
-            memset(&cc1a_init, 0, sizeof(cc1a_init));
-            GameMode child_mode = GAME_MODE_NONE;
-            uint8_t  child_resume = DT_RESUME_NONE;
-            uint16_t window_id = 0;
-            uint32_t saved_argmem = 0;
-            if (cc_1a_dispatch(r, &cc1a_init, &child_mode, &child_resume,
-                               &window_id, &saved_argmem)) {
-                st->resume = child_resume;
-                st->cc1a_window_id = window_id;
-                st->cc1a_saved_argmem = saved_argmem;
-                return STEP_RESULT_PUSH_INIT(child_mode, &cc1a_init);
-            }
-            break;
-        }
+        case 0x1A: if (dt_cc_1a(st, r, &res)) return res; break;
         case 0x1B: cc_1b_dispatch(r); break;
-        case 0x1C: {
-            /* Most CC_1C sub-ops run inline; the window border flash (sub 0x08,
-             * mode 1/2) requests a GAME_MODE_WINDOW_BORDER_ANIM child push. */
-            static ModeState cc1c_init;  /* outlives this dispatch (pump copies it) */
-            memset(&cc1c_init, 0, sizeof(cc1c_init));
-            GameMode child_mode = GAME_MODE_NONE;
-            /* Its printers queue their letters for the drain at the loop top. */
-            s_lq_capture = true;
-            bool pushed = cc_1c_dispatch(r, &cc1c_init, &child_mode);
-            s_lq_capture = false;
-            if (pushed) {
-                return STEP_RESULT_PUSH_INIT(child_mode, &cc1c_init);
-            }
-            break;
-        }
+        case 0x1C: if (dt_cc_1c(r, &res)) return res; break;
         case 0x1D: cc_1d_dispatch(r); break;
-        case 0x1E: {
-            /* Most CC_1E sub-ops run inline; GIVE_EXPERIENCE (sub 0x09) with a
-             * level-up pending requests a GAME_MODE_LEVEL_UP child push. */
-            static ModeState cc1e_init;  /* outlives this dispatch (pump copies it) */
-            memset(&cc1e_init, 0, sizeof(cc1e_init));
-            GameMode child_mode = GAME_MODE_NONE;
-            uint8_t  child_resume = DT_RESUME_NONE;
-            if (cc_1e_dispatch(r, &cc1e_init, &child_mode, &child_resume)) {
-                st->resume = child_resume;
-                return STEP_RESULT_PUSH_INIT(child_mode, &cc1e_init);
-            }
-            break;
-        }
-        case 0x1F: {
-            /* Most CC_1F sub-ops run inline; the yielding ones request a child
-             * push (battle / entered value / delay / actionscript wait). */
-            static ModeState cc1f_init;  /* outlives this dispatch (pump copies it) */
-            memset(&cc1f_init, 0, sizeof(cc1f_init));
-            GameMode child_mode = GAME_MODE_NONE;
-            uint8_t  child_resume = DT_RESUME_NONE;
-            uint16_t child_aux = 0;
-            if (cc_1f_dispatch(r, &cc1f_init, &child_mode, &child_resume,
-                               &child_aux)) {
-                st->resume = child_resume;
-                st->cc1f_aux = child_aux;
-                return STEP_RESULT_PUSH_INIT(child_mode, &cc1f_init);
-            }
-            break;
-        }
+        case 0x1E: if (dt_cc_1e(st, r, &res)) return res; break;
+        case 0x1F: if (dt_cc_1f(st, r, &res)) return res; break;
 
         /* All other simple CCs — skip arguments */
-        default:
-            cc_skip_args(r, byte);
-            break;
+        default: cc_skip_args(r, byte); break;
         }
 
         if (platform_input_quit_requested()) {
             dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
             return STEP_RESULT_POP(0);
         }
+    }
+}
+
+StepResult mode_step_display_text(ModeState *ms) {
+    DisplayTextModeState *st = &ms->display_text;
+
+    switch (st->phase) {
+    case DT_DELAY:       return step_display_text_delay(st);
+    case DT_DELAY_FLUSH: return step_display_text_delay_flush(st);
+    case DT_ENTER:       step_display_text_enter(st); EB_FALLTHROUGH;
+    default:             return step_display_text_run(st);
     }
 }
 
