@@ -828,41 +828,24 @@ StepResult mode_step_game_over(ModeState *mst) {
         case GO_CB_TEXT:
             /* DISPLAY_TEXT_PTR MSG_SYS_REVIVE_AFTER_KO (the comeback dialogue,
              * which sets EVENT_FLAG_NOCONTINUE_SELECTED on the player's choice) */
-            st->phase = GO_CB_CLOSE1;
+            st->phase = GO_CB_CLOSE;
+            st->teardown = 0;
             if (dt_make_child_init(&child, MSG_SYS_REVIVE_AFTER_KO))
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
             LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n",
                      (uint32_t)MSG_SYS_REVIVE_AFTER_KO);
             continue;
 
-        case GO_CB_CLOSE1:
-            /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: close_all_windows + window_tick */
-            close_all_windows();
-            if (window_tick_work_step()) {
-                st->phase = GO_CB_CLOSE1_FLUSH;
-                return actionscript_frame_take_push();
-            }
-            st->phase = GO_CB_CLOSE2;
-            return STEP_RESULT_CONTINUE();
-
-        case GO_CB_CLOSE1_FLUSH:
-            window_tick_work_flush();
-            st->phase = GO_CB_CLOSE2;
-            return STEP_RESULT_CONTINUE();
-
-        case GO_CB_CLOSE2:
-            hide_hppp_windows();
-            if (window_tick_work_step()) {
-                st->phase = GO_CB_CLOSE2_FLUSH;
-                return actionscript_frame_take_push();
-            }
+        case GO_CB_CLOSE: {
+            /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: CLOSE_ALL_WINDOWS' tick,
+             * WINDOW_TICK, HIDE_HPPP_WINDOWS (its wait when an indicator is
+             * up), WINDOW_TICK; a presented frame each, in asm order. */
+            StepResult r;
+            if (close_all_windows_and_hide_hppp_step(&st->teardown, &child, &r))
+                return r;
             st->phase = GO_CB_DECIDE;
-            return STEP_RESULT_CONTINUE();
-
-        case GO_CB_CLOSE2_FLUSH:
-            window_tick_work_flush();
-            st->phase = GO_CB_DECIDE;
-            return STEP_RESULT_CONTINUE();
+            continue;
+        }
 
         case GO_CB_DECIDE:
             if (!event_flag_get(EVENT_FLAG_NOCONTINUE_SELECTED)) {

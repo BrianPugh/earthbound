@@ -2474,8 +2474,7 @@ typedef enum {
     GO_SETUP,            /* game-over screen sync setup + fade-in */
     GO_CB_PAUSE,         /* comeback: initial skippable_pause(60) (result ignored) */
     GO_CB_TEXT,          /* comeback: push the MSG_SYS_REVIVE_AFTER_KO dialogue */
-    GO_CB_CLOSE1,        /* close_all_windows + one window_tick frame */
-    GO_CB_CLOSE2,        /* hide_hppp_windows + one window_tick frame */
+    GO_CB_CLOSE,         /* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP: a frame per tick/wait (teardown) */
     GO_CB_DECIDE,        /* branch on the No-Continue flag */
     GO_CONT_FADE,        /* Continue: after the trailing pause, fade_out(2,1) */
     GO_CONT_DONE,        /* Continue: enable entities, POP -1 */
@@ -2486,8 +2485,6 @@ typedef enum {
     GO_NC_MAP,           /* No-Continue: initialize_map, leader/flags/entity reset, buzz text */
     GO_NC_BUZZ_DONE,     /* No-Continue: spawn deliveries, enable entities, render-fade */
     GO_NC_FINISH,        /* No-Continue: POP 0 */
-    GO_CB_CLOSE1_FLUSH,  /* park-propagating resume of GO_CB_CLOSE1's window_tick */
-    GO_CB_CLOSE2_FLUSH,  /* park-propagating resume of GO_CB_CLOSE2's window_tick */
 } GameOverPhase;
 
 typedef struct {
@@ -2495,6 +2492,7 @@ typedef struct {
     uint8_t  nc_step;   /* GO_NC_SEQ index into the 8-entry no-continue fade chain */
     uint16_t saved_x;   /* ow.respawn_x captured at GO_ENTER (used at GO_NC_MAP) */
     uint16_t saved_y;   /* ow.respawn_y captured at GO_ENTER */
+    uint8_t  teardown;  /* GO_CB_CLOSE: close_all_windows_and_hide_hppp_step stage */
 } GameOverState;
 
 /* GAME_MODE_OVERWORLD — the permanent root mode (g_mode_stack[0]), pushed once at
@@ -2747,6 +2745,12 @@ StepResult mode_step_battle_wait(ModeState *st);
 /* STEP_PUSH `frames` frames of GAME_MODE_BATTLE_WAIT `kind` (BW_VBLANK or
  * BW_TICK_PRESENT) from `child` (battle.c). */
 StepResult battle_wait_push_frames(ModeState *child, uint8_t kind, uint16_t frames);
+/* CLOSE_ALL_WINDOWS_AND_HIDE_HPPP as per-frame beats (battle.c): call once per
+ * step with *stage starting at 0; true with *out set while a frame is owed,
+ * false once done (carry on in the same step). Used by the Giygas cutscenes,
+ * the battle teardowns and GAME_MODE_GAME_OVER's comeback. */
+bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
+                                          StepResult *out);
 
 /* GAME_MODE_LOAD_BATTLE_SCENE — see LoadBattleSceneState above. Init via
  * ModeState.load_battle_scene (group, music; phase = LBS_ENTER) before the
