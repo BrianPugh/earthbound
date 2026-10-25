@@ -64,12 +64,17 @@ typedef enum {
     ROOT_ACTION_SAVE,   /* F6 / power-off: write a savestate */
     ROOT_ACTION_LOAD,   /* F7: restore the last savestate */
 } RootAction;
-static RootAction g_pending_root_action = ROOT_ACTION_NONE;
-static int g_capture_unwind_frames = 0;
+/* volatile: the embedded power-off ISR calls host_request_capture() (game_main.h),
+ * which writes all three, and the firmware polls g_capture_status in a loop. The
+ * main loop must re-read them on every access instead of caching a load. Single
+ * aligned word accesses are atomic on the Cortex-M targets, which is all the
+ * handshake needs. */
+static volatile RootAction g_pending_root_action = ROOT_ACTION_NONE;
+static volatile int g_capture_unwind_frames = 0;
 
 /* Sticky outcome of the last save/load request, polled by the firmware power-off
  * handshake via host_capture_status() (game_main.h). */
-static HostCaptureStatus g_capture_status = HOST_CAPTURE_IDLE;
+static volatile HostCaptureStatus g_capture_status = HOST_CAPTURE_IDLE;
 
 /* Free-run unwind safety valve: while a capture is pending, host_process_frame()
  * skips render + pacing and runs the per-frame logic at CPU speed, so finite blocking
