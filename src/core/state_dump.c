@@ -398,14 +398,20 @@ static bool comp_init(CompCtx *x, int slot) {
     x->crc        = 0xFFFFFFFFu;
     x->comp_len   = 0;
     x->ok         = true;
-    const TampConf conf = { .window = SS_WINDOW_BITS, .literal = 8, .use_custom_dictionary = 0 };
+    /* extended: tamp's RLE + long-match tokens (stream header bit, so the decoder
+     * configures itself). The payload is mostly zero runs; without them the stream
+     * was ~30 % larger than tamp's own default output for the same bytes. */
+    const TampConf conf = { .window = SS_WINDOW_BITS, .literal = 8, .use_custom_dictionary = 0,
+                            .extended = 1 };
     if (tamp_compressor_init(x->c, &conf, window) != TAMP_OK)
         x->ok = false;
     return x->ok;
 }
 
-/* Compress one token out of the input buffer into staging (flushing staging to SD
- * first if it's nearly full — a poll emits at most (16+WINDOW_BITS)/8 = 3 bytes). */
+/* Compress one token out of the input buffer into staging, flushing staging to the
+ * slot first when it is nearly full. A poll emits a few bytes at most (an extended
+ * match token needs 6 free); on TAMP_OUTPUT_FULL it wrote nothing, so flush and
+ * retry once. */
 static void comp_poll(CompCtx *x) {
     if (!x->ok)
         return;
@@ -414,12 +420,19 @@ static void comp_poll(CompCtx *x) {
     if (!x->ok)
         return;
     size_t written = 0;
-    if (tamp_compressor_poll(x->c, x->stage + x->stage_fill,
-                             x->stage_cap - x->stage_fill, &written) != TAMP_OK) {
-        x->ok = false;
-        return;
-    }
+    tamp_res r = tamp_compressor_poll(x->c, x->stage + x->stage_fill,
+                                      x->stage_cap - x->stage_fill, &written);
     x->stage_fill += written;
+    if (r == TAMP_OUTPUT_FULL) {
+        comp_flush_stage(x);
+        if (!x->ok)
+            return;
+        written = 0;
+        r = tamp_compressor_poll(x->c, x->stage, x->stage_cap, &written);
+        x->stage_fill += written;
+    }
+    if (r != TAMP_OK)
+        x->ok = false;
 }
 
 static void comp_write(CompCtx *x, const void *src, size_t n) {
