@@ -206,10 +206,6 @@ typedef struct {
     void (*unpack)(const void *scratch); /* NULL for direct sections */
 } StateSection;
 
-#define MAX_SECTIONS 44
-
-/* Populate `t` with every serialized section in write order; return the count.
- * AUDIO is conditional, so the count is computed here rather than fixed. */
 /* Static scratch buffers for the pack/unpack (file-static-backed) sections. */
 static OvalWindowSaveState     s_oval_ss;
 static FlyoverSaveState        s_flyover_ss;
@@ -221,104 +217,89 @@ static ItemTransformSaveState  s_item_xform_ss;
 static BattleBgSaveState       s_battle_bg_ss;
 static FrameCallbackSaveState  s_frame_cb_ss;
 
-static int build_section_table(StateSection *t) {
-    int n = 0;
-#define ADD(id_, ptr_, size_)                                  \
-    do {                                                       \
-        t[n].id = (uint16_t)(id_);                             \
-        t[n].ptr = (void *)(ptr_);                             \
-        t[n].size = (uint32_t)(size_);                         \
-        t[n].pack = NULL;                                      \
-        t[n].unpack = NULL;                                    \
-        n++;                                                   \
-    } while (0)
-#define ADDFN(id_, scratch_, size_, pack_, unpack_)            \
-    do {                                                       \
-        t[n].id = (uint16_t)(id_);                             \
-        t[n].ptr = (void *)(scratch_);                         \
-        t[n].size = (uint32_t)(size_);                         \
-        t[n].pack = (pack_);                                   \
-        t[n].unpack = (unpack_);                               \
-        n++;                                                   \
-    } while (0)
-
-    ADD(SECTION_CORE,             &core,                sizeof(core));
-    ADD(SECTION_GAME_STATE,       &game_state,          sizeof(game_state));
-    ADD(SECTION_PARTY_CHARACTERS, party_characters,     sizeof(party_characters));
-    ADD(SECTION_EVENT_FLAGS,      event_flags,          sizeof(event_flags));
-    ADD(SECTION_OVERWORLD,        &ow,                  sizeof(ow));
-    ADD(SECTION_BATTLE,           &bt,                  sizeof(bt));
-    ADD(SECTION_DISPLAY_TEXT,     &dt,                  sizeof(dt));
-    ADD(SECTION_WINDOW,           &win,                 sizeof(win));
-    ADD(SECTION_MAP_LOADER,       &ml,                  sizeof(ml));
-    ADD(SECTION_PPU,              &ppu,                 offsetof(PPUState, wh0_table));
-    ADD(SECTION_POSITION_BUFFER,  &pb,                  sizeof(pb));
-    ADD(SECTION_DOOR,             &dr,                  sizeof(dr));
-    ADD(SECTION_ENTITY_RUNTIME,   &ert,                 sizeof(ert));
-    ADD(SECTION_ENTITY_SYSTEM,    &entities,            sizeof(entities));
-    ADD(SECTION_SCRIPTS,          &scripts,             sizeof(scripts));
-    ADD(SECTION_SPRITE_PRIORITY,  sprite_priority,      sizeof(SpritePriorityQueue) * 4);
-    ADD(SECTION_FADE,             &fade_state,          sizeof(fade_state));
-    ADD(SECTION_RNG,              &rng_state,           sizeof(rng_state));
+/* Every serialized section, in write order. Every entry is a link-time constant,
+ * so the table is const and lives in flash on the embedded targets: no RAM, and no
+ * ~880-byte (ILP32) copy on the 4 KB Pico core-0 stack per save/load. */
+#define ADD(id_, ptr_, size_)  { (uint16_t)(id_), (void *)(ptr_), (uint32_t)(size_), NULL, NULL }
+#define ADDFN(id_, scratch_, pack_, unpack_) \
+    { (uint16_t)(id_), (void *)(scratch_), (uint32_t)sizeof(*(scratch_)), (pack_), (unpack_) }
+static const StateSection k_sections[] = {
+    ADD(SECTION_CORE,             &core,                sizeof(core)),
+    ADD(SECTION_GAME_STATE,       &game_state,          sizeof(game_state)),
+    ADD(SECTION_PARTY_CHARACTERS, party_characters,     sizeof(party_characters)),
+    ADD(SECTION_EVENT_FLAGS,      event_flags,          sizeof(event_flags)),
+    ADD(SECTION_OVERWORLD,        &ow,                  sizeof(ow)),
+    ADD(SECTION_BATTLE,           &bt,                  sizeof(bt)),
+    ADD(SECTION_DISPLAY_TEXT,     &dt,                  sizeof(dt)),
+    ADD(SECTION_WINDOW,           &win,                 sizeof(win)),
+    ADD(SECTION_MAP_LOADER,       &ml,                  sizeof(ml)),
+    ADD(SECTION_PPU,              &ppu,                 offsetof(PPUState, wh0_table)),
+    ADD(SECTION_POSITION_BUFFER,  &pb,                  sizeof(pb)),
+    ADD(SECTION_DOOR,             &dr,                  sizeof(dr)),
+    ADD(SECTION_ENTITY_RUNTIME,   &ert,                 sizeof(ert)),
+    ADD(SECTION_ENTITY_SYSTEM,    &entities,            sizeof(entities)),
+    ADD(SECTION_SCRIPTS,          &scripts,             sizeof(scripts)),
+    ADD(SECTION_SPRITE_PRIORITY,  sprite_priority,      sizeof(SpritePriorityQueue) * 4),
+    ADD(SECTION_FADE,             &fade_state,          sizeof(fade_state)),
+    ADD(SECTION_RNG,              &rng_state,           sizeof(rng_state)),
 #ifdef EB_ENABLE_AUDIO
-    ADD(SECTION_AUDIO,            &audio_state,         sizeof(audio_state));
+    ADD(SECTION_AUDIO,            &audio_state,         sizeof(audio_state)),
 #endif
-    ADD(SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state));
-    ADD(SECTION_MODE_STACK,       &g_mode_stack,        sizeof(g_mode_stack));
+    ADD(SECTION_PSI_ANIMATION,    &psi_animation_state, sizeof(psi_animation_state)),
+    ADD(SECTION_MODE_STACK,       &g_mode_stack,        sizeof(g_mode_stack)),
 
     /* Loose globals outside the module structs that are nevertheless live game
      * state. Without these, a load leaves stale runtime bookkeeping: the sprite
      * VRAM-slot allocation map and overworld spritemap buffer (entities store
      * offsets into it) → sprite artifacts; the battle BG layer config → battle BG
      * artifacts; the active save slot. */
-    ADD(SECTION_SPRITE_VRAM_TABLE,    sprite_vram_table,      sizeof(sprite_vram_table));
-    ADD(SECTION_OVERWORLD_SPRITEMAPS, overworld_spritemaps,   sizeof(overworld_spritemaps));
-    ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1));
-    ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2));
-    ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot));
+    ADD(SECTION_SPRITE_VRAM_TABLE,    sprite_vram_table,      sizeof(sprite_vram_table)),
+    ADD(SECTION_OVERWORLD_SPRITEMAPS, overworld_spritemaps,   sizeof(overworld_spritemaps)),
+    ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1)),
+    ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2)),
+    ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot)),
 
     /* VWF text-render engine cursor (text.c globals): without these a savestate
      * taken mid-typewriter resumes the partial glyph run with a stale cursor →
      * corrupt NPC dialogue. The already-rendered glyphs live in VRAM (PPU) and the
      * window content tilemaps (WINDOW); this is the in-progress render position. */
-    ADD(SECTION_VWF_BUFFER,           vwf_buffer,             sizeof(vwf_buffer));
-    ADD(SECTION_VWF_X,                &vwf_x,                 sizeof(vwf_x));
-    ADD(SECTION_VWF_TILE,             &vwf_tile,              sizeof(vwf_tile));
-    ADD(SECTION_VWF_PIXELS_RENDERED,  &vwf_pixels_rendered,   sizeof(vwf_pixels_rendered));
-    ADD(SECTION_VWF_CHAR_PADDING,     &character_padding,     sizeof(character_padding));
-    ADD(SECTION_VWF_INDENT_NEWLINE,   &vwf_indent_new_line,   sizeof(vwf_indent_new_line));
-    ADD(SECTION_TEXT_RENDER_STATE,    &text_render_state,     sizeof(text_render_state));
+    ADD(SECTION_VWF_BUFFER,           vwf_buffer,             sizeof(vwf_buffer)),
+    ADD(SECTION_VWF_X,                &vwf_x,                 sizeof(vwf_x)),
+    ADD(SECTION_VWF_TILE,             &vwf_tile,              sizeof(vwf_tile)),
+    ADD(SECTION_VWF_PIXELS_RENDERED,  &vwf_pixels_rendered,   sizeof(vwf_pixels_rendered)),
+    ADD(SECTION_VWF_CHAR_PADDING,     &character_padding,     sizeof(character_padding)),
+    ADD(SECTION_VWF_INDENT_NEWLINE,   &vwf_indent_new_line,   sizeof(vwf_indent_new_line)),
+    ADD(SECTION_TEXT_RENDER_STATE,    &text_render_state,     sizeof(text_render_state)),
 
     /* Multi-frame animation / deferred-task / menu state held in per-file statics.
      * These drive operations that span many frames (battle swirl, oval-window and
      * flyover scrolls, escalator/stairs forced-walk, item-ripen timers, equip/PSI
      * menu previews); a savestate taken mid-operation must round-trip them or the
      * resumed operation corrupts. Each is gathered/scattered via a pack/unpack pair
-     * owned by the file that holds the statics. (Some still embed raw pointers —
-     * fine in-process; the cross-platform pointer purge is build-order item #3.) */
-    ADDFN(SECTION_OVAL_WINDOW,        &s_oval_ss,        sizeof(s_oval_ss),
-          oval_window_savestate_pack,   oval_window_savestate_unpack);
-    ADDFN(SECTION_FLYOVER,            &s_flyover_ss,     sizeof(s_flyover_ss),
-          flyover_savestate_pack,       flyover_savestate_unpack);
-    ADDFN(SECTION_OVERWORLD_DEFERRED, &s_ow_deferred_ss, sizeof(s_ow_deferred_ss),
-          overworld_deferred_savestate_pack, overworld_deferred_savestate_unpack);
-    ADDFN(SECTION_DOOR_TRANSITION,    &s_door_tr_ss,     sizeof(s_door_tr_ss),
-          door_transition_savestate_pack, door_transition_savestate_unpack);
-    ADDFN(SECTION_OW_PALETTE_BACKUP,  &s_ow_pal_ss,      sizeof(s_ow_pal_ss),
-          ow_palette_backup_savestate_pack, ow_palette_backup_savestate_unpack);
-    ADDFN(SECTION_TEXT_MENUS,         &s_text_menu_ss,   sizeof(s_text_menu_ss),
-          text_menus_savestate_pack,    text_menus_savestate_unpack);
-    ADDFN(SECTION_ITEM_TRANSFORM,     &s_item_xform_ss,  sizeof(s_item_xform_ss),
-          item_transform_savestate_pack, item_transform_savestate_unpack);
-    ADDFN(SECTION_BATTLE_BG,          &s_battle_bg_ss,   sizeof(s_battle_bg_ss),
-          battle_bg_savestate_pack,     battle_bg_savestate_unpack);
-    ADDFN(SECTION_FRAME_CALLBACK,     &s_frame_cb_ss,    sizeof(s_frame_cb_ss),
-          frame_callback_savestate_pack, frame_callback_savestate_unpack);
-
+     * owned by the file that holds the statics. */
+    ADDFN(SECTION_OVAL_WINDOW,        &s_oval_ss,
+          oval_window_savestate_pack,   oval_window_savestate_unpack),
+    ADDFN(SECTION_FLYOVER,            &s_flyover_ss,
+          flyover_savestate_pack,       flyover_savestate_unpack),
+    ADDFN(SECTION_OVERWORLD_DEFERRED, &s_ow_deferred_ss,
+          overworld_deferred_savestate_pack, overworld_deferred_savestate_unpack),
+    ADDFN(SECTION_DOOR_TRANSITION,    &s_door_tr_ss,
+          door_transition_savestate_pack, door_transition_savestate_unpack),
+    ADDFN(SECTION_OW_PALETTE_BACKUP,  &s_ow_pal_ss,
+          ow_palette_backup_savestate_pack, ow_palette_backup_savestate_unpack),
+    ADDFN(SECTION_TEXT_MENUS,         &s_text_menu_ss,
+          text_menus_savestate_pack,    text_menus_savestate_unpack),
+    ADDFN(SECTION_ITEM_TRANSFORM,     &s_item_xform_ss,
+          item_transform_savestate_pack, item_transform_savestate_unpack),
+    ADDFN(SECTION_BATTLE_BG,          &s_battle_bg_ss,
+          battle_bg_savestate_pack,     battle_bg_savestate_unpack),
+    ADDFN(SECTION_FRAME_CALLBACK,     &s_frame_cb_ss,
+          frame_callback_savestate_pack, frame_callback_savestate_unpack),
+};
 #undef ADD
 #undef ADDFN
-    return n;
-}
+
+#define SECTION_COUNT ((int)(sizeof(k_sections) / sizeof(k_sections[0])))
 
 /* Standard CRC-32 (reflected, polynomial 0xEDB88320; matches zlib.crc32). This step function neither
  * seeds nor finalizes — the caller seeds with 0xFFFFFFFF and XORs the result with
@@ -497,7 +478,12 @@ static bool write_header(int slot, uint16_t frame, uint32_t seq,
  * header (with the resulting compressed CRC + length) is written back at offset 0.
  * Returns true only on a fully committed write; a partial/failed write is left
  * uncommitted (it fails CRC validation later, so the prior slot stays newest-valid). */
-static bool write_slot_table(int slot, uint32_t seq, const StateSection *table, int n) {
+/* `short_id` names a section whose size field and blob are written one byte short
+ * (the reject self-test's layout-mismatch image); 0 in normal use, which matches no
+ * section. */
+static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
+    const StateSection *table = k_sections;
+    const int n = SECTION_COUNT;
     /* Gather the pack/unpack sections' scattered statics into their scratch buffers
      * BEFORE the compress pass so the bytes are coherent. */
     for (int i = 0; i < n; i++)
@@ -516,10 +502,11 @@ static bool write_slot_table(int slot, uint32_t seq, const StateSection *table, 
     /* Compress: id u16 + size u32 + data per section, then the terminator. The
      * decompressed stream is byte-identical to the pre-v11 uncompressed payload. */
     for (int i = 0; i < n; i++) {
+        uint32_t size = table[i].size - (table[i].id == short_id && table[i].size ? 1u : 0u);
         comp_u16(&x, table[i].id);
-        comp_u32(&x, table[i].size);
-        if (table[i].size)
-            comp_write(&x, table[i].ptr, table[i].size); /* straight from the live global */
+        comp_u32(&x, size);
+        if (size)
+            comp_write(&x, table[i].ptr, size); /* straight from the live global */
     }
     comp_u16(&x, SECTION_TERMINATOR);
     comp_finish(&x);
@@ -534,9 +521,7 @@ static bool write_slot_table(int slot, uint32_t seq, const StateSection *table, 
 }
 
 static bool write_slot(int slot, uint32_t seq) {
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
-    return write_slot_table(slot, seq, table, n);
+    return write_slot_ex(slot, seq, 0);
 }
 
 /* Read & validate the 20-byte header from `slot`. On success fills seq/crc/payload_len
@@ -706,9 +691,9 @@ static bool decomp_skip(DecompCtx *x, uint32_t n) {
     return true;
 }
 
-static int find_section(const StateSection *t, int n, uint16_t id) {
-    for (int i = 0; i < n; i++)
-        if (t[i].id == id)
+static int find_section(uint16_t id) {
+    for (int i = 0; i < SECTION_COUNT; i++)
+        if (k_sections[i].id == id)
             return i;
     return -1;
 }
@@ -722,14 +707,15 @@ static int find_section(const StateSection *t, int n, uint16_t id) {
  * any tail after the terminator, so this pass replaces verify_slot_crc for loads at
  * the same I/O cost. Nothing live is written, so a stream that fails here leaves the
  * running game untouched. */
-static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc,
-                                 const StateSection *table, int n) {
+static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc) {
+    const StateSection *table = k_sections;
+    const int n = SECTION_COUNT;
     DecompCtx r;
     if (!decomp_init(&r, slot, plen))
         return false;
     /* Seen-section bitmap as 32-bit words: a uint64_t mask would pull libgcc's
      * 64-bit shift helpers into the Pico's RAM. */
-    uint32_t seen[(MAX_SECTIONS + 31) / 32] = { 0 };
+    uint32_t seen[(SECTION_COUNT + 31) / 32] = { 0 };
     for (;;) {
         uint16_t id;
         if (!decomp_read(&r, &id, 2))
@@ -739,7 +725,7 @@ static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc,
         uint32_t size;
         if (!decomp_read(&r, &size, 4))
             return false;
-        int i = find_section(table, n, id);
+        int i = find_section(id);
         if (i >= 0) {
             if (size != table[i].size) {
                 LOG_WARN("savestate: section 0x%04X is %lu bytes, this build expects %lu\n",
@@ -801,9 +787,7 @@ static bool read_slot(int slot) {
     if (!read_slot_header(slot, NULL, &crc, &plen))
         return false;
 
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
-    if (!validate_slot_stream(slot, plen, crc, table, n))
+    if (!validate_slot_stream(slot, plen, crc))
         return false;
 
     /* Decompress each tagged section straight into its live global; unknown ids are
@@ -823,8 +807,8 @@ static bool read_slot(int slot) {
         if (!decomp_read(&r, &size, 4))
             return false;
 
-        int i = find_section(table, n, id);
-        StateSection *sec = i >= 0 ? &table[i] : NULL;
+        int i = find_section(id);
+        const StateSection *sec = i >= 0 ? &k_sections[i] : NULL;
 
         if (sec) {
             if (sec->size != size)
@@ -964,19 +948,19 @@ bool state_dump_roundtrip_test(void) {
 }
 
 /* Scribble every direct section's live storage with `v` (perturb/reject tests). */
-static void scribble_direct_sections(const StateSection *t, int n, uint8_t v) {
-    for (int i = 0; i < n; i++)
-        if (!t[i].pack && t[i].size)
-            memset(t[i].ptr, v, t[i].size);
+static void scribble_direct_sections(uint8_t v) {
+    for (int i = 0; i < SECTION_COUNT; i++)
+        if (!k_sections[i].pack && k_sections[i].size)
+            memset(k_sections[i].ptr, v, k_sections[i].size);
 }
 
 /* True iff every direct section still holds only the byte `v`. */
-static bool direct_sections_hold(const StateSection *t, int n, uint8_t v) {
-    for (int i = 0; i < n; i++) {
-        if (t[i].pack)
+static bool direct_sections_hold(uint8_t v) {
+    for (int i = 0; i < SECTION_COUNT; i++) {
+        if (k_sections[i].pack)
             continue;
-        const uint8_t *p = (const uint8_t *)t[i].ptr;
-        for (uint32_t k = 0; k < t[i].size; k++)
+        const uint8_t *p = (const uint8_t *)k_sections[i].ptr;
+        for (uint32_t k = 0; k < k_sections[i].size; k++)
             if (p[k] != v)
                 return false;
     }
@@ -997,9 +981,7 @@ bool state_dump_perturb_test(void) {
     const uint32_t fixed_seq = 1;
     if (!write_slot(0, fixed_seq)) return false;   /* reference image */
 
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
-    scribble_direct_sections(table, n, 0xA5);      /* direct sections only */
+    scribble_direct_sections(0xA5);                /* direct sections only */
 
     if (!read_slot(0))             return false;   /* must restore from the file */
     if (!write_slot(1, fixed_seq)) return false;   /* re-save the restored state */
@@ -1031,25 +1013,18 @@ static bool copy_slot_corrupted(int src, int dst, size_t flip_off) {
 
 bool state_dump_reject_test(void) {
     const uint32_t fixed_seq = 1;
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
 
     /* Slot 1: a good image of the live state, to restore from at the end. */
     if (!write_slot(1, fixed_seq)) return false;
 
     /* Slot 0: a CRC-valid image whose RNG section is one byte short, as a build with
      * a different struct layout would write it. */
-    int k = find_section(table, n, SECTION_RNG);
-    if (k < 0 || table[k].size < 2) return false;
-    table[k].size--;
-    bool wrote = write_slot_table(0, fixed_seq, table, n);
-    table[k].size++;
-    if (!wrote) return false;
+    if (!write_slot_ex(0, fixed_seq, SECTION_RNG)) return false;
 
     /* With the live state scribbled, every bad image must fail to load and leave
      * every direct section untouched. */
-    scribble_direct_sections(table, n, 0xA5);
-    bool ok = !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+    scribble_direct_sections(0xA5);
+    bool ok = !read_slot(0) && direct_sections_hold(0xA5);
 
     /* Slot 0 again: a well-formed image with an empty mode stack (depth 0), written
      * from the restored live state. */
@@ -1058,10 +1033,10 @@ bool state_dump_reject_test(void) {
     g_mode_stack.depth = 0;
     ok = ok && write_slot(0, fixed_seq);
     g_mode_stack.depth = depth;
-    scribble_direct_sections(table, n, 0xA5);
-    ok = ok && !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+    scribble_direct_sections(0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
     ok = ok && copy_slot_corrupted(1, 0, STATE_DUMP_HEADER_SIZE + 64);
-    ok = ok && !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
 
     /* Put the live state back from the good image. */
     return read_slot(1) && ok;
