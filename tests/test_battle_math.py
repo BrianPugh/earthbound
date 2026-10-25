@@ -24,6 +24,10 @@ CASES = C_DIR / "battle_cases.txt"
 MANIFEST = ROOT / "asm" / "bin" / "assets.manifest"
 CORE = Path(os.environ.get("EB_EMU_CORE", ROOT / "playtest" / "emu" / "build" / "snes9x_libretro.dylib"))
 SAVE = ROOT / "playtest" / "saves" / "26-Dalaam.srm"
+# battle_oracle.SCENE_SAVES: the scene cases come from these saves too
+SCENE_SAVES = [
+    ROOT / "playtest" / "saves" / f"{n}.srm" for n in ("05-Twoson", "12-Zombies", "26-Dalaam", "36-CavePast")
+]
 MAP_PATH = ROOT / "build" / "earthbound.map"
 
 
@@ -38,7 +42,12 @@ needs_assets = pytest.mark.skipif(
     reason="needs extracted assets (ebtools extract), cmake and ebtools on PATH",
 )
 needs_emu = pytest.mark.skipif(
-    not (_core_present() and MAP_PATH.exists() and SAVE.exists() and (ROOT / "earthbound.sfc").exists()),
+    not (
+        _core_present()
+        and MAP_PATH.exists()
+        and all(p.exists() for p in [SAVE, *SCENE_SAVES])
+        and (ROOT / "earthbound.sfc").exists()
+    ),
     reason="needs the emulator core (playtest/emu/build.sh), build/earthbound.map (make), the donor ROM and saves",
 )
 
@@ -79,7 +88,7 @@ def test_cases_file_is_current(tmp_path):
         [sys.executable, str(C_DIR / "battle_oracle.py"), "--out", str(out), "--save", str(SAVE)],
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=1200,
         env=env,
         cwd=ROOT,
     )

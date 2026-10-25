@@ -8,12 +8,15 @@
  * (tests/c/battle_cases.txt). This program loads the same inputs into the
  * port's globals, calls the C port of the routine and compares every output.
  * struct battler and char_struct have the asm layouts (ASSERT_STRUCT_SIZE),
- * so the recorded blobs are copied in and out unchanged.
+ * so the recorded blobs are copied in and out unchanged. Scene cases also
+ * carry named globals ("var", see var_defs), the game state and event flags,
+ * and run the KO / apply / revive / battle-scene children they push.
  *
  * Usage: battle_math_test CASES_FILE [-v]
  * Exit status: 0 when every case matches, 1 otherwise.
  */
 #include "core/math.h"
+#include "data/assets.h"
 #include "core/mode_stack.h"
 #include "game/battle.h"
 #include "game/battle_internal.h"
@@ -26,13 +29,52 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_BLOBS 8
-#define LINE_MAX_LEN 2048
+#define MAX_BLOBS 32
+#define MAX_VARS 32
+#define LINE_MAX_LEN 4096
+#define VAR_MAX_LEN (EVENT_FLAG_COUNT / 8)
 
 typedef struct {
     uint16_t index;
     uint8_t bytes[sizeof(CharStruct) > sizeof(Battler) ? sizeof(CharStruct) : sizeof(Battler)];
 } Blob;
+
+/* A named global (a "var NAME HEX" line): the asm WRAM symbol and the port's
+ * variable holding the same value, compared byte for byte (little-endian). */
+typedef struct {
+    const char *name;
+    void *ptr;
+    size_t size;
+} VarDef;
+
+static const VarDef var_defs[] = {
+    {"BATTLER_TARGET_FLAGS", &bt.battler_target_flags, 4},
+    {"GIYGAS_PHASE", &bt.giygas_phase, 2},
+    {"CURRENT_BATTLE_GROUP", &bt.current_battle_group, 2},
+    {"MIRROR_ENEMY", &bt.mirror_enemy, 2},
+    {"MIRROR_TURN_TIMER", &bt.mirror_turn_timer, 2},
+    {"SPECIAL_DEFEAT", &bt.special_defeat, 2},
+    {"ENEMY_PERFORMING_FINAL_ATTACK", &bt.enemy_performing_final_attack, 2},
+    {"SKIP_DEATH_TEXT_AND_CLEANUP", &bt.skip_death_text_and_cleanup, 2},
+    {"SHIELD_HAS_NULLIFIED_DAMAGE", &bt.shield_has_nullified_damage, 2},
+    {"DAMAGE_IS_REFLECTED", &bt.damage_is_reflected, 2},
+    {"IS_SMAAAAASH_ATTACK", &bt.is_smaaaash_attack, 2},
+    {"ITEM_DROPPED", &bt.item_dropped, 2},
+    {"BATTLE_MODE_FLAG", &bt.battle_mode_flag, 2},
+    {"BATTLE_EXP_SCRATCH", &bt.battle_exp_scratch, 4},
+    {"BATTLE_MONEY_SCRATCH", &bt.battle_money_scratch, 2},
+    {"FRONT_ROW_BATTLERS", bt.front_row_battlers, 8},
+    {"BACK_ROW_BATTLERS", bt.back_row_battlers, 8},
+    {"NUM_BATTLERS_IN_FRONT_ROW", &bt.num_battlers_in_front_row, 2},
+    {"NUM_BATTLERS_IN_BACK_ROW", &bt.num_battlers_in_back_row, 2},
+    {"ENEMIES_IN_BATTLE", &bt.enemies_in_battle, 2},
+    {"EVENT_FLAGS", event_flags, EVENT_FLAG_COUNT / 8},
+};
+
+typedef struct {
+    const VarDef *def;
+    uint8_t bytes[VAR_MAX_LEN];
+} Var;
 
 typedef struct {
     char name[64];
@@ -44,6 +86,10 @@ typedef struct {
     int n_battlers, n_chars;
     uint16_t flags[MAX_BLOBS][2];
     int n_flags;
+    Var vars[MAX_VARS], vars_out[MAX_VARS];
+    int n_vars, n_vars_out;
+    int has_gs;
+    uint8_t gs[sizeof(GameState)], gs_out[sizeof(GameState)];
     uint16_t ret;
     int has_ret; /* the asm routine declares a return value */
     uint16_t frames;
@@ -94,12 +140,44 @@ static int add_changes(Blob *arr, int *n, const Blob *inputs, int n_inputs, cons
 static int add_blob(Blob *arr, int *n, const char *rest, size_t len) {
     unsigned idx;
     char hex[LINE_MAX_LEN];
-    if (*n >= MAX_BLOBS || sscanf(rest, "%x %511s", &idx, hex) != 2)
+    if (*n >= MAX_BLOBS || sscanf(rest, "%x %4000s", &idx, hex) != 2)
         return 0;
     arr[*n].index = (uint16_t)idx;
     if (!parse_hex_blob(hex, arr[*n].bytes, len))
         return 0;
     (*n)++;
+    return 1;
+}
+
+/* "NAME HEX": a named global's bytes. */
+static int add_var(Var *arr, int *n, const char *rest) {
+    char name[64], hex[2 * VAR_MAX_LEN + 1];
+    if (*n >= MAX_VARS || sscanf(rest, "%63s %256s", name, hex) != 2)
+        return 0;
+    for (size_t i = 0; i < sizeof(var_defs) / sizeof(var_defs[0]); i++) {
+        if (strcmp(var_defs[i].name, name))
+            continue;
+        arr[*n].def = &var_defs[i];
+        if (strlen(hex) != var_defs[i].size * 2 || !parse_hex_blob(hex, arr[*n].bytes, var_defs[i].size))
+            return 0;
+        (*n)++;
+        return 1;
+    }
+    fprintf(stderr, "unknown var %s\n", name);
+    return 0;
+}
+
+/* "OFF=VAL ..." changes applied to a copy of `base`. */
+static int apply_changes(uint8_t *out, const uint8_t *base, size_t len, const char *rest) {
+    memcpy(out, base, len);
+    unsigned off, val;
+    int used;
+    while (sscanf(rest, " %x=%x%n", &off, &val, &used) == 2) {
+        if (off >= len)
+            return 0;
+        out[off] = (uint8_t)val;
+        rest += used;
+    }
     return 1;
 }
 
@@ -113,6 +191,10 @@ static Battler *battler_at(uint16_t addr) {
  * BATTLE_KO, ...) popped at once with 0: only the arithmetic, the RNG calls and
  * the battler writes are under test. Returns the mode's pop result. */
 static int unexpected_child;
+/* A final action showed a cutscene text (DISPLAY_BATTLE_CUTSCENE_TEXT): the ROM
+ * reloaded the battle scene and rendered the battle sprites for some frames,
+ * which counts the damage-blink timers down; the C test pops that child. */
+static int scene_reloaded;
 
 static int32_t run_mode(GameMode mode, const ModeState *init) {
     uint8_t base = g_mode_stack.depth;
@@ -121,12 +203,15 @@ static int32_t run_mode(GameMode mode, const ModeState *init) {
     for (int guard = 0; g_mode_stack.depth > base && guard < 10000; guard++) {
         uint8_t top = (uint8_t)(g_mode_stack.depth - 1);
         GameMode m = (GameMode)g_mode_stack.mode[top];
-        if (m != GAME_MODE_BATTLE_CALC && m != GAME_MODE_BATTLE_ACTION) {
-            if (m != GAME_MODE_DISPLAY_TEXT && m != GAME_MODE_BATTLE_WAIT)
+        if (m != GAME_MODE_BATTLE_CALC && m != GAME_MODE_BATTLE_ACTION && m != GAME_MODE_BATTLE_KO &&
+            m != GAME_MODE_BATTLE_APPLY && m != GAME_MODE_BATTLE_REVIVE && m != GAME_MODE_LOAD_BATTLE_SCENE) {
+            if (m != GAME_MODE_DISPLAY_TEXT && m != GAME_MODE_BATTLE_WAIT && m != GAME_MODE_FADE_WAIT)
                 unexpected_child = (int)m;
             result = mode_pop(0);
             continue;
         }
+        if (m == GAME_MODE_LOAD_BATTLE_SCENE)
+            scene_reloaded = 1;
         StepResult r = mode_dispatch_step(m, &g_mode_stack.state[top]);
         if (r.kind == STEP_PUSH)
             mode_push(r.push_mode, r.push_init);
@@ -170,11 +255,18 @@ static int run_port(const Case *c, uint16_t *ret) {
     else if (!strcmp(n, "WEAKEN_SHIELD")) *ret = run_calc(BC_WEAKEN_SHIELD, 0, 0);
     else if (!strcmp(n, "HEAL_STRANGENESS")) *ret = run_calc(BC_HEAL_STRANGENESS, 0, 0);
     else if (!strcmp(n, "FAIL_ATTACK_ON_NPCS")) *ret = run_calc(BC_FAIL_ON_NPCS, 0, 0);
+    else if (!strcmp(n, "CALC_DAMAGE"))
+        *ret = run_calc(BC_CALC_DAMAGE, (uint16_t)(c->a - battlers_table_addr), c->x);
+    else if (!strcmp(n, "BATTLE_INIT_PLAYER_STATS")) battle_init_player_stats(c->a, battler_at(c->x));
+    else if (!strcmp(n, "BATTLE_INIT_ENEMY_STATS")) battle_init_enemy_stats(battler_at(c->x), c->a);
+    else if (!strcmp(n, "CHOOSE_TARGET")) choose_target((uint16_t)(c->a - battlers_table_addr));
     else if (!strncmp(n, "BTLACT_", 7)) {
         ModeState init;
-        if (!c->func || !battle_action_dispatch(c->func, &init))
+        if (!c->func)
             return 0;
-        run_mode(GAME_MODE_BATTLE_ACTION, &init);
+        /* An action without a stepper runs inline inside the dispatch */
+        if (battle_action_dispatch(c->func, &init))
+            run_mode(GAME_MODE_BATTLE_ACTION, &init);
     } else return 0;
     return 1;
 }
@@ -198,6 +290,59 @@ static void mask_rolling_meters(const Case *c, uint8_t *port_char, const uint8_t
     };
     for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
         memcpy(port_char + fields[i], rom_char + fields[i], sizeof(uint16_t));
+    /* Once no enemy is left standing the meters stop where they are: the
+     * targets snap to the rolled values (the "survives a mortal hit when the
+     * battle ends first" rule), so they are frame-count dependent too. */
+    if (battle_count_chars(1) == 0) {
+        static const size_t targets[] = {
+            offsetof(CharStruct, current_hp_target), offsetof(CharStruct, current_pp_target),
+        };
+        for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++)
+            memcpy(port_char + targets[i], rom_char + targets[i], sizeof(uint16_t));
+    }
+}
+
+/* "let ID HEX" lines name a blob that later lines use as "@ID" (the oracle
+ * interns the save's party, game state and flags, which repeat in every case). */
+#define MAX_LETS 8192
+static char *lets[MAX_LETS];
+
+static int define_let(const char *rest) {
+    unsigned id;
+    int used = 0;
+    if (sscanf(rest, "%x %n", &id, &used) != 1 || id >= MAX_LETS || lets[id])
+        return 0;
+    size_t len = strcspn(rest + used, " \n");
+    lets[id] = malloc(len + 1);
+    memcpy(lets[id], rest + used, len);
+    lets[id][len] = '\0';
+    return 1;
+}
+
+/* Copy `in` to `out` with every "@ID" token replaced by its blob. */
+static int expand_lets(const char *in, char *out, size_t cap) {
+    size_t n = 0;
+    while (*in) {
+        const char *src = in;
+        size_t len = 1;
+        if (*in == '@') {
+            char *end;
+            unsigned long id = strtoul(in + 1, &end, 16);
+            if (end == in + 1 || id >= MAX_LETS || !lets[id])
+                return 0;
+            src = lets[id];
+            len = strlen(src);
+            in = end;
+        } else {
+            in++;
+        }
+        if (n + len + 1 > cap)
+            return 0;
+        memcpy(out + n, src, len);
+        n += len;
+    }
+    out[n] = '\0';
+    return 1;
 }
 
 static int run_case(const Case *c, int case_no) {
@@ -214,6 +359,10 @@ static int run_case(const Case *c, int case_no) {
         else
             event_flag_clear(c->flags[i][0]);
     }
+    for (int i = 0; i < c->n_vars; i++)
+        memcpy(c->vars[i].def->ptr, c->vars[i].bytes, c->vars[i].def->size);
+    if (c->has_gs)
+        memcpy(&game_state, c->gs, sizeof(GameState));
     if (c->atk >= 0)
         bt.current_attacker = (uint16_t)(c->atk * sizeof(Battler));
     if (c->tgt >= 0)
@@ -223,6 +372,7 @@ static int run_case(const Case *c, int case_no) {
 
     uint16_t ret;
     unexpected_child = 0;
+    scene_reloaded = 0;
     if (!run_port(c, &ret)) {
         printf("case %d %s: no port mapping\n", case_no, c->name);
         return 0;
@@ -233,15 +383,25 @@ static int run_case(const Case *c, int case_no) {
         ok = 0;
     if (rng_state.a != c->rng_out_a || rng_state.b != c->rng_out_b)
         ok = 0;
-    for (int i = 0; i < c->n_battlers_out; i++)
-        if (memcmp(&bt.battlers_table[c->battlers_out[i].index], c->battlers_out[i].bytes, sizeof(Battler)))
+    for (int i = 0; i < c->n_battlers_out; i++) {
+        Battler *b = &bt.battlers_table[c->battlers_out[i].index];
+        if (scene_reloaded)
+            b->blink_timer = c->battlers_out[i].bytes[offsetof(Battler, blink_timer)];
+        if (memcmp(b, c->battlers_out[i].bytes, sizeof(Battler)))
             ok = 0;
+    }
     for (int i = 0; i < c->n_chars_out; i++) {
         uint8_t *port = (uint8_t *)&party_characters[c->chars_out[i].index];
         mask_rolling_meters(c, port, c->chars_out[i].bytes);
         if (memcmp(port, c->chars_out[i].bytes, sizeof(CharStruct)))
             ok = 0;
     }
+
+    for (int i = 0; i < c->n_vars_out; i++)
+        if (memcmp(c->vars_out[i].def->ptr, c->vars_out[i].bytes, c->vars_out[i].def->size))
+            ok = 0;
+    if (c->has_gs && memcmp(&game_state, c->gs_out, sizeof(GameState)))
+        ok = 0;
 
     if (unexpected_child) {
         printf("case %d %s: pushed mode %d (the recorded inputs should not reach it)\n", case_no, c->name,
@@ -260,6 +420,11 @@ static int run_case(const Case *c, int case_no) {
         for (int i = 0; i < c->n_battlers_out; i++)
             report_bytes("battler", c->battlers_out[i].index, c->battlers_out[i].bytes,
                          (const uint8_t *)&bt.battlers_table[c->battlers_out[i].index], sizeof(Battler));
+        for (int i = 0; i < c->n_vars_out; i++)
+            report_bytes(c->vars_out[i].def->name, 0, c->vars_out[i].bytes, c->vars_out[i].def->ptr,
+                         c->vars_out[i].def->size);
+        if (c->has_gs)
+            report_bytes("game_state", 0, c->gs_out, (const uint8_t *)&game_state, sizeof(GameState));
         for (int i = 0; i < c->n_chars_out; i++)
             report_bytes("char", c->chars_out[i].index, c->chars_out[i].bytes,
                          (const uint8_t *)&party_characters[c->chars_out[i].index], sizeof(CharStruct));
@@ -280,14 +445,31 @@ int main(int argc, char **argv) {
     }
 
     load_enemy_spawn_data(); /* enemy_config_table + battle_action_table */
+    /* Battle start loads the sprite size table (SETUP_BATTLE_ENEMY_SPRITES);
+     * the bombs' splash range reads it through GET_BATTLE_SPRITE_WIDTH. */
+    battle_sprites_pointers_data = ASSET_DATA(ASSET_DATA_BATTLE_SPRITES_POINTERS_BIN);
 
     static Case c;
-    char line[LINE_MAX_LEN];
+    static char line[LINE_MAX_LEN];
     int lineno = 0, cases = 0, passed = 0, in_case = 0;
-    while (fgets(line, sizeof(line), f)) {
+    static char raw[LINE_MAX_LEN];
+    while (fgets(raw, sizeof(raw), f)) {
         lineno++;
-        if (line[0] == '#' || line[0] == '\n')
+        if (raw[0] == '#' || raw[0] == '\n')
             continue;
+        if (!strncmp(raw, "let ", 4)) {
+            if (!define_let(raw + 4)) {
+                fprintf(stderr, "%s:%d: bad let\n", argv[1], lineno);
+                fclose(f);
+                return 2;
+            }
+            continue;
+        }
+        if (!expand_lets(raw, line, sizeof(line))) {
+            fprintf(stderr, "%s:%d: bad @ reference\n", argv[1], lineno);
+            fclose(f);
+            return 2;
+        }
         char key[32];
         int used = 0;
         if (sscanf(line, "%31s %n", key, &used) != 1)
@@ -337,6 +519,16 @@ int main(int argc, char **argv) {
                 c.flags[c.n_flags][1] = (uint16_t)v1;
                 c.n_flags++;
             }
+        } else if (!strcmp(key, "var")) {
+            good = add_var(c.vars, &c.n_vars, rest);
+        } else if (!strcmp(key, "var_out")) {
+            good = add_var(c.vars_out, &c.n_vars_out, rest);
+        } else if (!strcmp(key, "game_state")) {
+            static char hex[LINE_MAX_LEN];
+            good = sscanf(rest, "%4000s", hex) == 1 && parse_hex_blob(hex, c.gs, sizeof(GameState));
+            c.has_gs = good;
+        } else if (!strcmp(key, "game_state_out")) {
+            good = c.has_gs && apply_changes(c.gs_out, c.gs, sizeof(GameState), rest);
         } else if (!strcmp(key, "battler")) {
             good = add_blob(c.battlers, &c.n_battlers, rest, sizeof(Battler));
         } else if (!strcmp(key, "char")) {
