@@ -1778,422 +1778,449 @@ bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
 
 
 /* --- CC 0x19 tree: inventory/character queries ---
- * Byte counts from include/textmacros.asm.
- *
- * CC 0x19 tree: inventory/character state queries.
+ * Byte counts from include/textmacros.asm. */
+
+/* LOAD_STRING_TO_MEMORY: variable-length args.
+ * Port of CC_19_02 (asm/text/ccs/load_string.asm) +
+ * CC_GATHER_MENU_OPTION_TEXT (asm/text/menu/cc_gather_menu_option_text.asm) +
+ * CC_ADD_MENU_OPTION_WITH_CALLBACK (asm/text/menu/cc_add_menu_option_with_callback.asm).
+ * Reads EB-encoded text bytes into menu option ert.buffer until
+ * 0x01 or 0x02 terminator.
+ * 0x02 = add menu option (no callback), done.
+ * 0x01 = add menu option with 4-byte callback address following.
+ * Assembly ADD_MENU_OPTION sets type=1 (counted), page=1, sound_effect=1.
+ * selection_menu returns 1-based index for type=1 items. */
+static void cc_19_load_string_to_memory(ScriptReader *r) {
+    char label_buf[MENU_LABEL_SIZE];
+    int pos = 0;
+    uint8_t b;
+    while (r->ptr_off < r->end_off && pos < MENU_LABEL_SIZE - 1) {
+        b = script_read_byte(r);
+        if (b == 0x01) {
+            /* Terminator with 4-byte callback address.
+             * The callback is a text address invoked by selection_menu
+             * when the cursor lands on this option (hover preview text). */
+            uint32_t callback = script_read_dword(r);
+            label_buf[pos] = '\0';
+            WindowInfo *w = get_focus_window_info();
+            if (w) {
+                add_menu_item(label_buf, (uint16_t)(w->menu_count + 1),
+                              w->text_x, w->text_y);
+                /* Store callback on the just-added item (asm: menu_option::script) */
+                w->menu_items[w->menu_count - 1].script = callback;
+            }
+            break;
+        } else if (b == 0x02) {
+            /* Terminator without callback — ADD_MENU_OPTION(text, NULL) */
+            label_buf[pos] = '\0';
+            WindowInfo *w = get_focus_window_info();
+            if (w) {
+                add_menu_item(label_buf, (uint16_t)(w->menu_count + 1),
+                              w->text_x, w->text_y);
+            }
+            break;
+        } else {
+            /* EB-encoded text byte — convert to ASCII for display */
+            label_buf[pos++] = eb_char_to_ascii(b);
+        }
+    }
+}
+
+/* CLEAR_LOADED_STRINGS: 0 args.
+ * Port of tree_19.asm @UNKNOWN4 → clears focus window menu options.
+ * Assembly: CURRENT_FOCUS_WINDOW → CLEAR_WINDOW_MENU_OPTIONS. */
+static void cc_19_clear_loaded_strings(void) {
+    clear_focus_window_menu_options();
+}
+
+/* INFLICT_STATUS: 3 args (char_id, status_group, value).
+ * Port of CC_19_05 (asm/text/ccs/inflict_character_status.asm).
+ * Arg 1 = char_id (0 → working_memory).
+ * Arg 2 = status_group (0 → argument_memory).
+ * Arg 3 = value to inflict (the "+1" encoded status value).
+ * INFLICT_STATUS_NONBATTLE(A=char_id, X=status_group, Y=value):
+ * if status_group==8, sets party_status=value-1.
+ * Otherwise sets afflictions[status_group-1]=value-1 for char_id.
+ * Stores char_id (or 0 if not in party) in working_memory. */
+static void cc_19_inflict_status(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t group_arg = script_read_byte(r);
+    uint8_t value = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = inflict_status_nonbattle(char_id, status_group, (uint16_t)value);
+    set_working_memory((uint32_t)result);
+}
+
+/* GET_CHARACTER_NUMBER: 1 arg (party position).
+ * Port of CC_19_10 (asm/text/ccs/get_character_number.asm).
+ * arg==0 → use argument_memory as party position.
+ * GET_CHARACTER_BY_PARTY_POSITION (C190E6): reads party_order[pos-1]
+ * to get character ID at that 1-indexed party position.
+ * Stores result in working_memory. */
+static void cc_19_get_character_number(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t pos;
+    if (arg == 0) {
+        pos = (uint16_t)(get_argument_memory() & 0xFFFF);
+    } else {
+        pos = (uint16_t)arg;
+    }
+    uint8_t char_id = 0;
+    if (pos >= 1 && pos <= TOTAL_PARTY_COUNT) {
+        char_id = game_state.party_order[pos - 1];
+    }
+    set_working_memory((uint32_t)char_id);
+}
+
+/* GET_CHARACTER_NAME_LETTER: 1 arg (character ID).
+ * Port of CC_19_11 (asm/text/ccs/get_letter_from_character_name.asm).
+ * arg==0 → use argument_memory as character ID.
+ * Gets the character's name, then reads the letter at position
+ * stored in secondary_memory (1-indexed).
+ * Stores the EB-encoded character code in working_memory. */
+static void cc_19_get_character_name_letter(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t char_id;
+    if (arg == 0) {
+        char_id = (uint16_t)(get_argument_memory() & 0xFFFF);
+    } else {
+        char_id = (uint16_t)arg;
+    }
+    uint8_t letter = 0;
+    if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT) {
+        const uint8_t *name = party_characters[char_id - 1].name;
+        uint16_t pos = get_secondary_memory();
+        if (pos >= 1 && pos <= 5) {
+            letter = name[pos - 1];
+        }
+    }
+    set_working_memory((uint32_t)letter);
+}
+
+/* GET_ESCARGO_EXPRESS_ITEM: 0 args.
+ * Port of tree_19.asm @GET_ESCARGO_EXPRESS_ITEM.
+ * Gets escargo express item at the position stored in secondary_memory,
+ * stores result in working_memory, then increments secondary_memory.
+ * Assembly: GET_SECONDARY_MEMORY → DEX → LDA escargo_express_items,X
+ *           → SET_WORKING_MEMORY → INCREMENT_SECONDARY_MEMORY. */
+static void cc_19_get_escargo_express_item(void) {
+    uint16_t idx = get_secondary_memory();
+    uint8_t item = 0;
+    if (idx > 0 && idx <= 36) {
+        item = game_state.escargo_express_items[idx - 1];
+    }
+    set_working_memory((uint32_t)item);
+    increment_secondary_memory();
+}
+
+/* GET_CHARACTER_STATUS: 2 args (char_id, status_group).
+ * Port of CC_19_16 (asm/text/ccs/get_character_status.asm).
+ * Arg 1 = char_id (0 → working_memory), Arg 2 = status_group (0 → argument_memory).
+ * CHECK_STATUS_GROUP(A=char_id, X=status_group): group 1-7=affliction slot,
+ * group 8=party_status. Returns affliction_value+1, or 0 if not in party. */
+static void cc_19_get_character_status(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t group_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = check_status_group(status_group, char_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* GET_EXP_FOR_NEXT_LEVEL: 1 arg (char_id, 0 → argument_memory).
+ * Port of CC_19_18 (asm/text/ccs/get_exp_for_next_level.asm).
+ * Calls GET_REQUIRED_EXP and stores result in working_memory. */
+static void cc_19_get_exp_for_next_level(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t char_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint32_t exp_needed = get_required_exp(char_id);
+    set_working_memory(exp_needed);
+}
+
+/* GET_CHARACTER_ITEM / ADD_ITEM_ID_TO_WORK_MEMORY: 2 args.
+ * Port of CC_19_19 (asm/text/ccs/get_item_number.asm) →
+ * GET_CHARACTER_ITEM (asm/misc/get_character_item.asm).
+ * Byte 1 = char_id (0 → working_memory).
+ * Byte 2 = item_slot (0 → argument_memory), 1-indexed.
+ * Reads the item at party_characters[char_id-1].items[slot-1].
+ * Stores item_id in argument_memory, char_id in working_memory. */
+static void cc_19_get_character_item(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t slot_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint8_t item_id = 0;
+    if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
+        item_id = party_characters[char_id - 1].items[slot - 1];
+    }
+    set_argument_memory((uint32_t)item_id);
+    set_working_memory((uint32_t)char_id);
+}
+
+/* GET_ESCARGO_EXPRESS_ITEM_BY_SLOT: 1 arg (slot number, 1-indexed).
+ * Port of CC_19_1A (asm/text/ccs/unknown_19_1A.asm).
+ * arg==0 → use argument_memory. Reads escargo_express_items[slot-1]
+ * and stores in working_memory. */
+static void cc_19_get_escargo_express_item_by_slot(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t slot;
+    if (arg == 0) {
+        slot = (uint16_t)(get_argument_memory() & 0xFFFF);
+    } else {
+        slot = (uint16_t)arg;
+    }
+    uint8_t item = 0;
+    if (slot >= 1 && slot <= 36) {
+        item = game_state.escargo_express_items[slot - 1];
+    }
+    set_working_memory((uint32_t)item);
+}
+
+/* GET_WINDOW_MENU_OPTION_COUNT: 1 arg (window_id).
+ * Port of CC_19_1B (asm/text/ccs/unknown_19_1B.asm) →
+ * GET_WINDOW_MENU_OPTION_COUNT (asm/text/window/get_window_menu_option_count.asm).
+ * If arg==0, uses current focus window. Returns menu option count
+ * via COUNT_MENU_OPTION_CHAIN. Stores result in working_memory. */
+static void cc_19_get_window_menu_option_count(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t win_id = arg ? (uint16_t)arg : win.current_focus_window;
+    WindowInfo *w = (win_id != WINDOW_ID_NONE) ? get_window(win_id) : NULL;
+    uint16_t count = w ? w->menu_count : 0;
+    set_working_memory((uint32_t)count);
+}
+
+/* TRANSFER_ITEM_TO_QUEUE: 2 args (source, slot).
+ * Port of CC_19_1C (asm/text/ccs/unknown_19_1C.asm).
+ * arg1=source: char_id (1-indexed) or 0xFF for escargo express. 0 → working_memory.
+ * arg2=slot: inventory or escargo slot (1-indexed). 0 → argument_memory.
+ * Removes item from source, then queues it via QUEUE_ITEM_FOR_CHARACTER
+ * for later retrieval by CC_19_1D (GET_CHARACTER_ENCOUNTER_DATA). */
+static void cc_19_transfer_item_to_queue(ScriptReader *r) {
+    uint8_t arg1 = script_read_byte(r);
+    uint8_t arg2 = script_read_byte(r);
+    uint16_t source = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t item_id;
+    if (source == 0xFF) {
+        item_id = remove_escargo_express_item(slot);
+    } else {
+        item_id = get_character_item(source, slot);
+        remove_item_from_inventory(source, slot);
+    }
+    queue_item_for_character(source, item_id);
+}
+
+/* GET_CHARACTER_ENCOUNTER_DATA: 2 args (char_index, clear_flag).
+ * Port of CC_19_1D (asm/text/ccs/unknown_19_1D.asm).
+ * arg1==0 → use working_memory for char_index (1-indexed).
+ * Reads game_state.unknownB8[index] → working_memory.
+ * Reads game_state.unknownB6[index] → argument_memory.
+ * If arg2 != 0, clears both bytes. */
+static void cc_19_get_character_encounter_data(ScriptReader *r) {
+    uint8_t arg1 = script_read_byte(r);
+    uint8_t arg2 = script_read_byte(r);
+    uint16_t char_index;
+    if (arg1 == 0) {
+        char_index = (uint16_t)(get_working_memory() & 0xFFFF);
+    } else {
+        char_index = (uint16_t)arg1;
+    }
+    if (char_index >= 1 && char_index <= 3) {
+        uint8_t idx = char_index - 1;
+        set_working_memory((uint32_t)game_state.unknownB8[idx]);
+        set_argument_memory((uint32_t)game_state.unknownB6[idx]);
+        if (arg2 != 0) {
+            game_state.unknownB8[idx] = 0;
+            game_state.unknownB6[idx] = 0;
+        }
+    }
+}
+
+/* GET_CURRENT_NUMBER: 0 args.
+ * Port of tree_19.asm @GET_CNUM → GET_CNUM (C1AD26).
+ * Reads the CNUM (current action number) global and stores it
+ * in working_memory. Set by number selector or battle code. */
+static void cc_19_get_current_number(void) {
+    set_working_memory(get_cnum());
+}
+
+/* GET_CURRENT_INVENTORY_ITEM: 0 args.
+ * Port of tree_19.asm @GET_CURRENT_ITEM → GET_CURRENT_ITEM (C1AD02).
+ * Reads the CITEM (current item) global and stores it in
+ * working_memory. Set by inventory display or battle code. */
+static void cc_19_get_current_inventory_item(void) {
+    set_working_memory((uint32_t)dt.citem);
+}
+
+/* GET_PLAYER_CONTROLLED_PARTY_COUNT: 0 args.
+ * Port of tree_19.asm @UNKNOWN20. Returns player_controlled_party_count
+ * in working_memory. */
+static void cc_19_get_player_controlled_party_count(void) {
+    set_working_memory((uint32_t)game_state.player_controlled_party_count);
+}
+
+/* IS_ITEM_DRINK: 1 arg (item_id, 0 → argument_memory).
+ * Port of CC_19_21 (asm/text/ccs/test_item_is_drink.asm).
+ * Calls GET_ITEM_SUBTYPE_2. Stores result in working_memory. */
+static void cc_19_is_item_drink(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = get_item_subtype_2(item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* GET_DIR_FROM_CHAR: 4 arg bytes (byte char_id, byte entity_type, word entity_id).
+ * Port of CC_19_22 (asm/text/ccs/get_direction_from_character_to_entity.asm).
+ * Computes direction from a party character to any entity.
+ * Calls GET_DIRECTION_BETWEEN_CHARACTER_ENTITIES.
+ * Result + 1 (1-8 direction) → argument_memory. */
+static void cc_19_get_dir_from_char(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t entity_type_arg = script_read_byte(r);
+    uint16_t entity_id_raw = script_read_word(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int16_t target_type = (int16_t)(entity_type_arg - 1);
+    int16_t dir = get_direction_between_entities(0, (int16_t)char_id, target_type, (int16_t)entity_id);
+    uint32_t result = (uint32_t)(dir + 1);
+    set_argument_memory(result);
+}
+
+/* GET_DIR_FROM_NPC: 5 arg bytes (word npc_id, byte entity_type, word entity_id).
+ * Port of CC_19_23 (asm/text/ccs/get_direction_from_tpt_entity_to_entity.asm).
+ * Computes direction from an NPC (TPT) entity to any entity.
+ * Calls GET_DIRECTION_BETWEEN_NPC_ENTITIES.
+ * Result + 1 (1-8 direction) → argument_memory. */
+static void cc_19_get_dir_from_npc(ScriptReader *r) {
+    uint16_t npc_id_raw = script_read_word(r);
+    uint8_t entity_type_arg = script_read_byte(r);
+    uint16_t entity_id_raw = script_read_word(r);
+    uint16_t npc_id = npc_id_raw ? npc_id_raw : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int16_t target_type = (int16_t)(entity_type_arg - 1);
+    int16_t dir = get_direction_between_entities(1, (int16_t)npc_id, target_type, (int16_t)entity_id);
+    uint32_t result = (uint32_t)(dir + 1);
+    set_argument_memory(result);
+}
+
+/* GET_DIR_FROM_SPRITE: 5 arg bytes (word sprite_id, byte entity_type, word entity_id).
+ * Port of CC_19_24 (asm/text/ccs/get_direction_from_sprite_entity_to_entity.asm).
+ * Computes direction from a sprite entity to any entity.
+ * Calls GET_DIRECTION_BETWEEN_SPRITE_ENTITIES.
+ * Result + 1 (1-8 direction) → argument_memory.
+ * NOTE: Fixed byte count — was incorrectly 4 in the stub, actually 5. */
+static void cc_19_get_dir_from_sprite(ScriptReader *r) {
+    uint16_t sprite_id_raw = script_read_word(r);
+    uint8_t entity_type_arg = script_read_byte(r);
+    uint16_t entity_id_raw = script_read_word(r);
+    uint16_t sprite_id = sprite_id_raw ? sprite_id_raw : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int16_t target_type = (int16_t)(entity_type_arg - 1);
+    int16_t dir = get_direction_between_entities(2, (int16_t)sprite_id, target_type, (int16_t)entity_id);
+    uint32_t result = (uint32_t)(dir + 1);
+    set_argument_memory(result);
+}
+
+/* IS_ITEM_CONDIMENT: 1 arg (item_id, 0 → argument_memory).
+ * Port of CC_19_25 (asm/text/ccs/test_item_is_condiment.asm).
+ * Calls FIND_CONDIMENT(item_id) → checks if food-type, then searches
+ * CURRENT_ATTACKER's inventory for a condiment. Returns condiment item_id
+ * or 0 if none. Stores result in working_memory. */
+static void cc_19_is_item_condiment(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = find_condiment(item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* SET_RESPAWN_POINT: 1 arg (value, 0 → argument_memory).
+ * Port of CC_19_26 (asm/text/ccs/set_respawn_point.asm).
+ * Calls SET_TELEPORT_BOX_DESTINATION. */
+static void cc_19_set_respawn_point(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t value = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    set_teleport_box_destination((uint8_t)value);
+}
+
+/* RESOLVE_CC_TABLE_DATA: 1 arg (table index, 0 → argument_memory).
+ * Port of CC_19_27 (asm/text/ccs/unknown_19_27.asm) →
+ * RESOLVE_CC_TABLE_DATA (asm/battle/resolve_cc_table_data.asm).
+ * Resolves the CC_1C_01_TABLE entry value and stores in working_memory. */
+static void cc_19_resolve_cc_table_data(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t table_index = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int type = CC_TABLE_TYPE_INT;
+    int str_len = 0;
+    uintptr_t value = resolve_cc_table_data(table_index, &type, &str_len);
+    set_working_memory((uint32_t)value);
+}
+
+/* GET_LETTER_FROM_STAT: 1 arg (table index, via X register).
+ * Port of CC_19_28 (asm/text/ccs/get_letter_from_stat.asm).
+ * Gets a specific character/byte from a string stat entry.
+ * Uses secondary_memory for bounds check and character position.
+ * Stores result byte in working_memory (0 if out of range). */
+static void cc_19_get_letter_from_stat(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t table_index = (uint16_t)arg;
+
+    /* First secondary_memory read: bounds check value */
+    uint16_t bounds = get_secondary_memory();
+    uint8_t entry_size = get_cc_table_entry_size(table_index);
+
+    if (entry_size < bounds) {
+        set_working_memory(0);
+    } else {
+        /* Second secondary_memory read: character position (1-indexed) */
+        uint16_t char_pos = get_secondary_memory();
+
+        /* Resolve the data to get pointer to the field */
+        int type = CC_TABLE_TYPE_INT;
+        int str_len = 0;
+        uintptr_t value = resolve_cc_table_data(table_index, &type, &str_len);
+
+        uint8_t result = 0;
+        if (type == CC_TABLE_TYPE_STRING && char_pos >= 1) {
+            const uint8_t *data = (const uint8_t *)value;
+            if (data && (int)(char_pos - 1) < str_len) {
+                result = data[char_pos - 1];
+            }
+        }
+        set_working_memory((uint32_t)result);
+    }
+}
+
+/* CC 0x19 tree: inventory/character state queries.
  * Port from asm/text/ccs/cc_19_*.asm files. */
 void cc_19_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
-    case 0x02: {
-        /* LOAD_STRING_TO_MEMORY: variable-length args.
-         * Port of CC_19_02 (asm/text/ccs/load_string.asm) +
-         * CC_GATHER_MENU_OPTION_TEXT (asm/text/menu/cc_gather_menu_option_text.asm) +
-         * CC_ADD_MENU_OPTION_WITH_CALLBACK (asm/text/menu/cc_add_menu_option_with_callback.asm).
-         * Reads EB-encoded text bytes into menu option ert.buffer until
-         * 0x01 or 0x02 terminator.
-         * 0x02 = add menu option (no callback), done.
-         * 0x01 = add menu option with 4-byte callback address following.
-         * Assembly ADD_MENU_OPTION sets type=1 (counted), page=1, sound_effect=1.
-         * selection_menu returns 1-based index for type=1 items. */
-        char label_buf[MENU_LABEL_SIZE];
-        int pos = 0;
-        uint8_t b;
-        while (r->ptr_off < r->end_off && pos < MENU_LABEL_SIZE - 1) {
-            b = script_read_byte(r);
-            if (b == 0x01) {
-                /* Terminator with 4-byte callback address.
-                 * The callback is a text address invoked by selection_menu
-                 * when the cursor lands on this option (hover preview text). */
-                uint32_t callback = script_read_dword(r);
-                label_buf[pos] = '\0';
-                WindowInfo *w = get_focus_window_info();
-                if (w) {
-                    add_menu_item(label_buf, (uint16_t)(w->menu_count + 1),
-                                  w->text_x, w->text_y);
-                    /* Store callback on the just-added item (asm: menu_option::script) */
-                    w->menu_items[w->menu_count - 1].script = callback;
-                }
-                break;
-            } else if (b == 0x02) {
-                /* Terminator without callback — ADD_MENU_OPTION(text, NULL) */
-                label_buf[pos] = '\0';
-                WindowInfo *w = get_focus_window_info();
-                if (w) {
-                    add_menu_item(label_buf, (uint16_t)(w->menu_count + 1),
-                                  w->text_x, w->text_y);
-                }
-                break;
-            } else {
-                /* EB-encoded text byte — convert to ASCII for display */
-                label_buf[pos++] = eb_char_to_ascii(b);
-            }
-        }
-        break;
-    }
-    case 0x04: {
-        /* CLEAR_LOADED_STRINGS: 0 args.
-         * Port of tree_19.asm @UNKNOWN4 → clears focus window menu options.
-         * Assembly: CURRENT_FOCUS_WINDOW → CLEAR_WINDOW_MENU_OPTIONS. */
-        clear_focus_window_menu_options();
-        break;
-    }
-    case 0x05: {
-        /* INFLICT_STATUS: 3 args (char_id, status_group, value).
-         * Port of CC_19_05 (asm/text/ccs/inflict_character_status.asm).
-         * Arg 1 = char_id (0 → working_memory).
-         * Arg 2 = status_group (0 → argument_memory).
-         * Arg 3 = value to inflict (the "+1" encoded status value).
-         * INFLICT_STATUS_NONBATTLE(A=char_id, X=status_group, Y=value):
-         * if status_group==8, sets party_status=value-1.
-         * Otherwise sets afflictions[status_group-1]=value-1 for char_id.
-         * Stores char_id (or 0 if not in party) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t group_arg = script_read_byte(r);
-        uint8_t value = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = inflict_status_nonbattle(char_id, status_group, (uint16_t)value);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x10: {
-        /* GET_CHARACTER_NUMBER: 1 arg (party position).
-         * Port of CC_19_10 (asm/text/ccs/get_character_number.asm).
-         * arg==0 → use argument_memory as party position.
-         * GET_CHARACTER_BY_PARTY_POSITION (C190E6): reads party_order[pos-1]
-         * to get character ID at that 1-indexed party position.
-         * Stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t pos;
-        if (arg == 0) {
-            pos = (uint16_t)(get_argument_memory() & 0xFFFF);
-        } else {
-            pos = (uint16_t)arg;
-        }
-        uint8_t char_id = 0;
-        if (pos >= 1 && pos <= TOTAL_PARTY_COUNT) {
-            char_id = game_state.party_order[pos - 1];
-        }
-        set_working_memory((uint32_t)char_id);
-        break;
-    }
-    case 0x11: {
-        /* GET_CHARACTER_NAME_LETTER: 1 arg (character ID).
-         * Port of CC_19_11 (asm/text/ccs/get_letter_from_character_name.asm).
-         * arg==0 → use argument_memory as character ID.
-         * Gets the character's name, then reads the letter at position
-         * stored in secondary_memory (1-indexed).
-         * Stores the EB-encoded character code in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t char_id;
-        if (arg == 0) {
-            char_id = (uint16_t)(get_argument_memory() & 0xFFFF);
-        } else {
-            char_id = (uint16_t)arg;
-        }
-        uint8_t letter = 0;
-        if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT) {
-            const uint8_t *name = party_characters[char_id - 1].name;
-            uint16_t pos = get_secondary_memory();
-            if (pos >= 1 && pos <= 5) {
-                letter = name[pos - 1];
-            }
-        }
-        set_working_memory((uint32_t)letter);
-        break;
-    }
-    case 0x14: {
-        /* GET_ESCARGO_EXPRESS_ITEM: 0 args.
-         * Port of tree_19.asm @GET_ESCARGO_EXPRESS_ITEM.
-         * Gets escargo express item at the position stored in secondary_memory,
-         * stores result in working_memory, then increments secondary_memory.
-         * Assembly: GET_SECONDARY_MEMORY → DEX → LDA escargo_express_items,X
-         *           → SET_WORKING_MEMORY → INCREMENT_SECONDARY_MEMORY. */
-        uint16_t idx = get_secondary_memory();
-        uint8_t item = 0;
-        if (idx > 0 && idx <= 36) {
-            item = game_state.escargo_express_items[idx - 1];
-        }
-        set_working_memory((uint32_t)item);
-        increment_secondary_memory();
-        break;
-    }
-    case 0x16: {
-        /* GET_CHARACTER_STATUS: 2 args (char_id, status_group).
-         * Port of CC_19_16 (asm/text/ccs/get_character_status.asm).
-         * Arg 1 = char_id (0 → working_memory), Arg 2 = status_group (0 → argument_memory).
-         * CHECK_STATUS_GROUP(A=char_id, X=status_group): group 1-7=affliction slot,
-         * group 8=party_status. Returns affliction_value+1, or 0 if not in party. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t group_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = check_status_group(status_group, char_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x18: {
-        /* GET_EXP_FOR_NEXT_LEVEL: 1 arg (char_id, 0 → argument_memory).
-         * Port of CC_19_18 (asm/text/ccs/get_exp_for_next_level.asm).
-         * Calls GET_REQUIRED_EXP and stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t char_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint32_t exp_needed = get_required_exp(char_id);
-        set_working_memory(exp_needed);
-        break;
-    }
-    case 0x19: {
-        /* GET_CHARACTER_ITEM / ADD_ITEM_ID_TO_WORK_MEMORY: 2 args.
-         * Port of CC_19_19 (asm/text/ccs/get_item_number.asm) →
-         * GET_CHARACTER_ITEM (asm/misc/get_character_item.asm).
-         * Byte 1 = char_id (0 → working_memory).
-         * Byte 2 = item_slot (0 → argument_memory), 1-indexed.
-         * Reads the item at party_characters[char_id-1].items[slot-1].
-         * Stores item_id in argument_memory, char_id in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t slot_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint8_t item_id = 0;
-        if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
-            item_id = party_characters[char_id - 1].items[slot - 1];
-        }
-        set_argument_memory((uint32_t)item_id);
-        set_working_memory((uint32_t)char_id);
-        break;
-    }
-    case 0x1A: {
-        /* GET_ESCARGO_EXPRESS_ITEM_BY_SLOT: 1 arg (slot number, 1-indexed).
-         * Port of CC_19_1A (asm/text/ccs/unknown_19_1A.asm).
-         * arg==0 → use argument_memory. Reads escargo_express_items[slot-1]
-         * and stores in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t slot;
-        if (arg == 0) {
-            slot = (uint16_t)(get_argument_memory() & 0xFFFF);
-        } else {
-            slot = (uint16_t)arg;
-        }
-        uint8_t item = 0;
-        if (slot >= 1 && slot <= 36) {
-            item = game_state.escargo_express_items[slot - 1];
-        }
-        set_working_memory((uint32_t)item);
-        break;
-    }
-    case 0x1B: {
-        /* GET_WINDOW_MENU_OPTION_COUNT: 1 arg (window_id).
-         * Port of CC_19_1B (asm/text/ccs/unknown_19_1B.asm) →
-         * GET_WINDOW_MENU_OPTION_COUNT (asm/text/window/get_window_menu_option_count.asm).
-         * If arg==0, uses current focus window. Returns menu option count
-         * via COUNT_MENU_OPTION_CHAIN. Stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t win_id = arg ? (uint16_t)arg : win.current_focus_window;
-        WindowInfo *w = (win_id != WINDOW_ID_NONE) ? get_window(win_id) : NULL;
-        uint16_t count = w ? w->menu_count : 0;
-        set_working_memory((uint32_t)count);
-        break;
-    }
-    case 0x1C: {
-        /* TRANSFER_ITEM_TO_QUEUE: 2 args (source, slot).
-         * Port of CC_19_1C (asm/text/ccs/unknown_19_1C.asm).
-         * arg1=source: char_id (1-indexed) or 0xFF for escargo express. 0 → working_memory.
-         * arg2=slot: inventory or escargo slot (1-indexed). 0 → argument_memory.
-         * Removes item from source, then queues it via QUEUE_ITEM_FOR_CHARACTER
-         * for later retrieval by CC_19_1D (GET_CHARACTER_ENCOUNTER_DATA). */
-        uint8_t arg1 = script_read_byte(r);
-        uint8_t arg2 = script_read_byte(r);
-        uint16_t source = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t item_id;
-        if (source == 0xFF) {
-            item_id = remove_escargo_express_item(slot);
-        } else {
-            item_id = get_character_item(source, slot);
-            remove_item_from_inventory(source, slot);
-        }
-        queue_item_for_character(source, item_id);
-        break;
-    }
-    case 0x1D: {
-        /* GET_CHARACTER_ENCOUNTER_DATA: 2 args (char_index, clear_flag).
-         * Port of CC_19_1D (asm/text/ccs/unknown_19_1D.asm).
-         * arg1==0 → use working_memory for char_index (1-indexed).
-         * Reads game_state.unknownB8[index] → working_memory.
-         * Reads game_state.unknownB6[index] → argument_memory.
-         * If arg2 != 0, clears both bytes. */
-        uint8_t arg1 = script_read_byte(r);
-        uint8_t arg2 = script_read_byte(r);
-        uint16_t char_index;
-        if (arg1 == 0) {
-            char_index = (uint16_t)(get_working_memory() & 0xFFFF);
-        } else {
-            char_index = (uint16_t)arg1;
-        }
-        if (char_index >= 1 && char_index <= 3) {
-            uint8_t idx = char_index - 1;
-            set_working_memory((uint32_t)game_state.unknownB8[idx]);
-            set_argument_memory((uint32_t)game_state.unknownB6[idx]);
-            if (arg2 != 0) {
-                game_state.unknownB8[idx] = 0;
-                game_state.unknownB6[idx] = 0;
-            }
-        }
-        break;
-    }
-    case 0x1E:
-        /* GET_CURRENT_NUMBER: 0 args.
-         * Port of tree_19.asm @GET_CNUM → GET_CNUM (C1AD26).
-         * Reads the CNUM (current action number) global and stores it
-         * in working_memory. Set by number selector or battle code. */
-        set_working_memory(get_cnum());
-        break;
-    case 0x1F:
-        /* GET_CURRENT_INVENTORY_ITEM: 0 args.
-         * Port of tree_19.asm @GET_CURRENT_ITEM → GET_CURRENT_ITEM (C1AD02).
-         * Reads the CITEM (current item) global and stores it in
-         * working_memory. Set by inventory display or battle code. */
-        set_working_memory((uint32_t)dt.citem);
-        break;
-    case 0x20:
-        /* GET_PLAYER_CONTROLLED_PARTY_COUNT: 0 args.
-         * Port of tree_19.asm @UNKNOWN20. Returns player_controlled_party_count
-         * in working_memory. */
-        set_working_memory((uint32_t)game_state.player_controlled_party_count);
-        break;
-    case 0x21: {
-        /* IS_ITEM_DRINK: 1 arg (item_id, 0 → argument_memory).
-         * Port of CC_19_21 (asm/text/ccs/test_item_is_drink.asm).
-         * Calls GET_ITEM_SUBTYPE_2. Stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = get_item_subtype_2(item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x22: {
-        /* GET_DIR_FROM_CHAR: 4 arg bytes (byte char_id, byte entity_type, word entity_id).
-         * Port of CC_19_22 (asm/text/ccs/get_direction_from_character_to_entity.asm).
-         * Computes direction from a party character to any entity.
-         * Calls GET_DIRECTION_BETWEEN_CHARACTER_ENTITIES.
-         * Result + 1 (1-8 direction) → argument_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t entity_type_arg = script_read_byte(r);
-        uint16_t entity_id_raw = script_read_word(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int16_t target_type = (int16_t)(entity_type_arg - 1);
-        int16_t dir = get_direction_between_entities(0, (int16_t)char_id, target_type, (int16_t)entity_id);
-        uint32_t result = (uint32_t)(dir + 1);
-        set_argument_memory(result);
-        break;
-    }
-    case 0x23: {
-        /* GET_DIR_FROM_NPC: 5 arg bytes (word npc_id, byte entity_type, word entity_id).
-         * Port of CC_19_23 (asm/text/ccs/get_direction_from_tpt_entity_to_entity.asm).
-         * Computes direction from an NPC (TPT) entity to any entity.
-         * Calls GET_DIRECTION_BETWEEN_NPC_ENTITIES.
-         * Result + 1 (1-8 direction) → argument_memory. */
-        uint16_t npc_id_raw = script_read_word(r);
-        uint8_t entity_type_arg = script_read_byte(r);
-        uint16_t entity_id_raw = script_read_word(r);
-        uint16_t npc_id = npc_id_raw ? npc_id_raw : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int16_t target_type = (int16_t)(entity_type_arg - 1);
-        int16_t dir = get_direction_between_entities(1, (int16_t)npc_id, target_type, (int16_t)entity_id);
-        uint32_t result = (uint32_t)(dir + 1);
-        set_argument_memory(result);
-        break;
-    }
-    case 0x24: {
-        /* GET_DIR_FROM_SPRITE: 5 arg bytes (word sprite_id, byte entity_type, word entity_id).
-         * Port of CC_19_24 (asm/text/ccs/get_direction_from_sprite_entity_to_entity.asm).
-         * Computes direction from a sprite entity to any entity.
-         * Calls GET_DIRECTION_BETWEEN_SPRITE_ENTITIES.
-         * Result + 1 (1-8 direction) → argument_memory.
-         * NOTE: Fixed byte count — was incorrectly 4 in the stub, actually 5. */
-        uint16_t sprite_id_raw = script_read_word(r);
-        uint8_t entity_type_arg = script_read_byte(r);
-        uint16_t entity_id_raw = script_read_word(r);
-        uint16_t sprite_id = sprite_id_raw ? sprite_id_raw : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t entity_id = entity_id_raw ? entity_id_raw : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int16_t target_type = (int16_t)(entity_type_arg - 1);
-        int16_t dir = get_direction_between_entities(2, (int16_t)sprite_id, target_type, (int16_t)entity_id);
-        uint32_t result = (uint32_t)(dir + 1);
-        set_argument_memory(result);
-        break;
-    }
-    case 0x25: {
-        /* IS_ITEM_CONDIMENT: 1 arg (item_id, 0 → argument_memory).
-         * Port of CC_19_25 (asm/text/ccs/test_item_is_condiment.asm).
-         * Calls FIND_CONDIMENT(item_id) → checks if food-type, then searches
-         * CURRENT_ATTACKER's inventory for a condiment. Returns condiment item_id
-         * or 0 if none. Stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = find_condiment(item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x26: {
-        /* SET_RESPAWN_POINT: 1 arg (value, 0 → argument_memory).
-         * Port of CC_19_26 (asm/text/ccs/set_respawn_point.asm).
-         * Calls SET_TELEPORT_BOX_DESTINATION. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t value = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        set_teleport_box_destination((uint8_t)value);
-        break;
-    }
-    case 0x27: {
-        /* RESOLVE_CC_TABLE_DATA: 1 arg (table index, 0 → argument_memory).
-         * Port of CC_19_27 (asm/text/ccs/unknown_19_27.asm) →
-         * RESOLVE_CC_TABLE_DATA (asm/battle/resolve_cc_table_data.asm).
-         * Resolves the CC_1C_01_TABLE entry value and stores in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t table_index = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int type = CC_TABLE_TYPE_INT;
-        int str_len = 0;
-        uintptr_t value = resolve_cc_table_data(table_index, &type, &str_len);
-        set_working_memory((uint32_t)value);
-        break;
-    }
-    case 0x28: {
-        /* GET_LETTER_FROM_STAT: 1 arg (table index, via X register).
-         * Port of CC_19_28 (asm/text/ccs/get_letter_from_stat.asm).
-         * Gets a specific character/byte from a string stat entry.
-         * Uses secondary_memory for bounds check and character position.
-         * Stores result byte in working_memory (0 if out of range). */
-        uint8_t arg = script_read_byte(r);
-        uint16_t table_index = (uint16_t)arg;
-
-        /* First secondary_memory read: bounds check value */
-        uint16_t bounds = get_secondary_memory();
-        uint8_t entry_size = get_cc_table_entry_size(table_index);
-
-        if (entry_size < bounds) {
-            set_working_memory(0);
-        } else {
-            /* Second secondary_memory read: character position (1-indexed) */
-            uint16_t char_pos = get_secondary_memory();
-
-            /* Resolve the data to get pointer to the field */
-            int type = CC_TABLE_TYPE_INT;
-            int str_len = 0;
-            uintptr_t value = resolve_cc_table_data(table_index, &type, &str_len);
-
-            uint8_t result = 0;
-            if (type == CC_TABLE_TYPE_STRING && char_pos >= 1) {
-                const uint8_t *data = (const uint8_t *)value;
-                if (data && (int)(char_pos - 1) < str_len) {
-                    result = data[char_pos - 1];
-                }
-            }
-            set_working_memory((uint32_t)result);
-        }
-        break;
-    }
+    case 0x02: cc_19_load_string_to_memory(r); break;
+    case 0x04: cc_19_clear_loaded_strings(); break;
+    case 0x05: cc_19_inflict_status(r); break;
+    case 0x10: cc_19_get_character_number(r); break;
+    case 0x11: cc_19_get_character_name_letter(r); break;
+    case 0x14: cc_19_get_escargo_express_item(); break;
+    case 0x16: cc_19_get_character_status(r); break;
+    case 0x18: cc_19_get_exp_for_next_level(r); break;
+    case 0x19: cc_19_get_character_item(r); break;
+    case 0x1A: cc_19_get_escargo_express_item_by_slot(r); break;
+    case 0x1B: cc_19_get_window_menu_option_count(r); break;
+    case 0x1C: cc_19_transfer_item_to_queue(r); break;
+    case 0x1D: cc_19_get_character_encounter_data(r); break;
+    case 0x1E: cc_19_get_current_number(); break;
+    case 0x1F: cc_19_get_current_inventory_item(); break;
+    case 0x20: cc_19_get_player_controlled_party_count(); break;
+    case 0x21: cc_19_is_item_drink(r); break;
+    case 0x22: cc_19_get_dir_from_char(r); break;
+    case 0x23: cc_19_get_dir_from_npc(r); break;
+    case 0x24: cc_19_get_dir_from_sprite(r); break;
+    case 0x25: cc_19_is_item_condiment(r); break;
+    case 0x26: cc_19_set_respawn_point(r); break;
+    case 0x27: cc_19_resolve_cc_table_data(r); break;
+    case 0x28: cc_19_get_letter_from_stat(r); break;
     default:
         FATAL("display_text: unknown CC 19 %02X\n", sub);
         break;
