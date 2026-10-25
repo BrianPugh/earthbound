@@ -458,6 +458,73 @@ static void comp_finish(CompCtx *x) {
         x->crc ^= 0xFFFFFFFFu;
 }
 
+/* ---- Raw pointer slots in the directly-serialized sections ----
+ * The ABI_PTR_ALIGN slots hold this process's addresses, which a load never uses:
+ * the rebind step rebuilds each one from its serialized id/offset. Writing them raw
+ * would make the stream depend on ASLR and leak addresses, so the writer emits a
+ * canonical 8-byte value instead: 0, or for PTR_FLAG_NONNULL slots 1 when the live
+ * pointer is non-NULL (psi_animation_savestate_rebind keys on NULL vs non-NULL). Two
+ * processes in the same state then write identical slots. */
+enum { PTR_ZERO = 0, PTR_FLAG_NONNULL = 1 };
+typedef struct {
+    uint16_t section;
+    uint8_t  mode;
+    uint8_t  count;
+    uint32_t offset;
+    uint16_t stride;
+} PtrSlot;
+
+#define PTR_AOS(sec_, st_, arr_, elem_, fld_, n_, mode_) \
+    { (uint16_t)(sec_), (mode_), (n_), offsetof(st_, arr_) + offsetof(elem_, fld_), sizeof(elem_) }
+#define PTR_ONE(sec_, st_, fld_, mode_) { (uint16_t)(sec_), (mode_), 1, offsetof(st_, fld_), 0 }
+static const PtrSlot k_ptr_slots[] = {
+    PTR_ONE(SECTION_OVERWORLD, OverworldState, post_teleport_callback, PTR_ZERO),
+    PTR_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, cursor_move_callback,
+            MAX_WINDOWS, PTR_ZERO),
+    PTR_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap,
+            MAX_WINDOWS, PTR_ZERO),
+    PTR_ONE(SECTION_PSI_ANIMATION, PsiAnimationState, arr_bundled_data, PTR_FLAG_NONNULL),
+    PTR_ONE(SECTION_PSI_ANIMATION, PsiAnimationState, arr_bundle_buf, PTR_FLAG_NONNULL),
+};
+#undef PTR_AOS
+#undef PTR_ONE
+#define PTR_SLOT_COUNT ((int)(sizeof(k_ptr_slots) / sizeof(k_ptr_slots[0])))
+#define PTR_SLOT_BYTES 8u
+_Static_assert(sizeof(void *) <= PTR_SLOT_BYTES, "pointer slots are 8 bytes");
+
+/* Compress `size` bytes of section `id` from `base`, with its pointer slots
+ * canonicalized (see k_ptr_slots). */
+static void comp_section(CompCtx *x, uint16_t id, const uint8_t *base, uint32_t size) {
+    uint8_t next[PTR_SLOT_COUNT] = { 0 };
+    uint32_t pos = 0;
+    for (;;) {
+        int best = -1;
+        uint32_t best_off = 0;
+        for (int k = 0; k < PTR_SLOT_COUNT; k++) {
+            const PtrSlot *ps = &k_ptr_slots[k];
+            if (ps->section != id || next[k] >= ps->count)
+                continue;
+            uint32_t off = ps->offset + (uint32_t)next[k] * ps->stride;
+            if (best < 0 || off < best_off) {
+                best = k;
+                best_off = off;
+            }
+        }
+        if (best < 0 || best_off + PTR_SLOT_BYTES > size)
+            break;
+        comp_write(x, base + pos, best_off - pos);
+        const void *p;
+        memcpy(&p, base + best_off, sizeof p);
+        uint8_t canon[PTR_SLOT_BYTES] = { 0 };
+        canon[0] = (k_ptr_slots[best].mode == PTR_FLAG_NONNULL && p != NULL) ? 1u : 0u;
+        comp_write(x, canon, sizeof canon);
+        pos = best_off + PTR_SLOT_BYTES;
+        next[best]++;
+    }
+    if (size > pos)
+        comp_write(x, base + pos, size - pos);
+}
+
 /* Write the 20-byte uncompressed header at offset 0. Called LAST (after the compress
  * pass) because crc/comp_len aren't known until then. */
 static bool write_header(int slot, uint16_t frame, uint32_t seq,
@@ -506,8 +573,7 @@ static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
         uint32_t size = table[i].size - (table[i].id == short_id && table[i].size ? 1u : 0u);
         comp_u16(&x, table[i].id);
         comp_u32(&x, size);
-        if (size)
-            comp_write(&x, table[i].ptr, size); /* straight from the live global */
+        comp_section(&x, table[i].id, (const uint8_t *)table[i].ptr, size); /* from the live global */
     }
     comp_u16(&x, SECTION_TERMINATOR);
     comp_finish(&x);
