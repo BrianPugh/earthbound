@@ -179,8 +179,9 @@ void platform_savestate_freeze_audio(bool freeze);
  * already-allocated buffer it isn't using (the G&W lends its idle third
  * framebuffer; desktop returns a static buffer). Returns the buffer and writes
  * its byte size to *out_bytes. The caller treats it as volatile scratch and owns
- * no state across calls. Must be >= 512 bytes; a bigger region just enables
- * chunkier I/O staging. Never NULL for a backend that can store a slot; the no-op
+ * no state across calls. Must hold the 256-byte LZ window, the tamp struct, a
+ * 256-byte discard buffer and at least 512 bytes of I/O staging (about 1.3 KB in
+ * all; see SS_* in state_dump.c); a bigger region just enables chunkier staging. Never NULL for a backend that can store a slot; the no-op
  * stub backend (src/platform/savestate_backend_stub.c), whose slots are always
  * absent, returns NULL with *out_bytes = 0.
  */

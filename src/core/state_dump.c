@@ -39,6 +39,7 @@
 #include "intro/file_select.h"
 #include "tamp/compressor.h"
 #include "tamp/decompressor.h"
+#include "core/log.h"
 
 /* Container format (20-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"
@@ -350,6 +351,7 @@ static uint32_t crc32_step(uint32_t crc, const void *buf, size_t len) {
 #define SS_WINDOW_SIZE  (1u << SS_WINDOW_BITS)
 #define SS_STAGE_MAX    16384u   /* cap on compressed-I/O staging (chunky SD ops) */
 #define SS_STAGE_MIN    512u     /* refuse to run if the scratch lend is smaller */
+#define SS_SKIP_SIZE    256u     /* decompress-and-discard buffer (validate pass) */
 
 static unsigned char *ss_align8(unsigned char *p) {
     uintptr_t a = ((uintptr_t)p + 7u) & ~(uintptr_t)7u;
@@ -492,11 +494,9 @@ static bool write_header(int slot, uint16_t frame, uint32_t seq,
  * header (with the resulting compressed CRC + length) is written back at offset 0.
  * Returns true only on a fully committed write; a partial/failed write is left
  * uncommitted (it fails CRC validation later, so the prior slot stays newest-valid). */
-static bool write_slot(int slot, uint32_t seq) {
+static bool write_slot_table(int slot, uint32_t seq, const StateSection *table, int n) {
     /* Gather the pack/unpack sections' scattered statics into their scratch buffers
      * BEFORE the compress pass so the bytes are coherent. */
-    StateSection table[MAX_SECTIONS];
-    int n = build_section_table(table);
     for (int i = 0; i < n; i++)
         if (table[i].pack)
             table[i].pack(table[i].ptr);
@@ -528,6 +528,12 @@ static bool write_slot(int slot, uint32_t seq) {
      * landed. A torn write produces an invalid slot, never a half-applied load. */
     bool committed = platform_savestate_commit(slot);
     return x.ok && hdr && committed;
+}
+
+static bool write_slot(int slot, uint32_t seq) {
+    StateSection table[MAX_SECTIONS];
+    int n = build_section_table(table);
+    return write_slot_table(slot, seq, table, n);
 }
 
 /* Read & validate the 20-byte header from `slot`. On success fills seq/crc/payload_len
@@ -596,12 +602,14 @@ static bool peek_slot(int slot, uint32_t *seq) {
 typedef struct {
     TampDecompressor *d;
     unsigned char    *in;        /* compressed-input staging (in the scratch lend) */
+    unsigned char    *skip;      /* SS_SKIP_SIZE discard buffer (in the scratch lend) */
     size_t            in_cap;
     size_t            in_fill;    /* valid bytes in staging */
     size_t            in_pos;     /* bytes already consumed from staging */
     int               slot;
     size_t            src_off;    /* next compressed byte offset in the slot */
     uint32_t          src_left;   /* compressed bytes not yet pulled from the slot */
+    uint32_t          crc;        /* running CRC of the compressed bytes pulled so far */
     bool              ok;
 } DecompCtx;
 
@@ -614,6 +622,7 @@ static bool decomp_init(DecompCtx *x, int slot, uint32_t comp_len) {
     unsigned char *window = p;            p += SS_WINDOW_SIZE;
     p = ss_align8(p);
     x->d = (TampDecompressor *)p;         p += sizeof(TampDecompressor);
+    x->skip = p;                          p += SS_SKIP_SIZE;
     p = ss_align8(p);
     size_t used = (size_t)(p - base);
     if (region < used + SS_STAGE_MIN)
@@ -628,6 +637,7 @@ static bool decomp_init(DecompCtx *x, int slot, uint32_t comp_len) {
     x->slot     = slot;
     x->src_off  = STATE_DUMP_HEADER_SIZE;
     x->src_left = comp_len;
+    x->crc      = 0xFFFFFFFFu;
     x->ok       = true;
     if (tamp_decompressor_init(x->d, NULL /*conf from stream*/, window, SS_WINDOW_BITS) != TAMP_OK)
         x->ok = false;
@@ -647,6 +657,7 @@ static bool decomp_read(DecompCtx *x, void *dst, size_t n) {
             size_t chunk = x->src_left < x->in_cap ? x->src_left : x->in_cap;
             size_t got = platform_savestate_read(x->slot, x->src_off, x->in, chunk);
             if (got == 0) { x->ok = false; return false; }
+            x->crc       = crc32_step(x->crc, x->in, got);
             x->in_fill   = got;
             x->in_pos    = 0;
             x->src_off  += got;
@@ -680,36 +691,104 @@ static bool decomp_read(DecompCtx *x, void *dst, size_t n) {
     return true;
 }
 
-/* Decompress-and-discard `n` bytes — the rare unknown/mismatched-section skip path
- * (can't seek a compressed stream). */
+/* Decompress-and-discard `n` bytes (can't seek a compressed stream): every section
+ * in the validate pass, and unknown sections in the apply pass. */
 static bool decomp_skip(DecompCtx *x, uint32_t n) {
-    unsigned char tmp[256];
     while (n) {
-        uint32_t chunk = n < sizeof tmp ? n : (uint32_t)sizeof tmp;
-        if (!decomp_read(x, tmp, chunk))
+        uint32_t chunk = n < SS_SKIP_SIZE ? n : SS_SKIP_SIZE;
+        if (!decomp_read(x, x->skip, chunk))
             return false;
         n -= chunk;
     }
     return true;
 }
 
-/* Validate a slot's CRC, then apply its sections to the live globals. Validation
- * happens BEFORE any write to live state, so a torn/corrupt slot is rejected with
- * the running game untouched. */
+static int find_section(const StateSection *t, int n, uint16_t id) {
+    for (int i = 0; i < n; i++)
+        if (t[i].id == id)
+            return i;
+    return -1;
+}
+
+/* Validate pass: decompress the whole stream into the discard buffer, checking that
+ * every section id this build knows has exactly this build's size, appears once, and
+ * that none is missing (AUDIO excepted: it exists only in EB_ENABLE_AUDIO builds and
+ * audio_resync_after_load copes with a stale audio_state); unknown ids are skipped
+ * (forward compatibility). The compressed bytes are CRC'd as they are pulled, plus
+ * any tail after the terminator, so this pass replaces verify_slot_crc for loads at
+ * the same I/O cost. Nothing live is written, so a stream that fails here leaves the
+ * running game untouched. */
+static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc,
+                                 const StateSection *table, int n) {
+    DecompCtx r;
+    if (!decomp_init(&r, slot, plen))
+        return false;
+    /* Seen-section bitmap as 32-bit words: a uint64_t mask would pull libgcc's
+     * 64-bit shift helpers into the Pico's RAM. */
+    uint32_t seen[(MAX_SECTIONS + 31) / 32] = { 0 };
+    for (;;) {
+        uint16_t id;
+        if (!decomp_read(&r, &id, 2))
+            return false;
+        if (id == SECTION_TERMINATOR)
+            break;
+        uint32_t size;
+        if (!decomp_read(&r, &size, 4))
+            return false;
+        int i = find_section(table, n, id);
+        if (i >= 0) {
+            if (size != table[i].size) {
+                LOG_WARN("savestate: section 0x%04X is %lu bytes, this build expects %lu\n",
+                         (unsigned)id, (unsigned long)size, (unsigned long)table[i].size);
+                return false;
+            }
+            if (seen[i / 32] & (1u << (i % 32))) {
+                LOG_WARN("savestate: section 0x%04X appears twice\n", (unsigned)id);
+                return false;
+            }
+            seen[i / 32] |= 1u << (i % 32);
+        }
+        if (!decomp_skip(&r, size))
+            return false;
+    }
+    /* CRC the compressed tail the decompressor didn't need to pull. */
+    while (r.src_left) {
+        size_t chunk = r.src_left < r.in_cap ? r.src_left : r.in_cap;
+        if (platform_savestate_read(slot, r.src_off, r.in, chunk) != chunk)
+            return false;
+        r.crc       = crc32_step(r.crc, r.in, chunk);
+        r.src_off  += chunk;
+        r.src_left -= (uint32_t)chunk;
+    }
+    if ((r.crc ^ 0xFFFFFFFFu) != expected_crc)
+        return false;
+    for (int i = 0; i < n; i++) {
+        if (!(seen[i / 32] & (1u << (i % 32))) && table[i].id != SECTION_AUDIO) {
+            LOG_WARN("savestate: section 0x%04X is missing\n", (unsigned)table[i].id);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Validate a slot (CRC + section layout, see validate_slot_stream), then apply its
+ * sections to the live globals. Validation finishes BEFORE any write to live state,
+ * so a torn, corrupt or layout-mismatched slot is rejected with the running game
+ * untouched; a slot never half-applies. */
 static bool read_slot(int slot) {
     uint32_t crc, plen;
     if (!read_slot_header(slot, NULL, &crc, &plen))
         return false;
-    if (!verify_slot_crc(slot, plen, crc))
-        return false;
 
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
+    if (!validate_slot_stream(slot, plen, crc, table, n))
+        return false;
 
-    /* Decompress each tagged section straight into its live global. Unknown ids (or a
-     * known id whose size doesn't match this build) are skipped — forward-compatibility,
-     * and a guard against a layout mismatch smashing a struct. Same-binary loads never
-     * hit the skip; the CRC pass already proved the structure is intact. */
+    /* Decompress each tagged section straight into its live global; unknown ids are
+     * skipped. The validate pass already proved every known section's size, so the
+     * mismatch branch below is unreachable short of the slot changing between the
+     * two reads. */
     DecompCtx r;
     if (!decomp_init(&r, slot, plen))
         return false;
@@ -723,18 +802,19 @@ static bool read_slot(int slot) {
         if (!decomp_read(&r, &size, 4))
             return false;
 
-        StateSection *sec = NULL;
-        for (int i = 0; i < n; i++)
-            if (table[i].id == id) { sec = &table[i]; break; }
+        int i = find_section(table, n, id);
+        StateSection *sec = i >= 0 ? &table[i] : NULL;
 
-        if (sec && sec->size == size) {
+        if (sec) {
+            if (sec->size != size)
+                return false;
             if (size && !decomp_read(&r, sec->ptr, size))
                 return false;
             /* pack/unpack section: scatter the scratch buffer back into its statics. */
             if (sec->unpack)
                 sec->unpack(sec->ptr);
         } else {
-            if (!decomp_skip(&r, size)) /* skip unknown / mismatched section */
+            if (!decomp_skip(&r, size)) /* skip unknown section */
                 return false;
         }
     }
@@ -862,6 +942,26 @@ bool state_dump_roundtrip_test(void) {
     return slots_byte_equal(0, 1);
 }
 
+/* Scribble every direct section's live storage with `v` (perturb/reject tests). */
+static void scribble_direct_sections(const StateSection *t, int n, uint8_t v) {
+    for (int i = 0; i < n; i++)
+        if (!t[i].pack && t[i].size)
+            memset(t[i].ptr, v, t[i].size);
+}
+
+/* True iff every direct section still holds only the byte `v`. */
+static bool direct_sections_hold(const StateSection *t, int n, uint8_t v) {
+    for (int i = 0; i < n; i++) {
+        if (t[i].pack)
+            continue;
+        const uint8_t *p = (const uint8_t *)t[i].ptr;
+        for (uint32_t k = 0; k < t[i].size; k++)
+            if (p[k] != v)
+                return false;
+    }
+    return true;
+}
+
 /* Like the round-trip test, but scribbles every direct section's live storage with a
  * sentinel between the reference save and the load, so the load must reconstruct that
  * state purely from the file. If it does, the re-save byte-matches the reference; a
@@ -878,13 +978,62 @@ bool state_dump_perturb_test(void) {
 
     StateSection table[MAX_SECTIONS];
     int n = build_section_table(table);
-    for (int i = 0; i < n; i++)
-        if (!table[i].pack && table[i].size)       /* direct sections only */
-            memset(table[i].ptr, 0xA5, table[i].size);
+    scribble_direct_sections(table, n, 0xA5);      /* direct sections only */
 
     if (!read_slot(0))             return false;   /* must restore from the file */
     if (!write_slot(1, fixed_seq)) return false;   /* re-save the restored state */
     return slots_byte_equal(0, 1);
+}
+
+/* Copy slot `src` to slot `dst` with the payload byte at `flip_off` XOR'd, keeping the
+ * header (and so the stored CRC) intact: a media-corruption image. */
+static bool copy_slot_corrupted(int src, int dst, size_t flip_off) {
+    uint32_t plen;
+    if (!read_slot_header(src, NULL, NULL, &plen))
+        return false;
+    size_t region = 0;
+    uint8_t *buf = (uint8_t *)platform_savestate_scratch(&region);
+    if (!buf || region == 0 || !platform_savestate_begin(dst))
+        return false;
+    size_t total = STATE_DUMP_HEADER_SIZE + plen, off = 0;
+    bool ok = flip_off >= STATE_DUMP_HEADER_SIZE && flip_off < total;
+    while (ok && off < total) {
+        size_t chunk = (total - off) < region ? (total - off) : region;
+        ok = platform_savestate_read(src, off, buf, chunk) == chunk;
+        if (ok && flip_off >= off && flip_off < off + chunk)
+            buf[flip_off - off] ^= 0x40u;
+        ok = ok && platform_savestate_write(dst, off, buf, chunk);
+        off += chunk;
+    }
+    return platform_savestate_commit(dst) && ok;
+}
+
+bool state_dump_reject_test(void) {
+    const uint32_t fixed_seq = 1;
+    StateSection table[MAX_SECTIONS];
+    int n = build_section_table(table);
+
+    /* Slot 1: a good image of the live state, to restore from at the end. */
+    if (!write_slot(1, fixed_seq)) return false;
+
+    /* Slot 0: a CRC-valid image whose RNG section is one byte short, as a build with
+     * a different struct layout would write it. */
+    int k = find_section(table, n, SECTION_RNG);
+    if (k < 0 || table[k].size < 2) return false;
+    table[k].size--;
+    bool wrote = write_slot_table(0, fixed_seq, table, n);
+    table[k].size++;
+    if (!wrote) return false;
+
+    /* With the live state scribbled, both bad images must fail to load and leave
+     * every direct section untouched. */
+    scribble_direct_sections(table, n, 0xA5);
+    bool ok = !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+    ok = ok && copy_slot_corrupted(1, 0, STATE_DUMP_HEADER_SIZE + 64);
+    ok = ok && !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+
+    /* Put the live state back from the good image. */
+    return read_slot(1) && ok;
 }
 
 /* Simulate a torn write: truncate `slot` to a few garbage bytes so it fails the

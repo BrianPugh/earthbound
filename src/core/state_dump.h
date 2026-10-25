@@ -43,6 +43,12 @@ bool state_dump_perturb_test(void);
  * embedded. */
 bool state_dump_crashsafe_test(void);
 
+/* Reject self-test: a CRC-valid slot with a section whose size differs from this
+ * build's, and a slot with a corrupted payload byte, must both fail to load while
+ * leaving every live section untouched (checked against a scribbled sentinel); the
+ * live state is then restored from a good slot. Returns true on success. */
+bool state_dump_reject_test(void);
+
 /* Un-sectioned asset-pointer self-test: some modules cache link-time-constant
  * ASSET_DATA bases in file-static pointers that are NOT part of any savestate
  * section (e.g. file_select.c's initial_stats_data). A cold load into such a
