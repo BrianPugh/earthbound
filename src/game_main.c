@@ -525,6 +525,14 @@ void host_process_frame(void) {
 
 /* Request a torn-safe capture at the next root-loop boundary. See game_main.h. */
 void host_request_capture(void) {
+    /* A save outranks a pending load: the load has not touched anything yet (it
+     * applies only at the boundary), and a power-off that lands during an F7 unwind
+     * must save the running game rather than load over it and report COMMITTED to
+     * the rail-hold handshake. The unwind budget already spent is kept. */
+    if (g_pending_root_action == ROOT_ACTION_LOAD) {
+        g_pending_root_action = ROOT_ACTION_SAVE;
+        return;
+    }
     if (g_pending_root_action != ROOT_ACTION_NONE)
         return; /* already pending — keep the original action + unwind budget */
     g_pending_root_action = ROOT_ACTION_SAVE;
@@ -569,15 +577,16 @@ void host_root_boundary(void) {
      * callback would otherwise drain and drone for the ~0.6-1 s it takes. */
     platform_savestate_freeze_audio(true);
 
+    HostCaptureStatus result;
     if (action == ROOT_ACTION_SAVE) {
         /* Crash-safe ping-pong write through the platform_savestate_* slot backend:
          * a power-loss mid-write leaves the prior slot intact. COMMITTED is the
          * firmware's rail-hold release signal (the write is durably flushed). */
         if (state_dump_save_slots()) {
-            g_capture_status = HOST_CAPTURE_COMMITTED;
+            result = HOST_CAPTURE_COMMITTED;
             LOG_WARN("savestate: wrote slot\n");
         } else {
-            g_capture_status = HOST_CAPTURE_FAILED;
+            result = HOST_CAPTURE_FAILED;
             LOG_WARN("savestate: failed to write slot\n");
         }
     } else { /* ROOT_ACTION_LOAD */
@@ -586,13 +595,18 @@ void host_root_boundary(void) {
              * named by the restored audio_state — otherwise the pre-load track keeps
              * playing over the loaded game. */
             audio_resync_after_load();
-            g_capture_status = HOST_CAPTURE_COMMITTED;
+            result = HOST_CAPTURE_COMMITTED;
             LOG_WARN("savestate: loaded slot\n");
         } else {
-            g_capture_status = HOST_CAPTURE_FAILED;
+            result = HOST_CAPTURE_FAILED;
             LOG_WARN("savestate: failed to load slot\n");
         }
     }
+    /* A request made from the ISR while this one ran is still PENDING; reporting
+     * this result would let the firmware poll read the load's COMMITTED as its
+     * save's. */
+    if (g_pending_root_action == ROOT_ACTION_NONE)
+        g_capture_status = result;
 
     platform_savestate_freeze_audio(false);
 }

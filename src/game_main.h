@@ -48,7 +48,8 @@ bool game_is_fast_forward(void);
 
 /* Request a torn-safe savestate capture at the next root-loop boundary. Idempotent:
  * a request made while one is already pending is ignored (the original unwind budget
- * is kept). The embedded power-off handler calls this from its shutdown ISR. */
+ * is kept), except that it replaces a pending load. The embedded power-off handler
+ * calls this from its shutdown ISR. */
 void host_request_capture(void);
 
 /* Request a savestate restore at the next root-loop boundary. Like the capture
