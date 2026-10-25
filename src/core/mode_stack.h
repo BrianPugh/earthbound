@@ -811,6 +811,16 @@ typedef enum {
     BTL_AFTER_STATUS_BODY,/* post-action recovery body (post dead-check) */
     BTL_AFTER_TAIL_BODY,  /* re-show HP/PP windows (post dead-check) */
     BTL_ENDING_CLEANUP,   /* post-battle cleanup + fade-out (post mirror dead-check) */
+    /* Player-menu frame beats (US WAIT_UNTIL_NEXT_FRAMEs and window ticks between
+     * one member's menu and the next; see BTL_MENU_RESULT in battle.c). */
+    BTL_MENU_CLOSE,       /* clear the char indicator + close the menu window */
+    BTL_MENU_DECIDE,      /* act on menu_action (back / run away / store) */
+    BTL_MENU_SELECT,      /* clear a stale char indicator, then wait a frame */
+    BTL_MENU_OPEN,        /* draw the char indicator, push GAME_MODE_BATTLE_MENU */
+    BTL_EXEC_HILITE,      /* turn highlight: clear the old indicator, then wait */
+    BTL_EXEC_HILITE_DRAW, /* turn highlight: draw the attacker's indicator */
+    BTL_EXEC_PP,          /* PP cost / attack palette / action (after the highlight) */
+    BTL_AFTER_STATUS_CLEAR, /* clear the indicator after its wait, then dead-check */
 } BattleRoutinePhase;
 
 typedef struct {
@@ -834,6 +844,8 @@ typedef struct {
     uint16_t retargeted;        /* mushroomized/strange retarget flag */
     uint16_t status_damage;     /* per-turn status damage carried across its text */
     uint16_t exp_i;             /* BTL_VICTORY_EXP loop index */
+    uint16_t menu_action;       /* BTL_MENU_RESULT: the popped battle-menu action */
+    int16_t  hilite_slot;       /* BTL_EXEC_SETUP: party slot to highlight, -1 none */
 } BattleRoutineState;
 
 /* GAME_MODE_INSTANT_WIN — run-to-completion port of instant_win_handler()
@@ -1129,6 +1141,7 @@ typedef enum {
     CSP_RENDER,      /* highlight char + window_tick_work + pagination arrows */
     CSP_PRIME,       /* first update_hppp frame before the input read */
     CSP_INPUT,       /* poll input within the `delay` counter window */
+    CSP_CANCEL,      /* after the indicator-clear wait: clear it and pop 0 */
 } CharSelectPhase;
 
 /* Post-child resume for an on_change callback that STEP_PUSHed a GAME_MODE_DISPLAY_TEXT
@@ -1148,6 +1161,7 @@ typedef struct {
     uint8_t  check_valid_id; /* CharSelectCheckValidId */
     uint8_t  resume;         /* CharSelectResume: post-child work pending on POP */
     uint8_t  cs_flush;       /* park-resume marker: 0 none / 1 render / 2 prime / 3 idle */
+    uint8_t  sel_stage;      /* CSP_RENDER mode 0: SELECT_BATTLE_MENU_CHARACTER's waits done */
     uint16_t current_index;  /* selected party slot (0-based) */
     uint16_t delay;          /* input poll frames before pagination toggle */
     uint16_t counter;        /* frames elapsed in the current poll window */
@@ -1443,6 +1457,18 @@ typedef struct {
  *                      update, so `primed` defers the update to the step that
  *                      follows the prior yield, keeping the yield/update interleave
  *                      frame-identical (no phase shift).
+ *   BW_VBLANK        - present `remaining` frames with no per-frame work: the
+ *                      asm's bare WAIT_UNTIL_NEXT_FRAME (no window tick, so the
+ *                      battle background holds), or the present owed by a
+ *                      window tick a synchronous helper already ran inline
+ *                      (take_unpresented_ticks) in battle. Check-before.
+ *   BW_TICK_PRESENT  - the rest of `remaining` RENDER_FRAME_TICKs whose window
+ *                      render a synchronous helper already ran inline
+ *                      (render_frame_tick_no_actionscript, counted by
+ *                      take_unpresented_ticks): on the overworld advance the
+ *                      entities (a parked frame pushes ACTIONSCRIPT_FRAME and
+ *                      `primed` marks the flush) and refresh the screen; in battle
+ *                      just present. Check-before.
  *
  * The check-before kinds (PSI/SCREEN_EFFECT/SWIRL_WINDOW) and BW_FRAMES match the
  * GAME_MODE_FADE_WAIT pattern: test the exit condition at the top, else do the
@@ -1454,11 +1480,14 @@ typedef enum {
     BW_HPPP_STABLE,
     BW_SWIRL_WINDOW,
     BW_SWIRL_UPDATE,
+    BW_VBLANK,
+    BW_TICK_PRESENT,
 } BattleWaitKind;
 
 typedef struct {
     uint8_t  kind;      /* BattleWaitKind */
-    uint8_t  primed;    /* BW_HPPP_STABLE: 0 skips the exit check; BW_SWIRL_UPDATE: 0 skips the update */
+    uint8_t  primed;    /* BW_HPPP_STABLE: 0 skips the exit check; BW_SWIRL_UPDATE: 0 skips the
+                         * update; BW_TICK_PRESENT: 1 = flush a parked actionscript frame */
     uint16_t remaining; /* BW_FRAMES: frames left to render */
 } BattleWaitState;
 

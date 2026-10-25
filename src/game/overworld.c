@@ -1553,14 +1553,31 @@ void render_frame_tick_work_flush(void) {
  * yield; this just refreshes the window VRAM. OAM is left as last frame's (no
  * oam_clear), so sprites are unchanged.
  *
- * Known deviation (hand-tested 2026-10-25, emu vs port): no frame is presented
- * here, so a chain of these beats collapses into the caller's single frame. In a
- * battle, confirming Ness's target to Paula's command menu takes 0 frames in the
- * port; the original spends ~5 logic frames (CLOSE_WINDOW ticks, the
- * CLEAR_/SELECT_BATTLE_MENU_CHARACTER waits, the first SELECTION_MENU tick) plus
- * ~8 lag frames, ~13 SNES frames in all. Making each beat yield needs a phase at
- * every caller (dozens of sites), so it is left as is. */
+ * No frame is presented here, so a chain of these beats would collapse into the
+ * caller's single frame (hand-tested 2026-10-25: a battle-menu switch from Ness to
+ * Paula took 0 frames in the port, ~5 logic + ~8 lag frames in the original).
+ * Each call is therefore counted as an owed present: a mode-step that runs such a
+ * helper and wants the original's frame count takes the count with
+ * take_unpresented_ticks() and STEP_PUSHes that many present-only frames
+ * (GAME_MODE_BATTLE_WAIT BW_VBLANK) before carrying on. The count only covers
+ * the current frame (stamped with core.frame_counter), so ticks a caller never
+ * claims are dropped at the next yield instead of piling up. */
+static uint16_t unpresented_ticks;
+static uint16_t unpresented_stamp;
+
+uint16_t take_unpresented_ticks(void) {
+    uint16_t n = (unpresented_stamp == core.frame_counter) ? unpresented_ticks : 0;
+    unpresented_ticks = 0;
+    return n;
+}
+
 void render_frame_tick_no_actionscript(void) {
+    if (unpresented_stamp != core.frame_counter) {
+        unpresented_stamp = core.frame_counter;
+        unpresented_ticks = 0;
+    }
+    unpresented_ticks++;
+
     if (ow.render_hppp_windows & 0xFF)
         update_text_window_palette();
 

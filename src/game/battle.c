@@ -326,7 +326,48 @@ void set_current_item(uint8_t item) {
  * overworld equip menu reaches char-select) STEP_PUSHes ACTIONSCRIPT_FRAME — the
  * pagination/counter tail then runs at the cs_flush resume. Shared by every
  * re-render site (the head of the former outer loop). */
+static StepResult push_wait_frames(ModeState *child, uint8_t kind, uint16_t frames);
+
+/* Cancel tail: CLEAR_BATTLE_MENU_CHARACTER_INDICATOR (after its wait), then pop 0. */
+static StepResult cs_cancel_finish(CharSelectState *st) {
+    clear_battle_menu_character_indicator();
+    dt.pagination_animation_frame = -1;
+    set_argument_memory(st->saved_argument_memory);
+    return STEP_RESULT_POP(0);
+}
+
 static StepResult cs_render_tick(CharSelectState *st) {
+    /* Frame beats before the render, re-entered through CSP_RENDER after each
+     * present-only push:
+     *   stage 0: the on_change callback (e.g. GET_WEAPON_ITEM_NAME's
+     *            WINDOW_TICK_WITHOUT_INSTANT_PRINTING) ran window ticks inline this
+     *            frame; give each its frame (BW_TICK_PRESENT).
+     *   stage 1/2 (mode 0): SELECT_BATTLE_MENU_CHARACTER (US) waits a frame before
+     *            clearing the previous indicator and again before drawing the new
+     *            one (BW_VBLANK). */
+    static ModeState cs_wait_init;
+    if (st->sel_stage == 0) {
+        uint16_t owed = take_unpresented_ticks();
+        st->sel_stage = (st->mode == 0) ? 1 : 3;
+        if (owed) {
+            st->phase = CSP_RENDER;
+            return push_wait_frames(&cs_wait_init, BW_TICK_PRESENT, owed);
+        }
+    }
+    if (st->sel_stage == 1) {
+        st->sel_stage = 2;
+        if (win.battle_menu_current_character_id != -1) {
+            st->phase = CSP_RENDER;
+            return push_wait_frames(&cs_wait_init, BW_VBLANK, 1);
+        }
+    }
+    if (st->sel_stage == 2) {
+        clear_battle_menu_character_indicator();
+        st->sel_stage = 3;
+        st->phase = CSP_RENDER;
+        return push_wait_frames(&cs_wait_init, BW_VBLANK, 1);
+    }
+    st->sel_stage = 0;
     if (st->mode == 0)
         select_battle_menu_character(st->current_index);
     clear_instant_printing();
@@ -414,6 +455,9 @@ StepResult mode_step_char_select(ModeState *ms) {
         st->phase = CSP_INPUT;
         return STEP_RESULT_CONTINUE();
 
+    case CSP_CANCEL:
+        return cs_cancel_finish(st);
+
     case CSP_INPUT:
     default: {
         int16_t  direction_step = 0;
@@ -435,10 +479,13 @@ StepResult mode_step_char_select(ModeState *ms) {
             return STEP_RESULT_POP(result);
         } else if ((core.pad1_pressed & PAD_CANCEL) && st->allow_cancel == 1) {
             play_sfx((st->mode == 0) ? 27 : 2);
-            clear_battle_menu_character_indicator();
-            dt.pagination_animation_frame = -1;
-            set_argument_memory(st->saved_argument_memory);
-            return STEP_RESULT_POP(0);
+            /* CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a frame first. */
+            st->phase = CSP_CANCEL;
+            if (win.battle_menu_current_character_id != -1) {
+                static ModeState cs_cancel_init;
+                return push_wait_frames(&cs_cancel_init, BW_VBLANK, 1);
+            }
+            return cs_cancel_finish(st);
         } else {
             /* No actionable input this frame (includes a disallowed cancel). */
             st->counter++;
@@ -1171,9 +1218,50 @@ StepResult mode_step_battle_wait(ModeState *ms) {
             return STEP_RESULT_POP(0);
         s->primed = 1;
         return STEP_RESULT_CONTINUE();
+
+    case BW_VBLANK:
+        /* for (i = frames; i != 0; i--) WAIT_UNTIL_NEXT_FRAME; */
+        if (s->remaining == 0)
+            return STEP_RESULT_POP(0);
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
+
+    case BW_TICK_PRESENT:
+        /* The rest of a RENDER_FRAME_TICK whose window render already ran inline
+         * (render_frame_tick_no_actionscript): on the overworld, advance the
+         * entities and refresh the screen; in battle the inline tick already
+         * updated the battle effects, so only the present is left. `primed`
+         * marks the resume after a parked actionscript frame. */
+        if (s->primed) {
+            s->primed = 0;
+            render_frame_tick_work_flush();
+            s->remaining--;
+            return STEP_RESULT_CONTINUE();
+        }
+        if (s->remaining == 0)
+            return STEP_RESULT_POP(0);
+        if (!bt.battle_mode_flag) {
+            oam_clear();
+            if (run_actionscript_frame_step()) {
+                s->primed = 1;
+                return actionscript_frame_take_push();
+            }
+            update_screen();
+        }
+        s->remaining--;
+        return STEP_RESULT_CONTINUE();
     }
 
     return STEP_RESULT_POP(0);
+}
+
+/* STEP_PUSH `frames` frames of GAME_MODE_BATTLE_WAIT `kind` (BW_VBLANK or
+ * BW_TICK_PRESENT). */
+static StepResult push_wait_frames(ModeState *child, uint8_t kind, uint16_t frames) {
+    memset(child, 0, sizeof(*child));
+    child->battle_wait.kind = kind;
+    child->battle_wait.remaining = frames;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, child);
 }
 
 /* ======================================================================
@@ -4308,11 +4396,13 @@ static void btl_exec_setup_targets(BattleRoutineState *st, Battler *attacker) {
     set_current_item_far(attacker->current_action_argument);
     set_target_if_targeted();
 
-    /* Highlight party member during their turn */
+    /* Highlight party member during their turn: the SELECT_BATTLE_MENU_CHARACTER
+     * call (and its frame waits) runs in BTL_EXEC_SETUP / BTL_EXEC_HILITE. */
+    st->hilite_slot = -1;
     if (attacker->ally_or_enemy == 0 && attacker->id <= PLAYER_CHAR_COUNT) {
         for (uint16_t slot = 0; slot < 6; slot++) {
             if (game_state.party_members[slot] == attacker->id) {
-                select_battle_menu_character_far(slot);
+                st->hilite_slot = (int16_t)slot;
                 break;
             }
         }
@@ -4549,25 +4639,71 @@ StepResult mode_step_battle(ModeState *ms) {
                     continue;
                 }
 
-                /* Show battle menu for this character */
-                select_battle_menu_character_far(st->party_slot);
-                child_init = (ModeState){0};
-                child_init.battle_menu.phase        = BM_ENTER;
-                child_init.battle_menu.char_id      = member_id;
-                child_init.battle_menu.num_selected = st->num_selected;
-                st->phase = BTL_MENU_RESULT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &child_init);
+                /* Show battle menu for this character:
+                 * SELECT_BATTLE_MENU_CHARACTER (US) waits a frame before clearing a
+                 * stale indicator (CLEAR_BATTLE_MENU_CHARACTER_INDICATOR) and again
+                 * before drawing the new one. window.c's draw/clear helpers do the
+                 * tilemap work only; the two WAIT_UNTIL_NEXT_FRAMEs are
+                 * BTL_MENU_SELECT's and BTL_MENU_OPEN's present-only pushes. */
+                st->phase = BTL_MENU_SELECT;
+                if (win.battle_menu_current_character_id != -1)
+                    return push_wait_frames(&child_init, BW_VBLANK, 1);
+                goto menu_done;
             }
             st->phase = BTL_ENEMY_AI;
         menu_done:
             break;
 
-        case BTL_MENU_RESULT: {
-            uint16_t selected_action = (uint16_t)mode_child_result();
-            uint8_t member_id = game_state.party_members[st->party_slot];
+        case BTL_MENU_SELECT:
+            clear_battle_menu_character_indicator_far();
+            st->phase = BTL_MENU_OPEN;
+            return push_wait_frames(&child_init, BW_VBLANK, 1);
 
+        case BTL_MENU_OPEN: {
+            uint8_t member_id = game_state.party_members[st->party_slot];
+            select_battle_menu_character_far(st->party_slot);
+            child_init = (ModeState){0};
+            child_init.battle_menu.phase        = BM_ENTER;
+            child_init.battle_menu.char_id      = member_id;
+            child_init.battle_menu.num_selected = st->num_selected;
+            st->phase = BTL_MENU_RESULT;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &child_init);
+        }
+
+        case BTL_MENU_RESULT: {
+            /* BATTLE_SELECTION_MENU returned. Its last window close (the target
+             * picker, inventory or PSI windows) ran a WINDOW_TICK inline this
+             * frame without presenting it; then CLEAR_BATTLE_MENU_CHARACTER_
+             * INDICATOR waits a frame before clearing. Present both (the
+             * indicator is still drawn in either frame) before the clear; in
+             * battle a BW_TICK_PRESENT frame is present-only too, so one
+             * BW_VBLANK push covers both. */
+            st->menu_action = (uint16_t)mode_child_result();
+            uint16_t frames = take_unpresented_ticks();
+            if (win.battle_menu_current_character_id != -1)
+                frames++;
+            st->phase = BTL_MENU_CLOSE;
+            if (frames)
+                return push_wait_frames(&child_init, BW_VBLANK, frames);
+            break;
+        }
+
+        case BTL_MENU_CLOSE: {
+            /* Clear the indicator, then REDIRECT_CLOSE_FOCUS_WINDOW closes the
+             * command menu, whose CLOSE_WINDOW tick shows both changes. */
+            (void)take_unpresented_ticks();
             clear_battle_menu_character_indicator_far();
             redirect_close_focus_window();
+            uint16_t frames = take_unpresented_ticks();
+            st->phase = BTL_MENU_DECIDE;
+            if (frames)
+                return push_wait_frames(&child_init, BW_TICK_PRESENT, frames);
+            break;
+        }
+
+        case BTL_MENU_DECIDE: {
+            uint16_t selected_action = st->menu_action;
+            uint8_t member_id = game_state.party_members[st->party_slot];
 
             /* Check for Giygas battle abort */
             if (ow.battle_mode != 0 && selected_action == 0xFFFF) {
@@ -4758,8 +4894,33 @@ StepResult mode_step_battle(ModeState *ms) {
         case BTL_EXEC_SETUP: {
             Battler *attacker = &bt.battlers_table[st->attacker];
 
-            /* Targeting setup, retarget rolls, steal validation, highlight */
+            /* Targeting setup, retarget rolls, steal validation */
             btl_exec_setup_targets(st, attacker);
+
+            /* SELECT_BATTLE_MENU_CHARACTER (US): a frame before clearing the
+             * previous indicator (if any), a frame before drawing the new one. */
+            if (st->hilite_slot >= 0) {
+                st->phase = BTL_EXEC_HILITE;
+                if (win.battle_menu_current_character_id != -1)
+                    return push_wait_frames(&child_init, BW_VBLANK, 1);
+                break;
+            }
+            st->phase = BTL_EXEC_PP;
+            break;
+        }
+
+        case BTL_EXEC_HILITE:
+            clear_battle_menu_character_indicator_far();
+            st->phase = BTL_EXEC_HILITE_DRAW;
+            return push_wait_frames(&child_init, BW_VBLANK, 1);
+
+        case BTL_EXEC_HILITE_DRAW:
+            select_battle_menu_character_far((uint16_t)st->hilite_slot);
+            st->phase = BTL_EXEC_PP;
+            break;
+
+        case BTL_EXEC_PP: {
+            Battler *attacker = &bt.battlers_table[st->attacker];
 
             /* Check PP cost */
             if (battle_action_table) {
@@ -4974,7 +5135,14 @@ StepResult mode_step_battle(ModeState *ms) {
 
         case BTL_AFTER_STATUS:
             dt.blinking_triangle_flag = 0;
-            /* Clear menu indicator */
+            /* Clear menu indicator (CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a
+             * frame first when one is drawn) */
+            st->phase = BTL_AFTER_STATUS_CLEAR;
+            if (win.battle_menu_current_character_id != -1)
+                return push_wait_frames(&child_init, BW_VBLANK, 1);
+            break;
+
+        case BTL_AFTER_STATUS_CLEAR:
             clear_battle_menu_character_indicator_far();
             /* Post-action status recovery — dead-check first. */
             check_dead_players_make_init(&child_init);

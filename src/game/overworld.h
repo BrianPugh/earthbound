@@ -334,6 +334,9 @@ void render_frame_tick_work_flush(void);
 /* render_frame_tick's present without advancing entity action scripts or yielding
  * (window_tick_without_instant_printing's show-window beat). See overworld.c. */
 void render_frame_tick_no_actionscript(void);
+/* How many render_frame_tick_no_actionscript() beats ran this frame without a
+ * present; returns the count and clears it. See overworld.c. */
+uint16_t take_unpresented_ticks(void);
 
 /* Allocate/clear sprite VRAM table.
  * Port of ALLOC_SPRITE_MEM (asm/system/alloc_sprite_mem.asm).
