@@ -559,6 +559,25 @@ static bool write_header(int slot, uint16_t frame, uint32_t seq,
  * header (with the resulting compressed CRC + length) is written back at offset 0.
  * Returns true only on a fully committed write; a partial/failed write is left
  * uncommitted (it fails CRC validation later, so the prior slot stays newest-valid). */
+/* The slot this process last wrote or loaded, with the header that went with it.
+ * state_dump_save_slots must know whether the newest slot committed; when its header
+ * still matches what this process verified, the full CRC read of it (a whole slot
+ * read inside the power-hold window) is skipped. Any other write through state_dump
+ * clears it. */
+static struct {
+    bool     valid;
+    int8_t   slot;
+    uint32_t seq, crc, plen;
+} s_known;
+
+static void known_set(int slot, uint32_t seq, uint32_t crc, uint32_t plen) {
+    s_known.valid = true;
+    s_known.slot  = (int8_t)slot;
+    s_known.seq   = seq;
+    s_known.crc   = crc;
+    s_known.plen  = plen;
+}
+
 /* `short_id` names a section whose size field and blob are written one byte short
  * (the reject self-test's layout-mismatch image); 0 in normal use, which matches no
  * section. */
@@ -571,6 +590,7 @@ static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
         if (table[i].pack)
             table[i].pack(table[i].ptr);
 
+    s_known.valid = false;
     if (!platform_savestate_begin(slot))
         return false;
 
@@ -597,7 +617,10 @@ static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
     /* Always commit (closes/flushes the open writer); succeed only if every write
      * landed. A torn write produces an invalid slot, never a half-applied load. */
     bool committed = platform_savestate_commit(slot);
-    return x.ok && hdr && committed;
+    bool ok = x.ok && hdr && committed;
+    if (ok && short_id == 0)
+        known_set(slot, seq, x.crc, (uint32_t)x.comp_len);
+    return ok;
 }
 
 static bool write_slot(int slot, uint32_t seq) {
@@ -1015,8 +1038,8 @@ static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc)
  * so a torn, corrupt or layout-mismatched slot is rejected with the running game
  * untouched; a slot never half-applies. */
 static bool read_slot(int slot) {
-    uint32_t crc, plen;
-    if (!read_slot_header(slot, NULL, &crc, &plen))
+    uint32_t seq, crc, plen;
+    if (!read_slot_header(slot, &seq, &crc, &plen))
         return false;
 
     if (!validate_slot_stream(slot, plen, crc))
@@ -1066,6 +1089,7 @@ static bool read_slot(int slot) {
      * Without this a cold-boot resume scrolls within the stale VRAM nametable
      * (map "loops") because fill_tilemaps() has no arrangement data to stream. */
     map_loader_savestate_rebind();
+    known_set(slot, seq, crc, plen);
     return true;
 }
 
@@ -1100,7 +1124,9 @@ bool state_dump_save_slots(void) {
         uint32_t nplen = newest ? p1 : p0;
         bool other_hdr = newest ? h0 : h1;
         uint32_t oseq  = newest ? s0 : s1;
-        if (verify_slot_crc(newest, nplen, ncrc)) {
+        bool known = s_known.valid && s_known.slot == newest && s_known.seq == nseq
+                  && s_known.crc == ncrc && s_known.plen == nplen;
+        if (known || verify_slot_crc(newest, nplen, ncrc)) {
             target = newest ? 0 : 1;            /* preserve the committed newest slot */
             next = nseq + 1;
         } else {
@@ -1245,6 +1271,7 @@ bool state_dump_perturb_test(void) {
 /* Copy slot `src` to slot `dst` with the payload byte at `flip_off` XOR'd, keeping the
  * header (and so the stored CRC) intact: a media-corruption image. */
 static bool copy_slot_corrupted(int src, int dst, size_t flip_off) {
+    s_known.valid = false;
     uint32_t plen;
     if (!read_slot_header(src, NULL, NULL, &plen))
         return false;
@@ -1309,6 +1336,7 @@ bool state_dump_reject_test(void) {
 /* Simulate a torn write: truncate `slot` to a few garbage bytes so it fails the
  * header/CRC check and reads as invalid. */
 static void tear_slot(int slot) {
+    s_known.valid = false;
     if (!platform_savestate_begin(slot))
         return;
     const uint8_t junk[8] = { 0 };
