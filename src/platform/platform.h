@@ -180,7 +180,9 @@ void platform_savestate_freeze_audio(bool freeze);
  * framebuffer; desktop returns a static buffer). Returns the buffer and writes
  * its byte size to *out_bytes. The caller treats it as volatile scratch and owns
  * no state across calls. Must be >= 512 bytes; a bigger region just enables
- * chunkier I/O staging. Never NULL.
+ * chunkier I/O staging. Never NULL for a backend that can store a slot; the no-op
+ * stub backend (src/platform/savestate_backend_stub.c), whose slots are always
+ * absent, returns NULL with *out_bytes = 0.
  */
 void  *platform_savestate_scratch(size_t *out_bytes);
 

@@ -86,39 +86,6 @@ bool platform_save_write(const void *src, size_t offset, size_t size) {
     return true;
 }
 
-/*
- * Savestate slots: no flash backend yet (the 8 KB save region above only holds
- * battery SRAM). Every slot reads as absent and writes fail, so state_dump never
- * reaches the compressor and no scratch RAM is lent (NULL makes comp_init /
- * decomp_init fail cleanly).
- */
-bool platform_savestate_begin(int slot) {
-    (void)slot;
-    return false;
-}
-
-bool platform_savestate_write(int slot, size_t offset, const void *src, size_t size) {
-    (void)slot;
-    (void)offset;
-    (void)src;
-    (void)size;
-    return false;
-}
-
-bool platform_savestate_commit(int slot) {
-    (void)slot;
-    return false;
-}
-
-size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size) {
-    (void)slot;
-    (void)offset;
-    (void)dst;
-    (void)size;
-    return 0;
-}
-
-void *platform_savestate_scratch(size_t *out_bytes) {
-    *out_bytes = 0;
-    return NULL;
-}
+/* Savestate slots: no flash backend yet (the 8 KB save region above only holds
+ * battery SRAM). The port builds with EB_EMBEDDED, so the platform_savestate_*
+ * hooks come from the shared fail-safe stub, src/platform/savestate_backend_stub.c. */

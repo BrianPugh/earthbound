@@ -11,6 +11,10 @@
  * make a savestate capture/restore fail SAFE — _begin/_write/_commit return false and
  * _read returns 0, so state_dump_save_slots()/_load_slots() report failure (the
  * firmware's rail-hold handshake sees HOST_CAPTURE_FAILED) instead of tearing a write.
+ * _scratch lends no RAM (NULL, 0 bytes): with every slot absent and every _begin
+ * failing, state_dump never reaches the (de)compressor or the CRC pass that use it.
+ * The Pico port links these as-is (EB_EMBEDDED); the G&W firmware defines
+ * EB_HAVE_SAVESTATE_BACKEND and supplies all five hooks itself.
  *
  * A target that supplies a real backend defines EB_HAVE_SAVESTATE_BACKEND (build flag)
  * to drop these stubs. Desktop is excluded by the EB_EMBEDDED guard (it links the real
@@ -44,6 +48,11 @@ size_t platform_savestate_read(int slot, size_t offset, void *dst, size_t size) 
     (void)dst;
     (void)size;
     return 0;
+}
+
+void *platform_savestate_scratch(size_t *out_bytes) {
+    *out_bytes = 0;
+    return NULL;
 }
 
 #endif /* EB_EMBEDDED && !EB_HAVE_SAVESTATE_BACKEND */

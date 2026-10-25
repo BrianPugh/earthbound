@@ -45,6 +45,12 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../src
 # cache).  PPU rendering overrides to -O3 via EB_PPU_FORCE_SPEED_OPT pragma.
 target_compile_options(earthbound_game PRIVATE -Os)
 
+# Embedded build: LOG_WARN/LOG_TRACE compile out (stdio is disabled anyway),
+# FATAL traps, and the platform_savestate_* hooks come from the shared fail-safe
+# stub (src/platform/savestate_backend_stub.c) until a flash backend exists.
+# PUBLIC so main.c and the drivers see the same logging/backend contract.
+target_compile_definitions(earthbound_game PUBLIC EB_EMBEDDED=1)
+
 # Place hot PPU rendering functions in SRAM (avoids XIP cache contention),
 # and force -O3 for the PPU rendering file via pragma.
 target_compile_definitions(earthbound_game PRIVATE
