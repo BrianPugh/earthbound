@@ -552,14 +552,20 @@ static bool read_slot_header(int slot, uint32_t *seq, uint32_t *crc, uint32_t *p
     return true;
 }
 
-/* Stream `payload_len` payload bytes of `slot` through CRC-32 and compare. */
+/* Stream `payload_len` payload bytes of `slot` through CRC-32 and compare. The read
+ * buffer is the port's scratch lend (idle here: the (de)compressor that also uses it
+ * runs only after this returns), so the pass costs no stack — the Pico's core-0 stack
+ * is 4 KB. No lend means no backend that can hold a slot, so the slot is invalid. */
 static bool verify_slot_crc(int slot, uint32_t payload_len, uint32_t expected) {
+    size_t cap = 0;
+    uint8_t *buf = (uint8_t *)platform_savestate_scratch(&cap);
+    if (!buf || cap == 0)
+        return false;
     uint32_t crc = 0xFFFFFFFFu;
-    uint8_t buf[4096];
     size_t off = STATE_DUMP_HEADER_SIZE;
     uint32_t remaining = payload_len;
     while (remaining) {
-        size_t chunk = remaining < sizeof buf ? remaining : sizeof buf;
+        size_t chunk = remaining < cap ? remaining : cap;
         if (platform_savestate_read(slot, off, buf, chunk) != chunk)
             return false;
         crc = crc32_step(crc, buf, chunk);
@@ -818,17 +824,23 @@ bool state_dump_load_slots(void) {
 
 /* ---- Desktop diagnostics (the `--selftest-savestate` flag) ---- */
 
-/* Byte-compare two slots in full (header + payload), in chunks (no heap). */
+/* Byte-compare two slots in full (header + payload), in chunks (no heap). The two
+ * chunk buffers are the halves of the scratch lend (no stack). */
 static bool slots_byte_equal(int a, int b) {
     uint32_t plen_a, plen_b;
     if (!read_slot_header(a, NULL, NULL, &plen_a)) return false;
     if (!read_slot_header(b, NULL, NULL, &plen_b)) return false;
     if (plen_a != plen_b) return false;
 
+    size_t region = 0;
+    uint8_t *ba = (uint8_t *)platform_savestate_scratch(&region);
+    size_t half = region / 2;
+    if (!ba || half == 0) return false;
+    uint8_t *bb = ba + half;
+
     size_t total = STATE_DUMP_HEADER_SIZE + plen_a, off = 0;
-    uint8_t ba[4096], bb[4096];
     while (off < total) {
-        size_t chunk = (total - off) < sizeof ba ? (total - off) : sizeof ba;
+        size_t chunk = (total - off) < half ? (total - off) : half;
         if (platform_savestate_read(a, off, ba, chunk) != chunk) return false;
         if (platform_savestate_read(b, off, bb, chunk) != chunk) return false;
         if (memcmp(ba, bb, chunk) != 0) return false;
