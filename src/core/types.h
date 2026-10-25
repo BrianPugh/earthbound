@@ -18,6 +18,14 @@
 #  define EB_FALLTHROUGH ((void)0)
 #endif
 
+/* Keeps a function out of its callers, so a mode step's phase helpers each
+ * get their own (small) stack frame instead of all adding up in the step. */
+#if defined(__GNUC__)
+#  define EB_NOINLINE __attribute__((noinline))
+#else
+#  define EB_NOINLINE
+#endif
+
 /* SNES screen dimensions (hardware constants — do not change) */
 #define SNES_WIDTH  256
 #define SNES_HEIGHT 224

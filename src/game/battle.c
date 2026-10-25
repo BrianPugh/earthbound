@@ -2501,6 +2501,690 @@ static StepResult bm_item_done(BattleMenuState *st) {
     return bm_close_menu(st);
 }
 
+/* ---- GAME_MODE_BATTLE_MENU phase helpers (asm/battle/menu_handler.asm) ----
+ * The bool helpers return true with *out set when the step yields (push or
+ * pop), false when mode_step_battle_menu should run the next phase in this
+ * step. The per-phase helpers are EB_NOINLINE: inlined, their locals all add
+ * up in the step's frame (more stack on the RP2040 than the unsplit step). */
+static ModeState bm_child;  /* push buffer; outlives the dispatch (the pump copies it) */
+
+/* Weapon type (@LOCAL06): 0=bash, 1=shoot (gun), 2=paralyzed/immobilized */
+static uint8_t bm_weapon_type(const CharStruct *ch) {
+    if (ch->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_PARALYZED ||
+        ch->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED)
+        return 2;  /* Can only do nothing */
+
+    /* Check if character has an equipped weapon of gun type */
+    uint8_t weapon_slot = ch->equipment[EQUIP_WEAPON];
+    uint8_t item_id = 0;
+    if (weapon_slot != 0) {
+        item_id = ch->items[weapon_slot - 1];
+    }
+    if (item_id != 0) {
+        const ItemConfig *item_entry = get_item_entry(item_id);
+        if (item_entry && (item_entry->type & 0x03) == 1) {
+            return 1;  /* Shoot */
+        }
+    }
+    return 0;
+}
+
+/* Auto-fight AI: fully synchronous, always resolves and pops. Tries the PSI
+ * Lifeup/Healing ladder (Ness and Poo only) before a bash/shoot at a random
+ * enemy. */
+static StepResult bm_auto_fight(BattleMenuState *st, const CharStruct *ch) {
+    uint16_t char_id = st->char_id;
+    /* Check for status conditions that prevent PSI decision-making:
+     * afflictions[4] (concentration) nonzero, or
+     * afflictions[3] == STRANGE, or
+     * afflictions[1] == MUSHROOMIZED → skip PSI, just attack */
+    if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) != 0)
+        goto auto_fight_attack;
+    if ((ch->afflictions[STATUS_GROUP_STRANGENESS] & 0xFF) == STATUS_3_STRANGE)
+        goto auto_fight_attack;
+    if ((ch->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] & 0xFF) == STATUS_1_MUSHROOMIZED)
+        goto auto_fight_attack;
+
+    /* Only Ness and Poo try auto PSI healing */
+    if (char_id != PARTY_MEMBER_NESS && char_id != PARTY_MEMBER_POO)
+        goto auto_fight_attack;
+
+    /* Try PSI Lifeup Omega (ability 26, action 35) */
+    bt.battle_menu_targetting = 1;
+    bt.battle_menu_param1 = 26;
+    bt.battle_menu_selected_action = BACT_PSI_LIFEUP_OMEGA;
+    if (check_if_psi_known(char_id, 26) &&
+        (battle_action_table[BACT_PSI_LIFEUP_OMEGA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        /* Check if 2+ party members alive and ALL have HP < max_hp/4.
+         * Assembly logic: loops through all PCs; if any member has
+         * max_hp/4 <= current_hp_target (i.e. they're NOT critically low),
+         * it falls through to try Lifeup Gamma instead.  Only if ALL members
+         * are critically low (HP < 25%) does it use Omega on the whole party. */
+        if (battle_count_chars(0) >= 2) {
+            bool all_critical = true;
+            for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                uint8_t member = game_state.party_members[i];
+                if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
+                CharStruct *pch = &party_characters[member - 1];
+                if ((pch->max_hp >> 2) <= pch->current_hp_target) {
+                    all_critical = false;  /* This member has enough HP */
+                    break;
+                }
+            }
+            if (all_critical) {
+                /* Everyone is below 25% HP — use Omega (target all) */
+                bt.battle_menu_targetting = 4;
+                goto auto_fight_return;
+            }
+        }
+    }
+
+    /* Try PSI Lifeup Gamma (ability 25, action 34) */
+    bt.battle_menu_param1 = 25;
+    bt.battle_menu_selected_action = BACT_PSI_LIFEUP_GAMMA;
+    if (check_if_psi_known(char_id, 25) &&
+        (battle_action_table[BACT_PSI_LIFEUP_GAMMA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autolifeup();
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Lifeup Beta (ability 24, action 33) */
+    bt.battle_menu_param1 = 24;
+    bt.battle_menu_selected_action = BACT_PSI_LIFEUP_BETA;
+    if (check_if_psi_known(char_id, 24) &&
+        (battle_action_table[BACT_PSI_LIFEUP_BETA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autolifeup();
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Lifeup Alpha (ability 23, action 32) */
+    bt.battle_menu_param1 = 23;
+    bt.battle_menu_selected_action = BACT_PSI_LIFEUP_ALPHA;
+    if (check_if_psi_known(char_id, 23) &&
+        (battle_action_table[BACT_PSI_LIFEUP_ALPHA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autolifeup();
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Healing Omega (ability 30, action 39)
+     * Assembly: LDX #1; LDA #0 → autohealing(group=0, id=1) = UNCONSCIOUS */
+    bt.battle_menu_param1 = 30;
+    bt.battle_menu_selected_action = BACT_PSI_HEALING_OMEGA;
+    if (check_if_psi_known(char_id, 30) &&
+        (battle_action_table[BACT_PSI_HEALING_OMEGA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autohealing(0, 1);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Healing Gamma (ability 29, action 38)
+     * Checks: paralyzed(0,3), diamondized(0,2), unconscious(0,1) */
+    bt.battle_menu_param1 = 29;
+    bt.battle_menu_selected_action = BACT_PSI_HEALING_GAMMA;
+    if (check_if_psi_known(char_id, 29) &&
+        (battle_action_table[BACT_PSI_HEALING_GAMMA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autohealing(0, 3);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(0, 2);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(0, 1);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Healing Beta (ability 28, action 37)
+     * Checks: poisoned(0,5), nauseous(0,4), crying(2,2), strange(3,1) */
+    bt.battle_menu_param1 = 28;
+    bt.battle_menu_selected_action = BACT_PSI_HEALING_BETA;
+    if (check_if_psi_known(char_id, 28) &&
+        (battle_action_table[BACT_PSI_HEALING_BETA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autohealing(0, 5);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(0, 4);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(2, 2);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(3, 1);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+    /* Try PSI Healing Alpha (ability 27, action 36)
+     * Checks: cold(0,7), sunstroke(0,6), asleep(2,1) */
+    bt.battle_menu_param1 = 27;
+    bt.battle_menu_selected_action = BACT_PSI_HEALING_ALPHA;
+    if (check_if_psi_known(char_id, 27) &&
+        (battle_action_table[BACT_PSI_HEALING_ALPHA].pp_cost & 0xFF) <= ch->current_pp_target) {
+        uint8_t target = autohealing(0, 7);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(0, 6);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+        target = autohealing(2, 1);
+        bt.battle_menu_selected_target = target;
+        if (target != 0) goto auto_fight_return;
+    }
+
+auto_fight_attack:
+    /* Fall through to basic attack */
+    if (st->weapon_type == 0) {
+        st->selected_action = BACT_BASH;
+    } else if (st->weapon_type == 1) {
+        st->selected_action = BACT_SHOOT;
+    } else {  /* weapon_type == 2: paralyzed/immobilized */
+        return STEP_RESULT_POP(BACT_USE_NO_EFFECT);
+    }
+    /* Select random enemy target */
+    bt.battle_menu_user = (uint8_t)char_id;
+    bt.battle_menu_param1 = 0;
+    bt.battle_menu_selected_action = st->selected_action;
+    bt.battle_menu_targetting = 17;
+    {
+        uint16_t total_enemies = bt.num_battlers_in_front_row + bt.num_battlers_in_back_row;
+        uint16_t target_idx = rand_limit(total_enemies);
+        bt.battle_menu_selected_target = (uint8_t)(target_idx + 1);
+    }
+    return STEP_RESULT_POP(st->selected_action);
+
+auto_fight_return:
+    bt.battle_menu_user = (uint8_t)char_id;
+    return STEP_RESULT_POP(bt.battle_menu_selected_action);
+}
+
+/* Manual menu setup: create the command window and add its items. */
+static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
+    bt.half_hppp_meter_speed = 1;
+
+    /* Determine window type index:
+     * Paula/Poo have PSI → index starts at 1
+     * Jeff/Ness without PSI → index starts at 0
+     * If num_selected == 0 (first character), increment by 1 */
+    st->window_index = 0;  /* @LOCAL03 */
+    if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
+        st->window_index = 1;
+    }
+    if (st->num_selected == 0) {
+        st->window_index++;
+    }
+
+    /* Create the battle menu window */
+    uint8_t window_id = battle_window_sizes[st->window_index];
+    create_window(window_id);
+
+    /* Set window title to character name (assembly: SET_WINDOW_TITLE with X=5) */
+    {
+        char name_buf[8];
+        int j;
+        for (j = 0; j < 5 && ch->name[j]; j++)
+            name_buf[j] = eb_char_to_ascii(ch->name[j]);
+        name_buf[j] = '\0';
+        set_window_title(window_id, name_buf, 5);
+    }
+
+    /* Add attack option (Bash/Shoot/Do Nothing) */
+    if (st->weapon_type == 0) {
+        add_menu_item("Bash", 1, 0, 0);
+    } else if (st->weapon_type == 1) {
+        add_menu_item("Shoot", 1, 0, 0);
+    } else {
+        add_menu_item("Do Nothing", 1, 0, 0);
+    }
+
+    /* Add Goods and Defend options (unless paralyzed/immobilized)
+     * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
+    if (st->weapon_type != 2) {
+        add_menu_item("Goods", 2, 6, 0);
+        add_menu_item("Defend", 5, 6, 1);
+    }
+
+    /* Add Defend and Run Away (only for first character selecting) */
+    if (st->num_selected == 0) {
+        uint16_t x_offset;
+        if (st->window_index == 2) {
+            x_offset = 16;
+        } else {
+            x_offset = 11;
+        }
+        if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
+            x_offset += 2;
+        }
+        add_menu_item("Auto Fight", 3, x_offset, 0);
+        add_menu_item("Run Away", 6, x_offset, 1);
+    }
+
+    /* Add Jeff's Spy or PSI option */
+    if (st->char_id == PARTY_MEMBER_JEFF) {
+        add_menu_item("Spy", 4, 0, 1);
+    } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
+        /* Can use PSI (not concentration-blocked) */
+        add_menu_item("PSI", 4, 0, 1);
+    }
+
+    /* Add Paula's Pray */
+    if (st->char_id == PARTY_MEMBER_PAULA) {
+        add_menu_item("Pray", 7, 11, 0);
+    }
+
+    /* Add Poo's Mirror */
+    if (st->char_id == PARTY_MEMBER_POO) {
+        add_menu_item("Mirror", 7, 13, 0);
+    }
+}
+
+/* BM_ENTER: the synchronous front half (attack palette, weapon type, the
+ * auto-fight AI or the manual menu construction). */
+static EB_NOINLINE bool bm_enter(BattleMenuState *st, StepResult *out) {
+    load_attack_palette(0);
+
+    /* Compute pointer to this character's char_struct */
+    CharStruct *ch = &party_characters[st->char_id - 1];
+
+    st->weapon_type = bm_weapon_type(ch);  /* @LOCAL06 */
+
+    if (game_state.auto_fight_enable & 0xFF) {
+        *out = bm_auto_fight(st, ch);
+        return true;
+    }
+
+    bm_build_menu(st, ch);
+    st->phase = BM_MAIN;
+    return false;
+}
+
+/* @MENU_SELECTION_LOOP head */
+static EB_NOINLINE StepResult bm_main(BattleMenuState *st) {
+    /* Set focus to the battle menu window */
+    win.current_focus_window = battle_window_sizes[st->window_index];
+
+    /* Print menu items on first entry only (assembly: menu_handler.asm:646-650) */
+    if (!st->menu_printed) {
+        print_menu_items();
+        st->menu_printed = 1;
+    }
+
+    /* Run selection menu (allow cancel = 1) */
+    bm_child = (ModeState){0};
+    bm_child.selection_menu.phase        = SM_SETUP;
+    bm_child.selection_menu.allow_cancel = 1;
+    st->phase = BM_MAIN_RESULT;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &bm_child);
+}
+
+/* Menu cancelled (B button): debug controls, then @CANCEL_MENU. */
+static bool bm_main_cancel(BattleMenuState *st, StepResult *out) {
+    /* Debug controls (only when ow.debug_flag is set) */
+    if (ow.debug_flag) {
+        /* SELECT+START = instant win */
+        if ((core.pad1_held & (PAD_SELECT | PAD_START)) ==
+            (PAD_SELECT | PAD_START)) {
+            /* resume_music: clear meter speed flags */
+            bt.half_hppp_meter_speed = 0;
+            bt.disable_hppp_rolling = 0;
+            *out = STEP_RESULT_POP(0xFFFF);
+            return true;
+        }
+        /* R button = cycle through battle targets (debug),
+         * then BRA @MENU_SELECTION_LOOP when it returns. */
+        if (core.pad1_held & PAD_R) {
+            st->cycle_dir = 1;
+            st->cycle_index = 0;
+            st->phase = BM_CYCLE_FIND;
+            return false;
+        }
+    }
+
+    /* "Can't cancel" menus (ow.battle_mode != 0 means can go back)
+     * skip the second debug block and return 0 directly. */
+    if (ow.battle_mode == 0 && ow.debug_flag) {
+        if (core.pad1_held & PAD_L) {
+            /* debug_set_char_level — re-init all battler stats */
+            for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+                uint8_t member = game_state.party_members[i];
+                if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
+                battle_init_player_stats(member, &bt.battlers_table[i]);
+            }
+            st->phase = BM_MAIN;
+            return false;
+        }
+        if (core.pad1_held & PAD_SELECT) {
+            /* debug_y_button_goods — debug-only */
+            st->phase = BM_MAIN;
+            return false;
+        }
+    }
+
+    /* @CANCEL_MENU: resume music (clear meter speed flags) */
+    bt.half_hppp_meter_speed = 0;
+    bt.disable_hppp_rolling = 0;
+    *out = STEP_RESULT_POP(0);
+    return true;
+}
+
+/* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR, A=0 (single target),
+ * X=1 (allow cancel), Y=action: the enemy picker for Bash/Shoot/Spy/Mirror. */
+static StepResult bm_push_enemy_select(BattleMenuState *st, uint16_t action) {
+    st->selected_action = action;
+    bt.battle_menu_selected_action = st->selected_action;
+    bt.battle_menu_targetting = 17;
+    enemy_select_make_init(&bm_child, 1, st->selected_action);
+    st->phase = BM_TARGET_RESULT;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &bm_child);
+}
+
+/* Pray (Paula): the Giygas prayer sequence picks the final prayers. */
+static uint16_t bm_pray_action(void) {
+    switch (bt.giygas_phase) {
+    case GIYGAS_START_PRAYING:   return BACT_FINAL_PRAYER_1;
+    case GIYGAS_PRAYER_1_USED:   return BACT_FINAL_PRAYER_2;
+    case GIYGAS_PRAYER_2_USED:   return BACT_FINAL_PRAYER_3;
+    case GIYGAS_PRAYER_3_USED:   return BACT_FINAL_PRAYER_4;
+    case GIYGAS_PRAYER_4_USED:   return BACT_FINAL_PRAYER_5;
+    case GIYGAS_PRAYER_5_USED:   return BACT_FINAL_PRAYER_6;
+    case GIYGAS_PRAYER_6_USED:   return BACT_FINAL_PRAYER_7;
+    case GIYGAS_PRAYER_7_USED:   return BACT_FINAL_PRAYER_8;
+    case GIYGAS_PRAYER_8_USED:   return BACT_FINAL_PRAYER_9;
+    default:                     return BACT_PRAY;
+    }
+}
+
+/* @PROCESS_SELECTION: dispatch the chosen command's userdata. */
+static bool bm_process_selection(BattleMenuState *st, uint16_t selection,
+                                 StepResult *out) {
+    switch (selection) {
+    case 1:  /* Bash/Shoot/Do Nothing */
+        if (st->weapon_type == 2) {
+            /* "Do Nothing" needs no target */
+            st->selected_action = BACT_USE_NO_EFFECT;
+            bt.battle_menu_selected_action = st->selected_action;
+            bt.battle_menu_targetting = 17;
+            *out = bm_close_menu(st);
+            return true;
+        }
+        *out = bm_push_enemy_select(st, st->weapon_type == 0 ? BACT_BASH : BACT_SHOOT);
+        return true;
+
+    case 2:  /* Goods (assembly: JSL BATTLE_ITEM_MENU_FAR) */
+        bt.battle_menu_user = (uint8_t)st->char_id;
+        st->phase = BM_ITEM;
+        return false;
+
+    case 3:  /* Auto Fight (assembly: @ACTION_AUTO_FIGHT, menu_handler.asm:722) */
+        game_state.auto_fight_enable = 1;
+        render_hppp_window_header();
+        st->selected_action = BACT_NO_EFFECT;
+        *out = bm_close_menu(st);
+        return true;
+
+    case 4:  /* PSI or Spy */
+        if (st->char_id == PARTY_MEMBER_JEFF) {
+            /* Spy */
+            *out = bm_push_enemy_select(st, BACT_SPY);
+            return true;
+        }
+        /* PSI menu */
+        bt.battle_menu_user = (uint8_t)st->char_id;
+        bm_child = (ModeState){0};
+        bm_child.battle_psi_menu.phase   = BP_OPEN;
+        bm_child.battle_psi_menu.char_id = bt.battle_menu_user;
+        st->phase = BM_PSI_RESULT;
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_PSI_MENU, &bm_child);
+        return true;
+
+    case 5:  /* Defend/Guard (assembly: @ACTION_GUARD, menu_handler.asm:726) */
+        st->selected_action = BACT_GUARD;
+        bt.battle_menu_selected_action = st->selected_action;
+        bt.battle_menu_targetting = 0;
+        *out = bm_close_menu(st);
+        return true;
+
+    case 6:  /* Run Away */
+        bt.battle_menu_targetting = 1;
+        bt.battle_menu_selected_target = (uint8_t)st->char_id;
+        st->selected_action = BACT_RUN_AWAY;
+        bt.battle_menu_selected_action = st->selected_action;
+        *out = bm_close_menu(st);
+        return true;
+
+    case 7:  /* Pray or Mirror */
+        bt.battle_menu_targetting = 1;
+        bt.battle_menu_selected_target = (uint8_t)st->char_id;
+
+        if (st->char_id == PARTY_MEMBER_PAULA) {
+            /* Pray — check Giygas phase for final prayers */
+            st->selected_action = bm_pray_action();
+            bt.battle_menu_selected_action = st->selected_action;
+        } else if (st->char_id == PARTY_MEMBER_POO) {
+            /* Mirror — needs target selection */
+            *out = bm_push_enemy_select(st, BACT_MIRROR);
+            return true;
+        }
+        *out = bm_close_menu(st);
+        return true;
+
+    default:
+        *out = bm_close_menu(st);
+        return true;
+    }
+}
+
+static EB_NOINLINE bool bm_main_result(BattleMenuState *st, StepResult *out) {
+    uint16_t result = (uint16_t)mode_child_result();
+
+    if (result == 0)
+        return bm_main_cancel(st, out);
+
+    /* @PROCESS_SELECTION */
+    bt.battle_item_used = 0;
+
+    /* Get the selected menu item's userdata */
+    WindowInfo *w = get_window(battle_window_sizes[st->window_index]);
+    if (!w || w->selected_option >= w->menu_count) {
+        *out = bm_close_menu(st);
+        return true;
+    }
+    return bm_process_selection(st, w->menu_items[w->selected_option].userdata,
+                                out);
+}
+
+/*
+ * CYCLE_BATTLE_TARGET — Port of asm/misc/cycle_battle_target.asm.
+ *
+ * Debug-only (DEBUG + R when the command menu is cancelled). Steps
+ * through the battler slots: RIGHT/LEFT (PAD_HELD, so it auto-repeats)
+ * move one conscious battler forward/back with wraparound, closing the
+ * focus window each time; any new press closes the focus window and
+ * returns to @MENU_SELECTION_LOOP. Per selected battler it calls
+ * NULL_C1E1A2, an empty stub in the retail ROM (the display it fed was
+ * stripped), so nothing on screen marks the selection.
+ *
+ * Both exits close the command menu window. The original then runs
+ * SELECTION_MENU on that closed window (invisible menu, stray cursor at
+ * the top left, still selectable); the port's selection menu pops 0 on
+ * a closed window, so this menu returns "back" and the battle routine
+ * rebuilds the menu for the same character.
+ */
+static EB_NOINLINE StepResult bm_cycle_find(BattleMenuState *st) {
+    /* @CHECK_CONSCIOUS / @ADVANCE: skip unconscious slots, moving
+     * in the current direction with wraparound. */
+    int16_t idx = st->cycle_index;
+    while (bt.battlers_table[idx].consciousness == 0) {
+        idx = (int16_t)(idx + st->cycle_dir);
+        if (idx < 0) idx = BATTLER_COUNT - 1;
+        if (idx >= BATTLER_COUNT) idx = 0;
+    }
+    st->cycle_index = (uint8_t)idx;
+    /* JSL NULL_C1E1A2 (empty stub); JSL WINDOW_TICK; then the
+     * @POLL_INPUT WAIT_UNTIL_NEXT_FRAME is this step's frame. */
+    (void)window_tick_work_step();   /* battle: never parks */
+    st->phase = BM_CYCLE_POLL;
+    return STEP_RESULT_CONTINUE();
+}
+
+static EB_NOINLINE bool bm_cycle_poll(BattleMenuState *st, StepResult *out) {
+    int8_t dir = 0;
+    if (core.pad1_autorepeat & PAD_RIGHT) {
+        dir = 1;
+    } else if (core.pad1_autorepeat & PAD_LEFT) {
+        dir = -1;
+    } else if (core.pad1_pressed) {
+        /* @CHECK_CONFIRM: any new press leaves */
+        redirect_close_focus_window();
+        st->phase = BM_MAIN;
+        return false;
+    } else {
+        /* @POLL_INPUT: WAIT_UNTIL_NEXT_FRAME only (no WINDOW_TICK) */
+        *out = STEP_RESULT_CONTINUE();
+        return true;
+    }
+    /* @CYCLE_NEXT */
+    st->cycle_dir = dir;
+    int16_t idx = (int16_t)(st->cycle_index + dir);
+    if (idx < 0) idx = BATTLER_COUNT - 1;
+    if (idx >= BATTLER_COUNT) idx = 0;
+    st->cycle_index = (uint8_t)idx;
+    redirect_close_focus_window();
+    st->phase = BM_CYCLE_FIND;
+    return false;
+}
+
+/* battle_item_menu entry (@SELECT_ITEM) */
+static EB_NOINLINE bool bm_item(BattleMenuState *st, StepResult *out) {
+    /* No items → back to the command menu */
+    if (party_characters[st->char_id - 1].items[0] == 0) {
+        st->phase = BM_MAIN;
+        return false;
+    }
+    /* Create the inventory window and populate it.
+     * inventory_get_item_name's embedded window_tick yield is the
+     * accepted precedent (the pause menu's Goods path calls it the
+     * same way from a step). */
+    inventory_get_item_name(st->char_id, WINDOW_INVENTORY);
+    bm_child = (ModeState){0};
+    bm_child.selection_menu.phase        = SM_SETUP;
+    bm_child.selection_menu.allow_cancel = 1;
+    st->phase = BM_ITEM_RESULT;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &bm_child);
+    return true;
+}
+
+static EB_NOINLINE bool bm_item_result(BattleMenuState *st, StepResult *out) {
+    /* Close the inventory window: CLOSE_WINDOW's tick takes a frame
+     * before the cancel or the item targeting. */
+    st->item_slot = (uint16_t)mode_child_result();
+    (void)take_unpresented_ticks();
+    close_window(WINDOW_INVENTORY);
+    st->phase = BM_ITEM_AFTER;
+    uint16_t ticks = take_unpresented_ticks();
+    if (ticks) {
+        *out = push_wait_frames(&bm_child, BW_VBLANK, ticks);
+        return true;
+    }
+    return false;
+}
+
+/* DETERMINE_BATTLE_ITEM_TARGET, folded inline: the defaults and the item
+ * classification are synchronous; only the targeting UI is a child push. */
+static EB_NOINLINE bool bm_item_after(BattleMenuState *st, StepResult *out) {
+    uint16_t selection = st->item_slot;
+
+    if (selection == 0) {
+        /* Cancelled: back to the command menu */
+        st->phase = BM_MAIN;
+        return false;
+    }
+
+    /* Store selected item slot in bt.battle_menu_param1 */
+    bt.battle_menu_param1 = (uint8_t)selection;
+
+    uint8_t user_id = bt.battle_menu_user;
+    uint16_t item_id = get_character_item(user_id, bt.battle_menu_param1);
+
+    const ItemConfig *item_entry = get_item_entry(item_id);
+    if (!item_entry) {
+        /* Assembly: returns success with the defaults untouched. */
+        *out = bm_item_done(st);
+        return true;
+    }
+
+    /* Set defaults in battle_menu_selection:
+     * selected_action = 2 (placeholder), targetting = 1, selected_target = user */
+    bt.battle_menu_selected_action = 2;
+    bt.battle_menu_targetting = 1;
+    bt.battle_menu_selected_target = user_id;
+
+    /* Read item type byte (offset 25) */
+    uint8_t item_type = item_entry->type;
+    uint8_t type_category = item_type & 0x30;
+
+    if (type_category == 0x10 || type_category == 0x20) {
+        /* Offensive (0x10) or Support (0x20) item — has effect field */
+        st->item_effect = item_entry->effect_id;
+    } else if (type_category == 0x30) {
+        /* Equipment item — check if usable in battle */
+        uint8_t equip_subtype = item_type & 0x0C;
+        if (equip_subtype != 0 && equip_subtype != 4) {
+            /* Not a battle-usable equipment subtype — finish with the
+             * defaults. Assembly: jumps to SET_DEFAULT_ACTION without
+             * modifying selected_action. */
+            *out = bm_item_done(st);
+            return true;
+        }
+
+        /* Check if this character can use this equipment */
+        if (user_id >= 1 && user_id <= 4 &&
+            !(item_entry->flags & item_usable_flags[user_id - 1])) {
+            /* Character can't use this item */
+            bt.battle_menu_selected_action = 3;
+            *out = bm_item_done(st);
+            return true;
+        }
+
+        /* Equipment is usable — determine targeting from its effect */
+        st->item_effect = item_entry->effect_id;
+    } else {
+        /* Other item type — no targeting needed, use the defaults */
+        *out = bm_item_done(st);
+        return true;
+    }
+
+    bm_child = (ModeState){0};
+    bm_child.targeting.phase     = TGT_ENTER;
+    bm_child.targeting.action_id = st->item_effect;
+    bm_child.targeting.char_id   = user_id;
+    st->phase = BM_ITEM_TGT_RESULT;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &bm_child);
+    return true;
+}
+
+static EB_NOINLINE bool bm_item_tgt_result(BattleMenuState *st, StepResult *out) {
+    uint16_t result = (uint16_t)mode_child_result();
+
+    if ((result & 0xFF) == 0) {
+        /* Targeting cancelled: close the targeting sub-window and go
+         * back to item selection (battle_item_menu's select_item). */
+        close_window(WINDOW_BATTLE_ACTION_NAME);
+        st->phase = BM_ITEM;
+        return false;
+    }
+
+    /* Store effect as selected_action; unpack targeting:
+     * high byte = mode, low byte = target */
+    bt.battle_menu_selected_action = st->item_effect;
+    bt.battle_menu_targetting = (uint8_t)(result >> 8);
+    bt.battle_menu_selected_target = (uint8_t)(result & 0xFF);
+    *out = bm_item_done(st);
+    return true;
+}
+
 /*
  * BATTLE_SELECTION_MENU (asm/battle/menu_handler.asm)
  *
@@ -2515,533 +3199,32 @@ static StepResult bm_item_done(BattleMenuState *st) {
  * battle_item_menu() (asm/battle/ui/battle_item_menu.asm) and
  * determine_battle_item_target() (asm/battle/ui/determine_battle_item_target
  * .asm) drivers are folded into the BM_ITEM* phases. Pushed by
- * GAME_MODE_BATTLE's player-menu phase (BTL_MENU below).
+ * GAME_MODE_BATTLE's player-menu phase (BTL_MENU below). Each phase's work is
+ * a bm_* helper above.
  */
 StepResult mode_step_battle_menu(ModeState *ms) {
     BattleMenuState *st = &ms->battle_menu;
-    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+    StepResult r;
 
     for (;;) {
         switch ((BattleMenuPhase)st->phase) {
-
-        case BM_ENTER: {
-            load_attack_palette(0);
-
-            /* Compute pointer to this character's char_struct */
-            CharStruct *ch = &party_characters[st->char_id - 1];
-
-            /* Determine weapon type: 0=bash, 1=shoot (gun), 2=paralyzed/immobilized */
-            st->weapon_type = 0;  /* @LOCAL06 */
-            if (ch->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_PARALYZED ||
-                ch->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_IMMOBILIZED) {
-                st->weapon_type = 2;  /* Can only do nothing */
-            } else {
-                /* Check if character has an equipped weapon of gun type */
-                uint8_t weapon_slot = ch->equipment[EQUIP_WEAPON];
-                uint8_t item_id = 0;
-                if (weapon_slot != 0) {
-                    item_id = ch->items[weapon_slot - 1];
-                }
-                if (item_id != 0) {
-                    const ItemConfig *item_entry = get_item_entry(item_id);
-                    if (item_entry && (item_entry->type & 0x03) == 1) {
-                        st->weapon_type = 1;  /* Shoot */
-                    }
-                }
-            }
-
-            /* ---- Auto-fight AI (fully synchronous: resolves + pops inline) ---- */
-            if (game_state.auto_fight_enable & 0xFF) {
-                uint16_t char_id = st->char_id;
-        /* Check for status conditions that prevent PSI decision-making:
-         * afflictions[4] (concentration) nonzero, or
-         * afflictions[3] == STRANGE, or
-         * afflictions[1] == MUSHROOMIZED → skip PSI, just attack */
-        if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) != 0)
-            goto auto_fight_attack;
-        if ((ch->afflictions[STATUS_GROUP_STRANGENESS] & 0xFF) == STATUS_3_STRANGE)
-            goto auto_fight_attack;
-        if ((ch->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] & 0xFF) == STATUS_1_MUSHROOMIZED)
-            goto auto_fight_attack;
-
-        /* Only Ness and Poo try auto PSI healing */
-        if (char_id != PARTY_MEMBER_NESS && char_id != PARTY_MEMBER_POO)
-            goto auto_fight_attack;
-
-        /* Try PSI Lifeup Omega (ability 26, action 35) */
-        bt.battle_menu_targetting = 1;
-        bt.battle_menu_param1 = 26;
-        bt.battle_menu_selected_action = BACT_PSI_LIFEUP_OMEGA;
-        if (check_if_psi_known(char_id, 26) &&
-            (battle_action_table[BACT_PSI_LIFEUP_OMEGA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            /* Check if 2+ party members alive and ALL have HP < max_hp/4.
-             * Assembly logic: loops through all PCs; if any member has
-             * max_hp/4 <= current_hp_target (i.e. they're NOT critically low),
-             * it falls through to try Lifeup Gamma instead.  Only if ALL members
-             * are critically low (HP < 25%) does it use Omega on the whole party. */
-            if (battle_count_chars(0) >= 2) {
-                bool all_critical = true;
-                for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                    uint8_t member = game_state.party_members[i];
-                    if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
-                    CharStruct *pch = &party_characters[member - 1];
-                    if ((pch->max_hp >> 2) <= pch->current_hp_target) {
-                        all_critical = false;  /* This member has enough HP */
-                        break;
-                    }
-                }
-                if (all_critical) {
-                    /* Everyone is below 25% HP — use Omega (target all) */
-                    bt.battle_menu_targetting = 4;
-                    goto auto_fight_return;
-                }
-            }
-        }
-
-        /* Try PSI Lifeup Gamma (ability 25, action 34) */
-        bt.battle_menu_param1 = 25;
-        bt.battle_menu_selected_action = BACT_PSI_LIFEUP_GAMMA;
-        if (check_if_psi_known(char_id, 25) &&
-            (battle_action_table[BACT_PSI_LIFEUP_GAMMA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autolifeup();
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Lifeup Beta (ability 24, action 33) */
-        bt.battle_menu_param1 = 24;
-        bt.battle_menu_selected_action = BACT_PSI_LIFEUP_BETA;
-        if (check_if_psi_known(char_id, 24) &&
-            (battle_action_table[BACT_PSI_LIFEUP_BETA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autolifeup();
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Lifeup Alpha (ability 23, action 32) */
-        bt.battle_menu_param1 = 23;
-        bt.battle_menu_selected_action = BACT_PSI_LIFEUP_ALPHA;
-        if (check_if_psi_known(char_id, 23) &&
-            (battle_action_table[BACT_PSI_LIFEUP_ALPHA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autolifeup();
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Healing Omega (ability 30, action 39)
-         * Assembly: LDX #1; LDA #0 → autohealing(group=0, id=1) = UNCONSCIOUS */
-        bt.battle_menu_param1 = 30;
-        bt.battle_menu_selected_action = BACT_PSI_HEALING_OMEGA;
-        if (check_if_psi_known(char_id, 30) &&
-            (battle_action_table[BACT_PSI_HEALING_OMEGA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autohealing(0, 1);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Healing Gamma (ability 29, action 38)
-         * Checks: paralyzed(0,3), diamondized(0,2), unconscious(0,1) */
-        bt.battle_menu_param1 = 29;
-        bt.battle_menu_selected_action = BACT_PSI_HEALING_GAMMA;
-        if (check_if_psi_known(char_id, 29) &&
-            (battle_action_table[BACT_PSI_HEALING_GAMMA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autohealing(0, 3);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(0, 2);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(0, 1);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Healing Beta (ability 28, action 37)
-         * Checks: poisoned(0,5), nauseous(0,4), crying(2,2), strange(3,1) */
-        bt.battle_menu_param1 = 28;
-        bt.battle_menu_selected_action = BACT_PSI_HEALING_BETA;
-        if (check_if_psi_known(char_id, 28) &&
-            (battle_action_table[BACT_PSI_HEALING_BETA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autohealing(0, 5);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(0, 4);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(2, 2);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(3, 1);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-        /* Try PSI Healing Alpha (ability 27, action 36)
-         * Checks: cold(0,7), sunstroke(0,6), asleep(2,1) */
-        bt.battle_menu_param1 = 27;
-        bt.battle_menu_selected_action = BACT_PSI_HEALING_ALPHA;
-        if (check_if_psi_known(char_id, 27) &&
-            (battle_action_table[BACT_PSI_HEALING_ALPHA].pp_cost & 0xFF) <= ch->current_pp_target) {
-            uint8_t target = autohealing(0, 7);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(0, 6);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-            target = autohealing(2, 1);
-            bt.battle_menu_selected_target = target;
-            if (target != 0) goto auto_fight_return;
-        }
-
-    auto_fight_attack:
-                /* Fall through to basic attack */
-                if (st->weapon_type == 0) {
-                    st->selected_action = BACT_BASH;
-                } else if (st->weapon_type == 1) {
-                    st->selected_action = BACT_SHOOT;
-                } else {  /* weapon_type == 2: paralyzed/immobilized */
-                    return STEP_RESULT_POP(BACT_USE_NO_EFFECT);
-                }
-                /* Select random enemy target */
-                bt.battle_menu_user = (uint8_t)char_id;
-                bt.battle_menu_param1 = 0;
-                bt.battle_menu_selected_action = st->selected_action;
-                bt.battle_menu_targetting = 17;
-                {
-                    uint16_t total_enemies = bt.num_battlers_in_front_row + bt.num_battlers_in_back_row;
-                    uint16_t target_idx = rand_limit(total_enemies);
-                    bt.battle_menu_selected_target = (uint8_t)(target_idx + 1);
-                }
-                return STEP_RESULT_POP(st->selected_action);
-
-    auto_fight_return:
-                bt.battle_menu_user = (uint8_t)char_id;
-                return STEP_RESULT_POP(bt.battle_menu_selected_action);
-            }
-
-            /* ---- Manual menu setup ---- */
-            bt.half_hppp_meter_speed = 1;
-
-            /* Determine window type index:
-             * Paula/Poo have PSI → index starts at 1
-             * Jeff/Ness without PSI → index starts at 0
-             * If num_selected == 0 (first character), increment by 1 */
-            st->window_index = 0;  /* @LOCAL03 */
-            if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
-                st->window_index = 1;
-            }
-            if (st->num_selected == 0) {
-                st->window_index++;
-            }
-
-            /* Create the battle menu window */
-            uint8_t window_id = battle_window_sizes[st->window_index];
-            create_window(window_id);
-
-            /* Set window title to character name (assembly: SET_WINDOW_TITLE with X=5) */
-            {
-                char name_buf[8];
-                int j;
-                for (j = 0; j < 5 && ch->name[j]; j++)
-                    name_buf[j] = eb_char_to_ascii(ch->name[j]);
-                name_buf[j] = '\0';
-                set_window_title(window_id, name_buf, 5);
-            }
-
-            /* Add attack option (Bash/Shoot/Do Nothing) */
-            if (st->weapon_type == 0) {
-                add_menu_item("Bash", 1, 0, 0);
-            } else if (st->weapon_type == 1) {
-                add_menu_item("Shoot", 1, 0, 0);
-            } else {
-                add_menu_item("Do Nothing", 1, 0, 0);
-            }
-
-            /* Add Goods and Defend options (unless paralyzed/immobilized)
-             * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
-            if (st->weapon_type != 2) {
-                add_menu_item("Goods", 2, 6, 0);
-                add_menu_item("Defend", 5, 6, 1);
-            }
-
-            /* Add Defend and Run Away (only for first character selecting) */
-            if (st->num_selected == 0) {
-                uint16_t x_offset;
-                if (st->window_index == 2) {
-                    x_offset = 16;
-                } else {
-                    x_offset = 11;
-                }
-                if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
-                    x_offset += 2;
-                }
-                add_menu_item("Auto Fight", 3, x_offset, 0);
-                add_menu_item("Run Away", 6, x_offset, 1);
-            }
-
-            /* Add Jeff's Spy or PSI option */
-            if (st->char_id == PARTY_MEMBER_JEFF) {
-                add_menu_item("Spy", 4, 0, 1);
-            } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
-                /* Can use PSI (not concentration-blocked) */
-                add_menu_item("PSI", 4, 0, 1);
-            }
-
-            /* Add Paula's Pray */
-            if (st->char_id == PARTY_MEMBER_PAULA) {
-                add_menu_item("Pray", 7, 11, 0);
-            }
-
-            /* Add Poo's Mirror */
-            if (st->char_id == PARTY_MEMBER_POO) {
-                add_menu_item("Mirror", 7, 13, 0);
-            }
-
-            st->phase = BM_MAIN;
+        case BM_ENTER:
+            if (bm_enter(st, &r)) return r;
             break;
-        }
 
         case BM_MAIN:
-            /* @MENU_SELECTION_LOOP: set focus to the battle menu window */
-            win.current_focus_window = battle_window_sizes[st->window_index];
+            return bm_main(st);
 
-            /* Print menu items on first entry only (assembly: menu_handler.asm:646-650) */
-            if (!st->menu_printed) {
-                print_menu_items();
-                st->menu_printed = 1;
-            }
-
-            /* Run selection menu (allow cancel = 1) */
-            child_init = (ModeState){0};
-            child_init.selection_menu.phase        = SM_SETUP;
-            child_init.selection_menu.allow_cancel = 1;
-            st->phase = BM_MAIN_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
-
-        case BM_MAIN_RESULT: {
-            uint16_t result = (uint16_t)mode_child_result();
-
-            if (result == 0) {
-                /* Menu cancelled (B button) */
-
-                /* Debug controls (only when ow.debug_flag is set) */
-                if (ow.debug_flag) {
-                    /* SELECT+START = instant win */
-                    if ((core.pad1_held & (PAD_SELECT | PAD_START)) ==
-                        (PAD_SELECT | PAD_START)) {
-                        /* resume_music: clear meter speed flags */
-                        bt.half_hppp_meter_speed = 0;
-                        bt.disable_hppp_rolling = 0;
-                        return STEP_RESULT_POP(0xFFFF);
-                    }
-                    /* R button = cycle through battle targets (debug),
-                     * then BRA @MENU_SELECTION_LOOP when it returns. */
-                    if (core.pad1_held & PAD_R) {
-                        st->cycle_dir = 1;
-                        st->cycle_index = 0;
-                        st->phase = BM_CYCLE_FIND;
-                        break;
-                    }
-                }
-
-                /* "Can't cancel" menus (ow.battle_mode != 0 means can go back)
-                 * skip the second debug block and return 0 directly. */
-                if (ow.battle_mode == 0 && ow.debug_flag) {
-                    if (core.pad1_held & PAD_L) {
-                        /* debug_set_char_level — re-init all battler stats */
-                        for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                            uint8_t member = game_state.party_members[i];
-                            if (member < PARTY_MEMBER_NESS || member > PARTY_MEMBER_POO) continue;
-                            battle_init_player_stats(member, &bt.battlers_table[i]);
-                        }
-                        st->phase = BM_MAIN;
-                        break;
-                    }
-                    if (core.pad1_held & PAD_SELECT) {
-                        /* debug_y_button_goods — debug-only */
-                        st->phase = BM_MAIN;
-                        break;
-                    }
-                }
-
-                /* @CANCEL_MENU: resume music (clear meter speed flags) */
-                bt.half_hppp_meter_speed = 0;
-                bt.disable_hppp_rolling = 0;
-                return STEP_RESULT_POP(0);
-            }
-
-            /* @PROCESS_SELECTION */
-            bt.battle_item_used = 0;
-
-            /* Get the selected menu item's userdata */
-            WindowInfo *w = get_window(battle_window_sizes[st->window_index]);
-            if (!w || w->selected_option >= w->menu_count)
-                return bm_close_menu(st);
-            uint16_t selection = w->menu_items[w->selected_option].userdata;
-
-            switch (selection) {
-            case 1:  /* Bash/Shoot/Do Nothing */
-                if (st->weapon_type == 0) {
-                    st->selected_action = BACT_BASH;
-                } else if (st->weapon_type == 1) {
-                    st->selected_action = BACT_SHOOT;
-                } else {
-                    st->selected_action = BACT_USE_NO_EFFECT;
-                }
-                bt.battle_menu_selected_action = st->selected_action;
-                bt.battle_menu_targetting = 17;
-                if (st->weapon_type == 2) {
-                    return bm_close_menu(st);  /* "Do Nothing" needs no target */
-                }
-                /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-                 * A=0 (single target), X=1 (allow cancel), Y=selected_action */
-                enemy_select_make_init(&child_init, 1, st->selected_action);
-                st->phase = BM_TARGET_RESULT;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
-
-            case 2:  /* Goods (assembly: JSL BATTLE_ITEM_MENU_FAR) */
-                bt.battle_menu_user = (uint8_t)st->char_id;
-                st->phase = BM_ITEM;
-                break;
-
-            case 3:  /* Auto Fight (assembly: @ACTION_AUTO_FIGHT, menu_handler.asm:722) */
-                game_state.auto_fight_enable = 1;
-                render_hppp_window_header();
-                st->selected_action = BACT_NO_EFFECT;
-                return bm_close_menu(st);
-
-            case 4:  /* PSI or Spy */
-                if (st->char_id == PARTY_MEMBER_JEFF) {
-                    /* Spy */
-                    st->selected_action = BACT_SPY;
-                    bt.battle_menu_selected_action = st->selected_action;
-                    bt.battle_menu_targetting = 17;
-                    /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-                     * A=0 (single target), X=1 (allow cancel), Y=BACT_SPY */
-                    enemy_select_make_init(&child_init, 1, st->selected_action);
-                    st->phase = BM_TARGET_RESULT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
-                } else {
-                    /* PSI menu */
-                    bt.battle_menu_user = (uint8_t)st->char_id;
-                    child_init = (ModeState){0};
-                    child_init.battle_psi_menu.phase   = BP_OPEN;
-                    child_init.battle_psi_menu.char_id = bt.battle_menu_user;
-                    st->phase = BM_PSI_RESULT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_PSI_MENU, &child_init);
-                }
-
-            case 5:  /* Defend/Guard (assembly: @ACTION_GUARD, menu_handler.asm:726) */
-                st->selected_action = BACT_GUARD;
-                bt.battle_menu_selected_action = st->selected_action;
-                bt.battle_menu_targetting = 0;
-                return bm_close_menu(st);
-
-            case 6:  /* Run Away */
-                bt.battle_menu_targetting = 1;
-                bt.battle_menu_selected_target = (uint8_t)st->char_id;
-                st->selected_action = BACT_RUN_AWAY;
-                bt.battle_menu_selected_action = st->selected_action;
-                return bm_close_menu(st);
-
-            case 7:  /* Pray or Mirror */
-                bt.battle_menu_targetting = 1;
-                bt.battle_menu_selected_target = (uint8_t)st->char_id;
-
-                if (st->char_id == PARTY_MEMBER_PAULA) {
-                    /* Pray — check Giygas phase for final prayers */
-                    switch (bt.giygas_phase) {
-                    case GIYGAS_START_PRAYING:   st->selected_action = BACT_FINAL_PRAYER_1; break;
-                    case GIYGAS_PRAYER_1_USED:   st->selected_action = BACT_FINAL_PRAYER_2; break;
-                    case GIYGAS_PRAYER_2_USED:   st->selected_action = BACT_FINAL_PRAYER_3; break;
-                    case GIYGAS_PRAYER_3_USED:   st->selected_action = BACT_FINAL_PRAYER_4; break;
-                    case GIYGAS_PRAYER_4_USED:   st->selected_action = BACT_FINAL_PRAYER_5; break;
-                    case GIYGAS_PRAYER_5_USED:   st->selected_action = BACT_FINAL_PRAYER_6; break;
-                    case GIYGAS_PRAYER_6_USED:   st->selected_action = BACT_FINAL_PRAYER_7; break;
-                    case GIYGAS_PRAYER_7_USED:   st->selected_action = BACT_FINAL_PRAYER_8; break;
-                    case GIYGAS_PRAYER_8_USED:   st->selected_action = BACT_FINAL_PRAYER_9; break;
-                    default:                     st->selected_action = BACT_PRAY;            break;
-                    }
-                    bt.battle_menu_selected_action = st->selected_action;
-                    return bm_close_menu(st);
-                } else if (st->char_id == PARTY_MEMBER_POO) {
-                    /* Mirror — needs target selection */
-                    st->selected_action = BACT_MIRROR;
-                    bt.battle_menu_selected_action = st->selected_action;
-                    bt.battle_menu_targetting = 17;
-                    /* Assembly: JSL SELECT_BATTLE_TARGET_DISPATCH_FAR
-                     * A=0 (single target), X=1 (allow cancel), Y=BACT_MIRROR */
-                    enemy_select_make_init(&child_init, 1, st->selected_action);
-                    st->phase = BM_TARGET_RESULT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ENEMY_SELECT, &child_init);
-                }
-                return bm_close_menu(st);
-
-            default:
-                return bm_close_menu(st);
-            }
+        case BM_MAIN_RESULT:
+            if (bm_main_result(st, &r)) return r;
             break;
-        }
 
-        /*
-         * CYCLE_BATTLE_TARGET — Port of asm/misc/cycle_battle_target.asm.
-         *
-         * Debug-only (DEBUG + R when the command menu is cancelled). Steps
-         * through the battler slots: RIGHT/LEFT (PAD_HELD, so it auto-repeats)
-         * move one conscious battler forward/back with wraparound, closing the
-         * focus window each time; any new press closes the focus window and
-         * returns to @MENU_SELECTION_LOOP. Per selected battler it calls
-         * NULL_C1E1A2, an empty stub in the retail ROM (the display it fed was
-         * stripped), so nothing on screen marks the selection.
-         *
-         * Both exits close the command menu window. The original then runs
-         * SELECTION_MENU on that closed window (invisible menu, stray cursor at
-         * the top left, still selectable); the port's selection menu pops 0 on
-         * a closed window, so this menu returns "back" and the battle routine
-         * rebuilds the menu for the same character.
-         */
-        case BM_CYCLE_FIND: {
-            /* @CHECK_CONSCIOUS / @ADVANCE: skip unconscious slots, moving
-             * in the current direction with wraparound. */
-            int16_t idx = st->cycle_index;
-            while (bt.battlers_table[idx].consciousness == 0) {
-                idx = (int16_t)(idx + st->cycle_dir);
-                if (idx < 0) idx = BATTLER_COUNT - 1;
-                if (idx >= BATTLER_COUNT) idx = 0;
-            }
-            st->cycle_index = (uint8_t)idx;
-            /* JSL NULL_C1E1A2 (empty stub); JSL WINDOW_TICK; then the
-             * @POLL_INPUT WAIT_UNTIL_NEXT_FRAME is this step's frame. */
-            (void)window_tick_work_step();   /* battle: never parks */
-            st->phase = BM_CYCLE_POLL;
-            return STEP_RESULT_CONTINUE();
-        }
+        case BM_CYCLE_FIND:
+            return bm_cycle_find(st);
 
-        case BM_CYCLE_POLL: {
-            int8_t dir = 0;
-            if (core.pad1_autorepeat & PAD_RIGHT) {
-                dir = 1;
-            } else if (core.pad1_autorepeat & PAD_LEFT) {
-                dir = -1;
-            } else if (core.pad1_pressed) {
-                /* @CHECK_CONFIRM: any new press leaves */
-                redirect_close_focus_window();
-                st->phase = BM_MAIN;
-                break;
-            } else {
-                /* @POLL_INPUT: WAIT_UNTIL_NEXT_FRAME only (no WINDOW_TICK) */
-                return STEP_RESULT_CONTINUE();
-            }
-            /* @CYCLE_NEXT */
-            st->cycle_dir = dir;
-            int16_t idx = (int16_t)(st->cycle_index + dir);
-            if (idx < 0) idx = BATTLER_COUNT - 1;
-            if (idx >= BATTLER_COUNT) idx = 0;
-            st->cycle_index = (uint8_t)idx;
-            redirect_close_focus_window();
-            st->phase = BM_CYCLE_FIND;
+        case BM_CYCLE_POLL:
+            if (bm_cycle_poll(st, &r)) return r;
             break;
-        }
 
         case BM_TARGET_RESULT: {
             /* The enemy target picker popped (Bash/Shoot/Spy/Mirror). */
@@ -3065,126 +3248,21 @@ StepResult mode_step_battle_menu(ModeState *ms) {
             return bm_close_menu(st);
 
         case BM_ITEM:
-            /* battle_item_menu entry: no items → back to the command menu */
-            if (party_characters[st->char_id - 1].items[0] == 0) {
-                st->phase = BM_MAIN;
-                break;
-            }
-            /* @SELECT_ITEM: create the inventory window and populate it.
-             * inventory_get_item_name's embedded window_tick yield is the
-             * accepted precedent (the pause menu's Goods path calls it the
-             * same way from a step). */
-            inventory_get_item_name(st->char_id, WINDOW_INVENTORY);
-            child_init = (ModeState){0};
-            child_init.selection_menu.phase        = SM_SETUP;
-            child_init.selection_menu.allow_cancel = 1;
-            st->phase = BM_ITEM_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &child_init);
-
-        case BM_ITEM_RESULT: {
-            /* Close the inventory window: CLOSE_WINDOW's tick takes a frame
-             * before the cancel or the item targeting. */
-            st->item_slot = (uint16_t)mode_child_result();
-            (void)take_unpresented_ticks();
-            close_window(WINDOW_INVENTORY);
-            st->phase = BM_ITEM_AFTER;
-            {
-                uint16_t ticks = take_unpresented_ticks();
-                if (ticks)
-                    return push_wait_frames(&child_init, BW_VBLANK, ticks);
-            }
+            if (bm_item(st, &r)) return r;
             break;
-        }
 
-        case BM_ITEM_AFTER: {
-            uint16_t selection = st->item_slot;
+        case BM_ITEM_RESULT:
+            if (bm_item_result(st, &r)) return r;
+            break;
 
-            if (selection == 0) {
-                /* Cancelled: back to the command menu */
-                st->phase = BM_MAIN;
-                break;
-            }
-
-            /* Store selected item slot in bt.battle_menu_param1 */
-            bt.battle_menu_param1 = (uint8_t)selection;
-
-            /* DETERMINE_BATTLE_ITEM_TARGET, folded inline: the defaults and
-             * the item classification are synchronous; only the targeting UI
-             * is a child push. */
-            uint8_t user_id = bt.battle_menu_user;
-            uint16_t item_id = get_character_item(user_id, bt.battle_menu_param1);
-
-            const ItemConfig *item_entry = get_item_entry(item_id);
-            if (!item_entry) {
-                /* Assembly: returns success with the defaults untouched. */
-                return bm_item_done(st);
-            }
-
-            /* Set defaults in battle_menu_selection:
-             * selected_action = 2 (placeholder), targetting = 1, selected_target = user */
-            bt.battle_menu_selected_action = 2;
-            bt.battle_menu_targetting = 1;
-            bt.battle_menu_selected_target = user_id;
-
-            /* Read item type byte (offset 25) */
-            uint8_t item_type = item_entry->type;
-            uint8_t type_category = item_type & 0x30;
-
-            if (type_category == 0x10 || type_category == 0x20) {
-                /* Offensive (0x10) or Support (0x20) item — has effect field */
-                st->item_effect = item_entry->effect_id;
-            } else if (type_category == 0x30) {
-                /* Equipment item — check if usable in battle */
-                uint8_t equip_subtype = item_type & 0x0C;
-                if (equip_subtype != 0 && equip_subtype != 4) {
-                    /* Not a battle-usable equipment subtype — finish with the
-                     * defaults. Assembly: jumps to SET_DEFAULT_ACTION without
-                     * modifying selected_action. */
-                    return bm_item_done(st);
-                }
-
-                /* Check if this character can use this equipment */
-                if (user_id >= 1 && user_id <= 4 &&
-                    !(item_entry->flags & item_usable_flags[user_id - 1])) {
-                    /* Character can't use this item */
-                    bt.battle_menu_selected_action = 3;
-                    return bm_item_done(st);
-                }
-
-                /* Equipment is usable — determine targeting from its effect */
-                st->item_effect = item_entry->effect_id;
-            } else {
-                /* Other item type — no targeting needed, use the defaults */
-                return bm_item_done(st);
-            }
-
-            child_init = (ModeState){0};
-            child_init.targeting.phase     = TGT_ENTER;
-            child_init.targeting.action_id = st->item_effect;
-            child_init.targeting.char_id   = user_id;
-            st->phase = BM_ITEM_TGT_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_DETERMINE_TARGETING, &child_init);
-        }
+        case BM_ITEM_AFTER:
+            if (bm_item_after(st, &r)) return r;
+            break;
 
         case BM_ITEM_TGT_RESULT:
-        default: {
-            uint16_t result = (uint16_t)mode_child_result();
-
-            if ((result & 0xFF) == 0) {
-                /* Targeting cancelled: close the targeting sub-window and go
-                 * back to item selection (battle_item_menu's select_item). */
-                close_window(WINDOW_BATTLE_ACTION_NAME);
-                st->phase = BM_ITEM;
-                break;
-            }
-
-            /* Store effect as selected_action; unpack targeting:
-             * high byte = mode, low byte = target */
-            bt.battle_menu_selected_action = st->item_effect;
-            bt.battle_menu_targetting = (uint8_t)(result >> 8);
-            bt.battle_menu_selected_target = (uint8_t)(result & 0xFF);
-            return bm_item_done(st);
-        }
+        default:
+            if (bm_item_tgt_result(st, &r)) return r;
+            break;
         }
     }
 }
@@ -4523,12 +4601,731 @@ static void btl_ending_post_cleanup(void) {
     bt.battle_mode_flag = 0;
 }
 
+/* ---- GAME_MODE_BATTLE phase helpers (battle_routine, asm/battle/battle_routine.asm) ----
+ * The bool btl_step_* helpers return true with *out set when the step yields
+ * (push, frame or pop), false when mode_step_battle should run the next phase
+ * in this step. The per-phase helpers are EB_NOINLINE so their locals don't
+ * add up in the step's frame. */
+static ModeState btl_child;  /* push buffer; outlives the dispatch (the pump copies it) */
+
+/* Push battle text `addr` as a GAME_MODE_DISPLAY_TEXT child. False (no push)
+ * when the text can't be resolved: the caller carries on inline. */
+static bool btl_push_text(uint32_t addr, StepResult *out) {
+    if (!battle_push_text(&btl_child, addr))
+        return false;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+    return true;
+}
+
+/* STEP_PUSH a GAME_MODE_BATTLE_WAIT child of `kind`. */
+static StepResult btl_push_wait(uint8_t kind) {
+    btl_child = (ModeState){0};
+    btl_child.battle_wait.kind = kind;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &btl_child);
+}
+
+/* STEP_PUSH a GAME_MODE_CHECK_DEAD_PLAYERS child, resuming at `next`. */
+static StepResult btl_push_dead_check(BattleRoutineState *st, uint8_t next) {
+    check_dead_players_make_init(&btl_child);
+    st->phase = next;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &btl_child);
+}
+
+/* reinit_battle (lines 134-480) */
+static EB_NOINLINE bool btl_step_reinit(BattleRoutineState *st, StepResult *out) {
+    btl_reinit_scene(st);
+    if (ow.battle_mode != 0) {
+        st->phase = BTL_PREP;  /* goto check_buzz_buzz */
+        return false;
+    }
+    btl_reinit_party(st);
+    /* The blocking original's window_tick(): same work, but the parked
+     * actionscript frame propagates as a STEP_PUSH (savestate D4b). */
+    if (window_tick_work_step()) {
+        st->phase = BTL_REINIT_FLUSH;
+        *out = actionscript_frame_take_push();
+        return true;
+    }
+    st->phase = BTL_DEBUG;
+    *out = STEP_RESULT_CONTINUE();
+    return true;
+}
+
+static void btl_step_debug(BattleRoutineState *st) {
+    if (ow.debug_flag && btl_debug_loop(st)) {
+        st->phase = BTL_REINIT;  /* apply_debug_party: re-setup the scene */
+        return;
+    }
+    /* start_battle_music: play music for current enemy group */
+    if (enemy_config_table) {
+        uint8_t music_id = enemy_config_table[bt.enemies_in_battle_ids[0]].music;
+        change_music(music_id);
+    }
+    st->phase = BTL_PREP;
+}
+
+/* check_buzz_buzz .. initiative setup; push the encounter text */
+static EB_NOINLINE bool btl_step_prep(BattleRoutineState *st, StepResult *out) {
+    uint32_t encounter_addr = btl_prep(st);
+    st->announce_i = 0;
+    st->announce_stage = 0;
+    st->phase = BTL_AURA;
+    return encounter_addr != 0 && btl_push_text(encounter_addr, out);
+}
+
+/* Announce initial enemy statuses (asleep, sealed, strange) — resumable per
+ * enemy (announce_i) and per text (announce_stage). */
+static EB_NOINLINE bool btl_step_announce(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    while (st->announce_i < bt.enemies_in_battle) {
+        Battler *enemy = &bt.battlers_table[FIRST_ENEMY_INDEX + st->announce_i];
+        if (st->announce_stage == 0) {
+            bt.current_target =
+                (uint16_t)((FIRST_ENEMY_INDEX + st->announce_i) * sizeof(Battler));
+            fix_target_name();
+            st->announce_stage = 1;
+            if (enemy->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP &&
+                btl_push_text(MSG_BTL0_STATUS_ASLEEP_AT_START, out))
+                return true;
+        }
+        if (st->announce_stage == 1) {
+            st->announce_stage = 2;
+            if (enemy->afflictions[STATUS_GROUP_CONCENTRATION] != 0 &&
+                btl_push_text(MSG_BTL0_STATUS_PSI_BLOCKED_AT_START, out))
+                return true;
+        }
+        st->announce_stage = 0;
+        st->announce_i++;
+        if (enemy->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE &&
+            btl_push_text(MSG_BTL0_STATUS_STRANGE_AT_START, out))
+            return true;
+    }
+    redirect_close_focus_window();
+    st->post_battle_exit = 0;
+    bt.special_defeat = 0;
+    st->phase = BTL_TURN;  /* goto check_new_turn (post_battle_exit == 0) */
+    return false;
+}
+
+/* Whether party member `member_id` skips the command menu this turn
+ * (surprise/run initiative, Poo mirroring, incapacitated). */
+static bool btl_member_skips_menu(const BattleRoutineState *st, uint8_t member_id) {
+    if (st->initiative_mode == 2 || st->initiative_mode == 3 ||
+        st->initiative_mode == 4)
+        return true;
+
+    /* Poo with mirror active skips menu */
+    if (member_id == PARTY_MEMBER_POO && bt.mirror_enemy != 0)
+        return true;
+
+    /* Check for incapacitation */
+    uint8_t *aff = party_characters[member_id - 1].afflictions;
+    if (aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS ||
+        aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED)
+        return true;
+    uint8_t temp_status = aff[STATUS_GROUP_TEMPORARY];
+    return temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED;
+}
+
+/* The player menu loop body: skip members who can't act, open the menu for
+ * the next one who can. */
+static EB_NOINLINE bool btl_step_menu_body(BattleRoutineState *st, StepResult *out) {
+    while (st->party_slot < 6) {
+        if (battle_count_chars(0) == 0) {
+            create_window(0x0E);
+            st->phase = BTL_END_CHECK;
+            return false;
+        }
+
+        uint8_t member_id = game_state.party_members[st->party_slot];
+        if (member_id == 0 || member_id > 4) {
+            st->party_slot++;
+            continue;
+        }
+
+        if (btl_member_skips_menu(st, member_id)) {
+            bt.battle_item_used = 0;
+            btl_store_action(member_id, BACT_NO_EFFECT);
+            st->party_slot++;
+            continue;
+        }
+
+        /* Show battle menu for this character:
+         * SELECT_BATTLE_MENU_CHARACTER (US) waits a frame before clearing a
+         * stale indicator (CLEAR_BATTLE_MENU_CHARACTER_INDICATOR) and again
+         * before drawing the new one. window.c's draw/clear helpers do the
+         * tilemap work only; the two WAIT_UNTIL_NEXT_FRAMEs are
+         * BTL_MENU_SELECT's and BTL_MENU_OPEN's present-only pushes. */
+        st->phase = BTL_MENU_SELECT;
+        if (win.battle_menu_current_character_id != -1) {
+            *out = push_wait_frames(&btl_child, BW_VBLANK, 1);
+            return true;
+        }
+        return false;
+    }
+    st->phase = BTL_ENEMY_AI;
+    return false;
+}
+
+static EB_NOINLINE StepResult btl_step_menu_open(BattleRoutineState *st) {
+    uint8_t member_id = game_state.party_members[st->party_slot];
+    select_battle_menu_character_far(st->party_slot);
+    btl_child = (ModeState){0};
+    btl_child.battle_menu.phase        = BM_ENTER;
+    btl_child.battle_menu.char_id      = member_id;
+    btl_child.battle_menu.num_selected = st->num_selected;
+    st->phase = BTL_MENU_RESULT;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &btl_child);
+}
+
+/* BATTLE_SELECTION_MENU returned. Its last window close (the target picker,
+ * inventory or PSI windows) ran a WINDOW_TICK inline this frame without
+ * presenting it; then CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a frame
+ * before clearing. Present both (the indicator is still drawn in either
+ * frame) before the clear; in battle a BW_TICK_PRESENT frame is present-only
+ * too, so one BW_VBLANK push covers both. */
+static EB_NOINLINE bool btl_step_menu_result(BattleRoutineState *st, StepResult *out) {
+    st->menu_action = (uint16_t)mode_child_result();
+    uint16_t frames = take_unpresented_ticks();
+    if (win.battle_menu_current_character_id != -1)
+        frames++;
+    st->phase = BTL_MENU_CLOSE;
+    if (frames) {
+        *out = push_wait_frames(&btl_child, BW_VBLANK, frames);
+        return true;
+    }
+    return false;
+}
+
+/* Clear the indicator, then REDIRECT_CLOSE_FOCUS_WINDOW closes the command
+ * menu, whose CLOSE_WINDOW tick shows both changes. */
+static EB_NOINLINE bool btl_step_menu_close(BattleRoutineState *st, StepResult *out) {
+    (void)take_unpresented_ticks();
+    clear_battle_menu_character_indicator_far();
+    redirect_close_focus_window();
+    uint16_t frames = take_unpresented_ticks();
+    st->phase = BTL_MENU_DECIDE;
+    if (frames) {
+        *out = push_wait_frames(&btl_child, BW_TICK_PRESENT, frames);
+        return true;
+    }
+    return false;
+}
+
+/* Act on the menu's selection: abort, run away, back, debug reinit, or store
+ * the action and move to the next member. */
+static EB_NOINLINE void btl_step_menu_decide(BattleRoutineState *st) {
+    uint16_t selected_action = st->menu_action;
+    uint8_t member_id = game_state.party_members[st->party_slot];
+
+    /* Check for Giygas battle abort */
+    if (ow.battle_mode != 0 && selected_action == 0xFFFF) {
+        st->battle_result = 0;
+        st->phase = BTL_ENDING;
+        return;
+    }
+
+    /* Handle run away */
+    if (selected_action == BACT_RUN_AWAY) {
+        selected_action = BACT_USE_NO_EFFECT;
+        if (st->initiative_mode == 1) {
+            st->initiative_mode = 4;
+        } else {
+            st->initiative_mode = 3;
+        }
+        st->run_attempt = 1;
+    }
+
+    /* Handle "back" (action == 0 from the battle menu) */
+    if (selected_action == 0) {
+        if (st->num_selected == 0) {
+            /* The original's party_slot--/continue: retry this slot */
+            st->phase = BTL_MENU;
+            return;
+        }
+        st->num_selected--;
+        st->party_slot = bt.party_members_with_selected_actions[st->num_selected];
+        st->phase = BTL_MENU;
+        return;
+    }
+
+    /* Reinit battle if -1 returned (debug instant win, battle_mode 0) */
+    if (selected_action == 0xFFFF) {
+        st->phase = BTL_REINIT;
+        return;
+    }
+
+    /* Store selected action index */
+    bt.party_members_with_selected_actions[st->num_selected] = st->party_slot;
+    st->num_selected++;
+
+    /* Map action 1 to 0 */
+    if (selected_action == 1) selected_action = 0;
+
+    btl_store_action(member_id, selected_action);
+    st->party_slot++;
+    st->phase = BTL_MENU;
+}
+
+/* Phase 8: run away check (lines 1932-2078) */
+static EB_NOINLINE bool btl_step_run_check(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    if (st->run_attempt) {
+        if (btl_run_success(st)) {
+            st->phase = BTL_RUN_SUCCESS;
+            return btl_push_text(MSG_BTL0_ESCAPE_SUCCESS, out);
+        }
+        st->run_attempt = 0;
+        st->phase = BTL_RUN_FAIL;
+        return btl_push_text(MSG_BTL0_ESCAPE_FAILED, out);
+    }
+    /* Clear initiative mode for next turn */
+    st->initiative_mode = 0;
+    st->phase = BTL_TURN_CONT;
+    return false;
+}
+
+/* Pick the next attacker; status damage text (nauseous, poisoned, sunstroke,
+ * cold). */
+static EB_NOINLINE bool btl_step_exec_body(BattleRoutineState *st, StepResult *out) {
+    if (battle_count_chars(0) == 0) { st->phase = BTL_END_CHECK; return false; }
+    if (battle_count_chars(1) == 0) { st->phase = BTL_END_CHECK; return false; }
+
+    /* Find battler with highest initiative who hasn't acted yet */
+    int16_t best_battler = btl_find_attacker();
+    if (best_battler < 0) {
+        st->phase = BTL_CLOSE_WINDOW;
+        return false;
+    }
+
+    clear_focus_window_content_far();
+    bt.current_attacker = best_battler * sizeof(Battler);
+    st->attacker = best_battler;
+    Battler *attacker = &bt.battlers_table[best_battler];
+    attacker->has_taken_turn = 1;
+
+    /* Check if attacker is incapacitated */
+    uint8_t status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+    if (status0 == STATUS_0_UNCONSCIOUS || status0 == STATUS_0_DIAMONDIZED) {
+        st->phase = BTL_TURN_CONT;
+        return false;
+    }
+
+    /* Status overrides + the self-target check */
+    btl_status_overrides(attacker);
+
+    /* Set up names and status damage */
+    st->retargeted = 0;
+    bt.current_target = bt.current_attacker;
+    fix_attacker_name(0);
+    fix_target_name();
+
+    /* Status damage (nauseous, poisoned, sunstroke, cold) */
+    st->status_damage = 0;
+    uint32_t dmg_text = 0;
+    status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+
+    if (status0 == STATUS_0_NAUSEOUS) {
+        st->status_damage = battle_25pct_variance(20);
+        dmg_text = MSG_BTL4_STATUS_SICK_HP_DAMAGE;
+    } else if (status0 == STATUS_0_POISONED) {
+        st->status_damage = battle_25pct_variance(20);
+        dmg_text = MSG_BTL4_STATUS_POISON_HP_DAMAGE;
+    } else if (status0 == STATUS_0_SUNSTROKE) {
+        st->status_damage = battle_25pct_variance(4);
+        dmg_text = MSG_BTL4_STATUS_DIZZY_HP_DAMAGE;
+    } else if (status0 == STATUS_0_COLD) {
+        st->status_damage = battle_25pct_variance(4);
+        dmg_text = MSG_BTL4_STATUS_SNEEZE_HP_DAMAGE;
+    }
+    st->phase = BTL_EXEC_DMG;
+    if (dmg_text != 0 &&
+        battle_push_text_ex(&btl_child, dmg_text, false,
+                            true, st->status_damage)) {
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+        return true;
+    }
+    return false;
+}
+
+/* Apply status damage */
+static EB_NOINLINE bool btl_step_exec_dmg(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    Battler *attacker = &bt.battlers_table[st->attacker];
+
+    if (st->status_damage > 0) {
+        battle_lose_hp_status(attacker, st->status_damage);
+
+        if (attacker->hp == 0) {
+            st->phase = BTL_EXEC_DMG_KO;
+            battle_ko_make_init(&btl_child, battler_to_offset(attacker));
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &btl_child);
+            return true;
+        }
+    }
+    st->phase = BTL_EXEC_SETUP;
+    return false;
+}
+
+static EB_NOINLINE bool btl_step_exec_setup(BattleRoutineState *st, StepResult *out) {
+    Battler *attacker = &bt.battlers_table[st->attacker];
+
+    /* Targeting setup, retarget rolls, steal validation */
+    btl_exec_setup_targets(st, attacker);
+
+    /* SELECT_BATTLE_MENU_CHARACTER (US): a frame before clearing the
+     * previous indicator (if any), a frame before drawing the new one. */
+    if (st->hilite_slot >= 0) {
+        st->phase = BTL_EXEC_HILITE;
+        if (win.battle_menu_current_character_id != -1) {
+            *out = push_wait_frames(&btl_child, BW_VBLANK, 1);
+            return true;
+        }
+        return false;
+    }
+    st->phase = BTL_EXEC_PP;
+    return false;
+}
+
+/* Enemy attack palette effect for the attacker's action type */
+static void btl_enemy_attack_palette(const Battler *attacker) {
+    if (attacker->ally_or_enemy == 1 && attacker->current_action != 0 &&
+        battle_action_table) {
+        uint8_t action_type = battle_action_table[attacker->current_action].type;
+        if (action_type == ACTION_TYPE_PHYSICAL ||
+            action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
+            load_attack_palette(1);
+        } else if (action_type == ACTION_TYPE_PSI) {
+            load_attack_palette(2);
+        } else if (action_type == ACTION_TYPE_OTHER) {
+            load_attack_palette(3);
+        }
+    }
+}
+
+/* PP cost, attack palette, then the attacker's 12-frame bob */
+static EB_NOINLINE bool btl_step_exec_pp(BattleRoutineState *st, StepResult *out) {
+    Battler *attacker = &bt.battlers_table[st->attacker];
+
+    /* Check PP cost */
+    if (battle_action_table) {
+        uint8_t pp_cost = battle_action_table[attacker->current_action].pp_cost;
+        if (pp_cost > 0) {
+            if (pp_cost > attacker->pp_target) {
+                st->phase = BTL_AFTER_ACTION;  /* goto after_action */
+                return btl_push_text(MSG_BTL6_NOT_ENOUGH_PP_BATTLE, out);
+            }
+            set_battler_pp_from_target(bt.current_attacker, pp_cost);
+        }
+    }
+
+    btl_enemy_attack_palette(attacker);
+
+    /* Animate attacker (12-frame bob) */
+    attacker->shake_timer = 12;
+    btl_child = (ModeState){0};
+    btl_child.battle_wait.kind = BW_FRAMES;
+    btl_child.battle_wait.remaining = 12;
+    st->phase = BTL_EXEC_RETARGET1;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &btl_child);
+    return true;
+}
+
+/* Display action description text (display_text_with_prompt_addr) */
+static EB_NOINLINE bool btl_step_exec_desc(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    Battler *attacker = &bt.battlers_table[st->attacker];
+    st->phase = BTL_EXEC_ACT;
+    if (battle_action_table) {
+        uint32_t desc_addr =
+            battle_action_table[attacker->current_action].description_text_pointer;
+        if (desc_addr != 0 &&
+            battle_push_text_ex(&btl_child, desc_addr, true, false, 0)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+            return true;
+        }
+    }
+    return false;
+}
+
+static EB_NOINLINE bool btl_step_exec_act(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    Battler *attacker = &bt.battlers_table[st->attacker];
+
+    /* Skip if action is 0 (no effect) */
+    if (attacker->current_action == 0) {
+        st->phase = BTL_AFTER_ACTION;
+        return false;
+    }
+
+    /* Wait for PSI animation to complete */
+    st->target_i = 0;
+    st->phase = BTL_TARGET;
+    *out = btl_push_wait(BW_PSI_ANIM);
+    return true;
+}
+
+/* Whether `action` may target an unconscious battler */
+static bool btl_action_targets_dead(uint16_t action) {
+    for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
+        if (dead_targettable_actions[di] == action)
+            return true;
+    }
+    return false;
+}
+
+/* ---- Target loop head: apply action to each targeted battler.
+ * One iteration per entry; re-entering via a false return (no yield)
+ * replaces the former inner while loop so the action execution can yield
+ * mid-loop. ---- */
+static EB_NOINLINE bool btl_step_target(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    Battler *attacker = &bt.battlers_table[st->attacker];
+
+    if (st->target_i >= BATTLER_COUNT) {
+        st->phase = BTL_AFTER_ACTION;
+        return false;
+    }
+
+    uint16_t target_i = st->target_i;
+    if (!battle_is_char_targeted(target_i)) {
+        st->target_i++;
+        return false;  /* next target, no yield */
+    }
+
+    bt.current_target = target_i * sizeof(Battler);
+    Battler *target = &bt.battlers_table[target_i];
+    fix_target_name();
+
+    /* Check if target is dead — only some actions can target dead battlers */
+    if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS &&
+        !btl_action_targets_dead(attacker->current_action)) {
+        st->target_i++;  /* the resume re-enters the loop head */
+        if (btl_push_text(MSG_BTL4_RESULT_TARGET_ALREADY_GONE, out))
+            return true;
+        dt.blinking_triangle_flag = 0;  /* unresolvable: epilogue inline */
+        return false;
+    }
+
+    /* Execute the action callback: converted actions are a
+     * GAME_MODE_BATTLE_ACTION STEP_PUSH (resume in BTL_TARGET_POST);
+     * unconverted ones run inline-blocking through the same dispatch
+     * (the battle_actions.c long tail, convertible incrementally). */
+    st->phase = BTL_TARGET_POST;
+    if (battle_action_table) {
+        uint32_t func_ptr =
+            battle_action_table[attacker->current_action].battle_function_pointer;
+        if (func_ptr != 0 && battle_action_dispatch(func_ptr, &btl_child)) {
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &btl_child);
+            return true;
+        }
+    }
+    return false;  /* ran inline (or no function): post checks, no yield */
+}
+
+/* Post-action checks for the current target (after the dead-check) */
+static EB_NOINLINE bool btl_step_target_post_body(BattleRoutineState *st, StepResult *out) {
+    ow.redraw_all_windows = 1;
+
+    if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
+        consume_used_battle_item();
+        st->phase = BTL_END_CHECK;
+        return false;
+    }
+
+    /* Handle special defeat codes */
+    if (bt.special_defeat == 3) {
+        st->battle_result = 0;
+        st->phase = BTL_ENDING;
+        return false;
+    }
+    if (bt.special_defeat == 2) {
+        consume_used_battle_item();
+        st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
+        return false;
+    }
+    if (bt.special_defeat == 1) {
+        st->battle_result = 2;
+        st->phase = BTL_ENDING;
+        return false;
+    }
+
+    /* Wait for screen effects, then the next target */
+    st->target_i++;
+    st->phase = BTL_TARGET;
+    *out = btl_push_wait(BW_SCREEN_EFFECT);
+    return true;
+}
+
+/* ---- Post-action processing (lines 2927-3035) ---- */
+static EB_NOINLINE bool btl_step_after_action(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    Battler *attacker = &bt.battlers_table[st->attacker];
+    st->phase = BTL_AFTER_STATUS;
+
+    /* Consume item if attacker is a party member */
+    if (attacker->ally_or_enemy == 0) {
+        consume_used_battle_item();
+
+        /* Mirror turn timer countdown */
+        if (bt.mirror_enemy != 0 && attacker->id == PARTY_MEMBER_POO) {
+            bt.mirror_turn_timer--;
+            if (bt.mirror_turn_timer == 0) {
+                bt.mirror_enemy = 0;
+                battle_copy_mirror_data(attacker, &bt.mirror_battler_backup);
+                return btl_push_text(MSG_BTL5_MORPH_NEUTRALIZED, out);
+            }
+        }
+    }
+    return false;
+}
+
+/* Post-action status recovery (the affliction clear runs after the text,
+ * like the assembly — see BTL_AFTER_CURED) */
+static EB_NOINLINE bool btl_step_after_status_body(BattleRoutineState *st, StepResult *out) {
+    Battler *attacker = &bt.battlers_table[st->attacker];
+    bt.current_target = bt.current_attacker;
+    fix_target_name();
+
+    uint8_t temp_status = attacker->afflictions[STATUS_GROUP_TEMPORARY];
+    uint32_t cured_text = 0;
+    if (temp_status == STATUS_2_ASLEEP) {
+        /* 1/4 chance of waking up */
+        if ((rand_byte() & 3) == 0) {
+            cured_text = MSG_BTL5_CURED_ASLEEP;
+        }
+    } else if (temp_status == STATUS_2_IMMOBILIZED) {
+        /* CHANCE_OF_BODY_MOVING_AGAIN% chance of recovery */
+        if (rand_limit(100) < (100 - CHANCE_OF_BODY_MOVING_AGAIN)) {
+            cured_text = MSG_BTL5_CURED_IMMOBILIZED;
+        }
+    } else if (temp_status == STATUS_2_SOLIDIFIED) {
+        /* Always recover from solidified after acting */
+        cured_text = MSG_BTL5_CURED_SOLIDIFIED;
+    }
+    if (cured_text != 0) {
+        st->phase = BTL_AFTER_CURED;
+        return btl_push_text(cured_text, out);
+    }
+    st->phase = BTL_AFTER_CONC;
+    return false;
+}
+
+/* Concentration timer countdown */
+static EB_NOINLINE bool btl_step_after_conc(BattleRoutineState *st, StepResult *out) {
+    Battler *attacker = &bt.battlers_table[st->attacker];
+    st->phase = BTL_AFTER_TAIL;
+    uint8_t conc = attacker->afflictions[STATUS_GROUP_CONCENTRATION];
+    if (conc > 0) {
+        conc--;
+        attacker->afflictions[STATUS_GROUP_CONCENTRATION] = conc;
+        if (conc == 0)
+            return btl_push_text(MSG_BTL5_CURED_PSI_BLOCKED, out);
+    }
+    return false;
+}
+
+/* Phase 10: battle end checks (lines 3036-3159) */
+static EB_NOINLINE bool btl_step_end_check(BattleRoutineState *st, StepResult *out) {
+    if (battle_count_chars(0) == 0) {
+        /* Party defeated */
+        st->battle_result = 1;
+        reset_hppp_rolling();
+        st->phase = BTL_DEFEAT_DONE;
+        return btl_push_text(MSG_BTL8_ENEMY_VICTORY, out);
+    }
+    st->phase = BTL_END_CHECK2;
+    return false;
+}
+
+/* enemies_are_dead (lines 3050-3158) */
+static EB_NOINLINE bool btl_step_victory(BattleRoutineState *st, StepResult *out) {
+    st->battle_result = 0;
+    reset_hppp_rolling();
+    bt.letterbox_effect_ending = 1;
+    bt.enable_background_darkening = 1;
+
+    btl_victory_money_exp();
+
+    /* Display victory message with EXP amount */
+    uint32_t victory_addr = (bt.current_battle_group >= 0x01C0)  /* ENEMY_GROUP_BOSS_START */
+        ? MSG_BTL8_PLAYER_VICTORY_BOSS
+        : MSG_BTL8_PLAYER_VICTORY;
+    st->phase = BTL_VICTORY_DROP;
+    if (battle_push_text_ex(&btl_child, victory_addr, false,
+                            true, bt.battle_exp_scratch)) {
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &btl_child);
+        return true;
+    }
+    return false;
+}
+
+static EB_NOINLINE bool btl_step_victory_drop(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    st->exp_i = 0;
+    st->phase = BTL_VICTORY_EXP;
+    /* Announce item drop */
+    if (bt.item_dropped != 0) {
+        set_current_item_far((uint8_t)bt.item_dropped);
+        return btl_push_text(MSG_BTL8_ENEMY_PRESENT_DROPPED, out);
+    }
+    return false;
+}
+
+/* Distribute EXP to all conscious, non-NPC, non-dead party members.
+ * gain_exp(1, ...) ran here in the blocking original; the prepare half runs
+ * inline and any pending level-up runs as a pushed GAME_MODE_LEVEL_UP child
+ * (was the pump bridge). */
+static EB_NOINLINE bool btl_step_victory_exp(BattleRoutineState *st, StepResult *out) {
+    dt.blinking_triangle_flag = 0;
+    while (st->exp_i < BATTLER_COUNT) {
+        Battler *b = &bt.battlers_table[st->exp_i++];
+        if (b->consciousness == 0) continue;
+        if (b->ally_or_enemy != 0) continue;
+        if (b->npc_id != 0) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) continue;
+
+        if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
+            level_up_make_init(&btl_child, b->id);
+            /* phase stays BTL_VICTORY_EXP — the resume re-enters the loop */
+            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &btl_child);
+            return true;
+        }
+    }
+    st->post_battle_exit = 1;
+    st->phase = BTL_TURN_CONT;
+    return false;
+}
+
+static EB_NOINLINE bool btl_step_ending_cleanup(BattleRoutineState *st, StepResult *out) {
+    btl_ending_post_cleanup();
+
+    if (ow.battle_mode == 0) {
+        /* Debug mode: loop back to reinit */
+        st->phase = BTL_REINIT;
+        return false;
+    }
+
+    /* Fade out; the former loop body (update_battle_screen_effects)
+     * is the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick.
+     * Assembly: LDX #1; TXA; JSL FADE_OUT → step 1, delay 1 (one
+     * brightness step every 2 frames, ~30 frames to black). */
+    fade_out(1, 1);
+    btl_child = (ModeState){0};
+    btl_child.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
+    st->phase = BTL_EXIT;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &btl_child);
+    return true;
+}
+
 /* GAME_MODE_BATTLE step — run-to-completion port of battle_routine(). The
  * former goto labels map onto the BTL_* phases (see BattleRoutineState,
- * mode_stack.h); the synchronous chunks live in the btl_* helpers above. */
+ * mode_stack.h); the synchronous chunks live in the btl_* helpers above, and
+ * each multi-statement phase is a btl_step_* helper. */
 StepResult mode_step_battle(ModeState *ms) {
     BattleRoutineState *st = &ms->battle;
-    static ModeState child_init;  /* outlives the dispatch (the pump copies it) */
+    StepResult r;
 
     for (;;) {
         switch ((BattleRoutinePhase)st->phase) {
@@ -4540,21 +5337,8 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
 
         case BTL_REINIT:
-            /* reinit_battle (lines 134-480) */
-            btl_reinit_scene(st);
-            if (ow.battle_mode != 0) {
-                st->phase = BTL_PREP;  /* goto check_buzz_buzz */
-                break;
-            }
-            btl_reinit_party(st);
-            /* The blocking original's window_tick(): same work, but the parked
-             * actionscript frame propagates as a STEP_PUSH (savestate D4b). */
-            if (window_tick_work_step()) {
-                st->phase = BTL_REINIT_FLUSH;
-                return actionscript_frame_take_push();
-            }
-            st->phase = BTL_DEBUG;
-            return STEP_RESULT_CONTINUE();
+            if (btl_step_reinit(st, &r)) return r;
+            break;
 
         case BTL_REINIT_FLUSH:
             window_tick_work_flush();
@@ -4562,70 +5346,24 @@ StepResult mode_step_battle(ModeState *ms) {
             return STEP_RESULT_CONTINUE();
 
         case BTL_DEBUG:
-            if (ow.debug_flag && btl_debug_loop(st)) {
-                st->phase = BTL_REINIT;  /* apply_debug_party: re-setup the scene */
-                break;
-            }
-            /* start_battle_music: play music for current enemy group */
-            if (enemy_config_table) {
-                uint8_t music_id = enemy_config_table[bt.enemies_in_battle_ids[0]].music;
-                change_music(music_id);
-            }
-            st->phase = BTL_PREP;
+            btl_step_debug(st);
             break;
 
-        case BTL_PREP: {
-            /* check_buzz_buzz .. initiative setup; push the encounter text */
-            uint32_t encounter_addr = btl_prep(st);
-            st->announce_i = 0;
-            st->announce_stage = 0;
-            st->phase = BTL_AURA;
-            if (encounter_addr != 0 &&
-                battle_push_text(&child_init, encounter_addr))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+        case BTL_PREP:
+            if (btl_step_prep(st, &r)) return r;
             break;
-        }
 
         case BTL_AURA:
             dt.blinking_triangle_flag = 0;
             /* Announce "Green/blue/red aura!" for party-first initiative */
             st->phase = BTL_ANNOUNCE;
             if (st->initiative_mode == INITIATIVE_PARTY_FIRST &&
-                battle_push_text(&child_init, MSG_BTL8_SURPRISE_ATTACK_PLAYER))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                btl_push_text(MSG_BTL8_SURPRISE_ATTACK_PLAYER, &r))
+                return r;
             break;
 
         case BTL_ANNOUNCE:
-            /* Announce initial enemy statuses (asleep, sealed, strange) —
-             * resumable per enemy (announce_i) and per text (announce_stage). */
-            dt.blinking_triangle_flag = 0;
-            while (st->announce_i < bt.enemies_in_battle) {
-                Battler *enemy = &bt.battlers_table[FIRST_ENEMY_INDEX + st->announce_i];
-                if (st->announce_stage == 0) {
-                    bt.current_target =
-                        (uint16_t)((FIRST_ENEMY_INDEX + st->announce_i) * sizeof(Battler));
-                    fix_target_name();
-                    st->announce_stage = 1;
-                    if (enemy->afflictions[STATUS_GROUP_TEMPORARY] == STATUS_2_ASLEEP &&
-                        battle_push_text(&child_init, MSG_BTL0_STATUS_ASLEEP_AT_START))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                }
-                if (st->announce_stage == 1) {
-                    st->announce_stage = 2;
-                    if (enemy->afflictions[STATUS_GROUP_CONCENTRATION] != 0 &&
-                        battle_push_text(&child_init, MSG_BTL0_STATUS_PSI_BLOCKED_AT_START))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                }
-                st->announce_stage = 0;
-                st->announce_i++;
-                if (enemy->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE &&
-                    battle_push_text(&child_init, MSG_BTL0_STATUS_STRANGE_AT_START))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-            }
-            redirect_close_focus_window();
-            st->post_battle_exit = 0;
-            bt.special_defeat = 0;
-            st->phase = BTL_TURN;  /* goto check_new_turn (post_battle_exit == 0) */
+            if (btl_step_announce(st, &r)) return r;
             break;
 
         case BTL_TURN:
@@ -4645,172 +5383,31 @@ StepResult mode_step_battle(ModeState *ms) {
                 st->phase = BTL_ENEMY_AI;
                 break;
             }
-            check_dead_players_make_init(&child_init);
-            st->phase = BTL_MENU_BODY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            return btl_push_dead_check(st, BTL_MENU_BODY);
 
         case BTL_MENU_BODY:
-            while (st->party_slot < 6) {
-                if (battle_count_chars(0) == 0) {
-                    create_window(0x0E);
-                    st->phase = BTL_END_CHECK;
-                    goto menu_done;
-                }
-
-                uint8_t member_id = game_state.party_members[st->party_slot];
-                if (member_id == 0 || member_id > 4) {
-                    st->party_slot++;
-                    continue;
-                }
-
-                /* Check if this character should skip the menu */
-                bool skip_menu = false;
-
-                if (st->initiative_mode == 2 || st->initiative_mode == 3 ||
-                    st->initiative_mode == 4) {
-                    skip_menu = true;
-                }
-
-                /* Poo with mirror active skips menu */
-                if (!skip_menu && member_id == PARTY_MEMBER_POO && bt.mirror_enemy != 0) {
-                    skip_menu = true;
-                }
-
-                /* Check for incapacitation */
-                if (!skip_menu) {
-                    uint8_t *aff = party_characters[member_id - 1].afflictions;
-                    if (aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS ||
-                        aff[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) {
-                        skip_menu = true;
-                    }
-                    uint8_t temp_status = aff[STATUS_GROUP_TEMPORARY];
-                    if (temp_status == STATUS_2_ASLEEP || temp_status == STATUS_2_SOLIDIFIED) {
-                        skip_menu = true;
-                    }
-                }
-
-                if (skip_menu) {
-                    bt.battle_item_used = 0;
-                    btl_store_action(member_id, BACT_NO_EFFECT);
-                    st->party_slot++;
-                    continue;
-                }
-
-                /* Show battle menu for this character:
-                 * SELECT_BATTLE_MENU_CHARACTER (US) waits a frame before clearing a
-                 * stale indicator (CLEAR_BATTLE_MENU_CHARACTER_INDICATOR) and again
-                 * before drawing the new one. window.c's draw/clear helpers do the
-                 * tilemap work only; the two WAIT_UNTIL_NEXT_FRAMEs are
-                 * BTL_MENU_SELECT's and BTL_MENU_OPEN's present-only pushes. */
-                st->phase = BTL_MENU_SELECT;
-                if (win.battle_menu_current_character_id != -1)
-                    return push_wait_frames(&child_init, BW_VBLANK, 1);
-                goto menu_done;
-            }
-            st->phase = BTL_ENEMY_AI;
-        menu_done:
+            if (btl_step_menu_body(st, &r)) return r;
             break;
 
         case BTL_MENU_SELECT:
             clear_battle_menu_character_indicator_far();
             st->phase = BTL_MENU_OPEN;
-            return push_wait_frames(&child_init, BW_VBLANK, 1);
+            return push_wait_frames(&btl_child, BW_VBLANK, 1);
 
-        case BTL_MENU_OPEN: {
-            uint8_t member_id = game_state.party_members[st->party_slot];
-            select_battle_menu_character_far(st->party_slot);
-            child_init = (ModeState){0};
-            child_init.battle_menu.phase        = BM_ENTER;
-            child_init.battle_menu.char_id      = member_id;
-            child_init.battle_menu.num_selected = st->num_selected;
-            st->phase = BTL_MENU_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_MENU, &child_init);
-        }
+        case BTL_MENU_OPEN:
+            return btl_step_menu_open(st);
 
-        case BTL_MENU_RESULT: {
-            /* BATTLE_SELECTION_MENU returned. Its last window close (the target
-             * picker, inventory or PSI windows) ran a WINDOW_TICK inline this
-             * frame without presenting it; then CLEAR_BATTLE_MENU_CHARACTER_
-             * INDICATOR waits a frame before clearing. Present both (the
-             * indicator is still drawn in either frame) before the clear; in
-             * battle a BW_TICK_PRESENT frame is present-only too, so one
-             * BW_VBLANK push covers both. */
-            st->menu_action = (uint16_t)mode_child_result();
-            uint16_t frames = take_unpresented_ticks();
-            if (win.battle_menu_current_character_id != -1)
-                frames++;
-            st->phase = BTL_MENU_CLOSE;
-            if (frames)
-                return push_wait_frames(&child_init, BW_VBLANK, frames);
+        case BTL_MENU_RESULT:
+            if (btl_step_menu_result(st, &r)) return r;
             break;
-        }
 
-        case BTL_MENU_CLOSE: {
-            /* Clear the indicator, then REDIRECT_CLOSE_FOCUS_WINDOW closes the
-             * command menu, whose CLOSE_WINDOW tick shows both changes. */
-            (void)take_unpresented_ticks();
-            clear_battle_menu_character_indicator_far();
-            redirect_close_focus_window();
-            uint16_t frames = take_unpresented_ticks();
-            st->phase = BTL_MENU_DECIDE;
-            if (frames)
-                return push_wait_frames(&child_init, BW_TICK_PRESENT, frames);
+        case BTL_MENU_CLOSE:
+            if (btl_step_menu_close(st, &r)) return r;
             break;
-        }
 
-        case BTL_MENU_DECIDE: {
-            uint16_t selected_action = st->menu_action;
-            uint8_t member_id = game_state.party_members[st->party_slot];
-
-            /* Check for Giygas battle abort */
-            if (ow.battle_mode != 0 && selected_action == 0xFFFF) {
-                st->battle_result = 0;
-                st->phase = BTL_ENDING;
-                break;
-            }
-
-            /* Handle run away */
-            if (selected_action == BACT_RUN_AWAY) {
-                selected_action = BACT_USE_NO_EFFECT;
-                if (st->initiative_mode == 1) {
-                    st->initiative_mode = 4;
-                } else {
-                    st->initiative_mode = 3;
-                }
-                st->run_attempt = 1;
-            }
-
-            /* Handle "back" (action == 0 from the battle menu) */
-            if (selected_action == 0) {
-                if (st->num_selected == 0) {
-                    /* The original's party_slot--/continue: retry this slot */
-                    st->phase = BTL_MENU;
-                    break;
-                }
-                st->num_selected--;
-                st->party_slot = bt.party_members_with_selected_actions[st->num_selected];
-                st->phase = BTL_MENU;
-                break;
-            }
-
-            /* Reinit battle if -1 returned (debug instant win, battle_mode 0) */
-            if (selected_action == 0xFFFF) {
-                st->phase = BTL_REINIT;
-                break;
-            }
-
-            /* Store selected action index */
-            bt.party_members_with_selected_actions[st->num_selected] = st->party_slot;
-            st->num_selected++;
-
-            /* Map action 1 to 0 */
-            if (selected_action == 1) selected_action = 0;
-
-            btl_store_action(member_id, selected_action);
-            st->party_slot++;
-            st->phase = BTL_MENU;
+        case BTL_MENU_DECIDE:
+            btl_step_menu_decide(st);
             break;
-        }
 
         case BTL_ENEMY_AI:
             /* Phase 6: enemy AI (lines 1497-1921) */
@@ -4820,29 +5417,12 @@ StepResult mode_step_battle(ModeState *ms) {
             create_window(0x0E);
             st->phase = BTL_RUN_CHECK;
             if (st->initiative_mode == INITIATIVE_ENEMIES_FIRST &&
-                battle_push_text(&child_init, MSG_BTL8_SURPRISE_ATTACK_ENEMY))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                btl_push_text(MSG_BTL8_SURPRISE_ATTACK_ENEMY, &r))
+                return r;
             break;
 
         case BTL_RUN_CHECK:
-            /* Phase 8: run away check (lines 1932-2078) */
-            dt.blinking_triangle_flag = 0;
-            if (st->run_attempt) {
-                if (btl_run_success(st)) {
-                    st->phase = BTL_RUN_SUCCESS;
-                    if (battle_push_text(&child_init, MSG_BTL0_ESCAPE_SUCCESS))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                    break;
-                }
-                st->run_attempt = 0;
-                st->phase = BTL_RUN_FAIL;
-                if (battle_push_text(&child_init, MSG_BTL0_ESCAPE_FAILED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                break;
-            }
-            /* Clear initiative mode for next turn */
-            st->initiative_mode = 0;
-            st->phase = BTL_TURN_CONT;
+            if (btl_step_run_check(st, &r)) return r;
             break;
 
         case BTL_RUN_SUCCESS:
@@ -4860,86 +5440,15 @@ StepResult mode_step_battle(ModeState *ms) {
 
         case BTL_EXEC:
             /* Phase 9: execute_turns (lines 2085-2926) — dead-check first. */
-            check_dead_players_make_init(&child_init);
-            st->phase = BTL_EXEC_BODY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            return btl_push_dead_check(st, BTL_EXEC_BODY);
 
-        case BTL_EXEC_BODY: {
-            if (battle_count_chars(0) == 0) { st->phase = BTL_END_CHECK; break; }
-            if (battle_count_chars(1) == 0) { st->phase = BTL_END_CHECK; break; }
-
-            /* Find battler with highest initiative who hasn't acted yet */
-            int16_t best_battler = btl_find_attacker();
-            if (best_battler < 0) {
-                st->phase = BTL_CLOSE_WINDOW;
-                break;
-            }
-
-            clear_focus_window_content_far();
-            bt.current_attacker = best_battler * sizeof(Battler);
-            st->attacker = best_battler;
-            Battler *attacker = &bt.battlers_table[best_battler];
-            attacker->has_taken_turn = 1;
-
-            /* Check if attacker is incapacitated */
-            uint8_t status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-            if (status0 == STATUS_0_UNCONSCIOUS || status0 == STATUS_0_DIAMONDIZED) {
-                st->phase = BTL_TURN_CONT;
-                break;
-            }
-
-            /* Status overrides + the self-target check */
-            btl_status_overrides(attacker);
-
-            /* Set up names and status damage */
-            st->retargeted = 0;
-            bt.current_target = bt.current_attacker;
-            fix_attacker_name(0);
-            fix_target_name();
-
-            /* Status damage (nauseous, poisoned, sunstroke, cold) */
-            st->status_damage = 0;
-            uint32_t dmg_text = 0;
-            status0 = attacker->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-
-            if (status0 == STATUS_0_NAUSEOUS) {
-                st->status_damage = battle_25pct_variance(20);
-                dmg_text = MSG_BTL4_STATUS_SICK_HP_DAMAGE;
-            } else if (status0 == STATUS_0_POISONED) {
-                st->status_damage = battle_25pct_variance(20);
-                dmg_text = MSG_BTL4_STATUS_POISON_HP_DAMAGE;
-            } else if (status0 == STATUS_0_SUNSTROKE) {
-                st->status_damage = battle_25pct_variance(4);
-                dmg_text = MSG_BTL4_STATUS_DIZZY_HP_DAMAGE;
-            } else if (status0 == STATUS_0_COLD) {
-                st->status_damage = battle_25pct_variance(4);
-                dmg_text = MSG_BTL4_STATUS_SNEEZE_HP_DAMAGE;
-            }
-            st->phase = BTL_EXEC_DMG;
-            if (dmg_text != 0 &&
-                battle_push_text_ex(&child_init, dmg_text, false,
-                                    true, st->status_damage))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+        case BTL_EXEC_BODY:
+            if (btl_step_exec_body(st, &r)) return r;
             break;
-        }
 
-        case BTL_EXEC_DMG: {
-            dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-
-            /* Apply status damage */
-            if (st->status_damage > 0) {
-                battle_lose_hp_status(attacker, st->status_damage);
-
-                if (attacker->hp == 0) {
-                    st->phase = BTL_EXEC_DMG_KO;
-                    battle_ko_make_init(&child_init, battler_to_offset(attacker));
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &child_init);
-                }
-            }
-            st->phase = BTL_EXEC_SETUP;
+        case BTL_EXEC_DMG:
+            if (btl_step_exec_dmg(st, &r)) return r;
             break;
-        }
 
         case BTL_EXEC_DMG_KO:
             /* After the status-damage KO: battle-end checks */
@@ -4948,247 +5457,69 @@ StepResult mode_step_battle(ModeState *ms) {
             st->phase = BTL_TURN_CONT;
             break;
 
-        case BTL_EXEC_SETUP: {
-            Battler *attacker = &bt.battlers_table[st->attacker];
-
-            /* Targeting setup, retarget rolls, steal validation */
-            btl_exec_setup_targets(st, attacker);
-
-            /* SELECT_BATTLE_MENU_CHARACTER (US): a frame before clearing the
-             * previous indicator (if any), a frame before drawing the new one. */
-            if (st->hilite_slot >= 0) {
-                st->phase = BTL_EXEC_HILITE;
-                if (win.battle_menu_current_character_id != -1)
-                    return push_wait_frames(&child_init, BW_VBLANK, 1);
-                break;
-            }
-            st->phase = BTL_EXEC_PP;
+        case BTL_EXEC_SETUP:
+            if (btl_step_exec_setup(st, &r)) return r;
             break;
-        }
 
         case BTL_EXEC_HILITE:
             clear_battle_menu_character_indicator_far();
             st->phase = BTL_EXEC_HILITE_DRAW;
-            return push_wait_frames(&child_init, BW_VBLANK, 1);
+            return push_wait_frames(&btl_child, BW_VBLANK, 1);
 
         case BTL_EXEC_HILITE_DRAW:
             select_battle_menu_character_far((uint16_t)st->hilite_slot);
             st->phase = BTL_EXEC_PP;
             break;
 
-        case BTL_EXEC_PP: {
-            Battler *attacker = &bt.battlers_table[st->attacker];
-
-            /* Check PP cost */
-            if (battle_action_table) {
-                uint8_t pp_cost = battle_action_table[attacker->current_action].pp_cost;
-                if (pp_cost > 0) {
-                    if (pp_cost > attacker->pp_target) {
-                        st->phase = BTL_AFTER_ACTION;  /* goto after_action */
-                        if (battle_push_text(&child_init, MSG_BTL6_NOT_ENOUGH_PP_BATTLE))
-                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                        break;
-                    }
-                    set_battler_pp_from_target(bt.current_attacker, pp_cost);
-                }
-            }
-
-            /* Enemy attack palette effect */
-            if (attacker->ally_or_enemy == 1 && attacker->current_action != 0 &&
-                battle_action_table) {
-                uint8_t action_type = battle_action_table[attacker->current_action].type;
-                if (action_type == ACTION_TYPE_PHYSICAL ||
-                    action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
-                    load_attack_palette(1);
-                } else if (action_type == ACTION_TYPE_PSI) {
-                    load_attack_palette(2);
-                } else if (action_type == ACTION_TYPE_OTHER) {
-                    load_attack_palette(3);
-                }
-            }
-
-            /* Animate attacker (12-frame bob) */
-            attacker->shake_timer = 12;
-            child_init = (ModeState){0};
-            child_init.battle_wait.kind = BW_FRAMES;
-            child_init.battle_wait.remaining = 12;
-            st->phase = BTL_EXEC_RETARGET1;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
-        }
+        case BTL_EXEC_PP:
+            if (btl_step_exec_pp(st, &r)) return r;
+            break;
 
         case BTL_EXEC_RETARGET1: {
             /* Display status text for confused/mushroomized */
-            Battler *attacker = &bt.battlers_table[st->attacker];
+            const Battler *attacker = &bt.battlers_table[st->attacker];
             st->phase = BTL_EXEC_RETARGET2;
             if (st->retargeted &&
                 attacker->afflictions[STATUS_GROUP_STRANGENESS] == STATUS_3_STRANGE &&
-                battle_push_text(&child_init, MSG_BTL0_ACTING_UNUSUAL))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                btl_push_text(MSG_BTL0_ACTING_UNUSUAL, &r))
+                return r;
             break;
         }
 
         case BTL_EXEC_RETARGET2: {
             dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
+            const Battler *attacker = &bt.battlers_table[st->attacker];
             st->phase = BTL_EXEC_DESC;
             if (st->retargeted &&
                 attacker->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_MUSHROOMIZED &&
-                battle_push_text(&child_init, MSG_BTL0_ACTING_FUNKY))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+                btl_push_text(MSG_BTL0_ACTING_FUNKY, &r))
+                return r;
             break;
         }
 
-        case BTL_EXEC_DESC: {
-            dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-            st->phase = BTL_EXEC_ACT;
-            /* Display action description text (display_text_with_prompt_addr) */
-            if (battle_action_table) {
-                uint32_t desc_addr =
-                    battle_action_table[attacker->current_action].description_text_pointer;
-                if (desc_addr != 0 &&
-                    battle_push_text_ex(&child_init, desc_addr, true, false, 0))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-            }
+        case BTL_EXEC_DESC:
+            if (btl_step_exec_desc(st, &r)) return r;
             break;
-        }
 
-        case BTL_EXEC_ACT: {
-            dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
+        case BTL_EXEC_ACT:
+            if (btl_step_exec_act(st, &r)) return r;
+            break;
 
-            /* Skip if action is 0 (no effect) */
-            if (attacker->current_action == 0) {
-                st->phase = BTL_AFTER_ACTION;
-                break;
-            }
-
-            /* Wait for PSI animation to complete */
-            st->target_i = 0;
-            child_init = (ModeState){0};
-            child_init.battle_wait.kind = BW_PSI_ANIM;
-            st->phase = BTL_TARGET;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
-        }
-
-        case BTL_TARGET: {
-            /* ---- Target loop head: apply action to each targeted battler.
-             * One iteration per entry; re-entering via `break` (no yield)
-             * replaces the former inner while loop so the action execution
-             * can yield mid-loop. ---- */
-            dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-
-            if (st->target_i >= BATTLER_COUNT) {
-                st->phase = BTL_AFTER_ACTION;
-                break;
-            }
-
-            uint16_t target_i = st->target_i;
-            if (!battle_is_char_targeted(target_i)) {
-                st->target_i++;
-                break;  /* next target, no yield */
-            }
-
-            bt.current_target = target_i * sizeof(Battler);
-            Battler *target = &bt.battlers_table[target_i];
-            fix_target_name();
-
-            /* Check if target is dead — only some actions can target dead battlers */
-            if (target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) {
-                bool can_target_dead = false;
-                for (uint16_t di = 0; dead_targettable_actions[di] != 0; di++) {
-                    if (dead_targettable_actions[di] == attacker->current_action) {
-                        can_target_dead = true;
-                        break;
-                    }
-                }
-                if (!can_target_dead) {
-                    st->target_i++;  /* the resume re-enters the loop head */
-                    if (battle_push_text(&child_init, MSG_BTL4_RESULT_TARGET_ALREADY_GONE))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                    dt.blinking_triangle_flag = 0;  /* unresolvable: epilogue inline */
-                    break;
-                }
-            }
-
-            /* Execute the action callback: converted actions are a
-             * GAME_MODE_BATTLE_ACTION STEP_PUSH (resume in BTL_TARGET_POST);
-             * unconverted ones run inline-blocking through the same dispatch
-             * (the battle_actions.c long tail, convertible incrementally). */
-            st->phase = BTL_TARGET_POST;
-            if (battle_action_table) {
-                uint32_t func_ptr =
-                    battle_action_table[attacker->current_action].battle_function_pointer;
-                if (func_ptr != 0 && battle_action_dispatch(func_ptr, &child_init))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &child_init);
-            }
-            break;  /* ran inline (or no function): post checks, no yield */
-        }
+        case BTL_TARGET:
+            if (btl_step_target(st, &r)) return r;
+            break;
 
         case BTL_TARGET_POST:
             /* ---- Post-action checks for the current target ---- dead-check first. */
-            check_dead_players_make_init(&child_init);
-            st->phase = BTL_TARGET_POST_BODY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            return btl_push_dead_check(st, BTL_TARGET_POST_BODY);
 
-        case BTL_TARGET_POST_BODY: {
-            ow.redraw_all_windows = 1;
-
-            if (battle_count_chars(0) == 0 || battle_count_chars(1) == 0) {
-                consume_used_battle_item();
-                st->phase = BTL_END_CHECK;
-                break;
-            }
-
-            /* Handle special defeat codes */
-            if (bt.special_defeat == 3) {
-                st->battle_result = 0;
-                st->phase = BTL_ENDING;
-                break;
-            }
-            if (bt.special_defeat == 2) {
-                consume_used_battle_item();
-                st->phase = BTL_VICTORY;  /* goto enemies_are_dead */
-                break;
-            }
-            if (bt.special_defeat == 1) {
-                st->battle_result = 2;
-                st->phase = BTL_ENDING;
-                break;
-            }
-
-            /* Wait for screen effects, then the next target */
-            st->target_i++;
-            child_init = (ModeState){0};
-            child_init.battle_wait.kind = BW_SCREEN_EFFECT;
-            st->phase = BTL_TARGET;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
-        }
-
-        case BTL_AFTER_ACTION: {
-            /* ---- Post-action processing (lines 2927-3035) ---- */
-            dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-            st->phase = BTL_AFTER_STATUS;
-
-            /* Consume item if attacker is a party member */
-            if (attacker->ally_or_enemy == 0) {
-                consume_used_battle_item();
-
-                /* Mirror turn timer countdown */
-                if (bt.mirror_enemy != 0 && attacker->id == PARTY_MEMBER_POO) {
-                    bt.mirror_turn_timer--;
-                    if (bt.mirror_turn_timer == 0) {
-                        bt.mirror_enemy = 0;
-                        battle_copy_mirror_data(attacker, &bt.mirror_battler_backup);
-                        if (battle_push_text(&child_init, MSG_BTL5_MORPH_NEUTRALIZED))
-                            return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                    }
-                }
-            }
+        case BTL_TARGET_POST_BODY:
+            if (btl_step_target_post_body(st, &r)) return r;
             break;
-        }
+
+        case BTL_AFTER_ACTION:
+            if (btl_step_after_action(st, &r)) return r;
+            break;
 
         case BTL_AFTER_STATUS:
             dt.blinking_triangle_flag = 0;
@@ -5196,71 +5527,27 @@ StepResult mode_step_battle(ModeState *ms) {
              * frame first when one is drawn) */
             st->phase = BTL_AFTER_STATUS_CLEAR;
             if (win.battle_menu_current_character_id != -1)
-                return push_wait_frames(&child_init, BW_VBLANK, 1);
+                return push_wait_frames(&btl_child, BW_VBLANK, 1);
             break;
 
         case BTL_AFTER_STATUS_CLEAR:
             clear_battle_menu_character_indicator_far();
             /* Post-action status recovery — dead-check first. */
-            check_dead_players_make_init(&child_init);
-            st->phase = BTL_AFTER_STATUS_BODY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            return btl_push_dead_check(st, BTL_AFTER_STATUS_BODY);
 
-        case BTL_AFTER_STATUS_BODY: {
-            Battler *attacker = &bt.battlers_table[st->attacker];
-            bt.current_target = bt.current_attacker;
-            fix_target_name();
-
-            /* Check for status recovery (the affliction clear runs after the
-             * text, like the assembly — see BTL_AFTER_CURED) */
-            uint8_t temp_status = attacker->afflictions[STATUS_GROUP_TEMPORARY];
-            uint32_t cured_text = 0;
-            if (temp_status == STATUS_2_ASLEEP) {
-                /* 1/4 chance of waking up */
-                if ((rand_byte() & 3) == 0) {
-                    cured_text = MSG_BTL5_CURED_ASLEEP;
-                }
-            } else if (temp_status == STATUS_2_IMMOBILIZED) {
-                /* CHANCE_OF_BODY_MOVING_AGAIN% chance of recovery */
-                if (rand_limit(100) < (100 - CHANCE_OF_BODY_MOVING_AGAIN)) {
-                    cured_text = MSG_BTL5_CURED_IMMOBILIZED;
-                }
-            } else if (temp_status == STATUS_2_SOLIDIFIED) {
-                /* Always recover from solidified after acting */
-                cured_text = MSG_BTL5_CURED_SOLIDIFIED;
-            }
-            if (cured_text != 0) {
-                st->phase = BTL_AFTER_CURED;
-                if (battle_push_text(&child_init, cured_text))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                break;
-            }
-            st->phase = BTL_AFTER_CONC;
+        case BTL_AFTER_STATUS_BODY:
+            if (btl_step_after_status_body(st, &r)) return r;
             break;
-        }
 
-        case BTL_AFTER_CURED: {
+        case BTL_AFTER_CURED:
             dt.blinking_triangle_flag = 0;
-            Battler *attacker = &bt.battlers_table[st->attacker];
-            attacker->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+            bt.battlers_table[st->attacker].afflictions[STATUS_GROUP_TEMPORARY] = 0;
             st->phase = BTL_AFTER_CONC;
             break;
-        }
 
-        case BTL_AFTER_CONC: {
-            /* Concentration timer countdown */
-            Battler *attacker = &bt.battlers_table[st->attacker];
-            st->phase = BTL_AFTER_TAIL;
-            uint8_t conc = attacker->afflictions[STATUS_GROUP_CONCENTRATION];
-            if (conc > 0) {
-                conc--;
-                attacker->afflictions[STATUS_GROUP_CONCENTRATION] = conc;
-                if (conc == 0 &&
-                    battle_push_text(&child_init, MSG_BTL5_CURED_PSI_BLOCKED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-            }
+        case BTL_AFTER_CONC:
+            if (btl_step_after_conc(st, &r)) return r;
             break;
-        }
 
         case BTL_AFTER_TAIL:
             dt.blinking_triangle_flag = 0;
@@ -5269,9 +5556,7 @@ StepResult mode_step_battle(ModeState *ms) {
                 bt.battlers_table[i].use_alt_spritemap = 0;
             }
             /* dead-check, then re-show HP/PP windows on resume. */
-            check_dead_players_make_init(&child_init);
-            st->phase = BTL_AFTER_TAIL_BODY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
+            return btl_push_dead_check(st, BTL_AFTER_TAIL_BODY);
 
         case BTL_AFTER_TAIL_BODY:
             redirect_show_hppp_windows();
@@ -5279,17 +5564,7 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
 
         case BTL_END_CHECK:
-            /* Phase 10: battle end checks (lines 3036-3159) */
-            if (battle_count_chars(0) == 0) {
-                /* Party defeated */
-                st->battle_result = 1;
-                reset_hppp_rolling();
-                st->phase = BTL_DEFEAT_DONE;
-                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_VICTORY))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-                break;
-            }
-            st->phase = BTL_END_CHECK2;
+            if (btl_step_end_check(st, &r)) return r;
             break;
 
         case BTL_DEFEAT_DONE:
@@ -5306,60 +5581,16 @@ StepResult mode_step_battle(ModeState *ms) {
             st->phase = BTL_TURN_CONT;
             break;
 
-        case BTL_VICTORY: {
-            /* enemies_are_dead (lines 3050-3158) */
-            st->battle_result = 0;
-            reset_hppp_rolling();
-            bt.letterbox_effect_ending = 1;
-            bt.enable_background_darkening = 1;
-
-            btl_victory_money_exp();
-
-            /* Display victory message with EXP amount */
-            uint32_t victory_addr = (bt.current_battle_group >= 0x01C0)  /* ENEMY_GROUP_BOSS_START */
-                ? MSG_BTL8_PLAYER_VICTORY_BOSS
-                : MSG_BTL8_PLAYER_VICTORY;
-            st->phase = BTL_VICTORY_DROP;
-            if (battle_push_text_ex(&child_init, victory_addr, false,
-                                    true, bt.battle_exp_scratch))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
+        case BTL_VICTORY:
+            if (btl_step_victory(st, &r)) return r;
             break;
-        }
 
         case BTL_VICTORY_DROP:
-            dt.blinking_triangle_flag = 0;
-            st->exp_i = 0;
-            st->phase = BTL_VICTORY_EXP;
-            /* Announce item drop */
-            if (bt.item_dropped != 0) {
-                set_current_item_far((uint8_t)bt.item_dropped);
-                if (battle_push_text(&child_init, MSG_BTL8_ENEMY_PRESENT_DROPPED))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child_init);
-            }
+            if (btl_step_victory_drop(st, &r)) return r;
             break;
 
         case BTL_VICTORY_EXP:
-            /* Distribute EXP to all conscious, non-NPC, non-dead party
-             * members. gain_exp(1, ...) ran here in the blocking original;
-             * the prepare half runs inline and any pending level-up runs as
-             * a pushed GAME_MODE_LEVEL_UP child (was the pump bridge). */
-            dt.blinking_triangle_flag = 0;
-            while (st->exp_i < BATTLER_COUNT) {
-                Battler *b = &bt.battlers_table[st->exp_i++];
-                if (b->consciousness == 0) continue;
-                if (b->ally_or_enemy != 0) continue;
-                if (b->npc_id != 0) continue;
-                if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_UNCONSCIOUS) continue;
-                if (b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] == STATUS_0_DIAMONDIZED) continue;
-
-                if (gain_exp_prepare(b->id, bt.battle_exp_scratch)) {
-                    level_up_make_init(&child_init, b->id);
-                    /* phase stays BTL_VICTORY_EXP — the resume re-enters the loop */
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_LEVEL_UP, &child_init);
-                }
-            }
-            st->post_battle_exit = 1;
-            st->phase = BTL_TURN_CONT;
+            if (btl_step_victory_exp(st, &r)) return r;
             break;
 
         case BTL_TURN_CONT:
@@ -5386,47 +5617,26 @@ StepResult mode_step_battle(ModeState *ms) {
             reset_hppp_rolling();
 
             /* Wait for HP/PP meters to stabilize */
-            child_init = (ModeState){0};
-            child_init.battle_wait.kind = BW_HPPP_STABLE;
             st->phase = BTL_ENDING_MIRROR;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &child_init);
+            return btl_push_wait(BW_HPPP_STABLE);
 
         case BTL_ENDING_MIRROR:
             /* Mirror restore; if it happened, dead-check (its KO text) before the
              * cleanup tail. */
             st->phase = BTL_ENDING_CLEANUP;
-            if (btl_ending_mirror_restore()) {
-                check_dead_players_make_init(&child_init);
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_CHECK_DEAD_PLAYERS, &child_init);
-            }
+            if (btl_ending_mirror_restore())
+                return btl_push_dead_check(st, BTL_ENDING_CLEANUP);
             break;
 
         case BTL_ENDING_CLEANUP:
-            btl_ending_post_cleanup();
+            if (btl_step_ending_cleanup(st, &r)) return r;
+            break;
 
-            if (ow.battle_mode == 0) {
-                /* Debug mode: loop back to reinit */
-                st->phase = BTL_REINIT;
-                break;
-            }
-
-            /* Fade out; the former loop body (update_battle_screen_effects)
-             * is the GAME_MODE_FADE_WAIT step's FADE_TICK_BATTLE_EFFECTS tick.
-             * Assembly: LDX #1; TXA; JSL FADE_OUT → step 1, delay 1 (one
-             * brightness step every 2 frames, ~30 frames to black). */
-            fade_out(1, 1);
-            child_init = (ModeState){0};
-            child_init.fade_wait.tick_kind = FADE_TICK_BATTLE_EFFECTS;
-            st->phase = BTL_EXIT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child_init);
-
-        case BTL_EXIT_TEARDOWN: {
-            StepResult r;
-            if (close_all_windows_and_hide_hppp_step(&st->teardown, &child_init, &r))
+        case BTL_EXIT_TEARDOWN:
+            if (close_all_windows_and_hide_hppp_step(&st->teardown, &btl_child, &r))
                 return r;
             clear_battle_visual_effects();
             return STEP_RESULT_POP(st->battle_result);
-        }
 
         case BTL_EXIT:
         default:
