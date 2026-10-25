@@ -134,7 +134,7 @@ static void gas_station_load(void) {
 
     /* Zero the battle BG palette in BUFFER (fade target → black for group 2).
        ROM: MEMSET24 BUFFER+BPP4PALETTE_SIZE*2, 0, BPP4PALETTE_SIZE */
-    memset(ert.buffer + BPP4PALETTE_SIZE * 2, 0, BPP4PALETTE_SIZE); /* BUF_FADE_TARGET */
+    memset(&buf_palette_fade(ert.buffer)->target[16 * 2], 0, BPP4PALETTE_SIZE);
 
     /* Zero PALETTES groups 0-1 (gas station palette starts black).
        ROM: MEMSET16 PALETTES, 0, BPP4PALETTE_SIZE*2 */

@@ -450,7 +450,7 @@ static void prepare_dynamic_cast_name_text(void) {
  * ===================================================================== */
 static uint16_t prepare_cast_name_tilemap(uint16_t start_tile, uint16_t col_offset,
                                            uint16_t tile_count) {
-    uint16_t *tilemap = (uint16_t *)&ert.buffer[BUF_CREDITS_TILEMAP];
+    uint16_t *tilemap = (uint16_t *)BUF_REGION(BUF_CREDITS_TILEMAP, 0, BUF_CREDITS_TILEMAP_SIZE);
     uint16_t out_idx = col_offset;
     uint16_t tile = start_tile;
 
@@ -491,7 +491,7 @@ static void copy_cast_name_tilemap(uint16_t x_col, uint16_t y_row,
     uint16_t vram_top = (scroll_row << 5) + x_col + VRAM_CAST_TILEMAP - half_count;
 
     /* Source: BUFFER+$4000 at x_col offset */
-    uint8_t *src_top = &ert.buffer[BUF_CREDITS_TILEMAP + x_col * 2];
+    uint8_t *src_top = BUF_REGION(BUF_CREDITS_TILEMAP, x_col * 2, tile_count * 2);
     vram_copy(src_top, vram_top, tile_count * 2, 0);
 
     /* Bottom row: next tilemap row (wrap at 31) */
@@ -503,7 +503,7 @@ static void copy_cast_name_tilemap(uint16_t x_col, uint16_t y_row,
     }
 
     /* Source for bottom row: BUFFER+$4000 + 64 bytes (32 words) offset */
-    uint8_t *src_bot = &ert.buffer[BUF_CREDITS_TILEMAP + 64 + x_col * 2];
+    uint8_t *src_bot = BUF_REGION(BUF_CREDITS_TILEMAP, 64 + x_col * 2, tile_count * 2);
     vram_copy(src_bot, vram_bot, tile_count * 2, 0);
 }
 
@@ -574,7 +574,7 @@ void print_cast_name_party(uint16_t char_id, uint16_t x_col, uint16_t y_row) {
  * ===================================================================== */
 void upload_special_cast_palette(uint16_t palette_index) {
     uint16_t offset = palette_index * 32;
-    uint8_t *src = &ert.buffer[BUF_CREDITS_PALETTE + offset];
+    uint8_t *src = BUF_REGION(BUF_CREDITS_PALETTE, offset, BPP4PALETTE_SIZE);
     memcpy(&ert.palettes[12 * 16], src, BPP4PALETTE_SIZE);
     ert.palette_upload_mode = 16; /* PALETTE_UPLOAD_OBJ_ONLY */
 }
@@ -1114,7 +1114,9 @@ static void load_cast_scene(void) {
         const uint8_t *data = ASSET_DATA(ASSET_ENDING_CAST_NAMES_PAL_LZHAL);
         size_t data_size = ASSET_SIZE(ASSET_ENDING_CAST_NAMES_PAL_LZHAL);
         if (data) {
-            decomp(data, data_size, &ert.buffer[BUF_CREDITS_PALETTE], BUFFER_SIZE - BUF_CREDITS_PALETTE);
+            decomp(data, data_size,
+                   buf_at(BUF_CREDITS_PALETTE, BUFFER_SIZE - BUF_CREDITS_PALETTE),
+                   BUFFER_SIZE - BUF_CREDITS_PALETTE);
         }
     }
 
@@ -1195,7 +1197,7 @@ static void initialize_credits_scene(void) {
         const uint8_t *data = ASSET_DATA(ASSET_ENDING_E1E94A_BIN_LZHAL);
         size_t data_size = ASSET_SIZE(ASSET_ENDING_E1E94A_BIN_LZHAL);
         if (data) {
-            decomp(data, data_size, ert.buffer, BUFFER_SIZE);
+            decomp(data, data_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
         }
     }
 
@@ -1212,10 +1214,11 @@ static void initialize_credits_scene(void) {
     }
 
     /* Upload decompressed tilemap to BG2 (1792 bytes) */
-    vram_copy(ert.buffer, VRAM_CREDITS_LAYER_2_TILEMAP, 1792, 0);
+    vram_copy(BUF_REGION(BUF_DECOMP_SCRATCH, 0, 1792), VRAM_CREDITS_LAYER_2_TILEMAP, 1792, 0);
 
     /* Upload tile data to BG2 tiles (8192 bytes from BUFFER+$700) */
-    vram_copy(&ert.buffer[BUF_CREDITS_LAYER2], VRAM_CREDITS_LAYER_2_TILES, 8192, 0);
+    vram_copy(BUF_REGION(BUF_CREDITS_LAYER2, 0, BUF_CREDITS_LAYER2_SIZE),
+              VRAM_CREDITS_LAYER_2_TILES, BUF_CREDITS_LAYER2_SIZE, 0);
 
     /* Clear BG3 tilemap (2048 bytes) */
     {
@@ -1228,10 +1231,11 @@ static void initialize_credits_scene(void) {
         const uint8_t *data = ASSET_DATA(ASSET_ENDING_CREDITS_FONT_GFX_LZHAL);
         size_t data_size = ASSET_SIZE(ASSET_ENDING_CREDITS_FONT_GFX_LZHAL);
         if (data) {
-            decomp(data, data_size, ert.buffer, BUFFER_SIZE);
+            decomp(data, data_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
 
             /* Upload to VRAM::CREDITS_LAYER_3_TILES + $200 */
-            vram_copy(ert.buffer, VRAM_CREDITS_LAYER_3_TILES + 0x200,
+            vram_copy(BUF_REGION(BUF_DECOMP_SCRATCH, 0, STAFF_CREDITS_FONT_GFX_SIZE),
+                      VRAM_CREDITS_LAYER_3_TILES + 0x200,
                       STAFF_CREDITS_FONT_GFX_SIZE, 0);
         }
     }
@@ -1452,7 +1456,7 @@ StepResult mode_step_ending(ModeState *st) {
                 return STEP_RESULT_CONTINUE();
             }
             /* done: clear OAM, start the 64-frame fade-out */
-            memset(&ert.buffer[32], 0, 480);
+            memset(&buf_palette_fade(ert.buffer)->target[16], 0, 480);
             prepare_palette_fade_slopes(64, 0xFFFF);
             s->fade_counter = 0;   /* fade-out counts 0..63 */
             s->phase = EN_CR_FADEOUT;
