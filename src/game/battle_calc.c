@@ -255,6 +255,7 @@ uint16_t battle_50pct_variance(uint16_t value) {
  *
  * Returns damage multiplier (0-255) based on element resistance level.
  * Damage is scaled as: final_damage = base_damage * result / 255.
+ * A level above 3 matches no case and is returned as is.
  */
 uint8_t battle_calc_psi_dmg_modifier(uint8_t resist_level) {
     switch (resist_level) {
@@ -262,7 +263,7 @@ uint8_t battle_calc_psi_dmg_modifier(uint8_t resist_level) {
         case 1: return 179;  /* Low — ~70% */
         case 2: return 102;  /* Medium — ~40% */
         case 3: return 13;   /* High — ~5% */
-        default: return 255;
+        default: return resist_level;  /* asm falls through to @RETURN with A unchanged */
     }
 }
 
@@ -270,7 +271,8 @@ uint8_t battle_calc_psi_dmg_modifier(uint8_t resist_level) {
 /*
  * CALC_PSI_RES_MODIFIERS (asm/battle/calc_psi_resistance_modifiers.asm)
  *
- * Returns success rate multiplier (0-255) for status PSI.
+ * Returns success rate multiplier (0-255) for status PSI. A level above 3
+ * matches no case and is returned as is.
  */
 uint8_t battle_calc_psi_res_modifier(uint8_t resist_level) {
     switch (resist_level) {
@@ -278,7 +280,7 @@ uint8_t battle_calc_psi_res_modifier(uint8_t resist_level) {
         case 1: return 128;  /* Low — ~50% */
         case 2: return 26;   /* Medium — ~10% */
         case 3: return 0;    /* High — immune */
-        default: return 255;
+        default: return resist_level;  /* asm falls through to @RETURN with A unchanged */
     }
 }
 
