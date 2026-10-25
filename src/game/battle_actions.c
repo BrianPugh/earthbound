@@ -4446,10 +4446,16 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
 
     for (;;) {
         switch (st->pc) {
-        case 0: {
+        case 0:
             st->scratch16[0] = bt.current_attacker;
             st->scratch16[1] = bt.current_target;
-
+            /* HIDE_HPPP_WINDOWS: CLEAR_BATTLE_MENU_CHARACTER_INDICATOR waits a
+             * frame (US) before clearing the attacker's turn highlight. */
+            st->pc = 3;
+            if (win.battle_menu_current_character_id != -1)
+                return battle_push_vblanks(&child, 1);
+            break;
+        case 3: {
             /* Hide HP/PP windows, add Poo to party */
             hide_hppp_windows();
             add_char_to_party(PARTY_MEMBER_POO);
@@ -4466,6 +4472,11 @@ static StepResult btlact_masterbarfdeath_step(BattleActionState *st) {
             /* Show HP/PP windows with Poo */
             redirect_show_hppp_windows();
 
+            /* SELECT_BATTLE_MENU_CHARACTER waits a frame (US) before drawing. */
+            st->pc = 4;
+            return battle_push_vblanks(&child, 1);
+        }
+        case 4: {
             /* Find Poo's position in party_members and select menu character */
             for (uint16_t i = 0; i < TOTAL_PARTY_COUNT; i++) {
                 if (game_state.party_members[i] == PARTY_MEMBER_POO) {
@@ -5021,8 +5032,25 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
 
         switch (st->pc) {
         case 12:
-            /* Close windows and hide HP/PP */
+            /* Close windows: CLOSE_WINDOW's tick ran inline; present it. */
+            (void)take_unpresented_ticks();
             redirect_close_focus_window();
+            st->pc = 26;
+            {
+                uint16_t ticks = take_unpresented_ticks();
+                if (ticks)
+                    return battle_push_vblanks(&child, ticks);
+            }
+            continue;
+
+        case 26:
+            /* HIDE_HPPP_WINDOWS: the indicator clear waits a frame first. */
+            st->pc = 27;
+            if (win.battle_menu_current_character_id != -1)
+                return battle_push_vblanks(&child, 1);
+            continue;
+
+        case 27:
             bt.battle_mode_flag = 0;
             hide_hppp_windows();
             bt.battle_mode_flag = 1;

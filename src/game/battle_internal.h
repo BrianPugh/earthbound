@@ -72,6 +72,8 @@ void redirect_show_hppp_windows(void);
 void redirect_close_focus_window(void);
 void select_battle_menu_character_far(uint16_t party_slot);
 void clear_battle_menu_character_indicator_far(void);
+/* STEP_PUSH `frames` present-only GAME_MODE_BATTLE_WAIT frames (BW_VBLANK). */
+StepResult battle_push_vblanks(ModeState *child, uint16_t frames);
 void set_current_item_far(uint8_t item);
 uint16_t enemy_select_mode(uint16_t current_group);
 void close_all_windows_and_hide_hppp(void);

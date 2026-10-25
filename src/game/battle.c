@@ -1264,6 +1264,13 @@ static StepResult push_wait_frames(ModeState *child, uint8_t kind, uint16_t fram
     return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, child);
 }
 
+/* STEP_PUSH `frames` present-only frames (BW_VBLANK): a bare US
+ * WAIT_UNTIL_NEXT_FRAME, or the present owed by a window tick a synchronous
+ * helper already ran inline (take_unpresented_ticks). */
+StepResult battle_push_vblanks(ModeState *child, uint16_t frames) {
+    return push_wait_frames(child, BW_VBLANK, frames);
+}
+
 /* ======================================================================
  * HP / PP management
  * ====================================================================== */

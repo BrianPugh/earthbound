@@ -551,29 +551,26 @@ void force_blank_and_wait_vblank(void) {
     bg_distortion_off();
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
-    /* Present the blanked screen WITHOUT advancing an actionscript frame: every
-     * caller of this blocking wrapper is a can't-park context (battle, or overworld
-     * setup with disable_actionscript set), so this avoids a nested pump. Mode-step
-     * callers use the park-propagating force_blank_and_wait_vblank_work_step() form. */
-    render_frame_tick_no_actionscript();
+    /* The asm's wait is a bare NEW_FRAME_STARTED spin: one blanked frame with no
+     * window tick, no entity frame and no battle-background step. Mode-step
+     * callers use force_blank_and_wait_vblank_work_step() and present that frame
+     * with their own STEP_CONTINUE. */
     wait_for_vblank();
 }
 
-/* Park-propagating form of force_blank_and_wait_vblank() (savestate cutover): same
- * force-blank setup, but the frame render uses render_frame_tick_work_step() so a
- * parked callroutine becomes a STEP_PUSH instead of a nested pump. A mode-step caller:
+/* Mode-step form of force_blank_and_wait_vblank(): the same force-blank setup; the
+ * caller's STEP_CONTINUE is the asm's bare vblank wait (no entity frame, no window
+ * tick). Callers keep the park-propagating shape
  *     if (force_blank_and_wait_vblank_work_step()) { st->phase = <FLUSH>;
  *                                                    return actionscript_frame_take_push(); }
- * and runs render_frame_tick_work_flush() at <FLUSH> on the child's pop. Returns true
- * ONLY when an actionscript frame parked. Synchronous (non-savestate) callers use the
- * blocking force_blank_and_wait_vblank() wrapper above instead. */
+ * but nothing renders here, so it never parks and always returns false. */
 bool force_blank_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
     ppu.window_hdma_active = false;
     ppu.window2_hdma_active = false;
     bg_distortion_off();
     fade_out(0, 0);
-    return render_frame_tick_work_step();
+    return false;
 }
 
 
@@ -1846,18 +1843,15 @@ void restore_bg_palette_and_enable_display(void) {
  */
 void blank_screen_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
-    /* No-actionscript present (see force_blank_and_wait_vblank): every caller of this
-     * blocking wrapper is can't-park; mode-step callers use *_work_step(). */
-    render_frame_tick_no_actionscript();
+    /* A bare one-frame wait, as in force_blank_and_wait_vblank. */
     wait_for_vblank();
 }
 
-/* Park-propagating form of blank_screen_and_wait_vblank() (savestate cutover).
- * See force_blank_and_wait_vblank_work_step() for the caller contract; the only
- * difference is this form does not disable HDMA or cancel the fade. */
+/* Mode-step form of blank_screen_and_wait_vblank(); see
+ * force_blank_and_wait_vblank_work_step(). Never parks. */
 bool blank_screen_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
-    return render_frame_tick_work_step();
+    return false;
 }
 
 
