@@ -6397,7 +6397,8 @@ StepResult mode_step_instant_win(ModeState *state) {
             if (st->fade_i == 0) {
                 /* Restore saved palettes as fade target */
                 PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
-                memcpy(fade->target, ert.buffer + BUF_BATTLE_PALETTE_SAVE,
+                memcpy(fade->target,
+                       BUF_REGION(BUF_BATTLE_PALETTE_SAVE, 0, sizeof(fade->target)),
                        sizeof(fade->target));
 
                 /* Prepare palette fade from black to original over 6 frames */
@@ -6539,7 +6540,7 @@ StepResult mode_step_pp_recovery_flash(ModeState *ms) {
         /* Flash setup: save current ert.palettes to ert.buffer, fill all 256
          * palette entries with purple (SNES RGB $5D70), prep the 12-frame
          * fade from purple back to the saved colors. */
-        memcpy(ert.buffer, ert.palettes, 512);
+        memcpy(buf_palette_fade(ert.buffer)->target, ert.palettes, 512);
         for (int i = 0; i < 256; i++) {
             ert.palettes[i] = 0x5D70;
         }

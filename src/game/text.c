@@ -61,7 +61,7 @@ void (*text_trace_hook)(int event, uint16_t window_id, uint8_t eb_char);
  * Phase-exclusive with pathfinding — see buffer_layout.h for details. */
 _Static_assert(VWF_BUFFER_SIZE == BUF_VWF_SAVE_SIZE,
                "BUF_VWF_SAVE_SIZE in buffer_layout.h must match VWF_BUFFER_SIZE");
-#define vwf_saved_buffer (ert.buffer + BUF_VWF_SAVE)
+#define vwf_saved_buffer BUF_REGION(BUF_VWF_SAVE, 0, BUF_VWF_SAVE_SIZE)
 
 /* Extra pixels added between each character (US = 1, naming screen = 0) */
 uint8_t character_padding = 1;
@@ -200,9 +200,9 @@ void text_load_window_gfx(void) {
      * 0x2000, 0x2A00 bytes) and VWF name compositing would need to be
      * restructured to work within a smaller region or write directly to
      * ppu.vram. */
-    memset(ert.buffer, 0, BUFFER_SIZE);
+    memset(buf_decomp_scratch(), 0, BUF_DECOMP_SCRATCH_SIZE);
     size_t decompressed_size = decomp(compressed, compressed_size,
-                                      ert.buffer, BUFFER_SIZE);
+                                      buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
 
     if (decompressed_size == 0) {
         LOG_WARN("Failed to decompress text window graphics\n");
@@ -243,7 +243,9 @@ void text_load_window_gfx(void) {
        With decompressed size 0x1A00, BUFFER+$1000..$19FF has valid tile data;
        after this copy, BUFFER+$2000..$29FF gets that data, making cursor frame 1
        tiles (0x28D at buf[$28D0] = original buf[$18D0]) available. */
-    memmove(ert.buffer + 0x2000, ert.buffer + 0x1000, 0x2A00);
+    memmove(BUF_REGION(BUF_TEXT_GFX, BUF_TEXT_GFX_MOVE_DST, BUF_TEXT_GFX_MOVE_SIZE),
+            BUF_REGION(BUF_TEXT_GFX, BUF_TEXT_GFX_MOVE_SRC, BUF_TEXT_GFX_MOVE_SIZE),
+            BUF_TEXT_GFX_MOVE_SIZE);
 
     /* Step 1b: Conditional FLAVOURED_TEXT_GFX overlay (load_window_gfx.asm lines 29-43).
      * TEXT_WINDOW_PROPERTIES is a 5-entry table (3 bytes each: WORD offset, BYTE property).
@@ -259,7 +261,8 @@ void text_load_window_gfx(void) {
                 const uint8_t *flav_comp = ASSET_DATA(ASSET_GRAPHICS_FLAVOURED_TEXT_GFX_LZHAL);
                 if (flav_comp) {
                     decomp(flav_comp, flav_comp_size,
-                           ert.buffer + 0x100, BUFFER_SIZE - 0x100);
+                           BUF_REGION(BUF_TEXT_GFX_FLAVOUR, 0, BUF_TEXT_GFX_FLAVOUR_SIZE),
+                           BUF_TEXT_GFX_FLAVOUR_SIZE);
                 }
             }
         }
@@ -299,10 +302,10 @@ void text_load_window_gfx(void) {
              * Each VWF tile = 32 bytes (16 upper + 16 lower). */
             for (int tile = 0; tile < 4; tile++) {
                 /* Upper 8x8 half (first 16 bytes of VWF tile) */
-                memcpy(ert.buffer + 0x2A00 + char_idx * 64 + tile * 16,
+                memcpy(BUF_REGION(BUF_TEXT_NAME_TILES, char_idx * 64 + tile * 16, 16),
                        vwf_buffer + tile * VWF_TILE_BYTES, 16);
                 /* Lower 8x8 half (next 16 bytes of VWF tile) */
-                memcpy(ert.buffer + 0x2A00 + char_idx * 64 + tile * 16 + 256,
+                memcpy(BUF_REGION(BUF_TEXT_NAME_TILES, char_idx * 64 + tile * 16 + 256, 16),
                        vwf_buffer + tile * VWF_TILE_BYTES + 16, 16);
             }
         }
@@ -314,8 +317,9 @@ void text_load_window_gfx(void) {
      * plane 0 gets the checkerboard pattern OR'd with the inverted plane 1 (background mask),
      * while plane 1 (glyph pixels) is preserved unchanged. */
     {
-        uint8_t *name_data = ert.buffer + 0x2A00;
-        const uint8_t *checker = ert.buffer + 0x70;  /* checkerboard pattern tile */
+        uint8_t *name_data = BUF_REGION(BUF_TEXT_NAME_TILES, 0, BUF_TEXT_NAME_TILES_SIZE);
+        const uint8_t *checker = /* checkerboard pattern tile */
+            BUF_REGION(BUF_TEXT_GFX_CHECKER, 0, BUF_TEXT_GFX_CHECKER_SIZE);
 
         for (int tile = 0; tile < 32; tile++) {
             for (int row = 0; row < 8; row++) {
@@ -340,8 +344,8 @@ void text_load_window_gfx(void) {
         const uint8_t *raw = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_TILE_TABLES_BIN);
         /* TEXT_2 starts at offset 49 words (7 slots × 7 cols) past TEXT_1 */
         const uint16_t *text2 = (const uint16_t *)(raw + AFFLICTION_GROUP_COUNT * 7 * 2);
-        uint8_t *dest = ert.buffer + 0x2C00;
-        const uint8_t *checker = ert.buffer + 0x70;
+        uint8_t *dest = BUF_REGION(BUF_TEXT_STATUS_TILES, 0, BUF_TEXT_STATUS_TILES_SIZE);
+        const uint8_t *checker = BUF_REGION(BUF_TEXT_GFX_CHECKER, 0, BUF_TEXT_GFX_CHECKER_SIZE);
 
         for (int i = 0; i < AFFLICTION_GROUP_COUNT * 7; i++) {
             uint16_t val = text2[i];
@@ -350,7 +354,7 @@ void text_load_window_gfx(void) {
 
             /* Source tile: ((val & 0xFFF0) + val) × 16 bytes into BUFFER */
             uint32_t src_off = (uint32_t)((val & 0xFFF0) + val) * 16;
-            const uint8_t *src = ert.buffer + src_off;
+            const uint8_t *src = BUF_REGION(BUF_TEXT_GFX, src_off, 256 + 16);
 
             /* Upper 8×8 half (8 rows × 2 bytes) */
             for (int row = 0; row < 8; row++) {
@@ -372,15 +376,29 @@ void text_load_window_gfx(void) {
     uint32_t vram_base = VRAM_TEXT_LAYER_TILES * 2; /* $C000 byte address */
 
     /* Mode 1: border/window tiles from BUFFER+$2000 */
-    memcpy(ppu.vram + vram_base + 0x2000, ert.buffer + BUF_TEXT_LAYER2_TILES, 0x1800);
+    memcpy(ppu.vram + vram_base + 0x2000,
+           BUF_REGION(BUF_TEXT_LAYER2_TILES, 0, BUF_TEXT_LAYER2_TILES_SIZE),
+           BUF_TEXT_LAYER2_TILES_SIZE);
 
     /* Mode 0 fallthrough: scattered text/UI tile uploads */
-    memcpy(ppu.vram + vram_base + 0x0000, ert.buffer + BUF_TEXT_TILES_BLOCK1, 0x0450);
-    memcpy(ppu.vram + vram_base + 0x04F0, ert.buffer + BUF_TEXT_TILES_BLOCK2, 0x0060);
-    memcpy(ppu.vram + vram_base + 0x05F0, ert.buffer + BUF_TEXT_TILES_BLOCK3, 0x00B0);
-    memcpy(ppu.vram + vram_base + 0x0700, ert.buffer + BUF_TEXT_TILES_BLOCK4, 0x00A0);
-    memcpy(ppu.vram + vram_base + 0x0800, ert.buffer + BUF_TEXT_TILES_BLOCK5, 0x0010);
-    memcpy(ppu.vram + vram_base + 0x0900, ert.buffer + BUF_TEXT_TILES_BLOCK6, 0x0010);
+    memcpy(ppu.vram + vram_base + 0x0000,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK1, 0, BUF_TEXT_TILES_BLOCK1_SIZE),
+           BUF_TEXT_TILES_BLOCK1_SIZE);
+    memcpy(ppu.vram + vram_base + 0x04F0,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK2, 0, BUF_TEXT_TILES_BLOCK2_SIZE),
+           BUF_TEXT_TILES_BLOCK2_SIZE);
+    memcpy(ppu.vram + vram_base + 0x05F0,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK3, 0, BUF_TEXT_TILES_BLOCK3_SIZE),
+           BUF_TEXT_TILES_BLOCK3_SIZE);
+    memcpy(ppu.vram + vram_base + 0x0700,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK4, 0, BUF_TEXT_TILES_BLOCK4_SIZE),
+           BUF_TEXT_TILES_BLOCK4_SIZE);
+    memcpy(ppu.vram + vram_base + 0x0800,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK5, 0, BUF_TEXT_TILES_BLOCK5_SIZE),
+           BUF_TEXT_TILES_BLOCK5_SIZE);
+    memcpy(ppu.vram + vram_base + 0x0900,
+           BUF_REGION(BUF_TEXT_TILES_BLOCK6, 0, BUF_TEXT_TILES_BLOCK6_SIZE),
+           BUF_TEXT_TILES_BLOCK6_SIZE);
 }
 
 void text_load_flavour_palette(uint8_t flavour) {

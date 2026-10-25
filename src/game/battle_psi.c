@@ -59,6 +59,8 @@ static size_t battle_psi_table_size = 0;
 
 #define PSI_FRAME_SIZE           0x400  /* bytes per arrangement frame (32×32 tilemap) */
 #define PSI_FRAMES_PER_BUNDLE    8     /* frames per compressed bundle in .arr.bundled */
+_Static_assert(PSI_FRAMES_PER_BUNDLE * PSI_FRAME_SIZE == BUF_PSI_ARR_BUNDLE_SIZE,
+               "one decompressed PSI arrangement bundle must fill BUF_PSI_ARR_BUNDLE");
 
 PACKED_STRUCT
 typedef struct {
@@ -871,7 +873,8 @@ void show_psi_animation(uint16_t anim_id) {
     {
         psi_animation_state.arr_bundled_data = ASSET_DATA(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
         psi_animation_state.arr_bundled_size = (uint32_t)ASSET_SIZE(ASSET_PSIANIMS_ARRANGEMENTS(anim_id));
-        psi_animation_state.arr_bundle_buf = ert.buffer;
+        psi_animation_state.arr_bundle_buf =
+            BUF_REGION(BUF_PSI_ARR_BUNDLE, 0, BUF_PSI_ARR_BUNDLE_SIZE);
         psi_animation_state.arr_current_bundle = -1; /* none decompressed yet */
         psi_animation_state.arr_current_anim_id = anim_id; /* serializable backing for rebind */
     }
@@ -989,7 +992,8 @@ void (*battle_psi_cursor_callback_from_id(uint8_t id))(uint16_t) {
  * stale absolute pointers on a cross-process/cross-platform load. */
 void psi_animation_savestate_rebind(void) {
     if (psi_animation_state.arr_bundle_buf != NULL)
-        psi_animation_state.arr_bundle_buf = ert.buffer;
+        psi_animation_state.arr_bundle_buf =
+            BUF_REGION(BUF_PSI_ARR_BUNDLE, 0, BUF_PSI_ARR_BUNDLE_SIZE);
     if (psi_animation_state.arr_bundled_data != NULL
         && psi_animation_state.arr_current_anim_id < PSI_ANIM_COUNT) {
         uint16_t anim_id = psi_animation_state.arr_current_anim_id;

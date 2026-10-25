@@ -696,16 +696,23 @@ void upload_text_tiles_to_vram(uint16_t param) {
     /* param 1 or 2: Copy large block (BUFFER+$2000 → TEXT_LAYER_TILES+$1000) */
     if (param == 1 || param == 2) {
         memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x1000) * 2],
-               &ert.buffer[BUF_TEXT_LAYER2_TILES], 0x1800);
+               BUF_REGION(BUF_TEXT_LAYER2_TILES, 0, BUF_TEXT_LAYER2_TILES_SIZE),
+               BUF_TEXT_LAYER2_TILES_SIZE);
     }
 
     /* All valid params: Copy 6 scattered blocks from ert.buffer to VRAM */
-    memcpy(&ppu.vram[VRAM_TEXT_LAYER_TILES * 2],                   &ert.buffer[BUF_TEXT_TILES_BLOCK1], 0x0450);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0278) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK2], 0x0060);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x02F8) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK3], 0x00B0);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0380) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK4], 0x00A0);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0400) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK5], 0x0010);
-    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0480) * 2],        &ert.buffer[BUF_TEXT_TILES_BLOCK6], 0x0010);
+    memcpy(&ppu.vram[VRAM_TEXT_LAYER_TILES * 2],                   BUF_REGION(BUF_TEXT_TILES_BLOCK1, 0, BUF_TEXT_TILES_BLOCK1_SIZE),
+           BUF_TEXT_TILES_BLOCK1_SIZE);
+    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0278) * 2],        BUF_REGION(BUF_TEXT_TILES_BLOCK2, 0, BUF_TEXT_TILES_BLOCK2_SIZE),
+           BUF_TEXT_TILES_BLOCK2_SIZE);
+    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x02F8) * 2],        BUF_REGION(BUF_TEXT_TILES_BLOCK3, 0, BUF_TEXT_TILES_BLOCK3_SIZE),
+           BUF_TEXT_TILES_BLOCK3_SIZE);
+    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0380) * 2],        BUF_REGION(BUF_TEXT_TILES_BLOCK4, 0, BUF_TEXT_TILES_BLOCK4_SIZE),
+           BUF_TEXT_TILES_BLOCK4_SIZE);
+    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0400) * 2],        BUF_REGION(BUF_TEXT_TILES_BLOCK5, 0, BUF_TEXT_TILES_BLOCK5_SIZE),
+           BUF_TEXT_TILES_BLOCK5_SIZE);
+    memcpy(&ppu.vram[(VRAM_TEXT_LAYER_TILES + 0x0480) * 2],        BUF_REGION(BUF_TEXT_TILES_BLOCK6, 0, BUF_TEXT_TILES_BLOCK6_SIZE),
+           BUF_TEXT_TILES_BLOCK6_SIZE);
 }
 
 
@@ -1217,7 +1224,7 @@ void load_battle_sprite(uint16_t sprite_id) {
                                          + bt.current_battle_spritemaps_allocated * 2);
         bt.current_battle_spritemaps_allocated++;
         for (uint16_t row = 0; row < 4; row++)
-            memset(&ert.buffer[dest_base + row * 0x200], 0, 128);
+            memset(BUF_REGION(BUF_BATTLE_SPRITE_TILES, dest_base + row * 0x200, 128), 0, 128);
         return;
     }
 
@@ -1242,7 +1249,8 @@ void load_battle_sprite(uint16_t sprite_id) {
             /* Every sprite's GFX is width × height × 512 bytes (all 110
              * checked); don't read past the end of a shorter edited one. */
             if (src_off + 128 <= decompressed_size)
-                memcpy(&ert.buffer[dest_base + row * 0x200], decompressed + src_off, 128);
+                memcpy(BUF_REGION(BUF_BATTLE_SPRITE_TILES, dest_base + row * 0x200, 128),
+                       decompressed + src_off, 128);
             src_off += 128;
         }
     }
@@ -1322,7 +1330,7 @@ void setup_battle_enemy_sprites(void) {
      * If spritemaps > 16, copy $3000 bytes; else copy $2000 bytes.
      * Destination: VRAM word address $2000. */
     uint16_t vram_size = (bt.current_battle_spritemaps_allocated > 16) ? 0x3000 : 0x2000;
-    ppu_vram_dma(ert.buffer, 0x2000, vram_size);
+    ppu_vram_dma(BUF_REGION(BUF_BATTLE_SPRITE_TILES, 0, vram_size), 0x2000, vram_size);
 }
 
 
@@ -1771,7 +1779,7 @@ compare_row:
  */
 void desaturate_palettes(void) {
     /* Back up ert.palettes to BUFFER+$2000 */
-    memcpy(&ert.buffer[BUF_BATTLE_PALETTE_SAVE], ert.palettes, 256 * 2);
+    memcpy(BUF_REGION(BUF_BATTLE_PALETTE_SAVE, 0, 256 * 2), ert.palettes, 256 * 2);
 
     for (int i = 0; i < 128; i++) {
         uint16_t color = ert.palettes[i];
