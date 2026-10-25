@@ -625,12 +625,26 @@ static bool game_over_screen_begin(void) {
         /* Play "You Lose" music and fade out with mosaic */
         change_music(MUSIC_YOU_LOSE);
 
-        /* FADE_OUT_WITH_MOSAIC(step=1, delay=1, mosaic_enable=0)
-         * Assembly: LDY #0; LDX #1; TXA; JSL FADE_OUT_WITH_MOSAIC */
-        fade_out(1, 1);
+        /* FADE_OUT_WITH_MOSAIC(step=1, delay=1, mosaic_enable=0); the caller
+         * pushes it. Assembly: LDY #0; LDX #1; TXA; JSL FADE_OUT_WITH_MOSAIC */
         return true;
     }
     return false;
+}
+
+/* FADE_OUT_WITH_MOSAIC (asm/system/fade_out_with_mosaic.asm) as a
+ * GAME_MODE_MOSAIC_FADE child: a blocking brightness loop that waits `delay`
+ * frames per step (WAIT_FRAMES, no OAM clear or screen update), unlike the NMI
+ * fade's delay+1 frames, then force-blanks, clears HDMAEN and waits one vblank
+ * (final_hdma). */
+static StepResult push_fade_out_with_mosaic(ModeState *child, uint8_t step, uint16_t delay) {
+    *child = (ModeState){0};
+    child->mosaic_fade.kind       = (uint8_t)MF_OUT;
+    child->mosaic_fade.step       = step;
+    child->mosaic_fade.delay      = delay;
+    child->mosaic_fade.mosaic_bgs = 0;  /* Y = 0: no mosaic */
+    child->mosaic_fade.final_hdma = 1;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, child);
 }
 
 /* game_over_screen_setup(): the decompress/VRAM/palette/UI setup + the fade-in
@@ -791,12 +805,8 @@ StepResult mode_step_game_over(ModeState *mst) {
             st->saved_y = ow.respawn_y;
             disable_all_entities();
             st->phase = GO_SETUP;
-            if (game_over_screen_begin()) {
-                /* fade-out started: wait for it before the setup half */
-                child = (ModeState){0};
-                child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
-            }
+            if (game_over_screen_begin())
+                return push_fade_out_with_mosaic(&child, 1, 1);
             continue;  /* party not all-dead: no fade, straight to setup */
 
         case GO_SETUP:
@@ -869,12 +879,10 @@ StepResult mode_step_game_over(ModeState *mst) {
             continue;
 
         case GO_CONT_FADE:
-            /* spawn() Continue path: FADE_OUT_WITH_MOSAIC(2,1) + wait */
-            fade_out(2, 1);
+            /* spawn() Continue path (asm/overworld/spawn.asm):
+             * LDY #0; LDX #1; LDA #2; JSL FADE_OUT_WITH_MOSAIC */
             st->phase = GO_CONT_DONE;
-            child = (ModeState){0};
-            child.fade_wait.tick_kind = FADE_TICK_SCREEN_ONLY;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_FADE_WAIT, &child);
+            return push_fade_out_with_mosaic(&child, 2, 1);
 
         case GO_CONT_DONE:
             enable_all_entities();

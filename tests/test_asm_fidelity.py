@@ -70,14 +70,7 @@ CALL_EXCLUSIONS = {
 }
 
 # Confirmed divergences whose fix is pending; drop the entry with the fix.
-KNOWN_DIVERGENCES = {
-    # INITIALIZE_GAME_OVER_SCREEN and SPAWN's Continue path use FADE_OUT_WITH_MOSAIC
-    # (Y=0): a blocking loop with WAIT_FRAMES(delay) per step and no OAM clear. The
-    # port runs the NMI fade (delay+1 frames per step) under FADE_TICK_SCREEN_ONLY,
-    # which also clears OAM each frame. Fix: push GAME_MODE_MOSAIC_FADE instead.
-    ("src/game/overworld_palette.c", "game_over_screen_begin", "fade_out(1, 1)"),
-    ("src/game/overworld_palette.c", "mode_step_game_over", "fade_out(2, 1)"),
-}
+KNOWN_DIVERGENCES: set[tuple[str, str, str]] = set()
 
 
 # ---------------------------------------------------------------- asm parsing
