@@ -27,7 +27,7 @@
   "montage-1": {
    "enemies": "",
    "err": [],
-   "party": "PARTY 1:Ness L78 HP 835/630 PP 216/216",
+   "party": "PARTY 1:Ness L78 HP 834/630 PP 216/216",
    "state": "STATE montage-1 modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:acff3c69b2d41ffd",
    "until": [],
@@ -36,7 +36,7 @@
   "montage-2": {
    "enemies": "",
    "err": [],
-   "party": "PARTY 1:Ness L78 HP 723/630 PP 216/216",
+   "party": "PARTY 1:Ness L78 HP 722/630 PP 216/216",
    "state": "STATE montage-2 modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
@@ -45,7 +45,7 @@
   "powers": {
    "enemies": "",
    "err": [],
-   "party": "PARTY 1:Ness L78 HP 948/630 PP 70/216",
+   "party": "PARTY 1:Ness L78 HP 947/630 PP 71/216",
    "state": "STATE powers modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT] idle=modes input=0 pos=(496,9140) dir=UP music=108 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:727b0673b11f1915",
    "until": [
