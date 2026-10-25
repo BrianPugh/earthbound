@@ -8,6 +8,7 @@
 #include "game/audio.h"
 #include "core/log.h"
 #include "core/state_dump.h"
+#include "game/smooth_camera.h"
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
@@ -75,6 +76,10 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--record-paused") == 0) {
             /* Start recording paused; the script's 'record on' resumes it */
             record_set_paused(true);
+        } else if (strcmp(argv[i], "--smooth-camera") == 0) {
+            /* Presentation only: sub-pixel scenery scroll while walking
+             * (game/smooth_camera.h). Also EB_SMOOTH_CAMERA=1. */
+            smooth_camera_enabled = true;
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
             platform_skip_intro = true;
         } else if (strcmp(argv[i], "--verbose") == 0) {
@@ -85,7 +90,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--smooth-camera] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
                     argv[0]);
             return 1;
         }

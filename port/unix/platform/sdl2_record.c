@@ -114,6 +114,10 @@ void record_set_paused(bool paused) {
     record_paused = paused;
 }
 
+bool record_is_paused(void) {
+    return record_paused;
+}
+
 uint32_t record_frames(void) {
     return frames_recorded;
 }

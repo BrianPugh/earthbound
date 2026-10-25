@@ -12,6 +12,9 @@ set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 # The desktop build is warning-clean: warnings fail it (-DEB_WERROR=OFF to relax).
 option(EB_WERROR "Treat compiler warnings as errors" ON)
 
+# Smooth camera hooks (runtime option --smooth-camera / EB_SMOOTH_CAMERA=1)
+set(EB_SMOOTH_CAMERA ON CACHE BOOL "Build the smooth-camera presentation hooks")
+
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src
                  ${CMAKE_CURRENT_BINARY_DIR}/game_lib)
