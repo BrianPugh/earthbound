@@ -1,4 +1,5 @@
 #include "game/fade.h"
+#include "game/battle_bg.h"
 #include "game/overworld.h"
 #include "snes/ppu.h"
 
@@ -61,6 +62,12 @@ bool fade_update(void) {
         ppu.inidisp = 0x80;
         ppu.window_hdma_active = false;
         ppu.window2_hdma_active = false;
+        /* STZ HDMAEN_MIRROR also stops the battle-BG distortion channels
+         * (DO_BATTLEBG_DMA only re-enables them from a battle frame). Without
+         * this, DISPLAY_BATTLE_CUTSCENE_TEXT's fade-out left Giygas's BG2VOFS
+         * ripple on the overworld prayer vignette, and the Snow Wood dorm's
+         * couch row showed up again near the bottom of the screen. */
+        bg_distortion_off();
         fade_state.step = 0;  /* Assembly (irq_nmi.asm:112): STZ step */
         fade_state.fading = false;
     } else if (next >= 0x10) {

@@ -22,7 +22,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Small interiors sit in black map space, often off-centre (houses, hotel lobbies, tents, cabins, mine rooms, Monotoli floors, Fourside café/bakery) | everywhere | emu run04e; many relay legs | 2026-10-24 |
 | Black bottom rows y≥225 | Belch sewer room (save 25) | emu swe25/0002 | 2026-10-24 |
 | 5-px rock strip at the left gutter edge is a real rock pillar, black void to its left | Lost Underworld PD2, 5698,336; `flag 11 1; teleport 5620 336 2` on 32-LumineHall | emu gl-luo/0001-0002 vs port gl-lu/0007, 0009 | 2026-10-24 |
-| Giygas prayer vignette of the Snow Wood dorm: room in black map space, black below y≈168 | 36-CavePast, Giygas prayer 4 (Tony); `teleport 7912 3088 5` shows the same view | emu endo/0001-snow vs port end2/0001-snow, end1/0115 | 2026-10-24 |
+| Giygas prayer vignette of the Snow Wood dorm: room in black map space, black below y≈168 | 36-CavePast, Giygas prayer 4 (Tony); `teleport 7912 3088 5` shows the same view | emu endo/0001-snow vs port end2/0001-snow, end1/0115. The couch-top strip at x 217-246, y 226-231 in end1/0115 was a port bug (Giygas's BG2VOFS distortion left on; fixed in fade.c) | 2026-10-24 |
+| Paula's-room whiteout after Giygas: white room rectangle (port x 96-320, y 40-167) in a void that fades black → grey → white; the room runs into the right gutter because it reaches the band's right edge | 36-CavePast, after Giygas's death (prayer 9) | emu evo1/0156-0159 (room x 64-255, y 31-158, +32/+8 = port) vs port end1/0296 | 2026-10-25 |
 | Giygas death static has horizontal bands that jump between bands | 36-CavePast, after the final prayer | emu gl-go/0156-0163 vs port gl-g/0072-0079 | 2026-10-24 |
 | Gutter NPCs vanish partway into the battle swirl | any overworld battle start | emu | 2026-10-23 |
 | Deep Darkness stays dark until Hawk Eye | Deep Darkness (save 30) | emu | 2026-10-23 |
