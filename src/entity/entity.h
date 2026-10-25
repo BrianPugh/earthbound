@@ -180,7 +180,8 @@ typedef struct {
  * The C port currently treats the entire region as one 64 KB buffer, which also
  * serves as the decompression target for small transient decomps.
  *
- * All named offset constants live in entity/buffer_layout.h.
+ * All named regions (offset + size), the compile-time overlap checks and the
+ * checked accessors live in entity/buffer_layout.h.
  *
  * === BUFFER REGION MAP ===
  *
@@ -253,12 +254,15 @@ typedef struct {
  *   Active during: all phases, temporary (consumed immediately)
  *   Notable consumers still using ert.buffer:
  *     - PSI arrangements:  bundled format (.arr.bundled), 8 KB per bundle
- *     - PSI GFX:           decomp → buffer[BUF_PSI_GFX], to VRAM
- *     - Ending credits:    decomp → BUF_CREDITS_GFX_1/2, BUF_CREDITS_PALETTE
- *     - Town map GFX:      decomp → buffer[0x0000]
+ *                          at buffer offset 0
+ *     - Ending credits:    decomp → buffer offset 0, BUF_CREDITS_PALETTE
+ *                          (BUF_CREDITS_GFX_1/2 index the cast VRAM image)
+ *     - Town map GFX:      decomp → buffer offset 0
+ *     - Animation sequences / title gradients: decomp → buffer offset 0
  *   Optimized to bypass ert.buffer (decompress directly to destination):
  *     - Intro GFX/tilemaps: → ppu.vram
  *     - Game-over GFX:      → ppu.vram
+ *     - PSI GFX:            → ppu.vram
  *     - Map tileset GFX:    → ppu.vram
  *     - Map/sanctuary arrangements, map tileset GFX, battle sprite GFX:
  *       stored decompressed (N.arr.raw / N.gfx.raw) and read in place
@@ -309,7 +313,7 @@ typedef struct {
  *             + decomp scratch [transient]
  * Battle:     BUF_FADE_TARGET + decomp scratch [transient]
  *             + BUF_BATTLE_PALETTE_SAVE [during desaturate]
- *             (PSI arrangements use bundled format in PsiAnimationState, not ert.buffer)
+ *             + the PSI arrangement bundle [8 KB at 0, during a PSI animation]
  * Lumine Hall wall text: BUF_PORTRAIT_* (0x0000-0x39D8); clobbers the
  *             palette fade and entity fade areas, which are idle then
  * Sanctuary:  BUF_SANCTUARY_TILEMAPS + BUF_SANCTUARY_PALETTES + BUF_SANCTUARY_MAP_BLOCKS (20 KB)
@@ -330,8 +334,9 @@ typedef struct {
  *   vblank wait, never a full game tick, so entity scripts don't execute.
  *
  * Suspect 2: BUF_FADE_TARGET (0x0000) vs PSI arrangements
- *   NO LONGER APPLICABLE. PSI arrangements now use bundled format decompressed
- *   into PsiAnimationState.arr_bundle_buf, not ert.buffer.
+ *   SAFE. PSI arrangements use the bundled format: one 8 KB bundle at a time
+ *   in PsiAnimationState.arr_bundle_buf, which points at ert.buffer + 0.
+ *   No palette fade runs while a PSI animation plays.
  *
  * Suspect 3: Entity fade sprite alloc (0x0000+) vs fade metadata / pathfinding
  *   BOUNDED. The asm allocator is unchecked over 31 KB; here the copies get
@@ -491,14 +496,14 @@ typedef struct {
     uint16_t palettes[256];
 
     /* General-purpose work buffer (BUFFER at $7F0000 in SNES WRAM RAM2 segment).
-     * The save_scratch overlay shares buffer memory at an offset past the
-     * always-active palette fade / entity fade / tile merge regions.
+     * The save_scratch overlay sits at offset 0x1280, past the palette fade
+     * and map fade arrays (buffer_layout.h names and asserts the offset).
      * Save operations are synchronous (no wait_for_vblank) so the overlap
-     * with inactive regions is safe. */
+     * with the entity fade sprite copies is safe. */
     union {
         uint8_t buffer[BUFFER_SIZE];
         struct {
-            uint8_t _save_pad[0x1280];  /* palette fade + entity fade + tile merge */
+            uint8_t _save_pad[0x1280];  /* see buffer_layout.h */
             SaveBlock save_scratch;
         };
     };
