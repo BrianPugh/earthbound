@@ -1056,6 +1056,15 @@ void set_target_if_targeted(void) {
  * Assembly uses POWERS_OF_TWO_32BIT lookup; C uses direct bit shift.
  */
 void battle_target_battler(uint16_t battler_index) {
+    /* A NO_EFFECT turn with single-target targeting and current_target 0
+     * (e.g. a paralyzed member on Auto Fight) arrives here with index 0xFFFF
+     * from SET_BATTLER_TARGETS_BY_ACTION's DEC. The asm doesn't range-check:
+     * it reads the 4 code bytes before POWERS_OF_TWO_32BIT and ORs them in.
+     * NO_EFFECT skips the target loop and bt.current_target is reset from the
+     * attacker before its next use, so those stray bits have no effect; set
+     * none here (a shift by 0xFFFF is undefined in C). */
+    if (battler_index >= 32)
+        return;
     bt.battler_target_flags |= (1U << battler_index);
 }
 
