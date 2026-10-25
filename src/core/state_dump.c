@@ -30,6 +30,7 @@
 #include "snes/ppu.h"
 #include "entity/entity.h"
 #include "entity/sprite.h"
+#include "entity/buffer_layout.h"
 #include "game/battle_bg.h"
 #include "game/text.h"
 #include "game/oval_window.h"
@@ -698,6 +699,153 @@ static int find_section(uint16_t id) {
     return -1;
 }
 
+/* ---- Range checks on restored indices ----
+ * Values a slot carries that later code uses as array indices, list links or
+ * pointer offsets without a bound of its own. The validate pass reads each one as
+ * its section streams by and fails the load when it is out of range, so a slot from
+ * a same-size-different-layout build, or a CRC-valid but corrupt one, is a clean
+ * FAILED instead of a crash after the load. (The mode stack's depth/mode ids are
+ * checked separately: their bound depends on the restored depth.)
+ *
+ * Each entry is `count` scalars of `width` bytes, `stride` bytes apart, starting at
+ * `offset` in section `section`, each in [lo, hi] or equal to `none`. With
+ * FC_PLUS_PREV the value is an offset paired with the entry before it (a size, same
+ * element, lower offset): when that size is non-zero, offset + size must be <= hi. A
+ * section's entries may interleave (array-of-struct fields), but no two may overlap. */
+enum { FC_SIGNED = 1u, FC_HAS_NONE = 2u, FC_PLUS_PREV = 4u };
+typedef struct {
+    uint16_t section;
+    uint8_t  width;     /* 1 or 2 */
+    uint8_t  flags;
+    uint32_t offset;
+    uint16_t count;
+    uint16_t stride;
+    int32_t  lo, hi;
+    uint16_t none;
+} FieldCheck;
+
+#define FC_ARRAY(sec_, off_, n_, stride_, type_, lo_, hi_, flags_, none_)          \
+    { (uint16_t)(sec_), (uint8_t)sizeof(type_),                                     \
+      (uint8_t)((flags_) | ((type_)-1 < 0 ? FC_SIGNED : 0u)), (uint32_t)(off_),     \
+      (uint16_t)(n_), (uint16_t)(stride_), (lo_), (hi_), (uint16_t)(none_) }
+/* One scalar field of the section's struct. */
+#define FC_ONE(sec_, st_, fld_, type_, lo_, hi_) \
+    FC_ARRAY(sec_, offsetof(st_, fld_), 1, 0, type_, lo_, hi_, 0u, 0)
+/* An array field of plain elements. */
+#define FC_ARR(sec_, st_, fld_, type_, lo_, hi_) \
+    FC_ARRAY(sec_, offsetof(st_, fld_), sizeof(((st_ *)0)->fld_) / sizeof(type_), \
+             sizeof(type_), type_, lo_, hi_, 0u, 0)
+/* One field of each element of an array of structs. */
+#define FC_AOS(sec_, st_, arr_, elem_, fld_, n_, type_, lo_, hi_, flags_)          \
+    FC_ARRAY(sec_, offsetof(st_, arr_) + offsetof(elem_, fld_), n_, sizeof(elem_), \
+             type_, lo_, hi_, flags_, 0)
+
+static const FieldCheck k_field_checks[] = {
+    /* Party lists are walked up to these counts. */
+    FC_ONE(SECTION_GAME_STATE, GameState, party_count, uint8_t, 0, 6),
+    FC_ONE(SECTION_GAME_STATE, GameState, player_controlled_party_count, uint8_t, 0, 6),
+    /* Window draw-order list, menu items, title slots and tilemap-pool slices
+     * (window_savestate_rebind turns offset into &tilemap_pool[offset]). */
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, next,
+           MAX_WINDOWS, int8_t, -1, MAX_WINDOWS - 1, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, prev,
+           MAX_WINDOWS, int8_t, -1, MAX_WINDOWS - 1, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, title_slot,
+           MAX_WINDOWS, uint8_t, 0, MAX_TITLED_WINDOWS, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, menu_count,
+           MAX_WINDOWS, uint8_t, 0, 24, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_size,
+           MAX_WINDOWS, uint16_t, 0, WINDOW_TILEMAP_POOL_SIZE, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_offset,
+           MAX_WINDOWS, uint16_t, 0, WINDOW_TILEMAP_POOL_SIZE, FC_PLUS_PREV),
+    FC_ONE(SECTION_WINDOW, WindowSystemState, window_head, int8_t, -1, MAX_WINDOWS - 1),
+    FC_ONE(SECTION_WINDOW, WindowSystemState, window_tail, int8_t, -1, MAX_WINDOWS - 1),
+    /* A tileset combo is 5 bits of the sector tileset/palette byte. */
+    FC_ONE(SECTION_MAP_LOADER, MapLoaderState, loaded_tileset_combo, int16_t, -1, 31),
+    /* Script free-list head; entity fade entries live in a fixed ert.buffer region. */
+    FC_ONE(SECTION_ENTITY_RUNTIME, EntityRuntimeState, last_allocated_script, int16_t,
+           -1, MAX_SCRIPTS - 1),
+    FC_ONE(SECTION_ENTITY_RUNTIME, EntityRuntimeState, entity_fade_states_length, uint16_t,
+           0, ENTITY_FADE_STATES_MAX),
+    /* Active/free entity lists and each entity's script slot. */
+    FC_ONE(SECTION_ENTITY_SYSTEM, EntitySystem, first_entity, int16_t, -1, MAX_ENTITIES - 1),
+    FC_ONE(SECTION_ENTITY_SYSTEM, EntitySystem, last_entity, int16_t, -1, MAX_ENTITIES - 1),
+    FC_ARR(SECTION_ENTITY_SYSTEM, EntitySystem, next_entity, int8_t, -1, MAX_ENTITIES - 1),
+    FC_ARR(SECTION_ENTITY_SYSTEM, EntitySystem, script_index, int8_t, -1, MAX_SCRIPTS - 1),
+    /* Script chains and per-script call-stack depth. */
+    FC_ARR(SECTION_SCRIPTS, ScriptSystem, next_script, int8_t, -1, MAX_SCRIPTS - 1),
+    FC_ARR(SECTION_SCRIPTS, ScriptSystem, stack_offset, uint8_t, 0, SCRIPT_STACK_SIZE),
+    /* Each sprite priority queue is drawn up to its fill count. */
+    FC_ARRAY(SECTION_SPRITE_PRIORITY, offsetof(SpritePriorityQueue, offset), 4,
+             sizeof(SpritePriorityQueue), uint16_t, 0, MAX_PRIORITY_SPRITES, 0u, 0),
+    /* Auto-movement write cursor and the demo read cursor (unpack turns it into
+     * &auto_movement_buffer[index]; 0xFFFF = none). */
+    FC_ONE(SECTION_OVERWORLD_DEFERRED, OverworldDeferredSaveState, auto_movement_index,
+           uint16_t, 0, AUTO_MOVEMENT_BUFFER_SIZE - 1),
+    FC_ARRAY(SECTION_OVERWORLD_DEFERRED, offsetof(OverworldDeferredSaveState, demo_read_index),
+             1, 0, uint16_t, 0, AUTO_MOVEMENT_BUFFER_SIZE - 1, FC_HAS_NONE, 0xFFFF),
+};
+#undef FC_ARRAY
+#undef FC_ONE
+#undef FC_ARR
+#undef FC_AOS
+#define FIELD_CHECK_COUNT ((int)(sizeof(k_field_checks) / sizeof(k_field_checks[0])))
+
+/* Read the checked fields of section `id` (`size` bytes, at the start of its blob)
+ * in ascending offset order and validate them. Returns the number of blob bytes
+ * consumed, or -1 on a failed check or read. */
+static int32_t check_section_fields(DecompCtx *r, uint16_t id, uint32_t size) {
+    uint16_t next_elem[FIELD_CHECK_COUNT];
+    int32_t  last[FIELD_CHECK_COUNT];
+    for (int k = 0; k < FIELD_CHECK_COUNT; k++) {
+        next_elem[k] = 0;
+        last[k] = 0;
+    }
+    uint32_t pos = 0;
+    for (;;) {
+        int best = -1;
+        uint32_t best_off = 0;
+        for (int k = 0; k < FIELD_CHECK_COUNT; k++) {
+            const FieldCheck *c = &k_field_checks[k];
+            if (c->section != id || next_elem[k] >= c->count)
+                continue;
+            uint32_t off = c->offset + (uint32_t)next_elem[k] * c->stride;
+            if (best < 0 || off < best_off) {
+                best = k;
+                best_off = off;
+            }
+        }
+        if (best < 0)
+            return (int32_t)pos;
+        const FieldCheck *c = &k_field_checks[best];
+        if (best_off < pos || best_off + c->width > size)
+            return -1;   /* overlapping entries or a field past the blob: table bug */
+        if (!decomp_skip(r, best_off - pos))
+            return -1;
+        uint8_t b[2] = { 0, 0 };
+        if (!decomp_read(r, b, c->width))
+            return -1;
+        pos = best_off + c->width;
+        uint16_t raw = (uint16_t)(b[0] | (c->width == 2 ? (unsigned)b[1] << 8 : 0u));
+        int32_t v = (c->flags & FC_SIGNED)
+            ? (c->width == 2 ? (int32_t)(int16_t)raw : (int32_t)(int8_t)raw)
+            : (int32_t)raw;
+        bool ok;
+        if (c->flags & FC_PLUS_PREV)
+            ok = last[best - 1] == 0 || (v >= c->lo && v + last[best - 1] <= c->hi);
+        else
+            ok = (v >= c->lo && v <= c->hi)
+              || ((c->flags & FC_HAS_NONE) && raw == c->none);
+        if (!ok) {
+            LOG_WARN("savestate: section 0x%04X offset %lu holds %ld, out of range\n",
+                     (unsigned)id, (unsigned long)best_off, (long)v);
+            return -1;
+        }
+        last[best] = v;
+        next_elem[best]++;
+    }
+}
+
 /* Validate pass: decompress the whole stream into the discard buffer, checking that
  * every section id this build knows has exactly this build's size, appears once, and
  * that none is missing (AUDIO excepted: it exists only in EB_ENABLE_AUDIO builds and
@@ -754,6 +902,11 @@ static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc)
                          (unsigned)depth);
                 return false;
             }
+        } else if (i >= 0) {
+            int32_t used = check_section_fields(&r, id, size);
+            if (used < 0)
+                return false;
+            size -= (uint32_t)used;
         }
         if (!decomp_skip(&r, size))
             return false;
@@ -1033,6 +1186,16 @@ bool state_dump_reject_test(void) {
     g_mode_stack.depth = 0;
     ok = ok && write_slot(0, fixed_seq);
     g_mode_stack.depth = depth;
+    scribble_direct_sections(0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
+
+    /* Slot 0 again: a well-formed image whose entity list head points past the
+     * entity table (a range-checked field). */
+    ok = ok && read_slot(1);
+    int16_t first = entities.first_entity;
+    entities.first_entity = MAX_ENTITIES;
+    ok = ok && write_slot(0, fixed_seq);
+    entities.first_entity = first;
     scribble_direct_sections(0xA5);
     ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
     ok = ok && copy_slot_corrupted(1, 0, STATE_DUMP_HEADER_SIZE + 64);
