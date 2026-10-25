@@ -383,6 +383,13 @@ typedef enum {
     PM_PSI_OPEN,            /* push PSI_MENU after the SHOW_HPPP / SELECT waits */
     PM_EQUIP_OPEN,          /* push EQUIP_MENU after SHOW_HPPP_WINDOWS' wait */
     PM_STATUS_OPEN,         /* push STATUS_MENU after SHOW_HPPP_WINDOWS' wait */
+    PM_HELP_REBUILD,        /* help tail: command menu + inventory rebuild after the text close */
+    PM_HELP_CLOSE_MENU,     /* help tail: close the action menu after the inventory tick */
+    PM_GIVE_CLOSE_SEL,      /* give: close the recipient's inventory after the header close */
+    PM_GIVE_AFTER,          /* give: classify the transfer after both closes */
+    PM_CLOSE_TEXT3,         /* give/drop tail: close the text window */
+    PM_CLOSE_INV_MENU3,     /* give/drop tail: close the action menu */
+    PM_CLOSE_INV3,          /* give/drop tail: close the inventory, -> PM_MAIN */
 } PauseMenuPhase;
 
 typedef struct {

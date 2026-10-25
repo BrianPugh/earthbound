@@ -3000,10 +3000,14 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             uint16_t action = pm_take_result(st);
 
             if (action == 0) {
-                /* @BACK_TO_ITEM_LIST: cancel → return to item list */
+                /* @BACK_TO_ITEM_LIST: cancel → return to item list (the
+                 * CLOSE_FOCUS_WINDOW tick takes a frame) */
+                StepResult r;
+                (void)take_unpresented_ticks();
                 close_focus_window();  /* close INVENTORY_MENU */
                 set_window_focus(WINDOW_INVENTORY);
-                st->phase = PM_GOODS_INV;
+                if (menu_flush_ticks(&st->phase, PM_GOODS_INV, &r))
+                    return r;
                 continue;
             }
 
@@ -3102,26 +3106,63 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             st->phase = PM_ACTION_MENU;
             continue;
 
-        case PM_HELP_RESUME:
-            /* Tail of @GOODS_ITEM_HELP after the help text */
+        case PM_HELP_RESUME: {
+            /* Tail of @GOODS_ITEM_HELP after the help text: CLOSE_WINDOW,
+             * the command menu rebuild, INVENTORY_GET_ITEM_NAME and
+             * CLOSE_WINDOW, each tick a frame (open_menu.asm:287-300). */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
+            if (menu_flush_ticks(&st->phase, PM_HELP_REBUILD, &r))
+                return r;
+            continue;
+        }
 
+        case PM_HELP_REBUILD: {
             /* Rebuild command menu and inventory list */
+            StepResult r;
+            (void)take_unpresented_ticks();
             set_window_focus(WINDOW_COMMAND_MENU);
             skip_adding_command_text = 1;
             build_command_menu();
-
-            /* Rebuild inventory */
             inventory_get_item_name(st->goods_char, WINDOW_INVENTORY);
+            if (menu_flush_ticks(&st->phase, PM_HELP_CLOSE_MENU, &r))
+                return r;
+            continue;
+        }
+
+        case PM_HELP_CLOSE_MENU: {
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_INVENTORY_MENU);
             set_window_focus(WINDOW_INVENTORY);
-            st->phase = PM_GOODS_INV;
+            if (menu_flush_ticks(&st->phase, PM_GOODS_INV, &r))
+                return r;
             continue;
+        }
 
         case PM_GIVE_CHAR_RESULT: {
-            uint16_t give_target = (uint16_t)mode_child_result();
+            /* CLOSE_MENU_HEADER_WINDOW and CLOSE_WINDOW, a tick each */
+            StepResult r;
+            st->give_target = (uint16_t)mode_child_result();
+            (void)take_unpresented_ticks();
             close_menu_header_window();
+            if (menu_flush_ticks(&st->phase, PM_GIVE_CLOSE_SEL, &r))
+                return r;
+            continue;
+        }
+
+        case PM_GIVE_CLOSE_SEL: {
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_OVERWORLD_CHAR_SELECT);
+            if (menu_flush_ticks(&st->phase, PM_GIVE_AFTER, &r))
+                return r;
+            continue;
+        }
+
+        case PM_GIVE_AFTER: {
+            uint16_t give_target = st->give_target;
 
             if (give_target == 0) {
                 /* Cancelled give → return to action menu, reprinting the
@@ -3214,14 +3255,18 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             continue;
         }
 
-        case PM_GIVE_BLOCKED_RESUME:
+        case PM_GIVE_BLOCKED_RESUME: {
             /* Tail of the CANNOT_GIVE message → back to the action menu,
              * reprinting the wiped inventory (assembly lines 357-361:
-             * @VIRTUAL00=1, @LOCAL04=1) */
+             * @VIRTUAL00=1, @LOCAL04=1); the CLOSE_WINDOW tick takes a frame */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
             st->reprint_inventory = 1;
-            st->phase = PM_ACTION_MENU;
+            if (menu_flush_ticks(&st->phase, PM_ACTION_MENU, &r))
+                return r;
             continue;
+        }
 
         case PM_GIVE_MSG_RESUME: {
             /* Successful transfers call SWAP_ITEM_INTO_EQUIPMENT.
@@ -3236,20 +3281,42 @@ StepResult mode_step_pause_menu(ModeState *ms) {
 
             /* Cleanup: close all sub-windows, return to main menu
              * (assembly @GOODS_GIVE_DONE, lines 526-533). */
-            close_window(WINDOW_TEXT_STANDARD);
-            close_window(WINDOW_INVENTORY_MENU);
-            close_window(WINDOW_INVENTORY);
-            st->phase = PM_MAIN;
+            st->phase = PM_CLOSE_TEXT3;
             continue;
         }
 
         case PM_DROP_RESUME:
-            /* Tail of @GOODS_DROP after the confirmation text */
-            close_window(WINDOW_TEXT_STANDARD);
-            close_window(WINDOW_INVENTORY_MENU);
-            close_window(WINDOW_INVENTORY);
-            st->phase = PM_MAIN;
+            /* Tail of @GOODS_DROP after the confirmation text (lines 546-551) */
+            st->phase = PM_CLOSE_TEXT3;
             continue;
+
+        case PM_CLOSE_TEXT3: {
+            /* The give/drop tail's three CLOSE_WINDOWs, a tick frame each */
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_TEXT_STANDARD);
+            if (menu_flush_ticks(&st->phase, PM_CLOSE_INV_MENU3, &r))
+                return r;
+            continue;
+        }
+
+        case PM_CLOSE_INV_MENU3: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_INVENTORY_MENU);
+            if (menu_flush_ticks(&st->phase, PM_CLOSE_INV3, &r))
+                return r;
+            continue;
+        }
+
+        case PM_CLOSE_INV3: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_INVENTORY);
+            if (menu_flush_ticks(&st->phase, PM_MAIN, &r))
+                return r;
+            continue;
+        }
 
         case PM_EQUIP_RESUME:
             /* Tail of the Equip case after EQUIP_MENU pops: single party plays
