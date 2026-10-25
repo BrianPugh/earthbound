@@ -102,11 +102,14 @@ uint16_t cur_photo_display;
 #define CREDITS_DMA_ENTRY_SIZE 9
 #define credits_dma_queue ((uint8_t *)pb.player_position_buffer)
 
-/* Side array to store source pointers for the credits DMA queue.
- * The queue entry's 4-byte src field (bytes 3-6) was used to store a raw
- * pointer, which truncates on 64-bit systems. Instead, we store the pointer
- * here indexed by queue slot, and the queue entry's src field is unused. */
-static const uint8_t *credits_dma_src_ptrs[CREDITS_DMA_QUEUE_SIZE];
+/* The queue entry's 4-byte src field (bytes 3-6) holds a ROM/WRAM address in the
+ * asm. Every credits transfer reads either a row of win.bg2_buffer or the blank
+ * fill tile, so the C port stores the source as a u16 offset into win.bg2_buffer
+ * in bytes 3-4 (CREDITS_DMA_SRC_BLANK = the fill tile): no raw pointer in the
+ * queue, so it survives a savestate like the rest of pb. */
+#define CREDITS_DMA_SRC_BLANK 0xFFFF
+/* Mode 3 = word fill; only src[0] and src[1] are read. */
+static const uint8_t credits_blank_tile[2] = {0, 0};
 
 /* Per-frame callback function pointer.
  * Defaults to process_overworld_tasks, matching the assembly's
@@ -128,6 +131,44 @@ void frame_callback_savestate_unpack(const void *in) {
     const FrameCallbackSaveState *s = (const FrameCallbackSaveState *)in;
     frame_callback = (s->frame_callback_id == FRAME_CALLBACK_CREDITS_SCROLL)
         ? credits_scroll_frame : process_overworld_tasks;
+}
+
+/* ---- Savestate snapshot (see EndingCreditsSaveState in ending.h) ---- */
+void ending_credits_savestate_pack(void *out) {
+    EndingCreditsSaveState *s = (EndingCreditsSaveState *)out;
+    s->credits_current_row          = credits_current_row;
+    s->credits_dma_queue_start      = credits_dma_queue_start;
+    s->credits_dma_queue_end        = credits_dma_queue_end;
+    s->credits_next_credit_position = credits_next_credit_position;
+    s->credits_scroll_position_frac = credits_scroll_position_frac;
+    s->credits_scroll_position_int  = credits_scroll_position_int;
+    s->credits_row_wipe_threshold   = credits_row_wipe_threshold;
+    s->cast_text_row                = cast_text_row;
+    s->cast_tile_offset             = cast_tile_offset;
+    s->initial_cast_entity_sleep_frames = initial_cast_entity_sleep_frames;
+    s->credits_script_offset = (credits_script_ptr && staff_text_data)
+        ? (uint32_t)(credits_script_ptr - staff_text_data) : ENDING_CREDITS_SCRIPT_NONE;
+}
+
+void ending_credits_savestate_unpack(const void *in) {
+    const EndingCreditsSaveState *s = (const EndingCreditsSaveState *)in;
+    credits_current_row          = s->credits_current_row;
+    credits_dma_queue_start      = s->credits_dma_queue_start;
+    credits_dma_queue_end        = s->credits_dma_queue_end;
+    credits_next_credit_position = s->credits_next_credit_position;
+    credits_scroll_position_frac = s->credits_scroll_position_frac;
+    credits_scroll_position_int  = s->credits_scroll_position_int;
+    credits_row_wipe_threshold   = s->credits_row_wipe_threshold;
+    cast_text_row                = s->cast_text_row;
+    cast_tile_offset             = s->cast_tile_offset;
+    initial_cast_entity_sleep_frames = s->initial_cast_entity_sleep_frames;
+    if (s->credits_script_offset == ENDING_CREDITS_SCRIPT_NONE) {
+        credits_script_ptr = NULL;
+    } else {
+        /* credits_scroll_frame FATALs on an offset past the staff text. */
+        ensure_ending_credits_assets();
+        credits_script_ptr = staff_text_data + s->credits_script_offset;
+    }
 }
 
 /* =====================================================================
@@ -630,8 +671,9 @@ static void enqueue_credits_dma(uint8_t mode, uint16_t size_bytes,
 
     entry[0] = mode;
     write_u16_le(&entry[1], size_bytes);
-    /* Source pointer stored in side array to avoid 64-bit pointer truncation */
-    credits_dma_src_ptrs[idx] = src;
+    write_u16_le(&entry[3], src == credits_blank_tile ? CREDITS_DMA_SRC_BLANK
+                                                      : (uint16_t)(src - win.bg2_buffer));
+    write_u16_le(&entry[5], 0);
     write_u16_le(&entry[7], vram_dest);
 
     credits_dma_queue_start = (credits_dma_queue_start + 1) & 0x7F;
@@ -649,10 +691,13 @@ static void process_credits_dma_queue(void) {
 
     uint8_t mode = entry[0];
     uint16_t size = read_u16_le(&entry[1]);
-    const uint8_t *src = credits_dma_src_ptrs[credits_dma_queue_end];
+    uint16_t src_off = read_u16_le(&entry[3]);
     uint16_t vram_dest = read_u16_le(&entry[7]);
 
-    vram_copy(src, vram_dest, size, mode);
+    if (src_off == CREDITS_DMA_SRC_BLANK)
+        vram_copy(credits_blank_tile, vram_dest, size, mode);
+    else if ((uint32_t)src_off + size <= sizeof(win.bg2_buffer))
+        vram_copy(&win.bg2_buffer[src_off], vram_dest, size, mode);
 
     credits_dma_queue_end = (credits_dma_queue_end + 1) & 0x7F;
 }
@@ -957,11 +1002,7 @@ row_wipe_check:
         /* Clear one tilemap row */
         uint16_t clear_row = ((ppu.bg_vofs[2] >> 3) - 1) & 0x1F;
         uint16_t vram_addr = 0x6C00 + (clear_row << 5);
-        /* Mode 3 = word fill; only src[0] and src[1] are read.
-         * Must be static — enqueue_credits_dma stores the raw pointer in the
-         * persistent DMA queue, which outlives this stack frame. */
-        static const uint8_t blank_tile_data[2] = {0, 0};
-        enqueue_credits_dma(3, 64, blank_tile_data, vram_addr);
+        enqueue_credits_dma(3, 64, credits_blank_tile, vram_addr);
     }
 
     /* Update scroll position (fixed-point: fraction += 0x4000) */

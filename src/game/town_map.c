@@ -50,14 +50,17 @@
 static uint16_t get_town_map_id(uint16_t leader_x, uint16_t leader_y);
 static void load_town_map_begin(uint16_t map_index);
 static void load_town_map_finish(uint16_t map_index);
-static void render_town_map_icons(uint16_t map_index);
-static void update_town_map_player_icon(void);
-static void cycle_map_icon_palette(void);
+static void render_town_map_icons(TownMapState *s);
+static void update_town_map_player_icon(TownMapState *s);
+static void cycle_map_icon_palette(TownMapState *s);
 
-/* Town map animation state (RAM variables from ram.asm) */
-static uint16_t town_map_animation_frame;
-static uint16_t town_map_player_icon_animation_frame;
-static uint16_t frames_until_map_icon_palette_update;
+/* The town map animation state (RAM variables from ram.asm) lives in TownMapState:
+ * animation_frame, player_icon_animation_frame, frames_until_palette_update. */
+static void town_map_init_animation(TownMapState *s) {
+    s->animation_frame = 60;
+    s->player_icon_animation_frame = 20;
+    s->frames_until_palette_update = 12;
+}
 
 /* Helper: look up spritemap ert.buffer offset from a TOWN_MAP_MAPPING entry.
  * The mapping entry is an index into TOWN_MAP_ICON_SPRITEMAP_PTR_TABLE. The pointer table
@@ -173,9 +176,9 @@ static void load_town_map_finish(uint16_t map_index) {
  * Every 12 frames, rotates colors 1-7 of palette group 8 (indices 129-135).
  * The first color is saved, all shift left by one, saved goes to the end.
  */
-static void cycle_map_icon_palette(void) {
-    if (frames_until_map_icon_palette_update == 0) {
-        frames_until_map_icon_palette_update = 12;
+static void cycle_map_icon_palette(TownMapState *s) {
+    if (s->frames_until_palette_update == 0) {
+        s->frames_until_palette_update = 12;
 
         /* Save color 1 of palette 8 (index 128+1 = 129) */
         uint16_t saved = ert.palettes[129];
@@ -191,7 +194,7 @@ static void cycle_map_icon_palette(void) {
         ert.palette_upload_mode = 16;
     }
 
-    frames_until_map_icon_palette_update--;
+    s->frames_until_palette_update--;
 }
 
 /*
@@ -201,7 +204,7 @@ static void cycle_map_icon_palette(void) {
  * Uses MAP_DATA_PER_SECTOR_TOWN_MAP_DATA to look up the player's pixel
  * position and direction on the current map.
  */
-static void update_town_map_player_icon(void) {
+static void update_town_map_player_icon(TownMapState *s) {
     uint16_t leader_x = game_state.leader_x_coord;
     uint16_t x_sector = (leader_x >> 8) & 0xFF;
     uint16_t leader_y = game_state.leader_y_coord;
@@ -264,7 +267,7 @@ static void update_town_map_player_icon(void) {
     }
 
     /* Draw player icon: big (frames 0-9) or small (frames 10-19) */
-    if (town_map_player_icon_animation_frame < 10) {
+    if (s->player_icon_animation_frame < 10) {
         uint16_t smap_off = smap_offset_from_mapping(smap_ptrs, ptrs_size, mapping[1]);
         queue_sprite_draw(smap_off, (int16_t)pixel_x, (int16_t)pixel_y,
                           ert.current_sprite_drawing_priority, SMAP_BANK_TOWNMAP_ID);
@@ -275,9 +278,9 @@ static void update_town_map_player_icon(void) {
     }
 
     /* Decrement animation frame, wrap 0 → 20 */
-    town_map_player_icon_animation_frame--;
-    if (town_map_player_icon_animation_frame == 0) {
-        town_map_player_icon_animation_frame = 20;
+    s->player_icon_animation_frame--;
+    if (s->player_icon_animation_frame == 0) {
+        s->player_icon_animation_frame = 20;
     }
 
 }
@@ -286,9 +289,10 @@ static void update_town_map_player_icon(void) {
  * RENDER_TOWN_MAP_ICONS (asm/overworld/map/render_town_map_icons.asm)
  *
  * Renders all town map icons for the specified map, plus the player icon.
- * map_index: 0-5
+ * map_index (s->map_id): 0-5
  */
-static void render_town_map_icons(uint16_t map_index) {
+static void render_town_map_icons(TownMapState *s) {
+    uint16_t map_index = s->map_id;
     ert.current_sprite_drawing_priority = 0;
 
     size_t placement_size = ASSET_SIZE(ASSET_TOWN_MAPS_ICON_PLACEMENT_BIN);
@@ -322,7 +326,7 @@ static void render_town_map_icons(uint16_t map_index) {
          * hide it during the blink-off phase (frames 0-9 of 60-frame cycle) */
         bool should_draw = true;
         if (icon_type < flags_size && anim_flags[icon_type] != 0) {
-            if (town_map_animation_frame < 10) {
+            if (s->animation_frame < 10) {
                 should_draw = false;
             }
         }
@@ -349,15 +353,15 @@ static void render_town_map_icons(uint16_t map_index) {
         entry += 5;
     }
 
-    update_town_map_player_icon();
+    update_town_map_player_icon(s);
 
     /* Decrement animation frame, wrap 0 → 60 */
-    town_map_animation_frame--;
-    if (town_map_animation_frame == 0) {
-        town_map_animation_frame = 60;
+    s->animation_frame--;
+    if (s->animation_frame == 0) {
+        s->animation_frame = 60;
     }
 
-    cycle_map_icon_palette();
+    cycle_map_icon_palette(s);
 
 }
 
@@ -409,7 +413,7 @@ StepResult mode_step_town_map(ModeState *st) {
             }
 
             oam_clear();
-            render_town_map_icons(s->map_id);
+            render_town_map_icons(s);
 
             if (core.pad1_pressed & PAD_A) {
                 /* Exit (matches the blocking `if (A) break;` before update_screen). */
@@ -425,7 +429,7 @@ StepResult mode_step_town_map(ModeState *st) {
 
         /* display_town_map(): fixed map, exits on any of CONFIRM/CANCEL/X. */
         oam_clear();
-        render_town_map_icons(s->map_id);
+        render_town_map_icons(s);
         update_screen();
 
         if ((core.pad1_pressed & PAD_CONFIRM) ||
@@ -441,7 +445,7 @@ StepResult mode_step_town_map(ModeState *st) {
         /* Fade out while continuing to render for 16 frames. */
         if (s->fadeout_count > 0) {
             oam_clear();
-            render_town_map_icons(s->map_id);
+            render_town_map_icons(s);
             update_screen();
             s->fadeout_count--;
             return STEP_RESULT_CONTINUE();
@@ -465,18 +469,14 @@ StepResult mode_step_town_map(ModeState *st) {
  * DISPLAY_TOWN_MAP (asm/overworld/display_town_map.asm)
  *
  * Displays the town map based on the leader's current position. Split for
- * GAME_MODE_SPECIAL_EVENT (CC_1F_41 case 7): sets the icon-animation globals
- * (static to this TU) and returns the map_id to display (0 = none). When non-zero,
- * fills *init with the TOWN_MAP display push; the caller STEP_PUSHes
+ * GAME_MODE_SPECIAL_EVENT (CC_1F_41 case 7): returns the map_id to display (0 =
+ * none). When non-zero, fills *init with the TOWN_MAP display push (including the
+ * icon-animation counters); the caller STEP_PUSHes
  * GAME_MODE_TOWN_MAP and returns map_id as the event result. (Unlike
  * show_town_map_prepare, there is no Town Map item check or entity disable here —
  * the event version is unconditional, matching the assembly.)
  */
 uint16_t display_town_map_prepare(ModeState *init) {
-    town_map_animation_frame = 60;
-    town_map_player_icon_animation_frame = 20;
-    frames_until_map_icon_palette_update = 12;
-
     uint16_t raw_id = get_town_map_id(game_state.leader_x_coord,
                                        game_state.leader_y_coord);
     uint16_t map_id = raw_id & 0x000F;
@@ -488,6 +488,7 @@ uint16_t display_town_map_prepare(ModeState *init) {
     init->town_map.phase = TM_LOAD_BEGIN;
     init->town_map.menu_mode = 0;
     init->town_map.map_id = (uint8_t)(map_id - 1);
+    town_map_init_animation(&init->town_map);
     return map_id;
 }
 
@@ -502,10 +503,6 @@ bool show_town_map_prepare(ModeState *init) {
 
     disable_all_entities();
 
-    town_map_animation_frame = 60;
-    town_map_player_icon_animation_frame = 20;
-    frames_until_map_icon_palette_update = 12;
-
     uint16_t raw_id = get_town_map_id(game_state.leader_x_coord,
                                        game_state.leader_y_coord);
     uint16_t map_id = raw_id & 0x000F;
@@ -519,6 +516,7 @@ bool show_town_map_prepare(ModeState *init) {
     init->town_map.phase = TM_LOAD_BEGIN;
     init->town_map.menu_mode = 0;
     init->town_map.map_id = (uint8_t)(map_id - 1);
+    town_map_init_animation(&init->town_map);
     return true;
 }
 
@@ -528,17 +526,13 @@ bool show_town_map_prepare(ModeState *init) {
  * Town map display with up/down navigation between maps. Used when selecting Town
  * Map from the items menu / the debug Y-button GUIDE command. The blocking
  * run_town_map_menu() pump bridge was deleted (D4b); callers run this prepare
- * (set the icon-animation globals, static to this TU, and fill *init with the
- * menu-mode display push) then STEP_PUSH GAME_MODE_TOWN_MAP directly.
+ * (fill *init with the menu-mode display push, icon-animation counters included) then STEP_PUSH GAME_MODE_TOWN_MAP directly.
  */
 void run_town_map_menu_prepare(ModeState *init) {
-    town_map_animation_frame = 60;
-    town_map_player_icon_animation_frame = 20;
-    frames_until_map_icon_palette_update = 12;
-
     *init = (ModeState){0};
     init->town_map.phase = TM_LOAD_BEGIN;
     init->town_map.menu_mode = 1;
     init->town_map.map_id = 0;
     init->town_map.prev_map = 0;
+    town_map_init_animation(&init->town_map);
 }

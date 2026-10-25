@@ -48,6 +48,20 @@ SCENES = [
         "until in:BATTLE_MENU 1500 advance; wait 10; press RIGHT 2; press A; wait 600",
     ),
     ("town-twoson", "05-Twoson", "120 RIGHT; 60 DOWN", "90 LEFT; 40 UP"),
+    (
+        "town-map",
+        "05-Twoson",
+        "debug on; 10 B+R; until input 300; wait 10; press DOWN 5; press A; wait 10; press A; wait 10;"
+        " press UP 1; wait 10; press A; wait 100",
+        "wait 30; press DOWN; wait 60",
+    ),
+    (
+        "credits",
+        "36-CavePast",
+        "debug on; 10 B+R; until input 300; wait 10; press DOWN 5; press A; wait 10; press A; wait 10;"
+        " press A; wait 10; press UP 2; wait 10; press A; wait 1500",
+        "wait 600",
+    ),
 ]
 
 # Lines that legitimately differ between two processes playing the same frames.

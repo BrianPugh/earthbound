@@ -62,6 +62,27 @@ typedef struct {
 void frame_callback_savestate_pack(void *out);   /* out: FrameCallbackSaveState* */
 void frame_callback_savestate_unpack(const void *in);
 
+/* The credits scroller's and cast scene's counters (RAM variables in the asm, file
+ * statics in ending.c). credits_scroll_frame runs every frame of the credits, so a
+ * savestate taken there must carry them; the credits DMA queue itself rides in
+ * SECTION_POSITION_BUFFER (it overlays pb.player_position_buffer). */
+#define ENDING_CREDITS_SCRIPT_NONE 0xFFFFFFFFu
+typedef struct {
+    uint16_t credits_current_row;            /* 0..15 */
+    uint16_t credits_dma_queue_start;        /* 0..127 */
+    uint16_t credits_dma_queue_end;          /* 0..127 */
+    uint16_t credits_next_credit_position;
+    uint16_t credits_scroll_position_frac;
+    uint16_t credits_scroll_position_int;
+    uint16_t credits_row_wipe_threshold;
+    uint16_t cast_text_row;
+    uint16_t cast_tile_offset;
+    uint16_t initial_cast_entity_sleep_frames;
+    uint32_t credits_script_offset;          /* into the staff text; _NONE = NULL */
+} EndingCreditsSaveState;
+void ending_credits_savestate_pack(void *out);   /* out: EndingCreditsSaveState* */
+void ending_credits_savestate_unpack(const void *in);
+
 /* Regression guard (savestate cold-load): the credits asset pointers live
  * outside any savestate section, so a restore into a later EN_CR_* phase must
  * re-resolve them on demand. NULLs the caches, runs the resolver, and returns

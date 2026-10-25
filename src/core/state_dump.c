@@ -134,6 +134,7 @@ enum {
     SECTION_ITEM_TRANSFORM       = 0x0028,
     SECTION_BATTLE_BG            = 0x0029,
     SECTION_FRAME_CALLBACK       = 0x002A,
+    SECTION_ENDING_CREDITS       = 0x002B,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -225,6 +226,7 @@ typedef union {
     ItemTransformSaveState     item_xform;
     BattleBgSaveState          battle_bg;
     FrameCallbackSaveState     frame_cb;
+    EndingCreditsSaveState     credits;
 } PackScratch;
 static PackScratch s_pack;
 
@@ -306,6 +308,8 @@ static const StateSection k_sections[] = {
           battle_bg_savestate_pack,     battle_bg_savestate_unpack),
     ADDFN(SECTION_FRAME_CALLBACK,     &s_pack.frame_cb,
           frame_callback_savestate_pack, frame_callback_savestate_unpack),
+    ADDFN(SECTION_ENDING_CREDITS,     &s_pack.credits,
+          ending_credits_savestate_pack, ending_credits_savestate_unpack),
 };
 #undef ADD
 #undef ADDFN
@@ -941,6 +945,14 @@ static const FieldCheck k_field_checks[] = {
     FC_ONE(SECTION_PSI_ANIMATION, PsiAnimationState, arr_bundled_data, uint8_t, 0, 1),
     FC_ARRAY(SECTION_PSI_ANIMATION, offsetof(PsiAnimationState, arr_current_anim_id),
              1, 0, uint16_t, 0, PSI_ANIM_COUNT - 1, FC_IF_PREV, 0),
+    /* Credits scroller: the DMA queue ring indices (128 entries) and the bg2_buffer
+     * row pair (16 rows). */
+    FC_ONE(SECTION_ENDING_CREDITS, EndingCreditsSaveState, credits_current_row, uint16_t,
+           0, 15),
+    FC_ONE(SECTION_ENDING_CREDITS, EndingCreditsSaveState, credits_dma_queue_start, uint16_t,
+           0, 127),
+    FC_ONE(SECTION_ENDING_CREDITS, EndingCreditsSaveState, credits_dma_queue_end, uint16_t,
+           0, 127),
     /* Oval-window cursor: unpack turns (seq, index) into &sequence[index]. */
     FC_ONE(SECTION_OVAL_WINDOW, OvalWindowSaveState, loaded_oval_window_seq, uint8_t,
            0, OVAL_WINDOW_SEQ_COUNT),

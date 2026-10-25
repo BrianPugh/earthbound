@@ -1370,6 +1370,12 @@ typedef struct {
     uint8_t  map_id;        /* current map index (0-5) */
     uint8_t  prev_map;      /* menu variant: last loaded map (suppresses re-reload) */
     uint16_t fadeout_count; /* display variant: fade-out render frames remaining */
+    /* Icon animation counters (TOWN_MAP_ANIMATION_FRAME,
+     * TOWN_MAP_PLAYER_ICON_ANIMATION_FRAME, FRAMES_UNTIL_MAP_ICON_PALETTE_UPDATE in
+     * the asm's RAM): mode state so a savestate taken on the map carries them. */
+    uint16_t animation_frame;             /* 60-frame icon blink cycle */
+    uint16_t player_icon_animation_frame; /* 20-frame player icon size cycle */
+    uint16_t frames_until_palette_update; /* 12-frame icon palette rotation */
 } TownMapState;
 
 /* GAME_MODE_SOUND_STONE — run-to-completion port of use_sound_stone()
