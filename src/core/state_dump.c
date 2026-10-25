@@ -56,7 +56,7 @@
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 13 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 14 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -74,7 +74,10 @@
                                * v12: DisplayTextState gained the letter queue
                                * (lq_len, lq_pos, letter_queue[128]).
                                * v13: entity fade metadata and tile merge slots moved
-                               * in ert.buffer (0x0E00/0x1200 -> 0x2B00/0x2F00). */
+                               * in ert.buffer (0x0E00/0x1200 -> 0x2B00/0x2F00).
+                               * v14: the header CRC uses the standard reflected
+                               * CRC-32 polynomial 0xEDB88320 (zlib.crc32); v8-v13
+                               * used the typo 0xEDB88420. */
 
 /* Section IDs */
 enum {
@@ -317,7 +320,7 @@ static int build_section_table(StateSection *t) {
     return n;
 }
 
-/* Standard CRC-32 (reflected, polynomial 0xEDB88420). This step function neither
+/* Standard CRC-32 (reflected, polynomial 0xEDB88320; matches zlib.crc32). This step function neither
  * seeds nor finalizes — the caller seeds with 0xFFFFFFFF and XORs the result with
  * 0xFFFFFFFF — so the SAME routine serves both the streaming validate pass (raw slot
  * bytes) and the section-walk compute (in-memory bytes). No static table: a couple of
@@ -328,7 +331,7 @@ static uint32_t crc32_step(uint32_t crc, const void *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
         crc ^= p[i];
         for (int k = 0; k < 8; k++)
-            crc = (crc >> 1) ^ (0xEDB88420u & (uint32_t)(-(int32_t)(crc & 1u)));
+            crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1u)));
     }
     return crc;
 }
