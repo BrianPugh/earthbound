@@ -41,8 +41,9 @@
 #include "tamp/compressor.h"
 #include "tamp/decompressor.h"
 #include "core/log.h"
+#include "core/state_layout.h"
 
-/* Container format (20-byte header, all fields little-endian — asserted below):
+/* Container format (24-byte header, all fields little-endian — asserted below):
  *   magic       u32  "EBSD"
  *   version     u16
  *   frame       u16  informational (the authoritative value rides in SECTION_CORE)
@@ -50,14 +51,17 @@
  *   crc32       u32  CRC-32 of the COMPRESSED payload that follows the header
  *   payload_len u32  byte length of the COMPRESSED payload (so the offset-addressed
  *                    slot backend knows how much to read without an EOF signal)
+ *   layout_id   u32  this build's layout fingerprint (state_layout_id): a slot from a
+ *                    build whose serialized types differ, even at equal section
+ *                    sizes, is rejected on the header read
  * Then the payload: a single tamp-compressed stream whose decompressed form is the
  * id(u16)/size(u32)/blob sections followed by a 0xFFFF terminator. The header stays
  * uncompressed so peek/header/CRC paths are cheap raw reads; the CRC is over the
  * stored (compressed) bytes so verify never has to decompress. See the AUDIT in
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
-#define STATE_DUMP_HEADER_SIZE 20           /* magic+version+frame+seq+crc32+payload_len */
-#define STATE_DUMP_VERSION 14 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_HEADER_SIZE 24           /* magic+version+frame+seq+crc32+payload_len+layout_id */
+#define STATE_DUMP_VERSION 15 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -78,7 +82,8 @@
                                * in ert.buffer (0x0E00/0x1200 -> 0x2B00/0x2F00).
                                * v14: the header CRC uses the standard reflected
                                * CRC-32 polynomial 0xEDB88320 (zlib.crc32); v8-v13
-                               * used the typo 0xEDB88420. */
+                               * used the typo 0xEDB88420.
+                               * v15: the header gained layout_id (24 bytes). */
 
 /* Section IDs */
 enum {
@@ -538,19 +543,41 @@ static void comp_section(CompCtx *x, uint16_t id, const uint8_t *base, uint32_t 
         comp_write(x, base + pos, size - pos);
 }
 
-/* Write the 20-byte uncompressed header at offset 0. Called LAST (after the compress
- * pass) because crc/comp_len aren't known until then. */
+/* Layout fingerprint for the header: STATE_LAYOUT_SOURCE_HASH (the source text of
+ * every serialized type, enum and size macro; src/tools/savestate_layout.py) mixed
+ * with this build's section id/size table, so a field reorder, an equal-width type
+ * swap, a ModeState member change or an enum renumbering all change it, as does a
+ * build-config size difference. SECTION_AUDIO is left out: audio and no-audio builds
+ * load each other's slots (the validate pass tolerates a missing AUDIO section).
+ * Computed on demand (a few dozen table rows) so it costs no RAM. */
+static uint32_t state_layout_id(void) {
+    uint32_t src = STATE_LAYOUT_SOURCE_HASH;
+    uint32_t crc = crc32_step(0xFFFFFFFFu, &src, sizeof src);
+    for (int i = 0; i < SECTION_COUNT; i++) {
+        if (k_sections[i].id == SECTION_AUDIO)
+            continue;
+        crc = crc32_step(crc, &k_sections[i].id, sizeof k_sections[i].id);
+        crc = crc32_step(crc, &k_sections[i].size, sizeof k_sections[i].size);
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+/* Write the 24-byte uncompressed header at offset 0. Called LAST (after the compress
+ * pass) because crc/comp_len aren't known until then. `layout_xor` is 0 except in the
+ * reject self-test, which writes an image from a "different build". */
 static bool write_header(int slot, uint16_t frame, uint32_t seq,
-                         uint32_t crc, uint32_t comp_len) {
+                         uint32_t crc, uint32_t comp_len, uint32_t layout_xor) {
     uint8_t h[STATE_DUMP_HEADER_SIZE];
-    uint32_t magic = STATE_DUMP_MAGIC;
-    uint16_t ver   = STATE_DUMP_VERSION;
+    uint32_t magic  = STATE_DUMP_MAGIC;
+    uint16_t ver    = STATE_DUMP_VERSION;
+    uint32_t layout = state_layout_id() ^ layout_xor;
     memcpy(h + 0,  &magic,    4);
     memcpy(h + 4,  &ver,      2);
     memcpy(h + 6,  &frame,    2);
     memcpy(h + 8,  &seq,      4);
     memcpy(h + 12, &crc,      4);
     memcpy(h + 16, &comp_len, 4);
+    memcpy(h + 20, &layout,   4);
     return platform_savestate_write(slot, 0, h, sizeof h);
 }
 
@@ -578,10 +605,10 @@ static void known_set(int slot, uint32_t seq, uint32_t crc, uint32_t plen) {
     s_known.plen  = plen;
 }
 
-/* `short_id` names a section whose size field and blob are written one byte short
- * (the reject self-test's layout-mismatch image); 0 in normal use, which matches no
- * section. */
-static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
+/* Reject self-test hooks, both 0 in normal use: `short_id` names a section whose
+ * size field and blob are written one byte short (0 matches no section), and
+ * `layout_xor` is XOR'd into the header's layout_id. */
+static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id, uint32_t layout_xor) {
     const StateSection *table = k_sections;
     const int n = SECTION_COUNT;
     /* Gather the pack/unpack sections' scattered statics into their scratch buffers
@@ -612,28 +639,28 @@ static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id) {
     comp_finish(&x);
 
     bool hdr = x.ok && write_header(slot, (uint16_t)core.frame_counter, seq,
-                                    x.crc, (uint32_t)x.comp_len);
+                                    x.crc, (uint32_t)x.comp_len, layout_xor);
 
     /* Always commit (closes/flushes the open writer); succeed only if every write
      * landed. A torn write produces an invalid slot, never a half-applied load. */
     bool committed = platform_savestate_commit(slot);
     bool ok = x.ok && hdr && committed;
-    if (ok && short_id == 0)
+    if (ok && short_id == 0 && layout_xor == 0)
         known_set(slot, seq, x.crc, (uint32_t)x.comp_len);
     return ok;
 }
 
 static bool write_slot(int slot, uint32_t seq) {
-    return write_slot_ex(slot, seq, 0);
+    return write_slot_ex(slot, seq, 0, 0);
 }
 
-/* Read & validate the 20-byte header from `slot`. On success fills seq/crc/payload_len
- * (any may be NULL). */
+/* Read & validate the 24-byte header from `slot`. On success fills seq/crc/payload_len
+ * (any may be NULL). A slot from another format version or layout reads as no slot. */
 static bool read_slot_header(int slot, uint32_t *seq, uint32_t *crc, uint32_t *plen) {
     uint8_t h[STATE_DUMP_HEADER_SIZE];
     if (platform_savestate_read(slot, 0, h, sizeof h) != sizeof h)
         return false;
-    uint32_t magic, sq, cc, pl;
+    uint32_t magic, sq, cc, pl, layout;
     uint16_t version;
     memcpy(&magic,   h + 0,  4);
     memcpy(&version, h + 4,  2);
@@ -641,8 +668,14 @@ static bool read_slot_header(int slot, uint32_t *seq, uint32_t *crc, uint32_t *p
     memcpy(&sq,      h + 8,  4);
     memcpy(&cc,      h + 12, 4);
     memcpy(&pl,      h + 16, 4);
+    memcpy(&layout,  h + 20, 4);
     if (magic != STATE_DUMP_MAGIC || version != STATE_DUMP_VERSION)
         return false;
+    if (layout != state_layout_id()) {
+        LOG_WARN("savestate: slot %d was written by a build with a different state layout\n",
+                 slot);
+        return false;
+    }
     if (seq)  *seq  = sq;
     if (crc)  *crc  = cc;
     if (plen) *plen = pl;
@@ -1300,12 +1333,19 @@ bool state_dump_reject_test(void) {
 
     /* Slot 0: a CRC-valid image whose RNG section is one byte short, as a build with
      * a different struct layout would write it. */
-    if (!write_slot_ex(0, fixed_seq, SECTION_RNG)) return false;
+    if (!write_slot_ex(0, fixed_seq, SECTION_RNG, 0)) return false;
 
     /* With the live state scribbled, every bad image must fail to load and leave
      * every direct section untouched. */
     scribble_direct_sections(0xA5);
     bool ok = !read_slot(0) && direct_sections_hold(0xA5);
+
+    /* Slot 0 again: a well-formed image whose header carries another build's
+     * layout_id (same sizes, different field layout). */
+    ok = ok && read_slot(1);
+    ok = ok && write_slot_ex(0, fixed_seq, 0, 0x00010000u);
+    scribble_direct_sections(0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
 
     /* Slot 0 again: a well-formed image with an empty mode stack (depth 0), written
      * from the restored live state. */

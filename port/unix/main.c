@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
         bool ok_ap = state_dump_asset_pointer_test();
         fprintf(stderr, "savestate asset-pointer self-test: %s\n", ok_ap ? "PASS" : "FAIL");
         bool ok_rj = state_dump_reject_test();
-        fprintf(stderr, "savestate reject (bad size / mode stack / index range / corrupt) self-test: %s\n", ok_rj ? "PASS" : "FAIL");
+        fprintf(stderr, "savestate reject (bad size / layout id / mode stack / index range / corrupt) self-test: %s\n", ok_rj ? "PASS" : "FAIL");
         exit((ok && ok_pert && ok_cs && ok_ap && ok_rj) ? 0 : 1);
     }
 

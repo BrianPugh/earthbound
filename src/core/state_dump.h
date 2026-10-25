@@ -44,10 +44,11 @@ bool state_dump_perturb_test(void);
 bool state_dump_crashsafe_test(void);
 
 /* Reject self-test: a CRC-valid slot with a section whose size differs from this
- * build's, a slot with an empty mode stack, a slot with an out-of-range entity list
- * head, and a slot with a corrupted payload byte must all fail to load while
- * leaving every live section untouched (checked against a scribbled sentinel); the
- * live state is then restored from a good slot. Returns true on success. */
+ * build's, a slot whose header carries another layout_id, a slot with an empty mode
+ * stack, a slot with an out-of-range entity list head, and a slot with a corrupted
+ * payload byte must all fail to load while leaving every live section untouched
+ * (checked against a scribbled sentinel); the live state is then restored from a
+ * good slot. Returns true on success. */
 bool state_dump_reject_test(void);
 
 /* Cold-process load self-test (`--selftest-coldload PREFIX`): in a fresh process,
