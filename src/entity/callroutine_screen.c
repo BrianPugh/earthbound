@@ -201,6 +201,362 @@ void render_entity_hdma_window(int16_t entity_offset,
 #define TICK_ADDR_CENTER_CAMERA_WITH_RECT_WINDOW 0xC47A27
 #define TICK_ADDR_UPDATE_PARTY_FOLLOWER_MOVEMENT 0xEF031E
 
+/* C48BE1: ACTIONSCRIPT_SIMPLE_SCREEN_POSITION_CALLBACK
+ * screen_x = abs_x - BG1_X_POS, screen_y = abs_y - BG1_Y_POS.
+ * Used by attract mode entities (set in INIT_ENTITY_FOR_ATTRACT_MODE). */
+static void tick_simple_screen_pos_callback(int16_t entity_offset) {
+    entities.screen_x[entity_offset] = entities.abs_x[entity_offset]
+                                      - (int16_t)ppu.bg_hofs[0];
+    entities.screen_y[entity_offset] = entities.abs_y[entity_offset]
+                                      - (int16_t)ppu.bg_vofs[0];
+}
+
+/* C48C02: ACTIONSCRIPT_SIMPLE_SCREEN_POSITION_CALLBACK_OFFSET
+ * Same as above but adds var0/var1 offsets. */
+static void tick_simple_screen_pos_callback_ofs(int16_t entity_offset) {
+    entities.screen_x[entity_offset] = entities.abs_x[entity_offset]
+                                      - (int16_t)ppu.bg_hofs[0]
+                                      + entities.var[0][entity_offset];
+    entities.screen_y[entity_offset] = entities.abs_y[entity_offset]
+                                      - (int16_t)ppu.bg_vofs[0]
+                                      + entities.var[1][entity_offset];
+}
+
+/* C0D7E0: RESET_ENTITY_PATHFINDING — if pathfinding state is non-zero,
+ * set it to 1 (request reset). Used as tick callback by event 026. */
+static void tick_reset_entity_pathfinding(int16_t entity_offset) {
+    if (entities.pathfinding_states[entity_offset] != 0)
+        entities.pathfinding_states[entity_offset] = 1;
+}
+
+/* C0D7F7: ENTITY_PATHFINDING_STEP — execute one frame of pathfinding
+ * movement toward the next waypoint in the entity's path.
+ *
+ * Checks if entity is within 3 pixels of current target. If so,
+ * advances to next waypoint. Sets direction and velocity toward target.
+ * When all waypoints consumed, clears pathfinding state and sets
+ * obstacle_flags bit 7. */
+static void tick_entity_pathfinding_step(int16_t entity_offset) {
+    int16_t ent = entity_offset;
+
+    /* Only proceed if pathfinding state == -1 (active) */
+    if (entities.pathfinding_states[ent] != -1)
+        return;
+
+    int16_t size = entities.sizes[ent];
+    uint16_t path_ptr = ert.entity_path_points[ent];
+    int16_t from_x = entities.abs_x[ent];
+    int16_t from_y = entities.abs_y[ent];
+
+    /* Compute target from current path point */
+    int16_t path_y = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr]);
+    int16_t path_x = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr + 2]);
+    int16_t target_x = (int16_t)((ert.pathfinding_target_centre_x - ert.pathfinding_target_width) * 8
+                     + path_x * 8
+                     + entity_collision_x_offset[size]);
+    int16_t target_y = (int16_t)((ert.pathfinding_target_centre_y - ert.pathfinding_target_height) * 8
+                     + path_y * 8
+                     - sprite_hitbox_enable[size]
+                     + entity_collision_y_offset[size]);
+
+    /* Check if entity has reached the current waypoint (within 3 pixels) */
+    int16_t diff_x = from_x - target_x;
+    int16_t diff_y = from_y - target_y;
+    if (abs(diff_x) < 3 && abs(diff_y) < 3) {
+        /* Reached waypoint — advance to next */
+        ert.entity_path_point_counts[ent]--;
+        if (ert.entity_path_point_counts[ent] > 0) {
+            path_ptr += 4;
+            ert.entity_path_points[ent] = path_ptr;
+
+            /* Recompute target from next waypoint */
+            path_y = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr]);
+            path_x = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr + 2]);
+            target_x = (int16_t)((ert.pathfinding_target_centre_x - ert.pathfinding_target_width) * 8
+                     + path_x * 8
+                     + entity_collision_x_offset[size]);
+            target_y = (int16_t)((ert.pathfinding_target_centre_y - ert.pathfinding_target_height) * 8
+                     + path_y * 8
+                     - sprite_hitbox_enable[size]
+                     + entity_collision_y_offset[size]);
+        }
+    }
+
+    if (ert.entity_path_point_counts[ent] > 0) {
+        /* Set direction and velocity toward target */
+        uint16_t fine_dir = calculate_direction_fine(from_x, from_y, target_x, target_y);
+        set_entity_velocity_from_direction(ent, fine_dir);
+        /* QUANTIZE_ENTITY_DIRECTION stores ENTITY_MOVING_DIRECTIONS. */
+        entities.directions[ent] = quantize_entity_direction(fine_dir);
+    } else {
+        /* Pathfinding complete — clear state, set obstacle bit 7 */
+        entities.pathfinding_states[ent] = 0;
+        entities.obstacle_flags[ent] |= 0x0080;
+    }
+}
+
+/* C48B3B: MAKE_PARTY_LOOK_AT_ACTIVE_ENTITY — make all party members
+ * face toward the current entity. Assembly only runs on even frames
+ * (FRAME_COUNTER & 1 == 0). Iterates party members, calculates
+ * direction, and updates sprite if direction changed. */
+static void tick_make_party_look_at_entity(int16_t entity_offset) {
+    if (core.frame_counter & 1)
+        return;
+    int16_t ent_off = entity_offset;
+    for (int i = 0; i < (game_state.party_count & 0xFF); i++) {
+        /* Check party_order[i] is a valid member (< 16) */
+        uint8_t order = game_state.party_order[i];
+        if (order >= 16)
+            continue;
+        int16_t pm_off = ENT((int16_t)read_u16_le(&game_state.party_entity_slots[i * 2]));
+        int16_t dir = calculate_direction_8(
+            entities.abs_x[pm_off], entities.abs_y[pm_off],
+            entities.abs_x[ent_off], entities.abs_y[ent_off]);
+        if (entities.directions[pm_off] != dir) {
+            entities.directions[pm_off] = dir;
+            render_entity_sprite(pm_off);
+        }
+    }
+}
+
+/* C48C2B: ACTIONSCRIPT_CENTRE_SCREEN_ON_ENTITY_CALLBACK —
+ * Centers camera on entity position via CENTER_SCREEN. */
+static void tick_centre_screen_on_entity(int16_t entity_offset) {
+    center_screen(
+        (uint16_t)entities.abs_x[entity_offset],
+        (uint16_t)entities.abs_y[entity_offset]);
+}
+
+/* C48C3E: ACTIONSCRIPT_CENTRE_SCREEN_ON_ENTITY_CALLBACK_OFFSET —
+ * Same as above but adds var0 (X offset) and var1 (Y offset). */
+static void tick_centre_screen_on_entity_ofs(int16_t entity_offset) {
+    center_screen(
+        (uint16_t)(entities.abs_x[entity_offset] + entities.var[0][entity_offset]),
+        (uint16_t)(entities.abs_y[entity_offset] + entities.var[1][entity_offset]));
+}
+
+/* C0E97C: UPDATE_ENTITY_SURFACE_AND_GRAPHICS —
+ * Updates entity surface flags from map data, then refreshes
+ * party member graphics. Used during teleport failure.
+ * Port of asm/overworld/entity/update_entity_surface_and_graphics.asm. */
+static void tick_update_entity_surface_and_graphics(int16_t entity_offset) {
+    uint16_t slot = entity_offset;
+    int16_t x = (int16_t)entities.abs_x[entity_offset];
+    int16_t y = (int16_t)entities.abs_y[entity_offset];
+    entities.surface_flags[entity_offset] =
+        lookup_surface_flags(x, y, entities.sizes[entity_offset]);
+    int16_t party_idx = (int16_t)(slot - PARTY_LEADER_ENTITY_INDEX);
+    update_party_entity_graphics(
+        entities.var[0][entity_offset],  /* char_id from var0 */
+        (uint16_t)-1,                    /* walking_style = -1 (force update) */
+        entity_offset,
+        party_idx);
+}
+
+/* C479E9: APPLY_ENTITY_RECT_WINDOW — per-frame tick callback.
+ * Creates a rectangular window around the entity using var0 as half-size.
+ * Calls SETUP_RECT_WINDOW_HDMA → ENABLE_OBJ_HDMA which sets WOBJSEL=0xA0
+ * and drives WH0/WH1 via HDMA channel 4.
+ *
+ * Assembly reads an uninitialized stack variable for "top" which is 0
+ * on real SNES (zeroed memory), making the window span from scanline 0
+ * down to (screen_y + var0) — creating a beam from the sky. */
+static void tick_apply_entity_rect_window(int16_t entity_offset) {
+    int16_t screen_x = (int16_t)((uint16_t)entities.abs_x[entity_offset]
+                       - ppu.bg_hofs[0]);
+    int16_t screen_y = (int16_t)((uint16_t)entities.abs_y[entity_offset]
+                       - ppu.bg_vofs[0]);
+    int16_t var0 = entities.var[0][entity_offset];
+
+    /* Convert viewport-space X to SNES coordinate space for WH values.
+     * Y stays in viewport space since top/bottom are table indices. */
+    screen_x -= EB_VIEWPORT_PAD_LEFT;
+
+    int16_t top    = 0;  /* assembly reads uninitialized stack → 0 on SNES */
+    int16_t bottom = clamp_to_range(screen_y + var0, EB_VIEWPORT_HEIGHT);
+    int16_t left   = clamp_to_range(screen_x - var0, 256);
+    int16_t right  = clamp_to_range(screen_x + var0, 256);
+
+    /* Fill per-scanline window tables */
+    for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
+        if (s >= top && s < bottom) {
+            ppu.wh0_table[s] = (uint8_t)left;
+            ppu.wh1_table[s] = (uint8_t)right;
+        } else {
+            ppu.wh0_table[s] = 128;
+            ppu.wh1_table[s] = 127;
+        }
+    }
+    ppu.window_hdma_active = true;
+    /* ENABLE_OBJ_HDMA sets WOBJSEL to enable both color windows */
+    ppu.wobjsel = 0xA0;
+}
+
+/* C476A5: SETUP_ENTITY_HDMA_WINDOW_CH4 — per-frame tick callback.
+ * Builds oval window around entity using WH0/WH1 (HDMA channel 4). */
+static void tick_setup_entity_hdma_window_ch4(int16_t entity_offset) {
+    render_entity_hdma_window(entity_offset, ppu.wh0_table, ppu.wh1_table);
+    ppu.window_hdma_active = true;
+}
+
+/* C47705: SETUP_ENTITY_HDMA_WINDOW_CH5 — per-frame tick callback.
+ * Builds oval window around entity using WH2/WH3 (HDMA channel 5). */
+static void tick_setup_entity_hdma_window_ch5(int16_t entity_offset) {
+    render_entity_hdma_window(entity_offset, ppu.wh2_table, ppu.wh3_table);
+    ppu.window2_hdma_active = true;
+}
+
+/* C47A27: CENTER_CAMERA_WITH_RECT_WINDOW — per-frame tick callback.
+ * Centers camera Y on the current entity, then creates a rectangular
+ * HDMA window around the party leader's Y position.
+ * Port of asm/text/window/center_camera_with_rect_window.asm.
+ * Used in event script 583. */
+static void tick_center_camera_with_rect_window(int16_t entity_offset) {
+    uint16_t leader_slot = game_state.current_party_members;
+    int16_t ent_y = (int16_t)entities.abs_y[entity_offset];
+
+    /* Center camera on this entity (assembly: STA BG1_Y_POS) */
+    int16_t camera_y = ent_y - EB_VIEWPORT_CENTER_Y;
+    ppu.bg_vofs[0] = (uint16_t)camera_y;
+
+    /* Compute party leader's screen-relative Y (viewport space) */
+    int16_t leader_y = (int16_t)entities.abs_y[ENT(leader_slot)];
+    int16_t rel_y = leader_y - camera_y;
+
+    /* SETUP_RECT_WINDOW_HDMA params:
+     *   top    = rel_y - 96
+     *   bottom = rel_y + 96
+     *   left   = 16
+     *   right  = 240 */
+    int16_t top    = clamp_to_range(rel_y - 96, EB_VIEWPORT_HEIGHT);
+    int16_t bottom = clamp_to_range(rel_y + 96, EB_VIEWPORT_HEIGHT);
+    int16_t left   = clamp_to_range(16, 256);
+    int16_t right  = clamp_to_range(240, 256);
+
+    for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
+        if (s >= top && s < bottom) {
+            ppu.wh0_table[s] = (uint8_t)left;
+            ppu.wh1_table[s] = (uint8_t)right;
+        } else {
+            ppu.wh0_table[s] = 128;
+            ppu.wh1_table[s] = 127;
+        }
+    }
+    ppu.window_hdma_active = true;
+    ppu.wobjsel = 0xA0;
+}
+
+/* EF031E: UPDATE_PARTY_FOLLOWER_MOVEMENT — per-frame tick callback.
+ * Alternative follower movement for non-standard party members
+ * (e.g., Bubble Monkey). Reads position from the position buffer
+ * using char_struct::position_index, handles bubble monkey behavioral
+ * modes (normal, hide, distracted).
+ * Port of asm/misc/update_party_follower_movement.asm. */
+static void tick_update_party_follower_movement(int16_t entity_offset) {
+    int16_t slot = entity_offset;
+    int16_t char_id = entities.var[0][entity_offset];
+    int16_t var1 = entities.var[1][entity_offset];
+
+    /* var1 indexes into party_characters[] */
+    if (var1 < 0 || var1 >= TOTAL_PARTY_COUNT) return;
+    CharStruct *cs = &party_characters[var1];
+
+    uint16_t pos_idx = cs->position_index;
+    PositionBufferEntry *entry = &pb.player_position_buffer[pos_idx & 0xFF];
+
+    /* Update entity position from buffer */
+    entities.abs_x[entity_offset] = entry->x_coord;
+    entities.abs_y[entity_offset] = entry->y_coord;
+
+    if (entry->walking_style != 0) {
+        /* Non-zero walking style: normal follower update */
+        update_party_entity_graphics(char_id, entry->walking_style,
+                                     entity_offset,
+                                     slot - PARTY_LEADER_ENTITY_INDEX);
+        uint16_t new_idx = adjust_party_member_visibility(
+            entity_offset, char_id, pos_idx, 30);
+        cs->position_index = new_idx & 0xFF;
+    } else {
+        /* Walking style 0: Bubble monkey behavioral modes */
+        if (ow.bubble_monkey_mode == 0 || ow.bubble_monkey_mode == 2) {
+            /* Mode 0 (normal) / 2 (returning): adjust visibility */
+            uint16_t new_idx = adjust_party_member_visibility(
+                entity_offset, char_id, pos_idx, 12);
+            uint16_t old_idx = pos_idx & 0xFF;
+            cs->position_index = new_idx & 0xFF;
+
+            if (old_idx == (new_idx & 0xFF) ||
+                ((old_idx + 1) & 0xFF) == (new_idx & 0xFF)) {
+                /* Position close: use buffer walking_style for graphics */
+                update_party_entity_graphics(
+                    char_id, entry->walking_style,
+                    entity_offset,
+                    slot - PARTY_LEADER_ENTITY_INDEX);
+                if (!game_state.leader_moved)
+                    goto follower_update_timer;
+            } else {
+                /* Position changed: use walking_style 14 (running) */
+                update_party_entity_graphics(
+                    char_id, 14,
+                    entity_offset,
+                    slot - PARTY_LEADER_ENTITY_INDEX);
+            }
+
+            /* Update direction and clear var7 bits 15,14,13 */
+            entities.directions[entity_offset] = (int16_t)entry->direction;
+            entities.var[7][entity_offset] &= (int16_t)0x1FFF;
+        } else if (ow.bubble_monkey_mode == 1) {
+            /* Mode 1 (hiding): set var7 bits 14,13,12 */
+            entities.var[7][entity_offset] |= (int16_t)0x7000;
+        } else if (ow.bubble_monkey_mode == 3) {
+            /* Mode 3 (distracted): static pose + spacing hide */
+            entities.var[7][entity_offset] |= (int16_t)0x7000;
+
+            ow.bubble_monkey_distracted_next_direction_change_time--;
+            if (ow.bubble_monkey_distracted_next_direction_change_time == 0) {
+                ow.bubble_monkey_distracted_direction_changes_left--;
+                if (ow.bubble_monkey_distracted_direction_changes_left == 0) {
+                    ow.bubble_monkey_movement_change_timer = 15;
+                    ow.bubble_monkey_distracted_next_direction_change_time =
+                        (uint16_t)-1;
+                }
+
+                /* Randomize direction change interval */
+                ow.bubble_monkey_distracted_next_direction_change_time =
+                    ((rng_next_byte() << 2) & 0x0F) + 4;
+
+                /* Flip direction between 2 and 6 (right/left) */
+                ow.bubble_monkey_distracted_next_direction ^= 0x0004;
+                entities.directions[entity_offset] =
+                    (int16_t)ow.bubble_monkey_distracted_next_direction;
+            }
+        }
+
+follower_update_timer:
+        /* Update var3 = 4 (animation speed) */
+        entities.var[3][entity_offset] = 4;
+
+        /* Decrement movement change timer */
+        if (ow.bubble_monkey_movement_change_timer != 0)
+            ow.bubble_monkey_movement_change_timer--;
+        if (ow.bubble_monkey_movement_change_timer == 0) {
+            update_bubble_monkey_mode(char_id, cs->position_index);
+            if (ow.bubble_monkey_mode == 3) {
+                /* Initialize distracted state */
+                ow.bubble_monkey_distracted_direction_changes_left = 4;
+                ow.bubble_monkey_distracted_next_direction = 6;
+                ow.bubble_monkey_distracted_next_direction_change_time = 15;
+                ow.bubble_monkey_movement_change_timer = (uint16_t)-1;
+            } else {
+                ow.bubble_monkey_movement_change_timer = 60;
+            }
+        }
+
+        /* Update surface flags from position buffer */
+        entities.surface_flags[entity_offset] = entry->tile_flags;
+    }
+}
+
 /*
  * dispatch_tick_callback — called from script.c after running all scripts
  * for an entity. Dispatches the entity's tick callback by ROM address.
@@ -210,405 +566,46 @@ void render_entity_hdma_window(int16_t entity_offset,
 void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset) {
     uint16_t dummy_pc;
     switch (rom_addr) {
-    case TICK_ADDR_UPDATE_OVERWORLD_FRAME:
-        /* C05200: UPDATE_OVERWORLD_FRAME — init entity (slot 23) tick callback.
-         * Set by EVENT_001 (main overworld tick). Handles animated tiles/ert.palettes, then calls
-         * UPDATE_LEADER_MOVEMENT internally. */
-        update_overworld_frame(entity_offset);
-        break;
-    case TICK_ADDR_UPDATE_LEADER_MOVEMENT:
-        /* C04236: UPDATE_LEADER_MOVEMENT — leader entity tick callback.
-         * Syncs position_index, checks tile collision, writes ert.buffer.
-         * NOTE: In normal gameplay this is NOT set as a tick callback directly.
-         * UPDATE_OVERWORLD_FRAME calls it. This case exists for completeness. */
-        update_leader_movement(entity_offset);
-        break;
-    case TICK_ADDR_UPDATE_ENTITY_ANIMATION:
-        cr_update_entity_animation(entity_offset, -1, 0, &dummy_pc);
-        break;
-    case TICK_ADDR_UPDATE_FOLLOWER_STATE:
-        /* C04D78: UPDATE_FOLLOWER_STATE — reads position from
-         * PLAYER_POSITION_BUFFER and updates follower entity. */
-        update_follower_state(entity_offset);
-        break;
-    case TICK_ADDR_SIMPLE_SCREEN_POS_CALLBACK:
-        /* C48BE1: ACTIONSCRIPT_SIMPLE_SCREEN_POSITION_CALLBACK
-         * screen_x = abs_x - BG1_X_POS, screen_y = abs_y - BG1_Y_POS.
-         * Used by attract mode entities (set in INIT_ENTITY_FOR_ATTRACT_MODE). */
-        entities.screen_x[entity_offset] = entities.abs_x[entity_offset]
-                                          - (int16_t)ppu.bg_hofs[0];
-        entities.screen_y[entity_offset] = entities.abs_y[entity_offset]
-                                          - (int16_t)ppu.bg_vofs[0];
-        break;
-    case TICK_ADDR_SIMPLE_SCREEN_POS_CALLBACK_OFS:
-        /* C48C02: ACTIONSCRIPT_SIMPLE_SCREEN_POSITION_CALLBACK_OFFSET
-         * Same as above but adds var0/var1 offsets. */
-        entities.screen_x[entity_offset] = entities.abs_x[entity_offset]
-                                          - (int16_t)ppu.bg_hofs[0]
-                                          + entities.var[0][entity_offset];
-        entities.screen_y[entity_offset] = entities.abs_y[entity_offset]
-                                          - (int16_t)ppu.bg_vofs[0]
-                                          + entities.var[1][entity_offset];
-        break;
-    case TICK_ADDR_RESET_ENTITY_PATHFINDING:
-        /* C0D7E0: RESET_ENTITY_PATHFINDING — if pathfinding state is non-zero,
-         * set it to 1 (request reset). Used as tick callback by event 026. */
-        if (entities.pathfinding_states[entity_offset] != 0)
-            entities.pathfinding_states[entity_offset] = 1;
-        break;
-    case TICK_ADDR_ENTITY_PATHFINDING_STEP: {
-        /* C0D7F7: ENTITY_PATHFINDING_STEP — execute one frame of pathfinding
-         * movement toward the next waypoint in the entity's path.
-         *
-         * Checks if entity is within 3 pixels of current target. If so,
-         * advances to next waypoint. Sets direction and velocity toward target.
-         * When all waypoints consumed, clears pathfinding state and sets
-         * obstacle_flags bit 7. */
-        int16_t ent = entity_offset;
-
-        /* Only proceed if pathfinding state == -1 (active) */
-        if (entities.pathfinding_states[ent] != -1)
-            break;
-
-        int16_t size = entities.sizes[ent];
-        uint16_t path_ptr = ert.entity_path_points[ent];
-        int16_t from_x = entities.abs_x[ent];
-        int16_t from_y = entities.abs_y[ent];
-
-        /* Compute target from current path point */
-        int16_t path_y = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr]);
-        int16_t path_x = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr + 2]);
-        int16_t target_x = (int16_t)((ert.pathfinding_target_centre_x - ert.pathfinding_target_width) * 8
-                         + path_x * 8
-                         + entity_collision_x_offset[size]);
-        int16_t target_y = (int16_t)((ert.pathfinding_target_centre_y - ert.pathfinding_target_height) * 8
-                         + path_y * 8
-                         - sprite_hitbox_enable[size]
-                         + entity_collision_y_offset[size]);
-
-        /* Check if entity has reached the current waypoint (within 3 pixels) */
-        int16_t diff_x = from_x - target_x;
-        int16_t diff_y = from_y - target_y;
-        if (abs(diff_x) < 3 && abs(diff_y) < 3) {
-            /* Reached waypoint — advance to next */
-            ert.entity_path_point_counts[ent]--;
-            if (ert.entity_path_point_counts[ent] > 0) {
-                path_ptr += 4;
-                ert.entity_path_points[ent] = path_ptr;
-
-                /* Recompute target from next waypoint */
-                path_y = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr]);
-                path_x = (int16_t)read_u16_le(&ert.delivery_paths[path_ptr + 2]);
-                target_x = (int16_t)((ert.pathfinding_target_centre_x - ert.pathfinding_target_width) * 8
-                         + path_x * 8
-                         + entity_collision_x_offset[size]);
-                target_y = (int16_t)((ert.pathfinding_target_centre_y - ert.pathfinding_target_height) * 8
-                         + path_y * 8
-                         - sprite_hitbox_enable[size]
-                         + entity_collision_y_offset[size]);
-            }
-        }
-
-        if (ert.entity_path_point_counts[ent] > 0) {
-            /* Set direction and velocity toward target */
-            uint16_t fine_dir = calculate_direction_fine(from_x, from_y, target_x, target_y);
-            set_entity_velocity_from_direction(ent, fine_dir);
-            /* QUANTIZE_ENTITY_DIRECTION stores ENTITY_MOVING_DIRECTIONS. */
-            entities.directions[ent] = quantize_entity_direction(fine_dir);
-        } else {
-            /* Pathfinding complete — clear state, set obstacle bit 7 */
-            entities.pathfinding_states[ent] = 0;
-            entities.obstacle_flags[ent] |= 0x0080;
-        }
-        break;
-    }
-    case TICK_ADDR_MAKE_PARTY_LOOK_AT_ENTITY: {
-        /* C48B3B: MAKE_PARTY_LOOK_AT_ACTIVE_ENTITY — make all party members
-         * face toward the current entity. Assembly only runs on even frames
-         * (FRAME_COUNTER & 1 == 0). Iterates party members, calculates
-         * direction, and updates sprite if direction changed. */
-        if (core.frame_counter & 1)
-            break;
-        int16_t ent_off = entity_offset;
-        for (int i = 0; i < (game_state.party_count & 0xFF); i++) {
-            /* Check party_order[i] is a valid member (< 16) */
-            uint8_t order = game_state.party_order[i];
-            if (order >= 16)
-                continue;
-            int16_t pm_off = ENT((int16_t)read_u16_le(&game_state.party_entity_slots[i * 2]));
-            int16_t dir = calculate_direction_8(
-                entities.abs_x[pm_off], entities.abs_y[pm_off],
-                entities.abs_x[ent_off], entities.abs_y[ent_off]);
-            if (entities.directions[pm_off] != dir) {
-                entities.directions[pm_off] = dir;
-                render_entity_sprite(pm_off);
-            }
-        }
-        break;
-    }
-    case TICK_ADDR_ANIMATED_BACKGROUND_CALLBACK:
-        /* C48BDA: ACTIONSCRIPT_ANIMATED_BACKGROUND_CALLBACK —
-         * Just calls UPDATE_BATTLE_SCREEN_EFFECTS. */
-        update_battle_screen_effects();
-        break;
-    case TICK_ADDR_CENTRE_SCREEN_ON_ENTITY:
-        /* C48C2B: ACTIONSCRIPT_CENTRE_SCREEN_ON_ENTITY_CALLBACK —
-         * Centers camera on entity position via CENTER_SCREEN. */
-        center_screen(
-            (uint16_t)entities.abs_x[entity_offset],
-            (uint16_t)entities.abs_y[entity_offset]);
-        break;
-    case TICK_ADDR_CENTRE_SCREEN_ON_ENTITY_OFS:
-        /* C48C3E: ACTIONSCRIPT_CENTRE_SCREEN_ON_ENTITY_CALLBACK_OFFSET —
-         * Same as above but adds var0 (X offset) and var1 (Y offset). */
-        center_screen(
-            (uint16_t)(entities.abs_x[entity_offset] + entities.var[0][entity_offset]),
-            (uint16_t)(entities.abs_y[entity_offset] + entities.var[1][entity_offset]));
-        break;
-    case TICK_ADDR_PSI_TELEPORT_ALPHA_TICK:
-        psi_teleport_alpha_tick(entity_offset);
-        break;
-    case TICK_ADDR_UPDATE_PARTY_ENTITY_FROM_BUFFER:
-        update_party_entity_from_buffer(entity_offset);
-        break;
-    case TICK_ADDR_PSI_TELEPORT_BETA_TICK:
-        psi_teleport_beta_tick(entity_offset);
-        break;
-    case TICK_ADDR_PSI_TELEPORT_SUCCESS_TICK:
-        psi_teleport_success_tick(entity_offset);
-        break;
-    case TICK_ADDR_PSI_TELEPORT_DECELERATE_TICK:
-        psi_teleport_decelerate_tick(entity_offset);
-        break;
-    case TICK_ADDR_NOP:
-        /* C0E979: TICK_CALLBACK_NOP — no-op tick callback.
-         * Used as placeholder when no per-frame handler is needed. */
-        break;
-    case TICK_ADDR_HANDLE_CAST_SCROLLING:
-        /* C4E51E: HANDLE_CAST_SCROLLING — cast scene tick callback.
-         * Sets BG3_Y to entity Y, clears tilemap rows as they scroll. */
-        handle_cast_scrolling(entity_offset);
-        break;
-    case TICK_ADDR_UPDATE_ENTITY_SURFACE_AND_GRAPHICS: {
-        /* C0E97C: UPDATE_ENTITY_SURFACE_AND_GRAPHICS —
-         * Updates entity surface flags from map data, then refreshes
-         * party member graphics. Used during teleport failure.
-         * Port of asm/overworld/entity/update_entity_surface_and_graphics.asm. */
-        uint16_t slot = entity_offset;
-        int16_t x = (int16_t)entities.abs_x[entity_offset];
-        int16_t y = (int16_t)entities.abs_y[entity_offset];
-        entities.surface_flags[entity_offset] =
-            lookup_surface_flags(x, y, entities.sizes[entity_offset]);
-        int16_t party_idx = (int16_t)(slot - PARTY_LEADER_ENTITY_INDEX);
-        update_party_entity_graphics(
-            entities.var[0][entity_offset],  /* char_id from var0 */
-            (uint16_t)-1,                    /* walking_style = -1 (force update) */
-            entity_offset,
-            party_idx);
-        break;
-    }
-    case TICK_ADDR_APPLY_ENTITY_RECT_WINDOW: {
-        /* C479E9: APPLY_ENTITY_RECT_WINDOW — per-frame tick callback.
-         * Creates a rectangular window around the entity using var0 as half-size.
-         * Calls SETUP_RECT_WINDOW_HDMA → ENABLE_OBJ_HDMA which sets WOBJSEL=0xA0
-         * and drives WH0/WH1 via HDMA channel 4.
-         *
-         * Assembly reads an uninitialized stack variable for "top" which is 0
-         * on real SNES (zeroed memory), making the window span from scanline 0
-         * down to (screen_y + var0) — creating a beam from the sky. */
-        int16_t screen_x = (int16_t)((uint16_t)entities.abs_x[entity_offset]
-                           - ppu.bg_hofs[0]);
-        int16_t screen_y = (int16_t)((uint16_t)entities.abs_y[entity_offset]
-                           - ppu.bg_vofs[0]);
-        int16_t var0 = entities.var[0][entity_offset];
-
-        /* Convert viewport-space X to SNES coordinate space for WH values.
-         * Y stays in viewport space since top/bottom are table indices. */
-        screen_x -= EB_VIEWPORT_PAD_LEFT;
-
-        int16_t top    = 0;  /* assembly reads uninitialized stack → 0 on SNES */
-        int16_t bottom = clamp_to_range(screen_y + var0, EB_VIEWPORT_HEIGHT);
-        int16_t left   = clamp_to_range(screen_x - var0, 256);
-        int16_t right  = clamp_to_range(screen_x + var0, 256);
-
-        /* Fill per-scanline window tables */
-        for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
-            if (s >= top && s < bottom) {
-                ppu.wh0_table[s] = (uint8_t)left;
-                ppu.wh1_table[s] = (uint8_t)right;
-            } else {
-                ppu.wh0_table[s] = 128;
-                ppu.wh1_table[s] = 127;
-            }
-        }
-        ppu.window_hdma_active = true;
-        /* ENABLE_OBJ_HDMA sets WOBJSEL to enable both color windows */
-        ppu.wobjsel = 0xA0;
-        break;
-    }
-    case TICK_ADDR_SETUP_ENTITY_HDMA_WINDOW_CH4:
-        /* C476A5: SETUP_ENTITY_HDMA_WINDOW_CH4 — per-frame tick callback.
-         * Builds oval window around entity using WH0/WH1 (HDMA channel 4). */
-        render_entity_hdma_window(entity_offset, ppu.wh0_table, ppu.wh1_table);
-        ppu.window_hdma_active = true;
-        break;
-    case TICK_ADDR_SETUP_ENTITY_HDMA_WINDOW_CH5:
-        /* C47705: SETUP_ENTITY_HDMA_WINDOW_CH5 — per-frame tick callback.
-         * Builds oval window around entity using WH2/WH3 (HDMA channel 5). */
-        render_entity_hdma_window(entity_offset, ppu.wh2_table, ppu.wh3_table);
-        ppu.window2_hdma_active = true;
-        break;
-    case TICK_ADDR_CENTER_CAMERA_WITH_RECT_WINDOW: {
-        /* C47A27: CENTER_CAMERA_WITH_RECT_WINDOW — per-frame tick callback.
-         * Centers camera Y on the current entity, then creates a rectangular
-         * HDMA window around the party leader's Y position.
-         * Port of asm/text/window/center_camera_with_rect_window.asm.
-         * Used in event script 583. */
-        uint16_t leader_slot = game_state.current_party_members;
-        int16_t ent_y = (int16_t)entities.abs_y[entity_offset];
-
-        /* Center camera on this entity (assembly: STA BG1_Y_POS) */
-        int16_t camera_y = ent_y - EB_VIEWPORT_CENTER_Y;
-        ppu.bg_vofs[0] = (uint16_t)camera_y;
-
-        /* Compute party leader's screen-relative Y (viewport space) */
-        int16_t leader_y = (int16_t)entities.abs_y[ENT(leader_slot)];
-        int16_t rel_y = leader_y - camera_y;
-
-        /* SETUP_RECT_WINDOW_HDMA params:
-         *   top    = rel_y - 96
-         *   bottom = rel_y + 96
-         *   left   = 16
-         *   right  = 240 */
-        int16_t top    = clamp_to_range(rel_y - 96, EB_VIEWPORT_HEIGHT);
-        int16_t bottom = clamp_to_range(rel_y + 96, EB_VIEWPORT_HEIGHT);
-        int16_t left   = clamp_to_range(16, 256);
-        int16_t right  = clamp_to_range(240, 256);
-
-        for (int s = 0; s < EB_VIEWPORT_HEIGHT; s++) {
-            if (s >= top && s < bottom) {
-                ppu.wh0_table[s] = (uint8_t)left;
-                ppu.wh1_table[s] = (uint8_t)right;
-            } else {
-                ppu.wh0_table[s] = 128;
-                ppu.wh1_table[s] = 127;
-            }
-        }
-        ppu.window_hdma_active = true;
-        ppu.wobjsel = 0xA0;
-        break;
-    }
-    case TICK_ADDR_UPDATE_PARTY_FOLLOWER_MOVEMENT: {
-        /* EF031E: UPDATE_PARTY_FOLLOWER_MOVEMENT — per-frame tick callback.
-         * Alternative follower movement for non-standard party members
-         * (e.g., Bubble Monkey). Reads position from the position buffer
-         * using char_struct::position_index, handles bubble monkey behavioral
-         * modes (normal, hide, distracted).
-         * Port of asm/misc/update_party_follower_movement.asm. */
-        int16_t slot = entity_offset;
-        int16_t char_id = entities.var[0][entity_offset];
-        int16_t var1 = entities.var[1][entity_offset];
-
-        /* var1 indexes into party_characters[] */
-        if (var1 < 0 || var1 >= TOTAL_PARTY_COUNT) break;
-        CharStruct *cs = &party_characters[var1];
-
-        uint16_t pos_idx = cs->position_index;
-        PositionBufferEntry *entry = &pb.player_position_buffer[pos_idx & 0xFF];
-
-        /* Update entity position from buffer */
-        entities.abs_x[entity_offset] = entry->x_coord;
-        entities.abs_y[entity_offset] = entry->y_coord;
-
-        if (entry->walking_style != 0) {
-            /* Non-zero walking style: normal follower update */
-            update_party_entity_graphics(char_id, entry->walking_style,
-                                         entity_offset,
-                                         slot - PARTY_LEADER_ENTITY_INDEX);
-            uint16_t new_idx = adjust_party_member_visibility(
-                entity_offset, char_id, pos_idx, 30);
-            cs->position_index = new_idx & 0xFF;
-        } else {
-            /* Walking style 0: Bubble monkey behavioral modes */
-            if (ow.bubble_monkey_mode == 0 || ow.bubble_monkey_mode == 2) {
-                /* Mode 0 (normal) / 2 (returning): adjust visibility */
-                uint16_t new_idx = adjust_party_member_visibility(
-                    entity_offset, char_id, pos_idx, 12);
-                uint16_t old_idx = pos_idx & 0xFF;
-                cs->position_index = new_idx & 0xFF;
-
-                if (old_idx == (new_idx & 0xFF) ||
-                    ((old_idx + 1) & 0xFF) == (new_idx & 0xFF)) {
-                    /* Position close: use buffer walking_style for graphics */
-                    update_party_entity_graphics(
-                        char_id, entry->walking_style,
-                        entity_offset,
-                        slot - PARTY_LEADER_ENTITY_INDEX);
-                    if (!game_state.leader_moved)
-                        goto follower_update_timer;
-                } else {
-                    /* Position changed: use walking_style 14 (running) */
-                    update_party_entity_graphics(
-                        char_id, 14,
-                        entity_offset,
-                        slot - PARTY_LEADER_ENTITY_INDEX);
-                }
-
-                /* Update direction and clear var7 bits 15,14,13 */
-                entities.directions[entity_offset] = (int16_t)entry->direction;
-                entities.var[7][entity_offset] &= (int16_t)0x1FFF;
-            } else if (ow.bubble_monkey_mode == 1) {
-                /* Mode 1 (hiding): set var7 bits 14,13,12 */
-                entities.var[7][entity_offset] |= (int16_t)0x7000;
-            } else if (ow.bubble_monkey_mode == 3) {
-                /* Mode 3 (distracted): static pose + spacing hide */
-                entities.var[7][entity_offset] |= (int16_t)0x7000;
-
-                ow.bubble_monkey_distracted_next_direction_change_time--;
-                if (ow.bubble_monkey_distracted_next_direction_change_time == 0) {
-                    ow.bubble_monkey_distracted_direction_changes_left--;
-                    if (ow.bubble_monkey_distracted_direction_changes_left == 0) {
-                        ow.bubble_monkey_movement_change_timer = 15;
-                        ow.bubble_monkey_distracted_next_direction_change_time =
-                            (uint16_t)-1;
-                    }
-
-                    /* Randomize direction change interval */
-                    ow.bubble_monkey_distracted_next_direction_change_time =
-                        ((rng_next_byte() << 2) & 0x0F) + 4;
-
-                    /* Flip direction between 2 and 6 (right/left) */
-                    ow.bubble_monkey_distracted_next_direction ^= 0x0004;
-                    entities.directions[entity_offset] =
-                        (int16_t)ow.bubble_monkey_distracted_next_direction;
-                }
-            }
-
-follower_update_timer:
-            /* Update var3 = 4 (animation speed) */
-            entities.var[3][entity_offset] = 4;
-
-            /* Decrement movement change timer */
-            if (ow.bubble_monkey_movement_change_timer != 0)
-                ow.bubble_monkey_movement_change_timer--;
-            if (ow.bubble_monkey_movement_change_timer == 0) {
-                update_bubble_monkey_mode(char_id, cs->position_index);
-                if (ow.bubble_monkey_mode == 3) {
-                    /* Initialize distracted state */
-                    ow.bubble_monkey_distracted_direction_changes_left = 4;
-                    ow.bubble_monkey_distracted_next_direction = 6;
-                    ow.bubble_monkey_distracted_next_direction_change_time = 15;
-                    ow.bubble_monkey_movement_change_timer = (uint16_t)-1;
-                } else {
-                    ow.bubble_monkey_movement_change_timer = 60;
-                }
-            }
-
-            /* Update surface flags from position buffer */
-            entities.surface_flags[entity_offset] = entry->tile_flags;
-        }
-        break;
-    }
+    /* C05200: UPDATE_OVERWORLD_FRAME — init entity (slot 23) tick callback.
+     * Set by EVENT_001 (main overworld tick). Handles animated tiles/ert.palettes, then calls
+     * UPDATE_LEADER_MOVEMENT internally. */
+    case TICK_ADDR_UPDATE_OVERWORLD_FRAME: update_overworld_frame(entity_offset); break;
+    /* C04236: UPDATE_LEADER_MOVEMENT — leader entity tick callback.
+     * Syncs position_index, checks tile collision, writes ert.buffer.
+     * NOTE: In normal gameplay this is NOT set as a tick callback directly.
+     * UPDATE_OVERWORLD_FRAME calls it. This case exists for completeness. */
+    case TICK_ADDR_UPDATE_LEADER_MOVEMENT: update_leader_movement(entity_offset); break;
+    case TICK_ADDR_UPDATE_ENTITY_ANIMATION: cr_update_entity_animation(entity_offset, -1, 0, &dummy_pc); break;
+    /* C04D78: UPDATE_FOLLOWER_STATE — reads position from
+     * PLAYER_POSITION_BUFFER and updates follower entity. */
+    case TICK_ADDR_UPDATE_FOLLOWER_STATE: update_follower_state(entity_offset); break;
+    case TICK_ADDR_SIMPLE_SCREEN_POS_CALLBACK: tick_simple_screen_pos_callback(entity_offset); break;
+    case TICK_ADDR_SIMPLE_SCREEN_POS_CALLBACK_OFS: tick_simple_screen_pos_callback_ofs(entity_offset); break;
+    case TICK_ADDR_RESET_ENTITY_PATHFINDING: tick_reset_entity_pathfinding(entity_offset); break;
+    case TICK_ADDR_ENTITY_PATHFINDING_STEP: tick_entity_pathfinding_step(entity_offset); break;
+    case TICK_ADDR_MAKE_PARTY_LOOK_AT_ENTITY: tick_make_party_look_at_entity(entity_offset); break;
+    /* C48BDA: ACTIONSCRIPT_ANIMATED_BACKGROUND_CALLBACK —
+     * Just calls UPDATE_BATTLE_SCREEN_EFFECTS. */
+    case TICK_ADDR_ANIMATED_BACKGROUND_CALLBACK: update_battle_screen_effects(); break;
+    case TICK_ADDR_CENTRE_SCREEN_ON_ENTITY: tick_centre_screen_on_entity(entity_offset); break;
+    case TICK_ADDR_CENTRE_SCREEN_ON_ENTITY_OFS: tick_centre_screen_on_entity_ofs(entity_offset); break;
+    case TICK_ADDR_PSI_TELEPORT_ALPHA_TICK: psi_teleport_alpha_tick(entity_offset); break;
+    case TICK_ADDR_UPDATE_PARTY_ENTITY_FROM_BUFFER: update_party_entity_from_buffer(entity_offset); break;
+    case TICK_ADDR_PSI_TELEPORT_BETA_TICK: psi_teleport_beta_tick(entity_offset); break;
+    case TICK_ADDR_PSI_TELEPORT_SUCCESS_TICK: psi_teleport_success_tick(entity_offset); break;
+    case TICK_ADDR_PSI_TELEPORT_DECELERATE_TICK: psi_teleport_decelerate_tick(entity_offset); break;
+    /* C0E979: TICK_CALLBACK_NOP — no-op tick callback.
+     * Used as placeholder when no per-frame handler is needed. */
+    case TICK_ADDR_NOP: break;
+    /* C4E51E: HANDLE_CAST_SCROLLING — cast scene tick callback.
+     * Sets BG3_Y to entity Y, clears tilemap rows as they scroll. */
+    case TICK_ADDR_HANDLE_CAST_SCROLLING: handle_cast_scrolling(entity_offset); break;
+    case TICK_ADDR_UPDATE_ENTITY_SURFACE_AND_GRAPHICS: tick_update_entity_surface_and_graphics(entity_offset); break;
+    case TICK_ADDR_APPLY_ENTITY_RECT_WINDOW: tick_apply_entity_rect_window(entity_offset); break;
+    case TICK_ADDR_SETUP_ENTITY_HDMA_WINDOW_CH4: tick_setup_entity_hdma_window_ch4(entity_offset); break;
+    case TICK_ADDR_SETUP_ENTITY_HDMA_WINDOW_CH5: tick_setup_entity_hdma_window_ch5(entity_offset); break;
+    case TICK_ADDR_CENTER_CAMERA_WITH_RECT_WINDOW: tick_center_camera_with_rect_window(entity_offset); break;
+    case TICK_ADDR_UPDATE_PARTY_FOLLOWER_MOVEMENT: tick_update_party_follower_movement(entity_offset); break;
     default:
         LOG_WARN("WARN: unknown tick callback $%06X for entity %d\n",
                  rom_addr, entity_offset);
