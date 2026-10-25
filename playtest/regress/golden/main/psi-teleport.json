@@ -5,7 +5,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L46 HP 379/379 PP 129/131 | 2:Paula L38 HP 141/141 PP 140/140 | 3:Jeff L40 HP 240/240 PP 0/0 | 4:Poo L18 HP 140/140 PP 47/47",
-   "state": "STATE running modes=[OVERWORLD>TELEPORT] idle=modes input=0 pos=(3803,9300) dir=LEFT music=51 money=46630 battle=0 ow_enemies=0 surface=0x04(sunstroke)",
+   "state": "STATE running modes=[OVERWORLD>TELEPORT] idle=modes input=0 pos=(3815,9300) dir=LEFT music=51 money=46630 battle=0 ow_enemies=0 surface=0x04(sunstroke)",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
    "win": "sha256:e3b0c44298fc1c14"
