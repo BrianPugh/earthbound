@@ -23,6 +23,12 @@ void st7789_rp2040_begin_frame(const st7789_t *lcd);
 /* End a frame: release CS (call after DMA is fully drained). */
 void st7789_rp2040_end_frame(void);
 
+/* Move the write pointer to row `y` (window rows y..y_last, full width) and
+ * reissue RAMWR, staying in 16-bit SPI mode: each command goes out as a
+ * 16-bit word whose high byte is NOP (0x00). Blocking; the SPI must be idle
+ * (call st7789_rp2040_dma_finish first). Lets scanlines arrive out of order. */
+void st7789_rp2040_set_row(uint16_t y, uint16_t y_last);
+
 /* Start a DMA transfer of `count` 16-bit pixels from `buf`.
  * Non-blocking — returns immediately. Use st7789_rp2040_dma_wait to block. */
 void st7789_rp2040_dma_start(int dma_chan, const uint16_t *buf, uint16_t count);

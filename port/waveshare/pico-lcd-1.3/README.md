@@ -50,20 +50,22 @@ This produces `build/earthbound_pico.uf2`.
 
 ### RAM budget
 
-Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.data + .bss` exceeds `RAM_BUDGET_BYTES` (set in `CMakeLists.txt`; `.data` includes the `.time_critical` PPU code copied to SRAM). `arm-none-eabi-size -A build/earthbound_pico.elf` on 2026-10-25 (pico-sdk 2.2.0, arm-none-eabi-gcc 15.3, Release, single core):
+Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.data + .bss` exceeds `RAM_BUDGET_BYTES` (set in `CMakeLists.txt`; `.data` includes the `.time_critical` PPU code copied to SRAM). `arm-none-eabi-size -A build/earthbound_pico.elf` on 2026-10-25 (pico-sdk 2.2.0, arm-none-eabi-gcc 15.3, Release):
 
-| Section | Bytes |
-|---|---|
-| `.ram_vector_table` | 192 |
-| `.data` | 34,936 |
-| `.bss` | 133,496 |
-| `.scratch_x` | 4,096 (save sector buffer) |
-| `.stack_dummy` | 2,048 |
-| **`.data + .bss`** | **168,432** (budget 172,528) |
+| Section | Dual core (default) | Single core |
+|---|---|---|
+| `.ram_vector_table` | 192 | 192 |
+| `.data` | 35,472 | 34,616 |
+| `.bss` | 141,944 | 133,492 |
+| `.scratch_x` | 960 (core 1's DMA line buffers) + 3,072 core 1 stack | 4,096 (save sector buffer) |
+| `.stack_dummy` (core 0, SCRATCH_Y) | 2,048 | 2,048 |
+| **`.data + .bss`** | **177,416** (budget 181,512) | **168,108** |
 
-Main SRAM is 256 KB and holds only the vector table, `.data` and `.bss` (the heap is empty), so about 91 KB of it is free; the core 0 stack has the 4 KB SCRATCH_Y bank to itself, and SCRATCH_X holds the save sector buffer (core 1's stack in dual-core builds, which keep the buffer in `.bss`).
+Main SRAM is 256 KB and holds only the vector table, `.data` and `.bss` (the heap is empty), so about 83 KB of it is free; the core 0 stack has the 4 KB SCRATCH_Y bank to itself.
 
-The `EB_ENABLE_DUAL_CORE_PPU=ON` build (even/odd scanlines split across the 2 cores) is .data 33,376 + .bss 143,012 = 176,388 B, over the single-core budget, so configure it with its own `-DRAM_BUDGET_BYTES=180000`. On 2026-10-25 it measured 52.4 fps outside Ness's house at night, against 40.6 fps single core (FPS overlay, same spot).
+### Dual-core rendering
+
+`EB_ENABLE_DUAL_CORE_PPU` (ON by default) splits each frame between the cores: core 0 renders the top half of the screen and core 1 the bottom half, each with its own render context, so both keep the renderer's per-tile-row reuse. The halves take turns on the SPI bus a line at a time, and each line first moves the LCD's write pointer to its row; the renderer draws straight into the DMA buffers. Core 1's tile cache is half size, and in-game saves borrow core 0's render scratch for the 4 KB flash sector buffer (saves run between frames). Measured outside Ness's house at night (FPS overlay): 40.6 fps single core, 52.4 even/odd scanline split, 56.6 this band split. Configure with `-DEB_ENABLE_DUAL_CORE_PPU=OFF` for the single-core build.
 
 ## Flashing
 
@@ -72,7 +74,7 @@ The `EB_ENABLE_DUAL_CORE_PPU=ON` build (even/odd scanlines split across the 2 co
 
 ### Audio
 
-Audio is disabled by default. The SPC700/DSP emulator needs ~70 KB (64 KB of APU RAM), which no longer exceeds the ~91 KB of free main SRAM, but the APU state is heap-allocated (the Pico heap is empty) and the RP2040's CPU budget for emulating it is unmeasured. To enable audio (e.g. on an RP2350 with 520KB RAM), set `ENABLE_AUDIO ON` in `CMakeLists.txt`. PWM output goes to GPIO 0 (`PIN_AUDIO_PWM` in `board.h`); wire through an RC low-pass filter (1 kΩ + 100 nF) to an amplifier/speaker.
+Audio is disabled by default. The SPC700/DSP emulator needs ~70 KB (64 KB of APU RAM), which fits in the ~83 KB of free main SRAM, but the APU state is heap-allocated (the Pico heap is empty) and the RP2040's CPU budget for emulating it is unmeasured. To enable audio (e.g. on an RP2350 with 520KB RAM), set `ENABLE_AUDIO ON` in `CMakeLists.txt`. PWM output goes to GPIO 0 (`PIN_AUDIO_PWM` in `board.h`); wire through an RC low-pass filter (1 kΩ + 100 nF) to an amplifier/speaker.
 
 ## Known Limitations
 

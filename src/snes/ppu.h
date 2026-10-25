@@ -179,11 +179,12 @@ void ppu_render_frame(scanline_callback_t send_scanline);
 #define EB_PPU_NUM_RENDER_CONTEXTS 1
 #endif
 
-/* Pre-build the shadow palette (BGR555→BGR565) from current CGRAM.
+/* Build the per-frame state shared by all render contexts: the shadow
+ * palette (BGR555→BGR565) from current CGRAM and the OBJ scanline buckets.
  * Must be called before ppu_render_frame_ex().  ppu_render_frame()
  * calls this automatically; dual-core callers must call it explicitly
- * before signaling core 1 to ensure the palette is visible to both cores. */
-void ppu_prepare_palette(void);
+ * before signaling core 1 so both cores see the same state. */
+void ppu_prepare_frame(void);
 
 /* Extended render entry point for dual-core rendering.
  * ctx_id selects which tile cache and working buffers to use (0 or 1).
@@ -191,6 +192,22 @@ void ppu_prepare_palette(void);
  * Borders (top/bottom black lines) are only emitted when y_stride == 1. */
 void ppu_render_frame_ex(int ctx_id, int y_start, int y_end, int y_stride,
                          scanline_callback_t send_scanline);
+
+#if EB_PPU_NUM_RENDER_CONTEXTS > 1
+/* Lend render context 0's frame-rebuilt buffers (its tile cache and BG merge
+ * line, which ppu_render_frame_ex resets at the start of every frame) as
+ * scratch RAM. Valid only between frames, while no render runs; the renderer
+ * rebuilds them on its next frame. Writes the size in bytes to *out_bytes. */
+void *ppu_lend_frame_scratch(size_t *out_bytes);
+#endif
+
+#ifdef EB_PPU_EXTERNAL_LINE_OUT
+/* Set the buffer (EB_VIEWPORT_WIDTH pixels) context ctx_id renders its next
+ * scanline into. Call before ppu_render_frame_ex(); the send callback may
+ * call it again to pick the following line's buffer. A port that defines
+ * EB_PPU_EXTERNAL_LINE_OUT owns all output line storage. */
+void ppu_set_line_out(int ctx_id, pixel_t *buf);
+#endif
 
 #ifdef EB_SMOOTH_CAMERA
 /* Smooth camera (desktop presentation option, game/smooth_camera.h): while

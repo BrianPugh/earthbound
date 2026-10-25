@@ -37,6 +37,20 @@ void st7789_rp2040_end_frame(void) {
     st7789_end_write();
 }
 
+void __not_in_flash_func(st7789_rp2040_set_row)(uint16_t y, uint16_t y_last) {
+    static const uint16_t raset = ST7789_CMD_RASET; /* NOP, RASET */
+    static const uint16_t ramwr = ST7789_CMD_RAMWR; /* NOP, RAMWR */
+    const uint16_t rows[2] = { y, y_last };
+
+    hal_gpio_dc_write(0);
+    spi_write16_blocking(LCD_SPI_INST, &raset, 1);
+    hal_gpio_dc_write(1);
+    spi_write16_blocking(LCD_SPI_INST, rows, 2);
+    hal_gpio_dc_write(0);
+    spi_write16_blocking(LCD_SPI_INST, &ramwr, 1);
+    hal_gpio_dc_write(1);
+}
+
 void st7789_rp2040_dma_start(int dma_chan, const uint16_t *buf, uint16_t count) {
     dma_channel_transfer_from_buffer_now(dma_chan, buf, count);
 }

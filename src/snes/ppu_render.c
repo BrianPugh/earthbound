@@ -119,6 +119,7 @@ typedef struct {
      * falls back to the windowed/NW path otherwise. */
     uint8_t uncond;
     TileRowCacheEntry *tile_cache; /* per-context tile cache (may be in fast SRAM) */
+    int ctx_id;                    /* render context: indexes the per-context row plan */
     /* Emit-span tracking: emit_tile_run widens [emit_lo, emit_hi) with every
      * run that survives the blank-row skip. The temp-layer merge uses it to
      * scan only the columns the temp render could have written — on the
@@ -141,15 +142,6 @@ typedef struct {
  * BGR555→BGR565 is a single shift (same channel order, widen green). */
 static uint16_t cgram_render[256];
 
-/* Pre-build the shadow palette from CGRAM.  Call before signaling
- * core 1 in dual-core mode to avoid a data race on cgram_render[]. */
-void ppu_prepare_palette(void) {
-    for (int i = 0; i < 256; i++) {
-        uint16_t c = ppu.cgram[i];
-        cgram_render[i] = bgr555_to_pixel(c);
-    }
-}
-
 /* Tile row decode cache: avoids redundant bitplane decoding.
  * An 8×8 tile row is identical across 8 consecutive scanlines, and the same
  * tile may repeat horizontally or across BG layers.  Direct-mapped with 256
@@ -161,6 +153,18 @@ void ppu_prepare_palette(void) {
 #define TILE_CACHE_BITS  8
 #define TILE_CACHE_SIZE  (1 << TILE_CACHE_BITS)
 #define TILE_CACHE_MASK  (TILE_CACHE_SIZE - 1)
+/* Contexts after the first may use a smaller cache to save RAM (a port sets
+ * EB_PPU_SECONDARY_TILE_CACHE_BITS); they then hit less often. */
+#ifndef EB_PPU_SECONDARY_TILE_CACHE_BITS
+#define EB_PPU_SECONDARY_TILE_CACHE_BITS TILE_CACHE_BITS
+#endif
+#define TILE_CACHE_SIZE_SECONDARY (1 << EB_PPU_SECONDARY_TILE_CACHE_BITS)
+#if EB_PPU_NUM_RENDER_CONTEXTS == 1
+#define CTX_TILE_CACHE_MASK(ctx) TILE_CACHE_MASK
+#else
+#define CTX_TILE_CACHE_MASK(ctx) \
+    ((ctx) == 0 ? TILE_CACHE_MASK : TILE_CACHE_SIZE_SECONDARY - 1)
+#endif
 #define TILE_CACHE_EMPTY 0xFFFF
 /* Every tile address is a multiple of 16: BG tiles sit at nba * 0x2000 plus
  * tile_num * 16/32/64, OBJ tiles at obsel-derived 0x2000 multiples plus
@@ -170,7 +174,10 @@ void ppu_prepare_palette(void) {
     ((uint16_t)(((tile_addr) >> 4) | ((uint32_t)(pixel_y) << 12)))
 _Static_assert(sizeof(TileRowCacheEntry) == 12, "tile row cache entry must stay 12 bytes");
 
-static TileRowCacheEntry tile_row_cache[EB_PPU_NUM_RENDER_CONTEXTS][TILE_CACHE_SIZE];
+#if EB_PPU_NUM_RENDER_CONTEXTS == 1
+static TileRowCacheEntry tile_row_cache[1][TILE_CACHE_SIZE];
+#define CTX_TILE_CACHE(ctx) tile_row_cache[ctx]
+#endif /* multi-context: in FrameRebuiltBufs, next to the line buffers */
 
 /* Decode a single 2bpp tile row (8 pixels) — unrolled, no loop.
  * Not force-inlined: keeping as regular functions reduces render_bg_scanline
@@ -474,7 +481,7 @@ void emit_tile_run(
     /* Tile row cache lookup — avoids redundant decode across scanlines,
      * horizontal tile repeats, and cross-layer tile sharing. */
     uint16_t cache_key = TILE_CACHE_KEY(tile_addr, pixel_y);
-    uint32_t cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
+    uint32_t cache_idx = ((tile_addr >> 1) ^ pixel_y) & CTX_TILE_CACHE_MASK(ctx->ctx_id);
     TileRowCacheEntry *row = &ctx->tile_cache[cache_idx];
     if (row->key == cache_key) {
         BGC_INC(cache_hits);
@@ -562,16 +569,11 @@ void emit_tile_run(
  * frame start, so a replay can only occur for scanlines of the same frame that map
  * to the same tile row at the same scroll — exactly when the plan is identical.
  * 8x8 tiles only; 16x16 and bg2 HDMA distortion (per-scanline scroll) fall back to
- * the full loop. Assumes a single render context (the cache is global, not per
- * ctx_id) — auto-disabled otherwise. */
+ * the full loop. One plan per render context: a context renders its scanlines in
+ * order, so the plan is only replayed within that context's own rows. */
 #ifndef EB_PPU_BG_ROW_CACHE
 #define EB_PPU_BG_ROW_CACHE 1
 #endif
-#if EB_PPU_BG_ROW_CACHE && EB_PPU_NUM_RENDER_CONTEXTS != 1
-#undef EB_PPU_BG_ROW_CACHE
-#define EB_PPU_BG_ROW_CACHE 0
-#endif
-
 #if EB_PPU_BG_ROW_CACHE
 #define BG_ROW_PLAN_MAXCOL 48   /* >= max tile columns across render_width (~42) */
 typedef struct {
@@ -580,13 +582,13 @@ typedef struct {
     bool     hflip, vflip;
     uint16_t screen_x;
 } BGRowPlanEntry;
-static BGRowPlanEntry bg_row_plan[4][BG_ROW_PLAN_MAXCOL];
+static BGRowPlanEntry bg_row_plan[EB_PPU_NUM_RENDER_CONTEXTS][4][BG_ROW_PLAN_MAXCOL];
 static struct {
     int row;       /* cached tile_row_map; -1 = invalid */
     int scroll_x;  /* plan is valid only for this horizontal scroll ... */
     int width;     /* ... and this render_width */
-    int count;     /* number of entries in bg_row_plan[bg] */
-} bg_row_cache[4];
+    int count;     /* number of entries in bg_row_plan[ctx][bg] */
+} bg_row_cache[EB_PPU_NUM_RENDER_CONTEXTS][4];
 #endif
 
 #if EB_PPU_BG_ROW_CACHE
@@ -700,11 +702,11 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
                          && !distorted
                          && render_width <= 8 * BG_ROW_PLAN_MAXCOL;
     if (row_cacheable
-        && bg_row_cache[bg_index].row == tile_row_map
-        && bg_row_cache[bg_index].scroll_x == scroll_x
-        && bg_row_cache[bg_index].width == render_width) {
-        const BGRowPlanEntry *pl = bg_row_plan[bg_index];
-        int n = bg_row_cache[bg_index].count;
+        && bg_row_cache[ctx->ctx_id][bg_index].row == tile_row_map
+        && bg_row_cache[ctx->ctx_id][bg_index].scroll_x == scroll_x
+        && bg_row_cache[ctx->ctx_id][bg_index].width == render_width) {
+        const BGRowPlanEntry *pl = bg_row_plan[ctx->ctx_id][bg_index];
+        int n = bg_row_cache[ctx->ctx_id][bg_index].count;
         for (int i = 0; i < n; i++) {
             int eff_py = pl[i].vflip ? (7 - pixel_y_in_tile) : pixel_y_in_tile;
             emit_tile_run(pl[i].tile_num, eff_py, pl[i].x_in_tile, pl[i].pixels,
@@ -769,7 +771,7 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
                              hflip, screen_x, prio_bit, palette,
                              bpp, tile_data_base, bytes_per_tile, ctx);
                 if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
-                    BGRowPlanEntry *e = &bg_row_plan[bg_index][plan_n++];
+                    BGRowPlanEntry *e = &bg_row_plan[ctx->ctx_id][bg_index][plan_n++];
                     e->tile_num  = tile_num;
                     e->x_in_tile = (uint8_t)x_in_tile;
                     e->pixels    = (uint8_t)pixels_this_tile;
@@ -822,10 +824,10 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
      * (plan_n < MAXCOL); if it ever overflowed we leave the cache invalid and just
      * recompute — correct, only slower. */
     if (row_cacheable && plan_n < BG_ROW_PLAN_MAXCOL) {
-        bg_row_cache[bg_index].row      = tile_row_map;
-        bg_row_cache[bg_index].scroll_x = scroll_x;
-        bg_row_cache[bg_index].width    = render_width;
-        bg_row_cache[bg_index].count    = plan_n;
+        bg_row_cache[ctx->ctx_id][bg_index].row      = tile_row_map;
+        bg_row_cache[ctx->ctx_id][bg_index].scroll_x = scroll_x;
+        bg_row_cache[ctx->ctx_id][bg_index].width    = render_width;
+        bg_row_cache[ctx->ctx_id][bg_index].count    = plan_n;
     }
 #endif
 }
@@ -896,13 +898,10 @@ static const int obj_sizes[8][2][2] = {
  * per-scanline cost drops from 128 to (#sprites overlapping that band).  Same
  * redundancy shape as bg_row_cache.  Priority (lower OAM index wins) is
  * preserved by appending in 127->0 order so the low index is emitted last.
- * Global arrays => single render context only, auto-disabled otherwise. */
+ * Built once per frame by ppu_prepare_frame(), then read-only, so every render
+ * context shares one set. */
 #ifndef EB_PPU_OBJ_BUCKET
 #define EB_PPU_OBJ_BUCKET 1
-#endif
-#if EB_PPU_OBJ_BUCKET && EB_PPU_NUM_RENDER_CONTEXTS != 1
-#undef EB_PPU_OBJ_BUCKET
-#define EB_PPU_OBJ_BUCKET 0
 #endif
 
 #if EB_PPU_OBJ_BUCKET
@@ -1001,6 +1000,21 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
 }
 #endif /* EB_PPU_OBJ_BUCKET */
 
+/* Per-frame state every render context reads: the shadow palette from CGRAM
+ * and the OBJ buckets. Call before signaling core 1 in dual-core mode to
+ * avoid a data race on cgram_render[] and the bucket arrays. */
+void ppu_prepare_frame(void) {
+    for (int i = 0; i < 256; i++) {
+        uint16_t c = ppu.cgram[i];
+        cgram_render[i] = bgr555_to_pixel(c);
+    }
+#if EB_PPU_OBJ_BUCKET
+    /* Bucket sprites by scanline band; render_obj_scanline then iterates only
+     * the sprites overlapping each scanline (see build_obj_buckets). */
+    build_obj_buckets();
+#endif
+}
+
 /* Render OBJ (sprites) for one scanline into separate color/prio arrays.
  * Returns true if any sprite overlapped this scanline (i.e. obj_prio may hold
  * nonzero entries). When false, the compositor skips its per-pixel obj_prio
@@ -1012,12 +1026,16 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
  * x-range on a typical line). render_obj_scanline widens it per overlapping
  * sprite (conservative: full sprite width, transparent pixels included).
  * Initial full span makes the first clear wipe any pre-existing contents.
- * Globals => single render context only (same gate as the bucket). */
-static int obj_prio_dirty_lo = 0;
-static int obj_prio_dirty_hi = LINE_BUF_WIDTH;
+ * One span per render context, like obj_prio itself. */
+static struct {
+    int lo, hi;
+} obj_prio_dirty[EB_PPU_NUM_RENDER_CONTEXTS] = {
+    [0 ... EB_PPU_NUM_RENDER_CONTEXTS - 1] = { 0, LINE_BUF_WIDTH },
+};
 #endif
 
-static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
+static bool PPU_HOT_FUNC(render_obj_scanline)(int ctx_id, int scanline, uint16_t *obj_color, uint8_t *obj_prio, TileRowCacheEntry *tile_cache) {
+    (void)ctx_id; /* read only by the bucket's dirty-span tracking */
     /* When vertical centering is active, sprites only render within the
      * SNES-visible scanline range. The border scanlines (above/below the
      * centered area) show only BG content — no sprites. This prevents
@@ -1107,8 +1125,8 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
             int lo = spr_x < 0 ? 0 : spr_x;
             int hi = spr_x + w;
             if (hi > LINE_BUF_WIDTH) hi = LINE_BUF_WIDTH;
-            if (lo < obj_prio_dirty_lo) obj_prio_dirty_lo = lo;
-            if (hi > obj_prio_dirty_hi) obj_prio_dirty_hi = hi;
+            if (lo < obj_prio_dirty[ctx_id].lo) obj_prio_dirty[ctx_id].lo = lo;
+            if (hi > obj_prio_dirty[ctx_id].hi) obj_prio_dirty[ctx_id].hi = hi;
         }
 #endif
 
@@ -1135,7 +1153,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int scanline, uint16_t *obj_color,
 
             /* Tile row cache lookup for OBJ tiles (same cache as BG) */
             uint16_t obj_cache_key = TILE_CACHE_KEY(tile_addr, pixel_y);
-            uint32_t obj_cache_idx = ((tile_addr >> 1) ^ pixel_y) & TILE_CACHE_MASK;
+            uint32_t obj_cache_idx = ((tile_addr >> 1) ^ pixel_y) & CTX_TILE_CACHE_MASK(ctx_id);
             const uint8_t *indices;
             {
                 TileRowCacheEntry *cache = tile_cache;
@@ -2113,10 +2131,48 @@ void precompute_window_masks(
  * Promoted from stack to static so both cores have independent working memory.
  * When EB_PPU_NUM_RENDER_CONTEXTS == 1 (default), this is a single set of arrays
  * with no runtime overhead vs. the old stack allocation. */
+#ifdef EB_PPU_EXTERNAL_LINE_OUT
+/* The port owns the output lines: each context renders its next scanline into
+ * the buffer last given to ppu_set_line_out(), which the send callback can
+ * change for the following line (e.g. straight into a DMA buffer). */
+static pixel_t *line_out_target[EB_PPU_NUM_RENDER_CONTEXTS];
+#define CTX_LINE_OUT(ctx) line_out_target[ctx]
+
+void PPU_HOT_FUNC(ppu_set_line_out)(int ctx_id, pixel_t *buf) {
+    line_out_target[ctx_id] = buf;
+}
+#else
 static pixel_t  line_out_ctx[EB_PPU_NUM_RENDER_CONTEXTS][EB_VIEWPORT_WIDTH] EB_PPU_LINEBUF_ATTR;
+#define CTX_LINE_OUT(ctx) line_out_ctx[ctx]
+#endif
 /* Interleaved main merge buffer: color(hi16) | lmask | gp — see BGRenderCtx.
  * Same total RAM as the two uint16 arrays it replaced. */
-static uint32_t best_bg_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+#if EB_PPU_NUM_RENDER_CONTEXTS == 1
+static uint32_t best_bg_ctx[1][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+#define CTX_BEST_BG(ctx) best_bg_ctx[ctx]
+#else
+/* Context 0's two buffers whose contents ppu_render_frame_ex rebuilds at the
+ * start of every frame (tile cache reset to empty, best_bg cleared), kept
+ * together so they can be lent out between frames (ppu_lend_frame_scratch).
+ * The other contexts keep theirs apart, with a possibly smaller cache. */
+typedef struct {
+    TileRowCacheEntry tile_cache[TILE_CACHE_SIZE];
+    uint32_t best_bg[LINE_BUF_WIDTH];
+} FrameRebuiltBufs;
+static FrameRebuiltBufs frame_rebuilt0 EB_PPU_LINEBUF_ATTR;
+static TileRowCacheEntry tile_cache_secondary[EB_PPU_NUM_RENDER_CONTEXTS - 1][TILE_CACHE_SIZE_SECONDARY]
+    EB_PPU_LINEBUF_ATTR;
+static uint32_t best_bg_secondary[EB_PPU_NUM_RENDER_CONTEXTS - 1][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
+#define CTX_TILE_CACHE(ctx) \
+    ((ctx) == 0 ? frame_rebuilt0.tile_cache : tile_cache_secondary[(ctx) - 1])
+#define CTX_BEST_BG(ctx) \
+    ((ctx) == 0 ? frame_rebuilt0.best_bg : best_bg_secondary[(ctx) - 1])
+
+void *ppu_lend_frame_scratch(size_t *out_bytes) {
+    *out_bytes = sizeof(frame_rebuilt0);
+    return &frame_rebuilt0;
+}
+#endif
 static uint16_t sub_bg_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  sub_bg_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint16_t obj_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][LINE_BUF_WIDTH] EB_PPU_LINEBUF_ATTR;
@@ -2175,11 +2231,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Invalidate the tilemap-row plan cache at frame start. Within a frame scroll
      * is constant, so keying replays on tile_row_map (+scroll_x/width) is correct;
      * across frames the plan may be stale, hence this reset. */
-    bg_row_cache[0].row = bg_row_cache[1].row =
-        bg_row_cache[2].row = bg_row_cache[3].row = -1;
+    for (int bg = 0; bg < 4; bg++)
+        bg_row_cache[ctx_id][bg].row = -1;
 #endif
-    pixel_t  *line_out        = line_out_ctx[ctx_id];
-    uint32_t *best_bg         = best_bg_ctx[ctx_id];
+    pixel_t  *line_out        = CTX_LINE_OUT(ctx_id);
+    uint32_t *best_bg         = CTX_BEST_BG(ctx_id);
     uint16_t *sub_bg_color    = sub_bg_color_ctx[ctx_id];
     uint8_t  *sub_bg_gp       = sub_bg_gp_ctx[ctx_id];
     uint16_t *obj_color       = obj_color_ctx[ctx_id];
@@ -2188,7 +2244,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     uint8_t  *eff_ts_line     = eff_ts_line_ctx[ctx_id];
     uint8_t  *cm_prevented_line = cm_prevented_line_ctx[ctx_id];
 
-    TileRowCacheEntry *tile_cache = tile_row_cache[ctx_id];
+    TileRowCacheEntry *tile_cache = CTX_TILE_CACHE(ctx_id);
 
 #ifdef EB_SMOOTH_CAMERA
     if (obj_mask_out)
@@ -2200,6 +2256,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         for (int y = y_start; y < y_end; y += y_stride) {
             memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
             send_scanline(y, line_out);
+            line_out = CTX_LINE_OUT(ctx_id);
         }
         return;
     }
@@ -2207,11 +2264,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     uint8_t brightness = ppu.inidisp & 0x0F;
 
     /* Invalidate tile row cache for this context — VRAM may have changed. */
-    memset(tile_cache, 0xFF, TILE_CACHE_SIZE * sizeof(TileRowCacheEntry));
+    memset(tile_cache, 0xFF,
+           (CTX_TILE_CACHE_MASK(ctx_id) + 1) * sizeof(TileRowCacheEntry));
 
-    /* Shadow palette: built by ppu_prepare_palette() before this call.
-     * In single-core mode, ppu_render_frame() calls it automatically.
-     * In dual-core mode, the worker calls it before signaling core 1. */
+    /* Shadow palette and OBJ buckets: built by ppu_prepare_frame() before
+     * this call. In single-core mode, ppu_render_frame() calls it
+     * automatically. In dual-core mode, the worker calls it before
+     * signaling core 1. */
 
     int mode = ppu.bgmode & BGMODE_MODE_MASK;
 
@@ -2411,12 +2470,6 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         memset(eff_ts_line, ppu.ts, render_width);
     }
 
-#if EB_PPU_OBJ_BUCKET
-    /* Bucket sprites by scanline band once per frame; render_obj_scanline then
-     * iterates only the sprites overlapping each scanline (see build_obj_buckets). */
-    build_obj_buckets();
-#endif
-
     /* Establish the best_bg / temp_main all-zero (gp==0) invariant once per
      * frame. Inside the scanline loop their consumers zero each entry as they
      * read it (store-back: the compositor for best_bg, the wide-mode
@@ -2434,6 +2487,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         if (out_y < render_y_start || out_y >= render_y_end) {
             memset(line_out, 0, EB_VIEWPORT_WIDTH * sizeof(pixel_t));
             send_scanline(out_y, line_out);
+            line_out = CTX_LINE_OUT(ctx_id);
             continue;
         }
 
@@ -2461,11 +2515,11 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * so wiping that span restores the all-zero invariant. */
             int _oband = scanline >> OBJ_BAND_SHIFT;
             if (_oband >= 0 && _oband < OBJ_NUM_BANDS && obj_band_start[_oband + 1] > obj_band_start[_oband]) {
-                if (obj_prio_dirty_hi > obj_prio_dirty_lo)
-                    memset(obj_prio + obj_prio_dirty_lo, 0,
-                           obj_prio_dirty_hi - obj_prio_dirty_lo);
-                obj_prio_dirty_lo = LINE_BUF_WIDTH;
-                obj_prio_dirty_hi = 0;
+                if (obj_prio_dirty[ctx_id].hi > obj_prio_dirty[ctx_id].lo)
+                    memset(obj_prio + obj_prio_dirty[ctx_id].lo, 0,
+                           obj_prio_dirty[ctx_id].hi - obj_prio_dirty[ctx_id].lo);
+                obj_prio_dirty[ctx_id].lo = LINE_BUF_WIDTH;
+                obj_prio_dirty[ctx_id].hi = 0;
             }
 #else
             memset(obj_prio, 0, LINE_BUF_WIDTH);
@@ -2612,6 +2666,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * mask; CM-only windows don't mask layers). */
             ctx.uncond = (uint8_t)(no_layer_windows && merged_empty);
             ctx.tile_cache = tile_cache;
+            ctx.ctx_id = ctx_id;
             /* Span fields are only consumed on the temp path, which re-inits
              * them before each render; keep them defined for the copy. */
             ctx.emit_lo = 0;
@@ -2844,7 +2899,7 @@ merge_done:
         PROF_SECTION(obj);
         bool scanline_has_obj = false;
         if (layers_needed & LAYER_OBJ) {
-            scanline_has_obj = render_obj_scanline(scanline, obj_color, obj_prio, tile_cache);
+            scanline_has_obj = render_obj_scanline(ctx_id, scanline, obj_color, obj_prio, tile_cache);
         }
         PROF_END(obj, prof_obj);
 
@@ -3035,6 +3090,7 @@ composite_tail:
 
         PROF_SECTION(snd);
         send_scanline(out_y, line_out);
+        line_out = CTX_LINE_OUT(ctx_id);
         PROF_END(snd, prof_send);
     }
     PROF_END(iter, prof_iter);
@@ -3056,7 +3112,7 @@ composite_tail:
 }
 
 void ppu_render_frame(scanline_callback_t send_scanline) {
-    ppu_prepare_palette();
+    ppu_prepare_frame();
     ppu_render_frame_ex(0, 0, EB_VIEWPORT_HEIGHT, 1, send_scanline);
 
 #ifdef EB_PPU_PROFILE

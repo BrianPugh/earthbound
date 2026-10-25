@@ -117,16 +117,25 @@ eb_target_warnings(earthbound_pico)
 pico_enable_stdio_usb(earthbound_pico 0)
 pico_enable_stdio_uart(earthbound_pico 0)
 
-# Dual-core PPU rendering: distribute even/odd scanlines across both RP2040 cores.
-option(EB_ENABLE_DUAL_CORE_PPU "Distribute PPU rendering across both RP2040 cores" OFF)
+# Dual-core PPU rendering: core 0 renders the top half of the screen, core 1
+# the bottom half (drivers/platform/rp2040/worker.c). 56.6 fps vs 40.6 single
+# core outside Ness's house at night, for +9.3 KB of main SRAM.
+option(EB_ENABLE_DUAL_CORE_PPU "Split PPU rendering across both RP2040 cores" ON)
 
 if(EB_ENABLE_DUAL_CORE_PPU)
     target_compile_definitions(earthbound_pico PRIVATE
         EB_ENABLE_DUAL_CORE_PPU=1
-        PICO_CORE1_STACK_SIZE=4096
+        # Core 1's stack shares SCRATCH_X with its two DMA line buffers
+        # (2 x 480 B, worker.c); its deepest render path needs ~1.4 KB.
+        PICO_CORE1_STACK_SIZE=3072
     )
-    target_compile_definitions(earthbound_game PRIVATE
+    # PUBLIC: the drivers (worker.c, save.c) see the same ppu.h API.
+    # Core 1 gets half the tile cache, and the renderer draws straight into
+    # worker.c's DMA buffers instead of its own output lines.
+    target_compile_definitions(earthbound_game PUBLIC
         EB_PPU_NUM_RENDER_CONTEXTS=2
+        EB_PPU_SECONDARY_TILE_CACHE_BITS=7
+        EB_PPU_EXTERNAL_LINE_OUT=1
     )
     target_link_libraries(earthbound_pico pico_multicore hardware_sync)
 endif()
@@ -136,17 +145,18 @@ pico_add_extra_outputs(earthbound_pico)
 
 # Static RAM budget: the build fails when .data + .bss exceeds RAM_BUDGET_BYTES
 # (.data includes the .time_critical PPU functions copied to SRAM). Measured
-# 2026-10-25, pico-sdk 2.2.0 + arm-none-eabi-gcc 15.3, Release, single core:
-# .data 34,936 + .bss 133,496 = 168,432 bytes. The budget is a growth ratchet
-# 4 KB above that, not a hardware limit: main SRAM is 256 KB (0x20000000-
-# 0x2003FFFF) and holds only the 192-byte vector table, .data and .bss (the
-# heap is empty), so ~91 KB of it is free. The two 4 KB scratch banks hold the
-# core 0 stack (SCRATCH_Y) and the save sector buffer (SCRATCH_X, core 1's
-# stack in dual-core builds). Raise the budget only for intended growth, in
-# the same commit, saying why. Builds with EB_ENABLE_DUAL_CORE_PPU need their
-# own -DRAM_BUDGET_BYTES. It is a cache variable, so an existing build dir
-# keeps its old value until reconfigured with -U RAM_BUDGET_BYTES.
-set(RAM_BUDGET_BYTES 172528 CACHE STRING "Max .data + .bss bytes for earthbound_pico")
+# 2026-10-25, pico-sdk 2.2.0 + arm-none-eabi-gcc 15.3, Release, dual core:
+# .data 35,472 + .bss 141,944 = 177,416 bytes (single core: 168,108; the
+# second render context is the difference). The budget is a growth ratchet
+# 4 KB above the dual-core figure, not a hardware limit: main SRAM is 256 KB
+# (0x20000000-0x2003FFFF) and holds only the 192-byte vector table, .data and
+# .bss (the heap is empty), so ~83 KB of it is free. The two 4 KB scratch
+# banks hold the core 0 stack (SCRATCH_Y) and core 1's stack plus its DMA
+# line buffers (SCRATCH_X; the save sector buffer in single-core builds).
+# Raise the budget only for intended growth, in the same commit, saying why.
+# It is a cache variable, so an existing build dir keeps its old value until
+# reconfigured with -U RAM_BUDGET_BYTES.
+set(RAM_BUDGET_BYTES 181512 CACHE STRING "Max .data + .bss bytes for earthbound_pico")
 get_filename_component(EB_ARM_TOOLCHAIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
 find_program(EB_ARM_SIZE arm-none-eabi-size HINTS "${EB_ARM_TOOLCHAIN_DIR}" REQUIRED)
 add_custom_command(TARGET earthbound_pico POST_BUILD

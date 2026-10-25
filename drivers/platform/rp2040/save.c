@@ -16,6 +16,7 @@
 
 #ifdef EB_ENABLE_DUAL_CORE_PPU
 #include "pico/multicore.h"
+#include "snes/ppu.h"
 #endif
 
 /* Save data occupies the last 2 flash sectors (8 KB).
@@ -25,13 +26,26 @@
 #define SAVE_FLASH_OFFSET  (PICO_FLASH_SIZE_BYTES - SAVE_SECTOR_COUNT * FLASH_SECTOR_SIZE)
 
 /* RAM buffer for sector read-modify-write (4 KB). Single-core builds put it in
- * the SCRATCH_X bank, which is otherwise idle there (it holds core 1's stack
- * when core 1 runs), so it stays out of main SRAM's .data + .bss. */
-#ifdef EB_ENABLE_DUAL_CORE_PPU
-static uint8_t sector_buf[FLASH_SECTOR_SIZE];
-#else
+ * the SCRATCH_X bank, which is otherwise idle there, so it stays out of main
+ * SRAM's .data + .bss. Dual-core builds give that bank to core 1's stack and
+ * line buffers and borrow the renderer's frame scratch instead
+ * (sector_buffer()). */
+#ifndef EB_ENABLE_DUAL_CORE_PPU
 static uint8_t __scratch_x("save_sector_buf") sector_buf[FLASH_SECTOR_SIZE];
 #endif
+
+/* The read-modify-write buffer, or NULL if none is big enough. Saves run in
+ * game logic on core 0, between frames, while neither core renders, and the
+ * renderer rebuilds the borrowed buffers at the start of every frame. */
+static uint8_t *sector_buffer(void) {
+#ifdef EB_ENABLE_DUAL_CORE_PPU
+    size_t bytes;
+    uint8_t *buf = ppu_lend_frame_scratch(&bytes);
+    return bytes >= FLASH_SECTOR_SIZE ? buf : NULL;
+#else
+    return sector_buf;
+#endif
+}
 
 bool platform_save_init(void) {
     return true;
@@ -45,15 +59,20 @@ size_t platform_save_read(void *dst, size_t offset, size_t size) {
     return size;
 }
 
-/* Erase and reprogram one sector from sector_buf.
+/* Erase and reprogram one sector from buf.
  * Must be called with interrupts disabled (and core 1 paused if dual-core). */
-static void __no_inline_not_in_flash_func(write_sector)(uint32_t sector_offset) {
+static void __no_inline_not_in_flash_func(write_sector)(uint32_t sector_offset,
+                                                        const uint8_t *buf) {
     flash_range_erase(sector_offset, FLASH_SECTOR_SIZE);
-    flash_range_program(sector_offset, sector_buf, FLASH_SECTOR_SIZE);
+    flash_range_program(sector_offset, buf, FLASH_SECTOR_SIZE);
 }
 
 bool platform_save_write(const void *src, size_t offset, size_t size) {
     if (offset + size > SAVE_SECTOR_COUNT * FLASH_SECTOR_SIZE)
+        return false;
+
+    uint8_t *rmw = sector_buffer();
+    if (!rmw)
         return false;
 
     const uint8_t *data = (const uint8_t *)src;
@@ -68,17 +87,17 @@ bool platform_save_write(const void *src, size_t offset, size_t size) {
             chunk = size;
 
         /* Read-modify-write: copy whole sector, patch our bytes. */
-        memcpy(sector_buf,
+        memcpy(rmw,
                (const uint8_t *)(XIP_BASE + sector_offset),
                FLASH_SECTOR_SIZE);
-        memcpy(sector_buf + offset_in_sector, data, chunk);
+        memcpy(rmw + offset_in_sector, data, chunk);
 
         /* Erase + reprogram with IRQs disabled (and core 1 paused). */
 #ifdef EB_ENABLE_DUAL_CORE_PPU
         multicore_lockout_start_blocking();
 #endif
         uint32_t saved_irqs = save_and_disable_interrupts();
-        write_sector(sector_offset);
+        write_sector(sector_offset, rmw);
         restore_interrupts(saved_irqs);
 #ifdef EB_ENABLE_DUAL_CORE_PPU
         multicore_lockout_end_blocking();
