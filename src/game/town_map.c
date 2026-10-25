@@ -117,14 +117,15 @@ static void load_town_map_begin(uint16_t map_index) {
     const uint8_t *gfx_data = ASSET_DATA(ASSET_TOWN_MAPS(map_index));
 
     if (gfx_data) {
-        decomp(gfx_data, gfx_size, ert.buffer, BUFFER_SIZE);
+        decomp(gfx_data, gfx_size, buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
     }
 }
 
 static void load_town_map_finish(uint16_t map_index) {
     (void)map_index;
     /* Copy first 2 ert.palettes (64 bytes) from BUFFER to PALETTES */
-    memcpy(ert.palettes, ert.buffer, BPP4PALETTE_SIZE * 2);
+    memcpy(ert.palettes, BUF_REGION(BUF_TOWN_MAP_PALETTE, 0, BUF_TOWN_MAP_PALETTE_SIZE),
+           BUF_TOWN_MAP_PALETTE_SIZE);
 
     /* Load icon palette to palette groups 8+.
      * Assembly copies BPP4PALETTE_SIZE*8=256 bytes, but the actual palette file
@@ -150,10 +151,12 @@ static void load_town_map_finish(uint16_t map_index) {
     ppu.ts = 0x00;
 
     /* Upload tilemap: BUFFER+$40 → VRAM $3000, $800 bytes */
-    memcpy(&ppu.vram[0x3000 * 2], ert.buffer + 0x40, 0x800);
+    memcpy(&ppu.vram[0x3000 * 2], BUF_REGION(BUF_TOWN_MAP_TILEMAP, 0, BUF_TOWN_MAP_TILEMAP_SIZE),
+           BUF_TOWN_MAP_TILEMAP_SIZE);
 
     /* Upload tile data: BUFFER+$840 → VRAM $0000, $4000 bytes */
-    memcpy(&ppu.vram[0x0000], ert.buffer + 0x840, 0x4000);
+    memcpy(&ppu.vram[0x0000], BUF_REGION(BUF_TOWN_MAP_GFX, 0, BUF_TOWN_MAP_GFX_SIZE),
+           BUF_TOWN_MAP_GFX_SIZE);
 
     /* Decompress label GFX directly to VRAM $6000 */
     size_t label_size = ASSET_SIZE(ASSET_TOWN_MAPS_LABEL_GFX_LZHAL);

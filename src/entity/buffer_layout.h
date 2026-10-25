@@ -276,7 +276,9 @@ static inline uint8_t *buf_decomp_scratch(void) {
 
 /* ===== Town map (town_map.c) ===== */
 /* LOAD_TOWN_MAP_DATA: the decompressed town map (0x4840 B) is 2 palettes,
- * the tilemap, then the 4bpp tiles. Uploaded at once. */
+ * the tilemap, then the 4bpp tiles. Decompressed after the fade-out and
+ * uploaded by load_town_map_finish() (the town map mode runs nothing else
+ * in between). */
 #define BUF_TOWN_MAP_PALETTE      0x0000
 #define BUF_TOWN_MAP_PALETTE_SIZE 0x0040
 #define BUF_TOWN_MAP_TILEMAP      0x0040

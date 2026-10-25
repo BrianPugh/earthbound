@@ -925,13 +925,13 @@ bool load_map_palette_prepare(uint16_t tileset_combo, uint16_t palette_index,
      * Use ert.buffer as scratch — it's free during palette fades (the
      * tileset decompress that last used it is complete by this point,
      * and the blocking fade loop doesn't run game logic). */
-    uint16_t *target  = (uint16_t *)&ert.buffer[BUF_FLASH_TARGET];    /* 192 bytes */
-    int16_t  *r_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_R]; /* 192 bytes */
-    int16_t  *g_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_G]; /* 192 bytes */
-    int16_t  *b_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_B]; /* 192 bytes */
-    int16_t  *r_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_R]; /* 192 bytes */
-    int16_t  *g_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_G]; /* 192 bytes */
-    int16_t  *b_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_B]; /* 192 bytes */
+    uint16_t *target  = (uint16_t *)BUF_REGION(BUF_FLASH, BUF_FLASH_TARGET - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *r_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_R - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *g_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_G - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *b_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_B - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *r_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_R - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *g_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_G - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *b_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_B - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
     memcpy(target, pal_data + offset, 96 * sizeof(uint16_t));
 
     /* INITIALIZE_MAP_PALETTE_FADE:
@@ -986,13 +986,13 @@ StepResult mode_step_map_palette_fade(ModeState *st) {
     }
 
     /* Re-derive the scratch pointers (ert.buffer survives a save/reload). */
-    uint16_t *target  = (uint16_t *)&ert.buffer[BUF_FLASH_TARGET];
-    int16_t  *r_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_R];
-    int16_t  *g_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_G];
-    int16_t  *b_accum = (int16_t  *)&ert.buffer[BUF_FLASH_ACCUM_B];
-    int16_t  *r_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_R];
-    int16_t  *g_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_G];
-    int16_t  *b_incr  = (int16_t  *)&ert.buffer[BUF_FLASH_SLOPE_B];
+    uint16_t *target  = (uint16_t *)BUF_REGION(BUF_FLASH, BUF_FLASH_TARGET - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *r_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_R - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *g_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_G - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *b_accum = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_ACCUM_B - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *r_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_R - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *g_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_G - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
+    int16_t  *b_incr  = (int16_t  *)BUF_REGION(BUF_FLASH, BUF_FLASH_SLOPE_B - BUF_FLASH, BUF_FLASH_ARRAY_SIZE);
 
     /* One frame's accumulate (assembly lines 60-72). */
     for (int i = 0; i < 96; i++) {
@@ -1104,12 +1104,14 @@ static void load_map_palette_photograph(void) {
     if (!cfg_table) return;
     const uint8_t *cfg = &cfg_table[cur_photo_display * PHOTOGRAPHER_CFG_ENTRY_SIZE];
     uint16_t offset = read_u16_le(&cfg[PHOTOGRAPHER_CFG_PALETTES_OFFSET]);
-    size_t size = load_and_decompress(ASSET_UNKNOWN_PALETTE_PAL_LZHAL, ert.buffer, BUFFER_SIZE);
+    size_t size = load_and_decompress(ASSET_UNKNOWN_PALETTE_PAL_LZHAL,
+                                      buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
     if ((size_t)offset + BPP4PALETTE_SIZE * 6 > size) {
         LOG_WARN("map_loader: photograph palette offset %u out of range\n", offset);
         return;
     }
-    memcpy(&ert.palettes[32], &ert.buffer[offset], BPP4PALETTE_SIZE * 6);
+    memcpy(&ert.palettes[32], BUF_REGION(BUF_DECOMP_SCRATCH, offset, BPP4PALETTE_SIZE * 6),
+           BPP4PALETTE_SIZE * 6);
 }
 
 /* animate_palette_fade_to_map removed — its logic is now inside load_map_palette's
@@ -2037,8 +2039,9 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
         size_t pal_dst_offset = BUF_SANCTUARY_PALETTES
                               + (size_t)sanctuary_idx * BUF_SANCTUARY_PALETTE_STRIDE;
         /* BPP4PALETTE_SIZE * 8 = 256 bytes = 128 uint16 colors */
-        memcpy(&ert.buffer[pal_dst_offset], ert.palettes,
-               (size_t)BPP4PALETTE_SIZE * 8);
+        memcpy(BUF_REGION(BUF_SANCTUARY_PALETTES, pal_dst_offset - BUF_SANCTUARY_PALETTES,
+                          (size_t)BPP4PALETTE_SIZE * 8),
+               ert.palettes, (size_t)BPP4PALETTE_SIZE * 8);
     }
 
     /*
@@ -2074,7 +2077,8 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
      * LOADED_MAP_BLOCKS: 1024 uint16 entries tracking which arrangement tile
      * indices are referenced. Initialised to 0 at the start of each sanctuary.
      */
-    uint16_t *loaded_map_blocks = (uint16_t *)(ert.buffer + BUF_SANCTUARY_MAP_BLOCKS);
+    uint16_t *loaded_map_blocks = (uint16_t *)BUF_REGION(BUF_SANCTUARY_MAP_BLOCKS, 0,
+                                                         1024 * sizeof(uint16_t));
     memset(loaded_map_blocks, 0, 1024 * sizeof(uint16_t));
 
     ml.your_sanctuary_loaded_tileset_tiles = 0;
@@ -2098,7 +2102,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
             if (world_tx < 0 || world_ty < 0) {
                 size_t dst_off = tilemap_base + (size_t)(row * 32 + col) * 2;
                 if (dst_off + 2 <= BUFFER_SIZE)
-                    write_u16_le(&ert.buffer[dst_off], 0);
+                    write_u16_le(BUF_REGION(BUF_SANCTUARY_TILEMAPS, dst_off - BUF_SANCTUARY_TILEMAPS, 2), 0);
                 continue;
             }
 
@@ -2143,7 +2147,7 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
 
             size_t dst_off = tilemap_base + (size_t)(row * 32 + col) * 2;
             if (dst_off + 2 <= BUFFER_SIZE)
-                write_u16_le(&ert.buffer[dst_off], tile_entry);
+                write_u16_le(BUF_REGION(BUF_SANCTUARY_TILEMAPS, dst_off - BUF_SANCTUARY_TILEMAPS, 2), tile_entry);
         }
     }
 
@@ -2201,11 +2205,12 @@ void load_your_sanctuary_location(uint16_t sanctuary_idx) {
     for (int i = 0; i < 30 * 32; i++) {
         size_t dst_off = tilemap_base + (size_t)i * 2;
         if (dst_off + 2 > BUFFER_SIZE) break;
-        uint16_t entry    = read_u16_le(&ert.buffer[dst_off]);
+        uint8_t *dst      = BUF_REGION(BUF_SANCTUARY_TILEMAPS, dst_off - BUF_SANCTUARY_TILEMAPS, 2);
+        uint16_t entry    = read_u16_le(dst);
         uint16_t tile_idx = entry & 0x03FF;
         uint16_t new_entry = (entry & 0xFC00)
                            | (tile_idx < 1024 ? loaded_map_blocks[tile_idx] : 0);
-        write_u16_le(&ert.buffer[dst_off], new_entry);
+        write_u16_le(dst, new_entry);
     }
 
     /* Update totals (TOTAL_YOUR_SANCTUARY_LOADED_TILESET_TILES += YOUR_SANCTUARY_LOADED_TILESET_TILES) */
