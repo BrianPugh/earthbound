@@ -370,6 +370,17 @@ typedef enum {
     PM_PSI_RESUME,          /* after PSI_MENU pops: used->cleanup / single-PSI sfx tail */
     PM_CLEANUP,             /* @CLEANUP_AND_CLOSE; push ENTITY_FADE_WAIT */
     PM_DONE,                /* enable entities + POP */
+    /* Frame beats (each window tick / US WAIT_UNTIL_NEXT_FRAME presented at its
+     * asm point; see menu_flush_ticks in text.c): */
+    PM_GOODS_SELECT,        /* single party: SELECT_BATTLE_MENU_CHARACTER after the inventory tick */
+    PM_GOODS_CANCEL_HDR,    /* multi-party char-select cancel: close the header after the inventory */
+    PM_GOODS_INV_AFTER,     /* item list result, after the header close's tick */
+    PM_GOODS_CLOSE_INV,     /* single-party item-list cancel: close the inventory */
+    PM_CLEANUP_CLOSE,       /* @CLEANUP_AND_CLOSE: CLOSE_ALL_WINDOWS after HIDE_HPPP_WINDOWS' wait */
+    PM_CLEANUP_FADE,        /* @CLEANUP_AND_CLOSE: push ENTITY_FADE_WAIT after the close tick */
+    PM_PSI_OPEN,            /* push PSI_MENU after the SHOW_HPPP / SELECT waits */
+    PM_EQUIP_OPEN,          /* push EQUIP_MENU after SHOW_HPPP_WINDOWS' wait */
+    PM_STATUS_OPEN,         /* push STATUS_MENU after SHOW_HPPP_WINDOWS' wait */
 } PauseMenuPhase;
 
 typedef struct {
@@ -404,6 +415,10 @@ typedef enum {
     EQ_SLOT_RESULT,   /* cancel loops/exits; else build the item list + push */
     EQ_ITEM_RESULT,   /* unequip/equip/cancel; close list; refresh; -> EQ_SLOT */
     EQ_EXIT,          /* close windows, restore text attrs, POP */
+    EQ_ENTER_STATS,   /* single party: the stats window after the equipment window's tick */
+    EQ_SLOT_AFTER,    /* slot result, after the header close's tick */
+    EQ_EXIT_MENU,     /* close the equipment window after the stats window's close tick */
+    EQ_EXIT_DONE,     /* restore text attrs, POP */
 } EquipMenuPhase;
 
 typedef struct {
@@ -2692,6 +2707,9 @@ StepResult mode_step_debug_menu(ModeState *st);
  * predicates live). Init via ModeState.battle_wait (kind, plus `remaining` for
  * BW_FRAMES) before STEP_PUSH GAME_MODE_BATTLE_WAIT. Always pops 0. */
 StepResult mode_step_battle_wait(ModeState *st);
+/* STEP_PUSH `frames` frames of GAME_MODE_BATTLE_WAIT `kind` (BW_VBLANK or
+ * BW_TICK_PRESENT) from `child` (battle.c). */
+StepResult battle_wait_push_frames(ModeState *child, uint8_t kind, uint16_t frames);
 
 /* GAME_MODE_LOAD_BATTLE_SCENE — see LoadBattleSceneState above. Init via
  * ModeState.load_battle_scene (group, music; phase = LBS_ENTER) before the

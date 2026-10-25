@@ -1271,6 +1271,10 @@ StepResult battle_push_vblanks(ModeState *child, uint16_t frames) {
     return push_wait_frames(child, BW_VBLANK, frames);
 }
 
+StepResult battle_wait_push_frames(ModeState *child, uint8_t kind, uint16_t frames) {
+    return push_wait_frames(child, kind, frames);
+}
+
 /* ======================================================================
  * HP / PP management
  * ====================================================================== */

@@ -1390,6 +1390,51 @@ static StepResult menu_push_selection(uint8_t *result_ready, uint16_t *result,
 
 /* Read the result of the menu a *_RESULT phase is processing: the popped
  * child's value, or the inline early-exit value if no child was pushed. */
+/* Frame beats of the synchronous menu helpers. Each asm WINDOW_TICK (CLOSE_WINDOW,
+ * WINDOW_TICK_WITHOUT_INSTANT_PRINTING, CLOSE_ALL_WINDOWS) and US
+ * WAIT_UNTIL_NEXT_FRAME (SELECT_/CLEAR_BATTLE_MENU_CHARACTER) takes a frame; the
+ * port's helpers run them inline without presenting. A phase that ran the beats
+ * between two of the asm's ticks presents them before the next phase runs, so
+ * each frame shows the asm's screen at that point (a window tick uploads the
+ * window layer; a bare wait shows the screen as the last tick left it):
+ *   menu_flush_ticks: the window ticks counted since the phase's
+ *                     take_unpresented_ticks() (BW_TICK_PRESENT: entity frame +
+ *                     present);
+ *   menu_flush_waits: `waits` bare waits (BW_VBLANK).
+ * Both set *phase = next and return true with *out = the push when frames are
+ * owed. */
+static ModeState menu_beat_init;  /* outlives the dispatch (the pump copies it) */
+
+static bool menu_flush_ticks(uint8_t *phase, uint8_t next, StepResult *out) {
+    uint16_t ticks = take_unpresented_ticks();
+    *phase = next;
+    if (ticks == 0)
+        return false;
+    *out = battle_wait_push_frames(&menu_beat_init, BW_TICK_PRESENT, ticks);
+    return true;
+}
+
+static bool menu_flush_waits(uint8_t *phase, uint8_t next, uint16_t waits,
+                             StepResult *out) {
+    *phase = next;
+    if (waits == 0)
+        return false;
+    *out = battle_wait_push_frames(&menu_beat_init, BW_VBLANK, waits);
+    return true;
+}
+
+/* The US WAIT_UNTIL_NEXT_FRAMEs SELECT_BATTLE_MENU_CHARACTER runs: one in
+ * CLEAR_BATTLE_MENU_CHARACTER_INDICATOR if an indicator is up, one before the
+ * draw. */
+static uint16_t select_indicator_waits(void) {
+    return (win.battle_menu_current_character_id != -1) ? 2 : 1;
+}
+
+/* CLEAR_BATTLE_MENU_CHARACTER_INDICATOR's wait (only when one is up). */
+static uint16_t clear_indicator_waits(void) {
+    return (win.battle_menu_current_character_id != -1) ? 1 : 0;
+}
+
 static uint16_t menu_take_result(uint8_t *result_ready, uint16_t *result) {
     uint16_t r = *result_ready ? *result : (uint16_t)mode_child_result();
     *result_ready = 0;
@@ -1460,11 +1505,29 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             save_window_text_attributes();
             /* Single party: show equipment display before entering the loop.
              * Assembly lines 21-23: if party_count==1, SHOW_EQUIPMENT_AND_STATS
-             * first, then fall through to char selection which auto-selects. */
-            if ((game_state.player_controlled_party_count & 0xFF) == 1)
-                show_equipment_and_stats(game_state.party_members[0]);
+             * first, then fall through to char selection which auto-selects.
+             * DISPLAY_EQUIPMENT_MENU and DISPLAY_CHARACTER_EQUIPMENT_STATS each
+             * tick once (WINDOW_TICK_WITHOUT_INSTANT_PRINTING) right after
+             * creating their window: present each before the next. */
+            if ((game_state.player_controlled_party_count & 0xFF) == 1) {
+                StepResult r;
+                compare_equipment_mode = 0;
+                (void)take_unpresented_ticks();
+                display_equipment_menu(game_state.party_members[0]);
+                if (menu_flush_ticks(&st->phase, EQ_ENTER_STATS, &r))
+                    return r;
+                continue;
+            }
             st->phase = EQ_SELECT;
             continue;
+
+        case EQ_ENTER_STATS: {
+            StepResult r;
+            display_character_equipment_stats(game_state.party_members[0]);
+            if (menu_flush_ticks(&st->phase, EQ_SELECT, &r))
+                return r;
+            continue;
+        }
 
         case EQ_SELECT:
             /* Multi-party: character selection with "Who?" prompt.
@@ -1477,21 +1540,29 @@ StepResult mode_step_equip_menu(ModeState *ms) {
                 st->phase = EQ_SELECT_RESULT;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
             }
-            /* Single party → auto-select, highlight in HPPP */
+            /* Single party → auto-select, highlight in HPPP (with
+             * SELECT_BATTLE_MENU_CHARACTER's waits) */
             st->equip_char = game_state.party_members[0];
-            select_battle_menu_character(0);
-            st->phase = EQ_CHANGE;
+            {
+                StepResult r;
+                uint16_t waits = select_indicator_waits();
+                select_battle_menu_character(0);
+                if (menu_flush_waits(&st->phase, EQ_CHANGE, waits, &r))
+                    return r;
+            }
             continue;
 
-        case EQ_SELECT_RESULT:
+        case EQ_SELECT_RESULT: {
             st->equip_char = (uint16_t)mode_child_result();
+            /* CLOSE_MENU_HEADER_WINDOW's tick, then exit or change */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_menu_header_window();
-            if (st->equip_char == 0) {
-                st->phase = EQ_EXIT;  /* cancelled → exit */
-                continue;
-            }
-            st->phase = EQ_CHANGE;
+            if (menu_flush_ticks(&st->phase,
+                                 st->equip_char == 0 ? EQ_EXIT : EQ_CHANGE, &r))
+                return r;
             continue;
+        }
 
         case EQ_CHANGE:
             /* EQUIPMENT_CHANGE_MENU entry (equipment_change_menu.asm). */
@@ -1509,7 +1580,16 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
         case EQ_SLOT_RESULT: {
             st->slot_type = menu_take_result(&st->result_ready, &st->result);
+            /* CLOSE_MENU_HEADER_WINDOW's tick */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_menu_header_window();
+            if (menu_flush_ticks(&st->phase, EQ_SLOT_AFTER, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_SLOT_AFTER: {
 
             if (st->slot_type == 0) {
                 /* Cancelled → back to character selection (the former
@@ -1658,10 +1738,27 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             continue;
         }
 
-        case EQ_EXIT:
-        default:
+        case EQ_EXIT: {
+            /* Two CLOSE_WINDOWs (open_equipment_menu.asm:58-60), a tick each */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_EQUIPMENT_STATS);
+            if (menu_flush_ticks(&st->phase, EQ_EXIT_MENU, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_EXIT_MENU: {
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_EQUIP_MENU);
+            if (menu_flush_ticks(&st->phase, EQ_EXIT_DONE, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_EXIT_DONE:
+        default:
             restore_window_text_attributes();
             return STEP_RESULT_POP(0);
         }
@@ -2613,21 +2710,31 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             }
 
             /* --- Goods (assembly lines 55-61) --- */
-            case 2:  /* MENU_OPTIONS::GOODS */
-                /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 56) */
+            case 2: {  /* MENU_OPTIONS::GOODS */
+                /* SHOW_HPPP_AND_MONEY_WINDOWS (assembly line 56); the
+                 * indicator clear waits a frame when one is up */
+                StepResult r;
+                uint16_t waits = clear_indicator_waits();
                 show_hppp_windows();
                 display_money_window();
                 st->goods_char = 0;
                 st->item_slot = 0;
-                st->phase = PM_GOODS_CHAR;
+                if (menu_flush_waits(&st->phase, PM_GOODS_CHAR, waits, &r))
+                    return r;
                 continue;
+            }
 
             /* --- PSI (assembly lines 552-572) --- */
             case 3: {  /* MENU_OPTIONS::PSI */
+                StepResult r;
+                uint16_t psi_waits = clear_indicator_waits();
                 show_hppp_windows();
                 display_money_window();
 
-                /* Highlight first PSI-capable party member (lines 554-561) */
+                /* Highlight first PSI-capable party member (lines 554-561).
+                 * SHOW_HPPP_WINDOWS' clear and SELECT_BATTLE_MENU_CHARACTER
+                 * wait with no tick between them (the menu's first tick comes
+                 * later), so their frames go before the PSI menu. */
                 uint16_t first_psi = find_first_character_with_psi();
                 if (first_psi != 0)
                     select_battle_menu_character(first_psi - 1);
@@ -2636,24 +2743,23 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                  * cancelled branch + single-PSI sfx tail run in PM_PSI_RESUME.
                  * Note: assembly does NOT set dt.force_left_text_alignment for
                  * PSI (only STATUS). */
-                pm_child_init = (ModeState){0};
-                pm_child_init.psi_menu.phase = PS_ENTER;
-                st->phase = PM_PSI_RESUME;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_PSI_MENU, &pm_child_init);
+                if (first_psi != 0)
+                    psi_waits++;  /* the indicator is clear by now */
+                if (menu_flush_waits(&st->phase, PM_PSI_OPEN, psi_waits, &r))
+                    return r;
+                continue;
             }
 
             /* --- Equip (assembly lines 573-583) --- */
-            case 4:  /* MENU_OPTIONS::EQUIP */
+            case 4: {  /* MENU_OPTIONS::EQUIP */
+                StepResult r;
+                uint16_t waits = clear_indicator_waits();
                 show_hppp_windows();
                 display_money_window();
-
-                /* OPEN_EQUIPMENT_MENU: character selection + equipment change,
-                 * now GAME_MODE_EQUIP_MENU. The single-party sfx tail (assembly
-                 * lines 576-583) runs in PM_EQUIP_RESUME after it pops. */
-                pm_child_init = (ModeState){0};
-                pm_child_init.equip_menu.phase = EQ_ENTER;
-                st->phase = PM_EQUIP_RESUME;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_EQUIP_MENU, &pm_child_init);
+                if (menu_flush_waits(&st->phase, PM_EQUIP_OPEN, waits, &r))
+                    return r;
+                continue;
+            }
 
             /* --- Check (assembly lines 584-593) --- */
             case 5: {  /* MENU_OPTIONS::CHECK */
@@ -2667,24 +2773,48 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             }
 
             /* --- Status (assembly lines 594-602) --- */
-            case 6:  /* MENU_OPTIONS::STATUS */
+            case 6: {  /* MENU_OPTIONS::STATUS */
+                StepResult r;
+                uint16_t waits = clear_indicator_waits();
                 show_hppp_windows();
                 display_money_window();
-
-                /* OPEN_STATUS_MENU, now GAME_MODE_STATUS_MENU. The
-                 * FORCE_LEFT_TEXT_ALIGNMENT bracket lives inside the mode
-                 * (set at SU_SELECT, cleared at SU_EXIT); no resume tail. */
-                pm_child_init = (ModeState){0};
-                pm_child_init.status_menu.phase = SU_SELECT;
-                st->phase = PM_MAIN;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_STATUS_MENU, &pm_child_init);
-
+                if (menu_flush_waits(&st->phase, PM_STATUS_OPEN, waits, &r))
+                    return r;
+                continue;
+            }
             /* Cancel (B/Select) or unknown → cleanup */
             default:
                 st->phase = PM_CLEANUP;
                 continue;
             }
         }
+
+        case PM_PSI_OPEN:
+            /* OVERWORLD_PSI_MENU, now GAME_MODE_PSI_MENU. The used/cancelled
+             * branch + single-PSI sfx tail run in PM_PSI_RESUME. Note: assembly
+             * does NOT set dt.force_left_text_alignment for PSI (only STATUS). */
+            pm_child_init = (ModeState){0};
+            pm_child_init.psi_menu.phase = PS_ENTER;
+            st->phase = PM_PSI_RESUME;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_PSI_MENU, &pm_child_init);
+
+        case PM_EQUIP_OPEN:
+            /* OPEN_EQUIPMENT_MENU: character selection + equipment change, now
+             * GAME_MODE_EQUIP_MENU. The single-party sfx tail (assembly lines
+             * 576-583) runs in PM_EQUIP_RESUME after it pops. */
+            pm_child_init = (ModeState){0};
+            pm_child_init.equip_menu.phase = EQ_ENTER;
+            st->phase = PM_EQUIP_RESUME;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_EQUIP_MENU, &pm_child_init);
+
+        case PM_STATUS_OPEN:
+            /* OPEN_STATUS_MENU, now GAME_MODE_STATUS_MENU. The
+             * FORCE_LEFT_TEXT_ALIGNMENT bracket lives inside the mode (set at
+             * SU_SELECT, cleared at SU_EXIT); no resume tail. */
+            pm_child_init = (ModeState){0};
+            pm_child_init.status_menu.phase = SU_SELECT;
+            st->phase = PM_MAIN;
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_STATUS_MENU, &pm_child_init);
 
         case PM_GOODS_CHAR:
             /* @GOODS character selection: single vs multi-party */
@@ -2698,13 +2828,14 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                     continue;
                 }
 
-                /* Populate inventory window */
+                /* Populate inventory window: its WINDOW_TICK_WITHOUT_INSTANT_
+                 * PRINTING shows the empty, titled window for a frame. */
+                StepResult r;
+                (void)take_unpresented_ticks();
                 inventory_get_item_name(member, WINDOW_INVENTORY);
                 st->goods_char = member;
-
-                /* Highlight character in HPPP window */
-                select_battle_menu_character(0);
-                st->phase = PM_GOODS_INV;
+                if (menu_flush_ticks(&st->phase, PM_GOODS_SELECT, &r))
+                    return r;
                 continue;
             }
             /* Multi-party path (assembly lines 84-93) */
@@ -2717,16 +2848,39 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             st->phase = PM_GOODS_CHAR_RESULT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &pm_child_init);
 
+        case PM_GOODS_SELECT: {
+            /* Highlight character in HPPP window (SELECT_BATTLE_MENU_CHARACTER
+             * and its waits) */
+            StepResult r;
+            uint16_t waits = select_indicator_waits();
+            select_battle_menu_character(0);
+            if (menu_flush_waits(&st->phase, PM_GOODS_INV, waits, &r))
+                return r;
+            continue;
+        }
+
+        case PM_GOODS_CANCEL_HDR: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_menu_header_window();
+            if (menu_flush_ticks(&st->phase, PM_MAIN, &r))
+                return r;
+            continue;
+        }
+
         case PM_GOODS_CHAR_RESULT: {
             uint16_t goods_char = (uint16_t)mode_child_result();
             st->goods_char = goods_char;
 
             /* After character selection (assembly lines 94-101) */
             if (goods_char == 0) {
-                /* Cancelled — close inventory and header, return to main menu */
+                /* Cancelled — close inventory and header (a CLOSE_WINDOW tick
+                 * each), return to main menu */
+                StepResult r;
+                (void)take_unpresented_ticks();
                 close_window(WINDOW_INVENTORY);
-                close_menu_header_window();
-                st->phase = PM_MAIN;
+                if (menu_flush_ticks(&st->phase, PM_GOODS_CANCEL_HDR, &r))
+                    return r;
                 continue;
             }
 
@@ -2746,9 +2900,28 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             return pm_push_selection(st, PM_GOODS_INV_RESULT, 1);
 
         case PM_GOODS_INV_RESULT: {
-            uint16_t item_slot = pm_take_result(st);
+            st->item_slot = pm_take_result(st);
             backup_selected_menu_option();
+            /* CLOSE_MENU_HEADER_WINDOW's tick */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_menu_header_window();
+            if (menu_flush_ticks(&st->phase, PM_GOODS_INV_AFTER, &r))
+                return r;
+            continue;
+        }
+
+        case PM_GOODS_CLOSE_INV: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_window(WINDOW_INVENTORY);
+            if (menu_flush_ticks(&st->phase, PM_MAIN, &r))
+                return r;
+            continue;
+        }
+
+        case PM_GOODS_INV_AFTER: {
+            uint16_t item_slot = st->item_slot;
 
             if (item_slot == 0) {
                 /* Cancelled item selection (assembly lines 120-137) */
@@ -2757,16 +2930,19 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                     continue;
                 }
 
-                /* Single party: play SFX if has items, clear indicator */
+                /* Single party: play SFX if has items, clear indicator (its
+                 * wait), then close the inventory (PM_GOODS_CLOSE_INV) */
+                uint16_t waits = 0;
                 if (get_character_item(game_state.party_members[0], 1) != 0) {
                     play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
+                    waits = clear_indicator_waits();
                     clear_battle_menu_character_indicator();
                 }
-                close_window(WINDOW_INVENTORY);
-                st->phase = PM_MAIN;
+                StepResult r;
+                if (menu_flush_waits(&st->phase, PM_GOODS_CLOSE_INV, waits, &r))
+                    return r;
                 continue;
             }
-            st->item_slot = item_slot;
 
             /* --- Item selected: build action menu (assembly lines 138-194) --- */
             create_window(WINDOW_INVENTORY_MENU);
@@ -3079,8 +3255,13 @@ StepResult mode_step_pause_menu(ModeState *ms) {
             /* Tail of the Equip case after EQUIP_MENU pops: single party plays
              * the close sfx and clears the indicator (assembly lines 576-583). */
             if ((game_state.player_controlled_party_count & 0xFF) == 1) {
+                StepResult r;
+                uint16_t waits = clear_indicator_waits();
                 play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
                 clear_battle_menu_character_indicator();
+                if (menu_flush_waits(&st->phase, PM_MAIN, waits, &r))
+                    return r;
+                continue;
             }
             st->phase = PM_MAIN;
             continue;
@@ -3094,18 +3275,40 @@ StepResult mode_step_pause_menu(ModeState *ms) {
                 continue;
             }
             if (count_characters_with_psi() == 1) {
+                StepResult r;
+                uint16_t waits = clear_indicator_waits();
                 play_sfx(27);  /* SFX::MENU_OPEN_CLOSE */
                 clear_battle_menu_character_indicator();
+                if (menu_flush_waits(&st->phase, PM_MAIN, waits, &r))
+                    return r;
+                continue;
             }
             st->phase = PM_MAIN;
             continue;
 
-        case PM_CLEANUP:
-            /* Assembly @CLEANUP_AND_CLOSE (lines 603-614) */
+        case PM_CLEANUP: {
+            /* Assembly @CLEANUP_AND_CLOSE (lines 603-614): HIDE_HPPP_WINDOWS
+             * (the indicator clear's wait), CLOSE_ALL_WINDOWS (its WINDOW_TICK),
+             * then wait for the entity fade. */
+            StepResult r;
+            uint16_t waits = clear_indicator_waits();
             clear_instant_printing();
             hide_hppp_windows();
-            close_all_windows();
+            if (menu_flush_waits(&st->phase, PM_CLEANUP_CLOSE, waits, &r))
+                return r;
+            continue;
+        }
 
+        case PM_CLEANUP_CLOSE: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            close_all_windows();
+            if (menu_flush_ticks(&st->phase, PM_CLEANUP_FADE, &r))
+                return r;
+            continue;
+        }
+
+        case PM_CLEANUP_FADE:
             /* Wait for entity fade to complete (assembly @WAIT_ENTITY_FADE) */
             st->phase = PM_DONE;
             return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
