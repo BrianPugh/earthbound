@@ -310,7 +310,7 @@ def indexed_png_to_tiles(
     if img.mode != "P":
         raise PackError(f"Tileset image must be indexed/palette mode, got {img.mode}")
     w, h = img.size
-    pixel_data = list(img.getdata())
+    pixel_data = list(img.tobytes())
     tiles: list[list[list[int]]] = []
     rows = h // 8
     actual_cols = w // 8

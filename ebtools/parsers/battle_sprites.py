@@ -437,7 +437,7 @@ def pack_battle_sprites(
             )
             continue
 
-        img_data = list(img.getdata())
+        img_data = list(img.tobytes())
         oob_pixels = [v for v in img_data if v > 15]
         if oob_pixels:
             max_val = max(oob_pixels)
