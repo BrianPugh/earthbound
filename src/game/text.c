@@ -3348,10 +3348,28 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
         return STEP_RESULT_CONTINUE();
     }
 
-    case QCT_FADE:
+    case QCT_FADE: {
+        /* HIDE_HPPP_WINDOWS (the indicator clear's wait), CLOSE_ALL_WINDOWS
+         * (its WINDOW_TICK), then the entity fade: a frame each. */
+        StepResult r;
+        uint16_t waits = clear_indicator_waits();
         clear_instant_printing();
         hide_hppp_windows();
+        if (menu_flush_waits(&st->phase, QCT_CLOSE, waits, &r))
+            return r;
+    }
+        EB_FALLTHROUGH;
+
+    case QCT_CLOSE: {
+        StepResult r;
+        (void)take_unpresented_ticks();
         close_all_windows();
+        if (menu_flush_ticks(&st->phase, QCT_FADE_WAIT, &r))
+            return r;
+    }
+        EB_FALLTHROUGH;
+
+    case QCT_FADE_WAIT:
         st->phase = QCT_DONE;
         return STEP_RESULT_PUSH(GAME_MODE_ENTITY_FADE_WAIT);
 
@@ -3366,6 +3384,26 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
  * See HpppDisplayState in mode_stack.h. The full pause menu is STEP_PUSHed
  * (GAME_MODE_PAUSE_MENU owns ALL the cleanup — hide HPPP, close windows,
  * enable entities — so HD_MENU_DONE just pops). */
+/* GAME_MODE_HPPP_DISPLAY dismiss tail: the WINDOW_TICK, then HD_EXIT. */
+static StepResult hd_cancel_tick(HpppDisplayState *st) {
+    if (window_tick_work_step()) {
+        st->phase = HD_CANCEL_FLUSH;
+        return actionscript_frame_take_push();
+    }
+    st->phase = HD_EXIT;
+    return STEP_RESULT_CONTINUE();
+}
+
+/* Dismiss: CLOSE_ALL_WINDOWS and its tick's frame, then hd_cancel_tick. */
+static StepResult hd_cancel_close(HpppDisplayState *st) {
+    StepResult r;
+    (void)take_unpresented_ticks();
+    close_all_windows();
+    if (menu_flush_ticks(&st->phase, HD_CANCEL_TICK, &r))
+        return r;
+    return hd_cancel_tick(st);
+}
+
 StepResult mode_step_hppp_display(ModeState *ms) {
     HpppDisplayState *st = &ms->hppp_display;
     static ModeState hd_child_init;  /* outlives the dispatch (pump copies it) */
@@ -3417,16 +3455,16 @@ StepResult mode_step_hppp_display(ModeState *ms) {
 
         /* B or Select → dismiss (assembly lines 17-26) */
         if (core.pad1_pressed & PAD_CANCEL) {
+            /* HIDE_HPPP_WINDOWS' wait, CLOSE_ALL_WINDOWS' tick, then the
+             * WINDOW_TICK (open_hppp_display.asm:23-25), a frame each. */
+            StepResult r;
+            uint16_t waits = clear_indicator_waits();
             play_sfx(2);  /* SFX::CURSOR2 */
             clear_instant_printing();
             hide_hppp_windows();
-            close_all_windows();
-            if (window_tick_work_step()) {
-                st->phase = HD_CANCEL_FLUSH;
-                return actionscript_frame_take_push();
-            }
-            st->phase = HD_EXIT;
-            return STEP_RESULT_CONTINUE();
+            if (menu_flush_waits(&st->phase, HD_CANCEL_CLOSE, waits, &r))
+                return r;
+            return hd_cancel_close(st);
         }
 
         if (window_tick_work_step()) {
@@ -3446,6 +3484,12 @@ StepResult mode_step_hppp_display(ModeState *ms) {
         window_tick_work_flush();
         st->phase = HD_EXIT;
         return STEP_RESULT_CONTINUE();
+
+    case HD_CANCEL_CLOSE:
+        return hd_cancel_close(st);
+
+    case HD_CANCEL_TICK:
+        return hd_cancel_tick(st);
 
     case HD_MENU_DONE:
         /* The pause menu did all cleanup; nothing left to do. */

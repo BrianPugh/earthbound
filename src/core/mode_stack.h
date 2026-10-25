@@ -332,6 +332,8 @@ typedef enum {
     QCT_TEXT = 0,  /* disable entities, resolve text, STEP_PUSH DISPLAY_TEXT */
     QCT_FADE,      /* close windows, STEP_PUSH ENTITY_FADE_WAIT */
     QCT_DONE,      /* enable entities + POP */
+    QCT_CLOSE,     /* CLOSE_ALL_WINDOWS after HIDE_HPPP_WINDOWS' wait */
+    QCT_FADE_WAIT, /* STEP_PUSH ENTITY_FADE_WAIT after the close tick */
 } QuickChecktalkPhase;
 
 typedef struct {
@@ -471,6 +473,8 @@ typedef enum {
     HD_EXIT,       /* post-dismiss-frame: enable entities → POP */
     HD_TICK_FLUSH, /* park-propagating resume of an HD_TICK window frame (stay in HD_TICK) */
     HD_CANCEL_FLUSH, /* park-propagating resume of the dismiss window frame (→ HD_EXIT) */
+    HD_CANCEL_CLOSE, /* dismiss: CLOSE_ALL_WINDOWS after HIDE_HPPP_WINDOWS' wait */
+    HD_CANCEL_TICK,  /* dismiss: the WINDOW_TICK after CLOSE_ALL_WINDOWS' tick */
 } HpppDisplayPhase;
 
 typedef struct {
