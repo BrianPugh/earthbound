@@ -122,6 +122,19 @@ static const struct { const OvalWindowData *base; uint16_t len; } oval_seq_table
     { oval_battle,         (uint16_t)(sizeof(oval_battle)         / sizeof(oval_battle[0]))         },
 };
 #define OVAL_SEQ_COUNT (sizeof(oval_seq_table) / sizeof(oval_seq_table[0]))
+_Static_assert(OVAL_SEQ_COUNT == OVAL_WINDOW_SEQ_COUNT, "OVAL_WINDOW_SEQ_COUNT");
+
+/* Same order as oval_seq_table (seq id i + 1 is entry i). */
+#define OVAL_LAST(t) (uint16_t)(sizeof(t) / sizeof((t)[0]) - 1)
+const uint16_t oval_window_seq_max_index[OVAL_WINDOW_SEQ_COUNT + 1] = {
+    0,
+    OVAL_LAST(oval_standard_open),
+    OVAL_LAST(oval_variant_open),
+    OVAL_LAST(oval_standard_close),
+    OVAL_LAST(oval_variant_close),
+    OVAL_LAST(oval_battle),
+};
+#undef OVAL_LAST
 
 /* ---- Savestate snapshot (see OvalWindowSaveState in oval_window.h) ----
  * swirl_window_hdma_buffer is intentionally NOT captured: it is rebuilt from the

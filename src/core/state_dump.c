@@ -843,11 +843,19 @@ static int find_section(uint16_t id) {
  * checked separately: their bound depends on the restored depth.)
  *
  * Each entry is `count` scalars of `width` bytes, `stride` bytes apart, starting at
- * `offset` in section `section`, each in [lo, hi] or equal to `none`. With
- * FC_PLUS_PREV the value is an offset paired with the entry before it (a size, same
- * element, lower offset): when that size is non-zero, offset + size must be <= hi. A
- * section's entries may interleave (array-of-struct fields), but no two may overlap. */
-enum { FC_SIGNED = 1u, FC_HAS_NONE = 2u, FC_PLUS_PREV = 4u };
+ * `offset` in section `section`, each in [lo, hi] or equal to `none`. Three flags
+ * pair a value with the entry before it in the table (same element, lower offset,
+ * already checked):
+ *   FC_PLUS_PREV   the value is an offset and the previous entry its size: when that
+ *                  size is non-zero, offset + size must be <= hi.
+ *   FC_IF_PREV     the range applies only when the previous value is non-zero (an id
+ *                  that backs a pointer, with the pointer's NULL flag before it).
+ *   FC_BOUND_PREV  the upper bound is bound[previous value] instead of hi (an index
+ *                  into the sequence the previous value selects; the previous entry's
+ *                  own range keeps it inside `bound`).
+ * A section's entries may interleave (array-of-struct fields), but no two may
+ * overlap. */
+enum { FC_SIGNED = 1u, FC_HAS_NONE = 2u, FC_PLUS_PREV = 4u, FC_IF_PREV = 8u, FC_BOUND_PREV = 16u };
 typedef struct {
     uint16_t section;
     uint8_t  width;     /* 1 or 2 */
@@ -857,12 +865,13 @@ typedef struct {
     uint16_t stride;
     int32_t  lo, hi;
     uint16_t none;
+    const uint16_t *bound;   /* FC_BOUND_PREV only */
 } FieldCheck;
 
 #define FC_ARRAY(sec_, off_, n_, stride_, type_, lo_, hi_, flags_, none_)          \
     { (uint16_t)(sec_), (uint8_t)sizeof(type_),                                     \
       (uint8_t)((flags_) | ((type_)-1 < 0 ? FC_SIGNED : 0u)), (uint32_t)(off_),     \
-      (uint16_t)(n_), (uint16_t)(stride_), (lo_), (hi_), (uint16_t)(none_) }
+      (uint16_t)(n_), (uint16_t)(stride_), (lo_), (hi_), (uint16_t)(none_), NULL }
 /* One scalar field of the section's struct. */
 #define FC_ONE(sec_, st_, fld_, type_, lo_, hi_) \
     FC_ARRAY(sec_, offsetof(st_, fld_), 1, 0, type_, lo_, hi_, 0u, 0)
@@ -919,6 +928,22 @@ static const FieldCheck k_field_checks[] = {
            uint16_t, 0, AUTO_MOVEMENT_BUFFER_SIZE - 1),
     FC_ARRAY(SECTION_OVERWORLD_DEFERRED, offsetof(OverworldDeferredSaveState, demo_read_index),
              1, 0, uint16_t, 0, AUTO_MOVEMENT_BUFFER_SIZE - 1, FC_HAS_NONE, 0xFFFF),
+    /* PSI arrangement asset: rebind rebuilds arr_bundled_data from arr_current_anim_id
+     * only when the saved pointer was non-NULL and the id is in range, so an
+     * out-of-range id would leave a non-NULL pointer that was never rebuilt. The
+     * pointer slot is canonical in the stream (k_ptr_slots): byte 0 is the NULL flag,
+     * bytes 1-7 are zero. */
+    FC_ARRAY(SECTION_PSI_ANIMATION, offsetof(PsiAnimationState, arr_bundled_data) + 1,
+             7, 1, uint8_t, 0, 0, 0u, 0),
+    FC_ONE(SECTION_PSI_ANIMATION, PsiAnimationState, arr_bundled_data, uint8_t, 0, 1),
+    FC_ARRAY(SECTION_PSI_ANIMATION, offsetof(PsiAnimationState, arr_current_anim_id),
+             1, 0, uint16_t, 0, PSI_ANIM_COUNT - 1, FC_IF_PREV, 0),
+    /* Oval-window cursor: unpack turns (seq, index) into &sequence[index]. */
+    FC_ONE(SECTION_OVAL_WINDOW, OvalWindowSaveState, loaded_oval_window_seq, uint8_t,
+           0, OVAL_WINDOW_SEQ_COUNT),
+    { (uint16_t)SECTION_OVAL_WINDOW, (uint8_t)sizeof(uint16_t), FC_BOUND_PREV,
+      (uint32_t)offsetof(OvalWindowSaveState, loaded_oval_window_index), 1, 0, 0, 0, 0,
+      oval_window_seq_max_index },
 };
 #undef FC_ARRAY
 #undef FC_ONE
@@ -968,6 +993,10 @@ static int32_t check_section_fields(DecompCtx *r, uint16_t id, uint32_t size) {
         bool ok;
         if (c->flags & FC_PLUS_PREV)
             ok = last[best - 1] == 0 || (v >= c->lo && v + last[best - 1] <= c->hi);
+        else if (c->flags & FC_IF_PREV)
+            ok = last[best - 1] == 0 || (v >= c->lo && v <= c->hi);
+        else if (c->flags & FC_BOUND_PREV)
+            ok = v >= c->lo && v <= (int32_t)c->bound[last[best - 1]];
         else
             ok = (v >= c->lo && v <= c->hi)
               || ((c->flags & FC_HAS_NONE) && raw == c->none);
@@ -1364,6 +1393,17 @@ bool state_dump_reject_test(void) {
     entities.first_entity = MAX_ENTITIES;
     ok = ok && write_slot(0, fixed_seq);
     entities.first_entity = first;
+    scribble_direct_sections(0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
+
+    /* Slot 0 again: a PSI arrangement pointer set with an anim id past the table
+     * (a paired check: rebind could not rebuild that pointer). */
+    ok = ok && read_slot(1);
+    PsiAnimationState psi = psi_animation_state;
+    psi_animation_state.arr_bundled_data = ert.buffer;
+    psi_animation_state.arr_current_anim_id = PSI_ANIM_COUNT;
+    ok = ok && write_slot(0, fixed_seq);
+    psi_animation_state = psi;
     scribble_direct_sections(0xA5);
     ok = ok && !read_slot(0) && direct_sections_hold(0xA5);
     ok = ok && copy_slot_corrupted(1, 0, STATE_DUMP_HEADER_SIZE + 64);

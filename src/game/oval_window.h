@@ -39,6 +39,10 @@ typedef struct {
     ABI_PTR_PAD(arr_bundle_buf)
 } PsiAnimationState;
 
+/* Number of PSI animations (arr_current_anim_id is below this whenever
+ * arr_bundled_data is set; state_dump.c checks that pairing on load). */
+#define PSI_ANIM_COUNT 34
+
 extern PsiAnimationState psi_animation_state;
 
 /* Rebuild psi_animation_state's runtime pointers after a savestate load (defined in
@@ -138,6 +142,12 @@ typedef struct {
     uint8_t  loaded_oval_window_seq;
     uint16_t loaded_oval_window_index;
 } OvalWindowSaveState;
+
+/* Number of oval-window animation sequences (loaded_oval_window_seq is 0..this),
+ * and the largest valid loaded_oval_window_index per seq id (index 0 = seq 0 =
+ * inactive), which state_dump.c's load-time range check reads. */
+#define OVAL_WINDOW_SEQ_COUNT 5
+extern const uint16_t oval_window_seq_max_index[OVAL_WINDOW_SEQ_COUNT + 1];
 void oval_window_savestate_pack(void *out);   /* out: OvalWindowSaveState* */
 void oval_window_savestate_unpack(const void *in);
 

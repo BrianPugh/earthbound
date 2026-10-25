@@ -57,7 +57,6 @@ static size_t battle_psi_table_size = 0;
 #define PSI_ANIM_GFX_LOWORD_SET3  0xDB27
 #define PSI_ANIM_GFX_LOWORD_SET4  0xE31D
 
-#define PSI_ANIM_COUNT           34
 #define PSI_FRAME_SIZE           0x400  /* bytes per arrangement frame (32×32 tilemap) */
 #define PSI_FRAMES_PER_BUNDLE    8     /* frames per compressed bundle in .arr.bundled */
 
