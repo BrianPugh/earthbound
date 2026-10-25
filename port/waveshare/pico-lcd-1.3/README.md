@@ -55,10 +55,10 @@ Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.dat
 | Section | Bytes |
 |---|---|
 | `.ram_vector_table` | 192 |
-| `.data` | 52,032 |
-| `.bss` | 188,864 |
+| `.data` | 49,864 |
+| `.bss` | 157,772 |
 | `.stack_dummy` | 2,048 |
-| **`.data + .bss`** | **240,896** (budget 242,688) |
+| **`.data + .bss`** | **207,636** (budget 209,408) |
 
 The `EB_ENABLE_DUAL_CORE_PPU=ON` build doesn't link on that toolchain (`platform_worker_init`: "dangerous relocation: unsupported relocation" in `main.c`), so it has no recorded figure; pass `-DRAM_BUDGET_BYTES=...` when it does.
 
