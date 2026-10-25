@@ -116,6 +116,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Present npc1412 doesn't spawn | Tracy's room, 01-Start | emu (flag 805 already set) | 2026-10-23 |
 | Cookie present says "took it" with 14 items | 01-Start | asm | 2026-10-23 |
 | Goodbye Exit sign blocks until flag 762 (Yariman B, Yes) | Dungeon Man (save 29) | emu dm1 | 2026-10-24 |
+| Meteorite only prints "(Caution! There are still lots of fires burning here and there. It's HOT!)" on Check; no piece offered | Onett hilltop npc198, 2075,128 facing DOWN, before FLG_INFO_XYZ (132) | script `MSG_SIGN_METEORITE_CHECK` (EBGMESS.yml); the flag is set by Andonuts' "Eureka!" after the Phase Distorter test (EVENT_287 → MSG_EVT5_ANDONUT_METEORITE_FOUND), port run66a | 2026-10-25 |
 | Password door prints only "@....." | Grapefruit Falls, 6376,264, without flag 131 | script `MSG_EVT2_GPFT_GUARD_PASSWORD` (Mr. Saturn npc739 sets FLG_DOSEI_SECRETCODE) | 2026-10-24 |
 | Gold Mine cliff and cave missing; the hole leads to the small dig cave | Dusty Dunes, 3656,9632, without flag 174 | emu (save 17); set by Topolla manager npc839 | 2026-10-24 |
 | Monotoli Building door stays shut | Fourside, without flag 143 | script | 2026-10-23 |
