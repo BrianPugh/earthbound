@@ -2830,469 +2830,500 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
  *                   byte2 = item/value (0 → argument_memory).
  *   16-bit value: .WORD assembled from 2 bytes (0 → argument_memory).
  *   32-bit value: .DWORD assembled from 4 bytes (0 → argument_memory). */
+
+/* GIVE_ITEM_TO_CHARACTER: 2 data bytes.
+ * Port of CC_1D_00 (asm/text/ccs/give_item_to_character.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
+ * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
+ * Calls GIVE_ITEM_TO_CHARACTER(A=char_id, X=item_id): supports 0xFF
+ * for all-party, handles teddy bear and transform side effects.
+ * Stores result (receiving char_id or 0) in working_memory. */
+static void cc_1d_give_item_to_character(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t item_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = give_item_to_character(char_id, item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* TAKE_ITEM_FROM_CHARACTER: 2 data bytes.
+ * Port of CC_1D_01 (asm/text/ccs/take_item_from_character.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
+ * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
+ * Calls TAKE_ITEM_FROM_CHARACTER(A=char_id, X=item_id): searches
+ * inventory for matching item, removes via REMOVE_ITEM_FROM_INVENTORY.
+ * Supports 0xFF for all-party search. Handles unequip/shift/side effects.
+ * Stores result (char_id or 0) in working_memory. */
+static void cc_1d_take_item_from_character(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t item_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = take_item_from_character(char_id, item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* TEST_ITEM_TYPE_MATCH: 1 arg (type_to_compare).
+ * Port of CC_1D_02 (asm/text/ccs/test_inventory_full.asm).
+ * Reads item_id from argument_memory, gets its type category via
+ * GET_ITEM_TYPE, compares with the arg. Result: 1=match, 0=no match.
+ * Stores sign-extended result in working_memory. */
+static void cc_1d_test_item_type_match(ScriptReader *r) {
+    uint8_t type_arg = script_read_byte(r);
+    uint16_t item_id = (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t item_type = get_item_type(item_id);
+    int16_t result = (item_type == (uint16_t)type_arg) ? 1 : 0;
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* GET_PLAYER_HAS_INVENTORY_ROOM: 1 data byte.
+ * Port of CC_1D_03 (asm/text/ccs/test_inventory_not_full.asm)
+ * → FIND_INVENTORY_SPACE2 (asm/misc/find_inventory_space2.asm)
+ * → FIND_INVENTORY_SPACE (asm/misc/find_inventory_space.asm).
+ * Byte 1 = char_id (0 → argument_memory).
+ * Returns char_id (1-based) if room found, 0 if full.
+ * char_id == 0xFF → all-party search. */
+static void cc_1d_get_player_has_inventory_room(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int32_t result = 0;  /* 0 = no room (matches assembly FALSE) */
+    if (char_id == 0xFF) {
+        /* All-party search: find first party member with inventory space */
+        for (int p = 0; p < (game_state.player_controlled_party_count & 0xFF); p++) {
+            uint8_t member = game_state.party_members[p];
+            if (member >= 1 && member <= TOTAL_PARTY_COUNT) {
+                CharStruct *c = &party_characters[member - 1];
+                bool has_space = false;
+                for (int i = 0; i < 14; i++) {
+                    if (c->items[i] == 0) { has_space = true; break; }
+                }
+                if (has_space) { result = (int32_t)member; break; }
+            }
+        }
+    } else if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT) {
+        CharStruct *c = &party_characters[char_id - 1];
+        for (int i = 0; i < 14; i++) {
+            if (c->items[i] == 0) {
+                result = (int32_t)char_id;  /* return char_id, not slot index */
+                break;
+            }
+        }
+    }
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* CHECK_IF_ITEM_IS_EQUIPPED: 2 data bytes.
+ * Port of CC_1D_04 (asm/text/ccs/test_character_doesnt_have_item.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
+ * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
+ * Calls IS_ITEM_EQUIPPED_BY_ID(A=char_id, X=item_id): dereferences
+ * equipment slot values to get actual item IDs and compares.
+ * Result (sign-extended) in working_memory. */
+static void cc_1d_check_if_item_is_equipped(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t item_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int16_t result = (int16_t)is_item_equipped_by_id(char_id, item_id);
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* CHECK_IF_CHARACTER_HAS_ITEM: 2 data bytes.
+ * Port of CC_1D_05 (asm/text/ccs/test_character_has_item.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
+ * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
+ * Calls FIND_ITEM_IN_INVENTORY2(A=char_id, X=item_id): supports
+ * 0xFF for all-party search. Returns char_id if found, 0 if not.
+ * Result (sign-extended) in working_memory. */
+static void cc_1d_check_if_character_has_item(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t item_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = find_item_in_inventory2(char_id, item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* ADD_TO_ATM: 4 data bytes (.DWORD).
+ * Port of CC_1D_06 (asm/text/ccs/atm_increase.asm).
+ * Builds 32-bit deposit amount. If zero, use argument_memory.
+ * Calls DEPOSIT_INTO_ATM: bank_balance = min(balance + amount, 9999999). */
+static void cc_1d_add_to_atm(ScriptReader *r) {
+    uint32_t amount = script_read_dword(r);
+    if (amount == 0) amount = (uint32_t)get_argument_memory();
+    uint32_t new_balance = game_state.bank_balance + amount;
+    if (new_balance > ATM_LIMIT) new_balance = ATM_LIMIT;
+    game_state.bank_balance = new_balance;
+}
+
+/* TAKE_FROM_ATM: 4 data bytes (.DWORD).
+ * Port of CC_1D_07 (asm/text/ccs/atm_decrease.asm).
+ * Builds 32-bit withdrawal amount. If zero, use argument_memory.
+ * Calls WITHDRAW_FROM_ATM: subtracts from bank_balance if sufficient.
+ * Stores withdrawal amount in working_memory. */
+static void cc_1d_take_from_atm(ScriptReader *r) {
+    uint32_t amount = script_read_dword(r);
+    if (amount == 0) amount = (uint32_t)get_argument_memory();
+    withdraw_from_atm(amount);
+    set_working_memory(amount);
+}
+
+/* ADD_TO_WALLET: 2 data bytes (.WORD).
+ * Port of CC_1D_08 (asm/text/ccs/wallet_increase.asm).
+ * Builds 16-bit amount. If zero, use argument_memory.
+ * Calls INCREASE_WALLET_BALANCE: money_carried = min(balance + amount, 99999).
+ * Stores new balance in working_memory. */
+static void cc_1d_add_to_wallet(ScriptReader *r) {
+    uint16_t amount = script_read_word(r);
+    uint32_t amt32 = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
+    uint32_t new_balance = increase_wallet_balance(amt32);
+    set_working_memory(new_balance);
+}
+
+/* TAKE_FROM_WALLET: 2 data bytes (.WORD).
+ * Port of CC_1D_09 (asm/text/ccs/wallet_decrease.asm).
+ * Builds 16-bit amount. If zero, use argument_memory.
+ * Calls DECREASE_WALLET_BALANCE: returns 0 (success) or 1 (insufficient).
+ * Stores result in working_memory (sign-extended). */
+static void cc_1d_take_from_wallet(ScriptReader *r) {
+    uint16_t amount = script_read_word(r);
+    uint32_t amt32 = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
+    uint16_t result = decrease_wallet_balance(amt32);
+    set_working_memory((uint32_t)(int32_t)(int16_t)result);
+}
+
+/* GET_BUY_PRICE_OF_ITEM: 1 arg (item_id, 0 → argument_memory).
+ * Port of CC_1D_0A (asm/text/ccs/get_item_price.asm).
+ * Reads item.cost from ITEM_CONFIGURATION_TABLE, stores in working_memory. */
+static void cc_1d_get_buy_price_of_item(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    const ItemConfig *entry = get_item_entry(item_id);
+    uint16_t cost = entry ? entry->cost : 0;
+    set_working_memory((uint32_t)cost);
+}
+
+/* GET_SELL_PRICE_OF_ITEM: 1 arg (item_id, 0 → argument_memory).
+ * Port of CC_1D_0B (asm/text/ccs/get_item_sell_price.asm).
+ * Reads item.cost / 2 from ITEM_CONFIGURATION_TABLE, stores in working_memory. */
+static void cc_1d_get_sell_price_of_item(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    const ItemConfig *entry = get_item_entry(item_id);
+    uint16_t cost = entry ? entry->cost : 0;
+    set_working_memory((uint32_t)(cost >> 1));
+}
+
+/* ESCARGO_EXPRESS_ITEM_STATUS: 2 args (char_id, item_slot).
+ * Port of CC_1D_0C (asm/text/ccs/unknown_1D_0C.asm).
+ * Arg 1 = char_id (0 → working_memory), Arg 2 = item_slot (0 → argument_memory).
+ * Checks IS_ESCARGO_EXPRESS_FULL: if full, base=2, else base=0.
+ * Then reads item at char's inventory slot, checks ITEM_FLAGS::CANNOT_STORE (0x40).
+ * If flag set, flag_bit=1, else 0. Result = base | flag_bit.
+ * Stores sign-extended result in working_memory. */
+static void cc_1d_escargo_express_item_status(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t slot_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t base = is_escargo_express_full() ? 2 : 0;
+    uint16_t flag_bit = 0;
+    if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
+        uint8_t item_id = party_characters[char_id - 1].items[slot - 1];
+        const ItemConfig *entry = get_item_entry(item_id);
+        if (entry && (entry->flags & 0x40))
+            flag_bit = 1;
+    }
+    int16_t result = (int16_t)(base | flag_bit);
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* CHARACTER_HAS_AILMENT: 3 args (char_id, status_group, expected_value).
+ * Port of CC_1D_0D (asm/text/ccs/test_character_status.asm).
+ * Arg 1 = char_id (0 → working_memory).
+ * Arg 2 = status_group (0 → argument_memory).
+ * Arg 3 = expected status value (from @VIRTUAL02, third gathered arg).
+ * Calls CHECK_STATUS_GROUP(A=char_id, X=status_group), compares result
+ * with expected. Result: 1 if match, 0 if not. Sign-extended. */
+static void cc_1d_character_has_ailment(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t group_arg = script_read_byte(r);
+    uint8_t expected = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t actual = check_status_group(status_group, char_id);
+    int16_t result = (actual == (uint16_t)expected) ? 1 : 0;
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* GIVE_ITEM_TO_CHARACTER_B: 2 data bytes.
+ * Port of CC_1D_0E (asm/text/ccs/give_item_to_character_2.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
+ * Gives item to character (or first available if char_id=0xFF).
+ * Stores next empty slot index in argument_memory.
+ * Stores result (receiving char_id or 0) in working_memory. */
+static void cc_1d_give_item_to_character_b(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t item_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = give_item_to_character(char_id, item_id);
+    uint16_t empty = 0;
+    if (result) {
+        empty = find_empty_inventory_slot(result);
+    }
+    set_argument_memory((uint32_t)empty);
+    set_working_memory((uint32_t)result);
+}
+
+/* TAKE_ITEM_FROM_CHARACTER_2: 2 data bytes.
+ * Port of CC_1D_0F (asm/text/ccs/take_item_from_character_2.asm).
+ * Byte 1 = char_id (0 → working_memory). Byte 2 = slot (0 → argument_memory).
+ * Gets item at slot, stores item_id in argument_memory.
+ * Removes item from inventory, stores char_id in working_memory. */
+static void cc_1d_take_item_from_character_2(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t slot_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t item_id = get_character_item(char_id, slot);
+    set_argument_memory((uint32_t)item_id);
+    uint16_t result = remove_item_from_inventory(char_id, slot);
+    set_working_memory((uint32_t)result);
+}
+
+/* CHECK_ITEM_EQUIPPED: 2 data bytes (char_id, item_slot).
+ * Port of CC_1D_10 (asm/text/ccs/unknown_1D_10.asm) →
+ * CHECK_ITEM_EQUIPPED (asm/misc/check_item_equipped.asm).
+ * Byte 1 = char_id (0 → working_memory).
+ * Byte 2 = item_slot (0 → argument_memory). 1-based inventory position.
+ * Checks if the given inventory slot is currently equipped in any
+ * equipment slot (weapon, body, arms, other).
+ * Returns 1 if slot is equipped, 0 if not.
+ * Stores result (sign-extended) in working_memory. */
+static void cc_1d_check_item_equipped(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t slot_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    int16_t result = (int16_t)check_item_equipped(char_id, item_slot);
+    set_working_memory((uint32_t)(int32_t)result);
+}
+
+/* CHECK_ITEM_USABLE_BY_SLOT: 2 args (char_id, item_slot).
+ * Port of CC_1D_11 (asm/text/ccs/unknown_1D_11.asm).
+ * Arg 1 = char_id (0 → working_memory), Arg 2 = item_slot (0 → argument_memory).
+ * Gets item at slot via GET_CHARACTER_ITEM, then checks CHECK_ITEM_USABLE_BY.
+ * Stores result in working_memory. */
+static void cc_1d_check_item_usable_by_slot(ScriptReader *r) {
+    uint8_t char_arg = script_read_byte(r);
+    uint8_t slot_arg = script_read_byte(r);
+    uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint8_t item_id = 0;
+    if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
+        item_id = party_characters[char_id - 1].items[slot - 1];
+    }
+    uint16_t result = check_item_usable_by(char_id, item_id);
+    set_working_memory((uint32_t)result);
+}
+
+/* ESCARGO_EXPRESS_MOVE: 2 args (char_id, item_slot).
+ * Port of CC_1D_12 (asm/text/ccs/unknown_1D_12.asm).
+ * arg1==0 → working_memory, arg2==0 → argument_memory.
+ * Moves item from character's inventory to escargo express. */
+static void cc_1d_escargo_express_move(ScriptReader *r) {
+    uint8_t arg1 = script_read_byte(r);
+    uint8_t arg2 = script_read_byte(r);
+    uint16_t char_id = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t item_slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
+    escargo_express_move(char_id, item_slot);
+}
+
+/* DELIVER_ESCARGO_EXPRESS_ITEM: 2 args (char_id, escargo_slot).
+ * Port of CC_1D_13 (asm/text/ccs/unknown_1D_13.asm).
+ * arg1==0 → working_memory, arg2==0 → argument_memory.
+ * Removes item from escargo and gives to character.
+ * Sets argument_memory = find_empty_inventory_slot(char_id),
+ * working_memory = char_id. */
+static void cc_1d_deliver_escargo_express_item(ScriptReader *r) {
+    uint8_t arg1 = script_read_byte(r);
+    uint8_t arg2 = script_read_byte(r);
+    uint16_t char_id = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t escargo_slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result_char = deliver_escargo_express_item(char_id, escargo_slot);
+    uint16_t empty_slot = find_empty_inventory_slot(result_char);
+    set_argument_memory((uint32_t)empty_slot);
+    set_working_memory((uint32_t)result_char);
+}
+
+/* HAVE_ENOUGH_MONEY: 4 data bytes (.DWORD).
+ * Port of CC_1D_14 (asm/text/ccs/test_has_enough_money.asm).
+ * Builds 32-bit required amount. If zero, use argument_memory.
+ * Compares against game_state.money_carried.
+ * Sets working_memory: 1 = insufficient, 0 = sufficient. */
+static void cc_1d_have_enough_money(ScriptReader *r) {
+    uint32_t amount = script_read_dword(r);
+    if (amount == 0) amount = (uint32_t)get_argument_memory();
+    uint32_t result = (game_state.money_carried >= amount) ? 0 : 1;
+    set_working_memory(result);
+}
+
+/* PUT_VAL_IN_ARGMEM: 2 data bytes (.WORD).
+ * Port of CC_1D_15 (asm/text/ccs/set_argmem.asm).
+ * Builds 16-bit value. If zero, use argument_memory.
+ * Calls FIND_FIRST_UNCONSCIOUS_PARTY_SLOT (C226F0):
+ *   Iterates party_order[0..party_count-1], finds first member
+ *   whose afflictions == 1 (unconscious). Returns the index (0-based).
+ *   If no unconscious member found, returns party_count.
+ * Multiplies value * unconscious_slot, stores in working_memory. */
+static void cc_1d_put_val_in_argmem(ScriptReader *r) {
+    uint16_t amount = script_read_word(r);
+    uint32_t val = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
+    /* FIND_FIRST_UNCONSCIOUS_PARTY_SLOT */
+    uint16_t slot = find_first_unconscious_party_slot();
+    set_working_memory(val * (uint32_t)slot);
+}
+
+/* HAVE_ENOUGH_MONEY_IN_ATM: 4 data bytes (.DWORD).
+ * Port of CC_1D_17 (asm/text/ccs/test_atm_has_enough_money.asm).
+ * Same pattern as 0x14 but checks game_state.bank_balance. */
+static void cc_1d_have_enough_money_in_atm(ScriptReader *r) {
+    uint32_t amount = script_read_dword(r);
+    if (amount == 0) amount = (uint32_t)get_argument_memory();
+    uint32_t result = (game_state.bank_balance >= amount) ? 0 : 1;
+    set_working_memory(result);
+}
+
+/* ESCARGO_EXPRESS_STORE: 1 arg (item_id).
+ * Port of CC_1D_18 (asm/text/ccs/escargo_express_store.asm) →
+ * ESCARGO_EXPRESS_STORE (asm/misc/escargo_express_store.asm).
+ * arg==0 → use argument_memory.
+ * Finds first empty slot in escargo_express_items[] and stores item. */
+static void cc_1d_escargo_express_store(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    if (item_id != 0) {
+        escargo_express_store(item_id);
+    }
+}
+
+/* HAVE_X_PARTY_MEMBERS: 1 arg.
+ * Port of CC_1D_19 (asm/text/ccs/test_party_enough_characters.asm).
+ * If arg != 0, use arg; else use argument_memory.
+ * Sets working_memory to 1 if party_count < N, 0 otherwise. */
+static void cc_1d_have_x_party_members(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint32_t n = arg ? (uint32_t)arg : get_argument_memory();
+    uint32_t result = (game_state.player_controlled_party_count < n) ? 1 : 0;
+    set_working_memory(result);
+}
+
+/* TEST_IS_USER_TARGETTING_SELF: 0 args.
+ * Port of tree_1D.asm @TEST_SELF_TARGET.
+ * Compares dt.battle_attacker_name and dt.battle_target_name.
+ * If equal (same entity targeting itself), stores 1 in working_memory.
+ * Otherwise stores 0. */
+static void cc_1d_test_is_user_targetting_self(void) {
+    char *target = return_battle_target_address();
+    char *attacker = return_battle_attacker_address();
+    uint32_t result = (strcmp(attacker, target) == 0) ? 1 : 0;
+    set_working_memory(result);
+}
+
+/* GENERATE_RANDOM_NUMBER: 1 arg.
+ * Port of CC_1D_21 (asm/text/ccs/get_random_number.asm).
+ * If arg != 0, use arg; else use argument_memory.
+ * Calls RAND_MOD(N) → RAND % (N + 1), stores result in working_memory. */
+static void cc_1d_generate_random_number(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t n = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    uint16_t result = (uint16_t)(rng_next_byte() % (n + 1));
+    set_working_memory((uint32_t)result);
+}
+
+/* TEST_IF_EXIT_MOUSE_USABLE: 0 args.
+ * Inline handler from tree_1D.asm @TEST_EXIT_MOUSE_USABLE.
+ * Checks if the leader is standing on a sector with attribute type 2
+ * (exit mouse area). Stores 1 in working_memory if yes, 0 if no. */
+static void cc_1d_test_if_exit_mouse_usable(void) {
+    uint16_t x = game_state.leader_x_coord;
+    uint16_t y = game_state.leader_y_coord;
+    uint16_t sector_attrs = load_sector_attrs(x, y);
+    uint32_t result = ((sector_attrs & 0x0007) == 2) ? 1 : 0;
+    set_working_memory(result);
+}
+
+/* GET_ITEM_CATEGORY: 1 arg (item_id, 0 → argument_memory).
+ * Port of CC_1D_23 (asm/text/ccs/unknown_1D_23.asm).
+ * Reads item.type, masks with 0x0C, categorizes:
+ *   0x00 (none) → 1, 0x04/0x08/0x0C (has bits) → 2, other → 0.
+ * Stores result in working_memory. */
+static void cc_1d_get_item_category(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    const ItemConfig *entry = get_item_entry(item_id);
+    uint32_t result = 0;
+    if (entry) {
+        uint8_t type_masked = entry->type & 0x0C;
+        if (type_masked == 0) {
+            result = 1;
+        } else if (type_masked == 0x04 || type_masked == 0x08 || type_masked == 0x0C) {
+            result = 2;
+        }
+    }
+    set_working_memory(result);
+}
+
+/* GET_GAME_STATE_C4: 1 arg.
+ * Port of CC_1D_24 (asm/text/ccs/unknown_1D_24.asm).
+ * Reads game_state.unknownC4 as 32-bit into working_memory.
+ * If arg == 2, clears unknownC4 to zero. */
+static void cc_1d_get_game_state_c4(ScriptReader *r) {
+    uint8_t arg = script_read_byte(r);
+    uint32_t val;
+    memcpy(&val, game_state.unknownC4, 4);
+    set_working_memory(val);
+    if (arg == 2) {
+        memset(game_state.unknownC4, 0, 4);
+    }
+}
+
 void cc_1d_dispatch(ScriptReader *r) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
-    case 0x00: {
-        /* GIVE_ITEM_TO_CHARACTER: 2 data bytes.
-         * Port of CC_1D_00 (asm/text/ccs/give_item_to_character.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
-         * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
-         * Calls GIVE_ITEM_TO_CHARACTER(A=char_id, X=item_id): supports 0xFF
-         * for all-party, handles teddy bear and transform side effects.
-         * Stores result (receiving char_id or 0) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t item_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = give_item_to_character(char_id, item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x01: {
-        /* TAKE_ITEM_FROM_CHARACTER: 2 data bytes.
-         * Port of CC_1D_01 (asm/text/ccs/take_item_from_character.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
-         * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
-         * Calls TAKE_ITEM_FROM_CHARACTER(A=char_id, X=item_id): searches
-         * inventory for matching item, removes via REMOVE_ITEM_FROM_INVENTORY.
-         * Supports 0xFF for all-party search. Handles unequip/shift/side effects.
-         * Stores result (char_id or 0) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t item_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = take_item_from_character(char_id, item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x02: {
-        /* TEST_ITEM_TYPE_MATCH: 1 arg (type_to_compare).
-         * Port of CC_1D_02 (asm/text/ccs/test_inventory_full.asm).
-         * Reads item_id from argument_memory, gets its type category via
-         * GET_ITEM_TYPE, compares with the arg. Result: 1=match, 0=no match.
-         * Stores sign-extended result in working_memory. */
-        uint8_t type_arg = script_read_byte(r);
-        uint16_t item_id = (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t item_type = get_item_type(item_id);
-        int16_t result = (item_type == (uint16_t)type_arg) ? 1 : 0;
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x03: {
-        /* GET_PLAYER_HAS_INVENTORY_ROOM: 1 data byte.
-         * Port of CC_1D_03 (asm/text/ccs/test_inventory_not_full.asm)
-         * → FIND_INVENTORY_SPACE2 (asm/misc/find_inventory_space2.asm)
-         * → FIND_INVENTORY_SPACE (asm/misc/find_inventory_space.asm).
-         * Byte 1 = char_id (0 → argument_memory).
-         * Returns char_id (1-based) if room found, 0 if full.
-         * char_id == 0xFF → all-party search. */
-        uint8_t char_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int32_t result = 0;  /* 0 = no room (matches assembly FALSE) */
-        if (char_id == 0xFF) {
-            /* All-party search: find first party member with inventory space */
-            for (int p = 0; p < (game_state.player_controlled_party_count & 0xFF); p++) {
-                uint8_t member = game_state.party_members[p];
-                if (member >= 1 && member <= TOTAL_PARTY_COUNT) {
-                    CharStruct *c = &party_characters[member - 1];
-                    bool has_space = false;
-                    for (int i = 0; i < 14; i++) {
-                        if (c->items[i] == 0) { has_space = true; break; }
-                    }
-                    if (has_space) { result = (int32_t)member; break; }
-                }
-            }
-        } else if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT) {
-            CharStruct *c = &party_characters[char_id - 1];
-            for (int i = 0; i < 14; i++) {
-                if (c->items[i] == 0) {
-                    result = (int32_t)char_id;  /* return char_id, not slot index */
-                    break;
-                }
-            }
-        }
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x04: {
-        /* CHECK_IF_ITEM_IS_EQUIPPED: 2 data bytes.
-         * Port of CC_1D_04 (asm/text/ccs/test_character_doesnt_have_item.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
-         * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
-         * Calls IS_ITEM_EQUIPPED_BY_ID(A=char_id, X=item_id): dereferences
-         * equipment slot values to get actual item IDs and compares.
-         * Result (sign-extended) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t item_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int16_t result = (int16_t)is_item_equipped_by_id(char_id, item_id);
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x05: {
-        /* CHECK_IF_CHARACTER_HAS_ITEM: 2 data bytes.
-         * Port of CC_1D_05 (asm/text/ccs/test_character_has_item.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
-         * Assembly: byte1→CC_ARGUMENT_STORAGE→A, byte2→X.
-         * Calls FIND_ITEM_IN_INVENTORY2(A=char_id, X=item_id): supports
-         * 0xFF for all-party search. Returns char_id if found, 0 if not.
-         * Result (sign-extended) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t item_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = find_item_in_inventory2(char_id, item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x06: {
-        /* ADD_TO_ATM: 4 data bytes (.DWORD).
-         * Port of CC_1D_06 (asm/text/ccs/atm_increase.asm).
-         * Builds 32-bit deposit amount. If zero, use argument_memory.
-         * Calls DEPOSIT_INTO_ATM: bank_balance = min(balance + amount, 9999999). */
-        uint32_t amount = script_read_dword(r);
-        if (amount == 0) amount = (uint32_t)get_argument_memory();
-        uint32_t new_balance = game_state.bank_balance + amount;
-        if (new_balance > ATM_LIMIT) new_balance = ATM_LIMIT;
-        game_state.bank_balance = new_balance;
-        break;
-    }
-    case 0x07: {
-        /* TAKE_FROM_ATM: 4 data bytes (.DWORD).
-         * Port of CC_1D_07 (asm/text/ccs/atm_decrease.asm).
-         * Builds 32-bit withdrawal amount. If zero, use argument_memory.
-         * Calls WITHDRAW_FROM_ATM: subtracts from bank_balance if sufficient.
-         * Stores withdrawal amount in working_memory. */
-        uint32_t amount = script_read_dword(r);
-        if (amount == 0) amount = (uint32_t)get_argument_memory();
-        withdraw_from_atm(amount);
-        set_working_memory(amount);
-        break;
-    }
-    case 0x08: {
-        /* ADD_TO_WALLET: 2 data bytes (.WORD).
-         * Port of CC_1D_08 (asm/text/ccs/wallet_increase.asm).
-         * Builds 16-bit amount. If zero, use argument_memory.
-         * Calls INCREASE_WALLET_BALANCE: money_carried = min(balance + amount, 99999).
-         * Stores new balance in working_memory. */
-        uint16_t amount = script_read_word(r);
-        uint32_t amt32 = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
-        uint32_t new_balance = increase_wallet_balance(amt32);
-        set_working_memory(new_balance);
-        break;
-    }
-    case 0x09: {
-        /* TAKE_FROM_WALLET: 2 data bytes (.WORD).
-         * Port of CC_1D_09 (asm/text/ccs/wallet_decrease.asm).
-         * Builds 16-bit amount. If zero, use argument_memory.
-         * Calls DECREASE_WALLET_BALANCE: returns 0 (success) or 1 (insufficient).
-         * Stores result in working_memory (sign-extended). */
-        uint16_t amount = script_read_word(r);
-        uint32_t amt32 = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
-        uint16_t result = decrease_wallet_balance(amt32);
-        set_working_memory((uint32_t)(int32_t)(int16_t)result);
-        break;
-    }
-    case 0x0A: {
-        /* GET_BUY_PRICE_OF_ITEM: 1 arg (item_id, 0 → argument_memory).
-         * Port of CC_1D_0A (asm/text/ccs/get_item_price.asm).
-         * Reads item.cost from ITEM_CONFIGURATION_TABLE, stores in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        const ItemConfig *entry = get_item_entry(item_id);
-        uint16_t cost = entry ? entry->cost : 0;
-        set_working_memory((uint32_t)cost);
-        break;
-    }
-    case 0x0B: {
-        /* GET_SELL_PRICE_OF_ITEM: 1 arg (item_id, 0 → argument_memory).
-         * Port of CC_1D_0B (asm/text/ccs/get_item_sell_price.asm).
-         * Reads item.cost / 2 from ITEM_CONFIGURATION_TABLE, stores in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        const ItemConfig *entry = get_item_entry(item_id);
-        uint16_t cost = entry ? entry->cost : 0;
-        set_working_memory((uint32_t)(cost >> 1));
-        break;
-    }
-    case 0x0C: {
-        /* ESCARGO_EXPRESS_ITEM_STATUS: 2 args (char_id, item_slot).
-         * Port of CC_1D_0C (asm/text/ccs/unknown_1D_0C.asm).
-         * Arg 1 = char_id (0 → working_memory), Arg 2 = item_slot (0 → argument_memory).
-         * Checks IS_ESCARGO_EXPRESS_FULL: if full, base=2, else base=0.
-         * Then reads item at char's inventory slot, checks ITEM_FLAGS::CANNOT_STORE (0x40).
-         * If flag set, flag_bit=1, else 0. Result = base | flag_bit.
-         * Stores sign-extended result in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t slot_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t base = is_escargo_express_full() ? 2 : 0;
-        uint16_t flag_bit = 0;
-        if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
-            uint8_t item_id = party_characters[char_id - 1].items[slot - 1];
-            const ItemConfig *entry = get_item_entry(item_id);
-            if (entry && (entry->flags & 0x40))
-                flag_bit = 1;
-        }
-        int16_t result = (int16_t)(base | flag_bit);
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x0D: {
-        /* CHARACTER_HAS_AILMENT: 3 args (char_id, status_group, expected_value).
-         * Port of CC_1D_0D (asm/text/ccs/test_character_status.asm).
-         * Arg 1 = char_id (0 → working_memory).
-         * Arg 2 = status_group (0 → argument_memory).
-         * Arg 3 = expected status value (from @VIRTUAL02, third gathered arg).
-         * Calls CHECK_STATUS_GROUP(A=char_id, X=status_group), compares result
-         * with expected. Result: 1 if match, 0 if not. Sign-extended. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t group_arg = script_read_byte(r);
-        uint8_t expected = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t actual = check_status_group(status_group, char_id);
-        int16_t result = (actual == (uint16_t)expected) ? 1 : 0;
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x0E: {
-        /* GIVE_ITEM_TO_CHARACTER_B: 2 data bytes.
-         * Port of CC_1D_0E (asm/text/ccs/give_item_to_character_2.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = item_id (0 → argument_memory).
-         * Gives item to character (or first available if char_id=0xFF).
-         * Stores next empty slot index in argument_memory.
-         * Stores result (receiving char_id or 0) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t item_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_id = item_arg ? (uint16_t)item_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = give_item_to_character(char_id, item_id);
-        uint16_t empty = 0;
-        if (result) {
-            empty = find_empty_inventory_slot(result);
-        }
-        set_argument_memory((uint32_t)empty);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x0F: {
-        /* TAKE_ITEM_FROM_CHARACTER_2: 2 data bytes.
-         * Port of CC_1D_0F (asm/text/ccs/take_item_from_character_2.asm).
-         * Byte 1 = char_id (0 → working_memory). Byte 2 = slot (0 → argument_memory).
-         * Gets item at slot, stores item_id in argument_memory.
-         * Removes item from inventory, stores char_id in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t slot_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t item_id = get_character_item(char_id, slot);
-        set_argument_memory((uint32_t)item_id);
-        uint16_t result = remove_item_from_inventory(char_id, slot);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x10: {
-        /* CHECK_ITEM_EQUIPPED: 2 data bytes (char_id, item_slot).
-         * Port of CC_1D_10 (asm/text/ccs/unknown_1D_10.asm) →
-         * CHECK_ITEM_EQUIPPED (asm/misc/check_item_equipped.asm).
-         * Byte 1 = char_id (0 → working_memory).
-         * Byte 2 = item_slot (0 → argument_memory). 1-based inventory position.
-         * Checks if the given inventory slot is currently equipped in any
-         * equipment slot (weapon, body, arms, other).
-         * Returns 1 if slot is equipped, 0 if not.
-         * Stores result (sign-extended) in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t slot_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        int16_t result = (int16_t)check_item_equipped(char_id, item_slot);
-        set_working_memory((uint32_t)(int32_t)result);
-        break;
-    }
-    case 0x11: {
-        /* CHECK_ITEM_USABLE_BY_SLOT: 2 args (char_id, item_slot).
-         * Port of CC_1D_11 (asm/text/ccs/unknown_1D_11.asm).
-         * Arg 1 = char_id (0 → working_memory), Arg 2 = item_slot (0 → argument_memory).
-         * Gets item at slot via GET_CHARACTER_ITEM, then checks CHECK_ITEM_USABLE_BY.
-         * Stores result in working_memory. */
-        uint8_t char_arg = script_read_byte(r);
-        uint8_t slot_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t slot = slot_arg ? (uint16_t)slot_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint8_t item_id = 0;
-        if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && slot >= 1 && slot <= 14) {
-            item_id = party_characters[char_id - 1].items[slot - 1];
-        }
-        uint16_t result = check_item_usable_by(char_id, item_id);
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x12: {
-        /* ESCARGO_EXPRESS_MOVE: 2 args (char_id, item_slot).
-         * Port of CC_1D_12 (asm/text/ccs/unknown_1D_12.asm).
-         * arg1==0 → working_memory, arg2==0 → argument_memory.
-         * Moves item from character's inventory to escargo express. */
-        uint8_t arg1 = script_read_byte(r);
-        uint8_t arg2 = script_read_byte(r);
-        uint16_t char_id = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t item_slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
-        escargo_express_move(char_id, item_slot);
-        break;
-    }
-    case 0x13: {
-        /* DELIVER_ESCARGO_EXPRESS_ITEM: 2 args (char_id, escargo_slot).
-         * Port of CC_1D_13 (asm/text/ccs/unknown_1D_13.asm).
-         * arg1==0 → working_memory, arg2==0 → argument_memory.
-         * Removes item from escargo and gives to character.
-         * Sets argument_memory = find_empty_inventory_slot(char_id),
-         * working_memory = char_id. */
-        uint8_t arg1 = script_read_byte(r);
-        uint8_t arg2 = script_read_byte(r);
-        uint16_t char_id = arg1 ? (uint16_t)arg1 : (uint16_t)(get_working_memory() & 0xFFFF);
-        uint16_t escargo_slot = arg2 ? (uint16_t)arg2 : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result_char = deliver_escargo_express_item(char_id, escargo_slot);
-        uint16_t empty_slot = find_empty_inventory_slot(result_char);
-        set_argument_memory((uint32_t)empty_slot);
-        set_working_memory((uint32_t)result_char);
-        break;
-    }
-    case 0x14: {
-        /* HAVE_ENOUGH_MONEY: 4 data bytes (.DWORD).
-         * Port of CC_1D_14 (asm/text/ccs/test_has_enough_money.asm).
-         * Builds 32-bit required amount. If zero, use argument_memory.
-         * Compares against game_state.money_carried.
-         * Sets working_memory: 1 = insufficient, 0 = sufficient. */
-        uint32_t amount = script_read_dword(r);
-        if (amount == 0) amount = (uint32_t)get_argument_memory();
-        uint32_t result = (game_state.money_carried >= amount) ? 0 : 1;
-        set_working_memory(result);
-        break;
-    }
-    case 0x15: {
-        /* PUT_VAL_IN_ARGMEM: 2 data bytes (.WORD).
-         * Port of CC_1D_15 (asm/text/ccs/set_argmem.asm).
-         * Builds 16-bit value. If zero, use argument_memory.
-         * Calls FIND_FIRST_UNCONSCIOUS_PARTY_SLOT (C226F0):
-         *   Iterates party_order[0..party_count-1], finds first member
-         *   whose afflictions == 1 (unconscious). Returns the index (0-based).
-         *   If no unconscious member found, returns party_count.
-         * Multiplies value * unconscious_slot, stores in working_memory. */
-        uint16_t amount = script_read_word(r);
-        uint32_t val = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
-        /* FIND_FIRST_UNCONSCIOUS_PARTY_SLOT */
-        uint16_t slot = find_first_unconscious_party_slot();
-        set_working_memory(val * (uint32_t)slot);
-        break;
-    }
-    case 0x17: {
-        /* HAVE_ENOUGH_MONEY_IN_ATM: 4 data bytes (.DWORD).
-         * Port of CC_1D_17 (asm/text/ccs/test_atm_has_enough_money.asm).
-         * Same pattern as 0x14 but checks game_state.bank_balance. */
-        uint32_t amount = script_read_dword(r);
-        if (amount == 0) amount = (uint32_t)get_argument_memory();
-        uint32_t result = (game_state.bank_balance >= amount) ? 0 : 1;
-        set_working_memory(result);
-        break;
-    }
-    case 0x18: {
-        /* ESCARGO_EXPRESS_STORE: 1 arg (item_id).
-         * Port of CC_1D_18 (asm/text/ccs/escargo_express_store.asm) →
-         * ESCARGO_EXPRESS_STORE (asm/misc/escargo_express_store.asm).
-         * arg==0 → use argument_memory.
-         * Finds first empty slot in escargo_express_items[] and stores item. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        if (item_id != 0) {
-            escargo_express_store(item_id);
-        }
-        break;
-    }
-    case 0x19: {
-        /* HAVE_X_PARTY_MEMBERS: 1 arg.
-         * Port of CC_1D_19 (asm/text/ccs/test_party_enough_characters.asm).
-         * If arg != 0, use arg; else use argument_memory.
-         * Sets working_memory to 1 if party_count < N, 0 otherwise. */
-        uint8_t arg = script_read_byte(r);
-        uint32_t n = arg ? (uint32_t)arg : get_argument_memory();
-        uint32_t result = (game_state.player_controlled_party_count < n) ? 1 : 0;
-        set_working_memory(result);
-        break;
-    }
-    case 0x20: {
-        /* TEST_IS_USER_TARGETTING_SELF: 0 args.
-         * Port of tree_1D.asm @TEST_SELF_TARGET.
-         * Compares dt.battle_attacker_name and dt.battle_target_name.
-         * If equal (same entity targeting itself), stores 1 in working_memory.
-         * Otherwise stores 0. */
-        char *target = return_battle_target_address();
-        char *attacker = return_battle_attacker_address();
-        uint32_t result = (strcmp(attacker, target) == 0) ? 1 : 0;
-        set_working_memory(result);
-        break;
-    }
-    case 0x21: {
-        /* GENERATE_RANDOM_NUMBER: 1 arg.
-         * Port of CC_1D_21 (asm/text/ccs/get_random_number.asm).
-         * If arg != 0, use arg; else use argument_memory.
-         * Calls RAND_MOD(N) → RAND % (N + 1), stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t n = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        uint16_t result = (uint16_t)(rng_next_byte() % (n + 1));
-        set_working_memory((uint32_t)result);
-        break;
-    }
-    case 0x22: {
-        /* TEST_IF_EXIT_MOUSE_USABLE: 0 args.
-         * Inline handler from tree_1D.asm @TEST_EXIT_MOUSE_USABLE.
-         * Checks if the leader is standing on a sector with attribute type 2
-         * (exit mouse area). Stores 1 in working_memory if yes, 0 if no. */
-        uint16_t x = game_state.leader_x_coord;
-        uint16_t y = game_state.leader_y_coord;
-        uint16_t sector_attrs = load_sector_attrs(x, y);
-        uint32_t result = ((sector_attrs & 0x0007) == 2) ? 1 : 0;
-        set_working_memory(result);
-        break;
-    }
-    case 0x23: {
-        /* GET_ITEM_CATEGORY: 1 arg (item_id, 0 → argument_memory).
-         * Port of CC_1D_23 (asm/text/ccs/unknown_1D_23.asm).
-         * Reads item.type, masks with 0x0C, categorizes:
-         *   0x00 (none) → 1, 0x04/0x08/0x0C (has bits) → 2, other → 0.
-         * Stores result in working_memory. */
-        uint8_t arg = script_read_byte(r);
-        uint16_t item_id = arg ? (uint16_t)arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-        const ItemConfig *entry = get_item_entry(item_id);
-        uint32_t result = 0;
-        if (entry) {
-            uint8_t type_masked = entry->type & 0x0C;
-            if (type_masked == 0) {
-                result = 1;
-            } else if (type_masked == 0x04 || type_masked == 0x08 || type_masked == 0x0C) {
-                result = 2;
-            }
-        }
-        set_working_memory(result);
-        break;
-    }
-    case 0x24: {
-        /* GET_GAME_STATE_C4: 1 arg.
-         * Port of CC_1D_24 (asm/text/ccs/unknown_1D_24.asm).
-         * Reads game_state.unknownC4 as 32-bit into working_memory.
-         * If arg == 2, clears unknownC4 to zero. */
-        uint8_t arg = script_read_byte(r);
-        uint32_t val;
-        memcpy(&val, game_state.unknownC4, 4);
-        set_working_memory(val);
-        if (arg == 2) {
-            memset(game_state.unknownC4, 0, 4);
-        }
-        break;
-    }
+    case 0x00: cc_1d_give_item_to_character(r); break;
+    case 0x01: cc_1d_take_item_from_character(r); break;
+    case 0x02: cc_1d_test_item_type_match(r); break;
+    case 0x03: cc_1d_get_player_has_inventory_room(r); break;
+    case 0x04: cc_1d_check_if_item_is_equipped(r); break;
+    case 0x05: cc_1d_check_if_character_has_item(r); break;
+    case 0x06: cc_1d_add_to_atm(r); break;
+    case 0x07: cc_1d_take_from_atm(r); break;
+    case 0x08: cc_1d_add_to_wallet(r); break;
+    case 0x09: cc_1d_take_from_wallet(r); break;
+    case 0x0A: cc_1d_get_buy_price_of_item(r); break;
+    case 0x0B: cc_1d_get_sell_price_of_item(r); break;
+    case 0x0C: cc_1d_escargo_express_item_status(r); break;
+    case 0x0D: cc_1d_character_has_ailment(r); break;
+    case 0x0E: cc_1d_give_item_to_character_b(r); break;
+    case 0x0F: cc_1d_take_item_from_character_2(r); break;
+    case 0x10: cc_1d_check_item_equipped(r); break;
+    case 0x11: cc_1d_check_item_usable_by_slot(r); break;
+    case 0x12: cc_1d_escargo_express_move(r); break;
+    case 0x13: cc_1d_deliver_escargo_express_item(r); break;
+    case 0x14: cc_1d_have_enough_money(r); break;
+    case 0x15: cc_1d_put_val_in_argmem(r); break;
+    case 0x17: cc_1d_have_enough_money_in_atm(r); break;
+    case 0x18: cc_1d_escargo_express_store(r); break;
+    case 0x19: cc_1d_have_x_party_members(r); break;
+    case 0x20: cc_1d_test_is_user_targetting_self(); break;
+    case 0x21: cc_1d_generate_random_number(r); break;
+    case 0x22: cc_1d_test_if_exit_mouse_usable(); break;
+    case 0x23: cc_1d_get_item_category(r); break;
+    case 0x24: cc_1d_get_game_state_c4(r); break;
     default:
         FATAL("display_text: unknown CC 1D %02X\n", sub);
         break;
