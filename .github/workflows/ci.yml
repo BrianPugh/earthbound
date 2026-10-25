@@ -4,7 +4,8 @@ name: CI
 #
 # 1. Asset-free jobs (always run on GitHub-hosted Ubuntu): ruff, the pytest
 #    subset that needs no donor ROM (asset tests skip), the arm-none-eabi
-#    cross-compile of port/gw_retro_go (platform.h drift check), and cppcheck
+#    cross-compile of port/gw_retro_go (platform.h drift check) plus the
+#    savestate ABI asserts in state_dump.c on both ARM targets, and cppcheck
 #    against a baseline (.github/cppcheck-suppressions.txt).
 #
 # 2. Asset jobs (CODE-QUALITY.md Q2 option b): the donor ROM and the story saves
@@ -61,6 +62,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true # state_dump.c includes the tamp headers
       - name: Install arm-none-eabi-gcc
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi cmake
       - name: Configure
@@ -69,6 +72,10 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/port/gw_retro_go/cmake/arm-none-eabi.cmake"
       - name: Build
         run: cmake --build build-gw -j "$(nproc)"
+      # The savestate section sizes must be identical on ILP32 and the 64-bit desktop;
+      # state_dump.c's _Static_asserts only run when it is compiled for an ARM target.
+      - name: Savestate ABI asserts (Pico + G&W)
+        run: .github/scripts/savestate-abi.sh
 
   cppcheck:
     runs-on: ubuntu-24.04
