@@ -24,8 +24,14 @@
 #define SAVE_SECTOR_COUNT  2
 #define SAVE_FLASH_OFFSET  (PICO_FLASH_SIZE_BYTES - SAVE_SECTOR_COUNT * FLASH_SECTOR_SIZE)
 
-/* RAM buffer for sector read-modify-write (4 KB). */
+/* RAM buffer for sector read-modify-write (4 KB). Single-core builds put it in
+ * the SCRATCH_X bank, which is otherwise idle there (it holds core 1's stack
+ * when core 1 runs), so it stays out of main SRAM's .data + .bss. */
+#if defined(EB_ENABLE_DUAL_CORE_PPU) || defined(ENABLE_DUAL_CORE_PPU)
 static uint8_t sector_buf[FLASH_SECTOR_SIZE];
+#else
+static uint8_t __scratch_x("save_sector_buf") sector_buf[FLASH_SECTOR_SIZE];
+#endif
 
 bool platform_save_init(void) {
     return true;
