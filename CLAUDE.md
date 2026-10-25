@@ -230,6 +230,8 @@ cmake --build build
 
 A fresh configure is native 256×224 (`EB_VIEWPORT_WIDTH` defaults to 256); the wide viewport the game is played in needs `-DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240`, and wide-viewport bugs (off-centre scenes, gutters) only show in that build. Check `EB_VIEWPORT_WIDTH` in `CMakeCache.txt` before judging a screenshot.
 
+Warning flags live in one place, `cmake/EbWarnings.cmake` (`eb_target_warnings()`), shared by `src/` and every port. `EB_WERROR` makes them errors: ON for `port/unix` and the gw stub, OFF for the RP2040 port (arm gcc still warns about `%X` vs `uint32_t`, sign-compare and a few others). Mark an intended switch fall-through with `EB_FALLTHROUGH;` (`core/types.h`), not a comment.
+
 For debugging specific issues, use a debug build with sanitizers:
 
 ```

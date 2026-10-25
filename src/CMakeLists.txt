@@ -46,10 +46,10 @@ target_compile_definitions(earthbound_game PUBLIC
     EB_VIEWPORT_HEIGHT=${EB_VIEWPORT_HEIGHT}
 )
 
-if(MSVC)
-    target_compile_options(earthbound_game PRIVATE /W4)
-else()
-    target_compile_options(earthbound_game PRIVATE -Wall -Wextra -Wno-unused-parameter -ffunction-sections -fdata-sections)
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/EbWarnings.cmake)
+eb_target_warnings(earthbound_game)
+if(NOT MSVC)
+    target_compile_options(earthbound_game PRIVATE -ffunction-sections -fdata-sections)
 endif()
 
 # Embedded assets - game assets are compiled into the binary via incbin.h

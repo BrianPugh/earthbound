@@ -1004,7 +1004,7 @@ static StepResult bc_miss_calc_step(BattleCalcState *st) {
             return STEP_RESULT_POP(0);
         }
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1:
     default:
         dt.blinking_triangle_flag = 0;
@@ -1070,7 +1070,7 @@ static StepResult bc_smaaaash_step(BattleCalcState *st) {
         if (battle_push_text(&child, msg))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1: {
         dt.blinking_triangle_flag = 0;
 
@@ -1125,7 +1125,7 @@ static StepResult bc_heal_strangeness_step(BattleCalcState *st) {
         if (battle_push_text(&child, MSG_BTL5_CURED_STRANGE))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1:
     default:
         dt.blinking_triangle_flag = 0;
@@ -1175,7 +1175,7 @@ static StepResult bc_weaken_shield_step(BattleCalcState *st) {
             return STEP_RESULT_POP(0);
         }
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1:
     default:
         dt.blinking_triangle_flag = 0;
@@ -1294,7 +1294,7 @@ static StepResult bc_fail_on_npcs_step(BattleCalcState *st) {
         if (battle_push_text(&child, MSG_BTL4_RESULT_DID_NOT_WORK))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1:
     default:
         dt.blinking_triangle_flag = 0;

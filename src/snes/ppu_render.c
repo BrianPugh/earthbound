@@ -1266,8 +1266,9 @@ static void classify_window_layers(WindowClassification *wc) {
     }
 }
 
+#if EB_VIEWPORT_PAD_LEFT > 0 || EB_VIEWPORT_PAD_TOP > 0
 /* Is native column wx inside per-scanline (HDMA) window `win` (1 or 2) on
- * native row wy? */
+ * native row wy? Only the wide-viewport gutter code below uses it. */
 static inline bool hdma_window_contains(int win, int wx, int wy)
 {
     int sl = wy + EB_VIEWPORT_PAD_TOP;
@@ -1275,6 +1276,7 @@ static inline bool hdma_window_contains(int win, int wx, int wy)
     uint8_t r = (win == 1) ? ppu.wh1_table[sl] : ppu.wh3_table[sl];
     return wx >= l && wx <= r;
 }
+#endif
 
 /* ---- Wide-viewport gutter continuation of per-scanline (HDMA) windows ----
  *

@@ -34,9 +34,6 @@ SpritePriorityQueue sprite_priority[4];
 /* Consolidated entity runtime state */
 EntityRuntimeState ert;
 
-/* Forward declarations for callbacks (defined in callbacks.c) */
-extern void build_entity_draw_list(void);
-
 /*
  * ALLOCATE_ENTITY_SLOT (C09C02)
  *
@@ -939,7 +936,7 @@ static void update_floating_sprite_offset(uint8_t position_mode, uint16_t size_i
     switch (position_mode) {
     case 1: /* above-left: offset Y up, then fall through to left */
         *y -= entity_collision_y_offset[size_index] + 8;
-        /* fall through */
+        EB_FALLTHROUGH;
     case 4: /* left */
         *x -= entity_collision_x_offset[size_index] - 8;
         break;
@@ -950,7 +947,7 @@ static void update_floating_sprite_offset(uint8_t position_mode, uint16_t size_i
 
     case 3: /* above-right: offset Y up, then fall through to right */
         *y -= entity_collision_y_offset[size_index] + 8;
-        /* fall through */
+        EB_FALLTHROUGH;
     case 6: /* right */
         *x -= (entity_collision_x_offset[size_index] + 8);
         break;

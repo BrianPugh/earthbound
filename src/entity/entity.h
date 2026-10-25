@@ -655,6 +655,12 @@ void queue_sprite_draw(uint16_t smap_id, int16_t x, int16_t y,
 /* RENDER_ALL_PRIORITY_SPRITES (C08B8E) — flush all priority queues to OAM. */
 void render_all_priority_sprites(void);
 
+/* Per-entity move / screen-position callback dispatch and the draw-list
+ * builder (callbacks.c), run by the actionscript tick. */
+void call_move_callback(int16_t entity_offset);
+void call_screen_pos_callback(int16_t entity_offset);
+void build_entity_draw_list(void);
+
 /* --- Entity fade state system (wipe/dissolve effects) ---
  *
  * Port of INIT_ENTITY_FADE_STATE (C4C91A) and helpers.

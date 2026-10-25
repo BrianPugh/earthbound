@@ -342,7 +342,7 @@ static StepResult btlact_single_text_step_ex(BattleActionState *st, uint32_t msg
         st->pc = 1;
         if (battle_push_text_ex(&child, msg, false, has_cnum, cnum))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-        /* FALLTHROUGH — unresolvable text: epilogue inline */
+        EB_FALLTHROUGH; /* unresolvable text: epilogue inline */
     case 1:
     default:
         dt.blinking_triangle_flag = 0;
@@ -2142,7 +2142,7 @@ static StepResult btlact_mirror_step(BattleActionState *st) {
  * (specified in current_action_argument). Preserves sprite position,
  * updates sprite index, marks turn as taken, and skips death text.
  */
-void btlact_rainbow_of_colours(void) {
+static void btlact_rainbow_of_colours(void) {
     Battler *attacker = battler_from_offset(bt.current_attacker);
     /* Save position */
     uint8_t saved_x = attacker->sprite_x;
@@ -2905,7 +2905,7 @@ static StepResult btlact_possess_step(BattleActionState *st) {
             return STEP_RESULT_POP(0);
         }
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 2:
         dt.blinking_triangle_flag = 0;
         /* If first enemy slot is empty, spawn Tiny Lil' Ghost as NPC ally
@@ -3104,7 +3104,7 @@ static StepResult btlact_magnet_a_step(BattleActionState *st) {
                                 false, true, drain))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 2: {
         /* The drain itself runs after the text, as in the blocking form */
         dt.blinking_triangle_flag = 0;
@@ -3786,7 +3786,7 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
                                 true, off_diff))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1: {
         dt.blinking_triangle_flag = 0;
 
@@ -3800,7 +3800,7 @@ static StepResult btlact_reduce_offense_defense_step(BattleActionState *st) {
                                 true, def_diff))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 2:
     case 3:
     epilogue:
@@ -4410,7 +4410,7 @@ static StepResult btlact_clumsydeath_step(BattleActionState *st) {
                                          : MSG_BTL4_ENEMY_ESCAPE_SMOKE_FAIL))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
     }
-    /* FALLTHROUGH */
+    EB_FALLTHROUGH;
     case 1:
     default:
         /* The teleport setup runs after the text, as in the blocking form */
@@ -4611,7 +4611,7 @@ static bool cutscene_text_steps(BattleActionState *st, uint8_t base,
             *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
             return true;
         }
-        /* FALLTHROUGH — unresolvable text: continue inline */
+        EB_FALLTHROUGH; /* unresolvable text: continue inline */
     case 2:
         dt.blinking_triangle_flag = 0;
         fade_out(1, 2);
@@ -4669,7 +4669,7 @@ static bool weakened_seq_steps(BattleActionState *st, uint8_t base,
             *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
             return true;
         }
-        /* FALLTHROUGH — unresolvable text: continue inline */
+        EB_FALLTHROUGH; /* unresolvable text: continue inline */
     case 4:
         dt.blinking_triangle_flag = 0;
         bt.battle_mode_flag = 1;
@@ -4755,7 +4755,7 @@ static StepResult btlact_pokey_speech_step(BattleActionState *st) {
         if (battle_push_text_ex(&child, MSG_BTL6_MECH_POKEY_SPEECH_1B,
                                 true, false, 0))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-        /* FALLTHROUGH */
+        EB_FALLTHROUGH;
     case 2:
         dt.blinking_triangle_flag = 0;
         /* Kill slot 9 (Pokey's mech) */
@@ -4798,7 +4798,7 @@ static StepResult btlact_pokey_speech_2_step(BattleActionState *st) {
         if (battle_push_text_ex(&child, MSG_BTL6_MECH_POKEY_SPEECH_2,
                                 true, false, 0))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-        /* FALLTHROUGH */
+        EB_FALLTHROUGH;
     case 2:
         dt.blinking_triangle_flag = 0;
         /* Hide slot 9 */
@@ -4850,7 +4850,7 @@ static StepResult btlact_giygas_prayer_1_step(BattleActionState *st) {
         if (battle_push_text_ex(&child, MSG_BTL7_GIYGAS_DEFENSES_UNSTABLE,
                                 true, false, 0))
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &child);
-        /* FALLTHROUGH */
+        EB_FALLTHROUGH;
     case 3:
         dt.blinking_triangle_flag = 0;
         bt.giygas_phase = GIYGAS_PRAYER_1_USED;

@@ -6,6 +6,18 @@
 #include <stddef.h>
 #include <string.h>
 
+/* Marks an intentional fall-through to the next switch label, so
+ * -Wimplicit-fallthrough stays quiet. C17 has no [[fallthrough]]; GCC 7+ and
+ * clang spell it as a GNU attribute. Use as a statement: `EB_FALLTHROUGH;`. */
+#if defined(__has_attribute)
+#  if __has_attribute(fallthrough)
+#    define EB_FALLTHROUGH __attribute__((fallthrough))
+#  endif
+#endif
+#ifndef EB_FALLTHROUGH
+#  define EB_FALLTHROUGH ((void)0)
+#endif
+
 /* SNES screen dimensions (hardware constants — do not change) */
 #define SNES_WIDTH  256
 #define SNES_HEIGHT 224

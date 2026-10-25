@@ -20,17 +20,8 @@
 /* Script bank identifier for the title screen script data */
 #define SCRIPT_BANK_TITLE 0
 
-/* Forward declarations for opcode handlers (opcodes.c) */
-extern uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
-                                int16_t entity_offset, uint16_t pc);
-
 /* Forward declaration for tick callback dispatch (callroutine.c) */
 extern void dispatch_tick_callback(uint32_t rom_addr, int16_t entity_offset);
-
-/* Forward declarations for callbacks (callbacks.c) */
-extern void call_move_callback(int16_t entity_offset);
-extern void call_screen_pos_callback(int16_t entity_offset);
-extern void build_entity_draw_list(void);
 
 /*
  * event_script_init — Initialize a script's PC from the event script pointer table.

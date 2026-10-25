@@ -104,7 +104,7 @@ endif()
 # hard_assert accepts offsets into the save area (beyond the linker region).
 target_compile_definitions(earthbound_pico PRIVATE PICO_FLASH_SIZE_BYTES=16777216)
 
-target_compile_options(earthbound_pico PRIVATE -Wall -Wextra -Wno-unused-parameter)
+eb_target_warnings(earthbound_pico)
 
 # Disable USB serial — frees TinyUSB resources and avoids CDC enumeration.
 # Use SWD (Pico Probe + OpenOCD) for debugging instead.

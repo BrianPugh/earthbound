@@ -50,8 +50,7 @@ target_compile_definitions(earthbound_gw_port PRIVATE
     EB_NORELOC_REQUIRED=1
 )
 
-target_compile_options(earthbound_gw_port PRIVATE
-    -Wall
-    -Wextra
-    -Wno-unused-parameter
-)
+# The stubs are warning-clean under arm-none-eabi-gcc: keep them that way.
+option(EB_WERROR "Treat compiler warnings as errors" ON)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/EbWarnings.cmake)
+eb_target_warnings(earthbound_gw_port)

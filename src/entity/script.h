@@ -24,6 +24,15 @@ void event_script_init_rom(uint32_t rom_addr, int16_t entity_offset,
 /* Execute one frame of a movement script (EXECUTE_MOVEMENT_SCRIPT). */
 void execute_movement_script(int16_t script_offset);
 
+/* Run one actionscript opcode (opcodes.c); returns the updated PC. */
+uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
+                         int16_t entity_offset, uint16_t pc);
+
+/* Run the CALLROUTINE target at rom_addr (callroutine.c), for opcodes.c. */
+int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
+                             int16_t script_offset, uint16_t pc,
+                             uint16_t *out_pc);
+
 /* ---- callroutine yield requests (GAME_MODE_ACTIONSCRIPT_FRAME) -----------
  *
  * A callroutine that needs a child modal context (text box, mosaic fade,

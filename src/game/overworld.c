@@ -1015,7 +1015,7 @@ void remove_party_member(uint16_t char_id) {
  * Creates a mini ghost entity when a party member is possessed.
  * Guards: leader must not be tick/move-disabled, not hidden, camera_mode != 2.
  * Places the ghost off-screen at (0xFF00, 0xFF00) with animation_frame = -1. */
-void create_mini_ghost_entity(void) {
+static void create_mini_ghost_entity(void) {
     /* Assembly lines 8-15: Guard checks on leader entity */
     uint16_t leader_offset = game_state.current_party_members;
     if (entities.tick_callback_hi[leader_offset] &
@@ -1045,7 +1045,7 @@ void create_mini_ghost_entity(void) {
  *
  * Port of asm/overworld/entity/destroy_mini_ghost_entity.asm.
  * Removes the mini ghost entity and resets the tracking ID. */
-void destroy_mini_ghost_entity(void) {
+static void destroy_mini_ghost_entity(void) {
     remove_entity(ow.mini_ghost_entity_id);
     ow.mini_ghost_entity_id = -1;
 }
@@ -1056,7 +1056,7 @@ void destroy_mini_ghost_entity(void) {
  * Checks conditions for the "Your Dad called" phone interaction.
  * Only triggers when: no windows open, not in battle, no swirl,
  * no enemy touched, not already queued, and flag not disabled. */
-void load_dad_phone(void) {
+static void load_dad_phone(void) {
     /* Assembly lines 7-17: Guard checks */
     if (any_window_open())
         return;

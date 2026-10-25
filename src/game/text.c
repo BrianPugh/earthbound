@@ -3189,7 +3189,7 @@ StepResult mode_step_hppp_display(ModeState *ms) {
         st->primed = 0;
         /* fall through to the first render frame */
 #endif
-        /* FALLTHROUGH */
+        EB_FALLTHROUGH;
 
     case HD_TICK:
         /* First frame renders before any input is read (the blocking loop's

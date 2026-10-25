@@ -199,7 +199,7 @@ static void update_psi_teleport_speed(uint16_t direction) {
         break;
     case 7: /* UP_LEFT: Y=-speed, X=-speed */
         ow.psi_teleport_speed_y = -ow.psi_teleport_speed_y;
-        /* fall through to also negate X */
+        EB_FALLTHROUGH; /* also negate X */
     case 5: /* DOWN_LEFT: Y=+speed, X=-speed */
         ow.psi_teleport_speed_x = -ow.psi_teleport_speed_x;
         break;
@@ -1125,8 +1125,7 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
             bs->phase = BD_DISMOUNT_FLUSH;
             return actionscript_frame_take_push();
         }
-        /* fall through: no park, finish inline */
-        /* FALLTHROUGH */
+        EB_FALLTHROUGH; /* no park, finish inline */
     case BD_DISMOUNT_FINISH:
         dismount_bicycle_finish();
         return STEP_RESULT_POP(0);

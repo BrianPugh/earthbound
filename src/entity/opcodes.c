@@ -58,11 +58,6 @@ static inline uint16_t rom_to_offset(uint16_t rom_addr) {
     return script_bank_rom_to_offset(current_bank_idx, rom_addr);
 }
 
-/* Forward declaration for callroutine dispatch (callroutine.c) */
-extern int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
-                                    int16_t script_offset, uint16_t pc,
-                                    uint16_t *out_pc);
-
 /* Forward declaration for FREE_ACTION_SCRIPT equivalent */
 static void free_action_script(int16_t entity_offset, int16_t script_offset);
 

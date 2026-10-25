@@ -9,6 +9,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(EB_VIEWPORT_WIDTH 256 CACHE STRING "Viewport width in pixels")
 set(EB_VIEWPORT_HEIGHT 224 CACHE STRING "Viewport height in pixels")
 
+# The desktop build is warning-clean: warnings fail it (-DEB_WERROR=OFF to relax).
+option(EB_WERROR "Treat compiler warnings as errors" ON)
+
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src
                  ${CMAKE_CURRENT_BINARY_DIR}/game_lib)
@@ -44,11 +47,7 @@ target_include_directories(earthbound PRIVATE
     ${SDL2_INCLUDE_DIRS}
 )
 
-if(MSVC)
-    target_compile_options(earthbound PRIVATE /W4)
-else()
-    target_compile_options(earthbound PRIVATE -Wall -Wextra -Wno-unused-parameter)
-endif()
+eb_target_warnings(earthbound)
 
 # Sanitizer support
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)

@@ -841,7 +841,7 @@ StepResult mode_step_store_menu(ModeState *ms) {
     case STM_TICK_FLUSH:
         window_tick_work_flush();
         st->phase = STM_BUILD;
-        /* fall through: the asm continues straight into OPEN_STORE_MENU */
+        EB_FALLTHROUGH; /* the asm continues straight into OPEN_STORE_MENU */
 
     case STM_BUILD: {
         /* Assembly lines 14-20: display money window, enable instant printing,
