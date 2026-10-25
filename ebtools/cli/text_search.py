@@ -6,6 +6,8 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 
+from ebtools.config import DEFAULT_ASSETS_DIR
+
 text_app = App(name="text", help="Text search, inspection, and verification tools.")
 
 
@@ -13,7 +15,7 @@ text_app = App(name="text", help="Text search, inspection, and verification tool
 def search(
     query: str,
     *,
-    assets_dir: Annotated[Path, Parameter(help="Path to assets directory")] = Path("src/assets"),
+    assets_dir: Annotated[Path, Parameter(help="Path to assets directory")] = DEFAULT_ASSETS_DIR,
     case_sensitive: Annotated[bool, Parameter(help="Enable case-sensitive matching")] = False,
 ) -> None:
     """Search dialogue and config files for a text string."""
@@ -120,7 +122,7 @@ def _search_dialogue_yaml(yml_path: Path, query: str, case_sensitive: bool) -> l
 @text_app.command
 def verify(
     *,
-    assets_dir: Annotated[Path, Parameter(help="Path to assets directory")] = Path("src/assets"),
+    assets_dir: Annotated[Path, Parameter(help="Path to assets directory")] = DEFAULT_ASSETS_DIR,
     yaml_config: Annotated[Path, Parameter(alias="-y")] = Path("earthbound.yml"),
     commondata: Annotated[Path, Parameter(alias="-c")] = Path("commondefs.yml"),
 ) -> None:

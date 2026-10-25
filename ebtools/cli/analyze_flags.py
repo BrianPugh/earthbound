@@ -8,7 +8,7 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 
-from ebtools.config import CommonData, load_common_data
+from ebtools.config import DEFAULT_ASSETS_DIR, CommonData, load_common_data
 
 analyze_flags_app = App(
     name="analyze-flags",
@@ -768,7 +768,7 @@ def generate_json_report(flags: dict[int, FlagInfo], include_named: bool) -> str
 def analyze_flags(
     *,
     commondefs: Annotated[Path, Parameter(alias="-c")] = Path("commondefs.yml"),
-    assets_dir: Annotated[Path, Parameter(alias="-a")] = Path("src/assets"),
+    assets_dir: Annotated[Path, Parameter(alias="-a")] = DEFAULT_ASSETS_DIR,
     output: Annotated[Path | None, Parameter(alias="-o")] = None,
     json_output: Annotated[Path | None, Parameter(alias="-j", name="--json")] = None,
     flag_id: Annotated[int | None, Parameter(name="--flag-id")] = None,

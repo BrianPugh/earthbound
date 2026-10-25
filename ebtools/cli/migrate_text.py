@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from cyclopts import Parameter
 
+from ebtools.config import DEFAULT_ASSETS_DIR
 from ebtools.text_dsl.decoder import decode_text_block
 
 if TYPE_CHECKING:
@@ -469,9 +470,9 @@ def export_dialogue_yaml(
 
 
 def migrate_text(
-    assets_dir: Annotated[Path, Parameter(help="Human-friendly assets directory (e.g. src/assets/)")] = Path(
-        "src/assets"
-    ),
+    assets_dir: Annotated[
+        Path, Parameter(help="Human-friendly assets directory (e.g. src/assets/)")
+    ] = DEFAULT_ASSETS_DIR,
     bin_dir: Annotated[Path, Parameter(help="Extracted binary assets (e.g. asm/bin/)")] = Path("asm/bin"),
     *,
     yaml_config: Annotated[Path, Parameter(alias="-y", help="Dump doc YAML")] = Path("earthbound.yml"),

@@ -11,13 +11,13 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
-from ebtools.config import CommonData, DumpDoc
+from ebtools.config import DEFAULT_ASSETS_DIR, CommonData, DumpDoc
 
 
 def pack_all(
-    assets_dir: Annotated[Path, Parameter(help="Human-friendly assets directory (e.g. src/assets/)")] = Path(
-        "src/assets"
-    ),
+    assets_dir: Annotated[
+        Path, Parameter(help="Human-friendly assets directory (e.g. src/assets/)")
+    ] = DEFAULT_ASSETS_DIR,
     output_dir: Annotated[Path, Parameter(help="Output directory for packed binaries")] = Path("src/packed_assets"),
     *,
     bin_dir: Annotated[Path, Parameter(alias="-b", help="Extracted binary assets (e.g. asm/bin/)")] = Path("asm/bin"),
@@ -916,7 +916,7 @@ def _pack_dialogue(
     # Generate C header with all label → flat offset mappings.
     # Defaults to writing into <assets_dir>/../data — that's src/data when the
     # canonical src/assets/dialogue layout is used. Callers whose data/ lives
-    # somewhere else (e.g. assets under port/assets but C source under src/)
+    # somewhere else (assets outside src/, e.g. a scratch extraction)
     # pass --text-refs-dir to override.
     src_data_dir = text_refs_dir if text_refs_dir is not None else dialogue_dir.parent.parent / "data"
     _generate_text_refs_header(flat_label_offsets, src_data_dir)

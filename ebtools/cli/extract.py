@@ -8,7 +8,7 @@ from typing import Annotated
 
 from cyclopts import Parameter
 
-from ebtools.config import CommonData, DumpDoc, DumpInfo, load_common_data, load_dump_doc
+from ebtools.config import DEFAULT_ASSETS_DIR, CommonData, DumpDoc, DumpInfo, load_common_data, load_dump_doc
 from ebtools.hallz import decompress as hallz2_decompress
 from ebtools.parsers import FULL_ROM_PARSERS, PARSERS
 from ebtools.parsers.raw import write_raw
@@ -86,6 +86,7 @@ def extract(
     commondata: Annotated[Path, Parameter(alias="-c")] = Path("commondefs.yml"),
     clear: Annotated[bool, Parameter(alias="-x")] = False,
     dump_path: Annotated[str, Parameter(alias="-d")] = "",
+    assets_dir: Annotated[Path, Parameter(alias="-a")] = DEFAULT_ASSETS_DIR,
 ) -> None:
     """Extract binary assets from an EarthBound/Mother 2 ROM.
 
@@ -103,6 +104,9 @@ def extract(
         Clear temp data.
     dump_path
         Override defined dump path.
+    assets_dir
+        Output directory for the human-editable assets (JSON, YAML, PNG) that
+        ``ebtools pack-all`` and the C port build read.
     """
     common_data = load_common_data(commondata)
     doc = load_dump_doc(yaml_config)
@@ -151,7 +155,7 @@ def extract(
     # Export developer-friendly PNG spritesheets (after temp dir is closed)
     from ebtools.parsers.overworld_sprites import export_all_sprites
 
-    asset_output_dir = Path("port") / "assets"
+    asset_output_dir = assets_dir
     count = export_all_sprites(out_path, asset_output_dir, sprite_names=common_data.sprites)
     if count > 0:
         print(f"Exported {count} overworld sprite PNGs to {asset_output_dir / 'overworld_sprites'}")

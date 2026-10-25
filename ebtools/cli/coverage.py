@@ -225,12 +225,12 @@ def check_tick_callbacks(asm_root, port_root, verbose):
                 for m in _RE_TICK_CALLBACK.finditer(line):
                     asm_labels[m.group(1)].append(f"{asm_file}:{lineno}")
 
-    # 2. Extract TICK_ADDR defines and case handlers from callroutine.c
-    callroutine_path = port_root / "entity" / "callroutine.c"
+    # 2. Extract TICK_ADDR defines and case handlers from the callroutine
+    #    sources (callroutine.c and its callroutine_*.c splits)
     tick_defines: dict[str, int] = {}  # C name -> hex address
     tick_handled: set[str] = set()  # C names with case handlers
 
-    if callroutine_path.exists():
+    for callroutine_path in sorted((port_root / "entity").glob("callroutine*.c")):
         text = callroutine_path.read_text()
         for line in text.splitlines():
             m = _RE_TICK_ADDR_DEFINE.search(line)
@@ -472,21 +472,25 @@ def _find_used_text_macros(asm_root):
 
 
 def _parse_display_text_cases(port_root):
-    """Parse display_text.c to find all handled CC byte values per dispatch context.
+    """Parse display_text*.c to find all handled CC byte values per dispatch context.
+
+    The main dispatch loop lives in display_text.c; the prefix sub-dispatchers
+    (``cc_18_dispatch`` ... ``cc_1f_dispatch``) live in display_text_cc.c.
 
     Returns
     -------
         main_cases: set of int — case values in the main dispatch loop
         sub_cases: dict[int, set[int]] — prefix byte -> set of sub-case values
     """
-    path = port_root / "game" / "display_text.c"
-    if not path.exists():
+    paths = [port_root / "game" / name for name in ("display_text.c", "display_text_cc.c")]
+    paths = [path for path in paths if path.exists()]
+    if not paths:
         return set(), {}
 
-    text = path.read_text()
-    lines = text.splitlines()
+    lines = [line for path in paths for line in path.read_text().splitlines()]
 
-    dispatch_re = re.compile(r"static void cc_([0-9a-f]{2})_dispatch\b")
+    # A definition (return type + name + "("), not a prototype or call.
+    dispatch_re = re.compile(r"^(?:static\s+)?(?:void|bool)\s+cc_([0-9a-f]{2})_dispatch\s*\((?!.*;\s*$)")
     case_re = re.compile(r"case\s+0x([0-9a-fA-F]+)\s*:")
     # Also match "if (byte == 0xNN)" or "byte == 0xNN" style checks
     byte_eq_re = re.compile(r"byte\s*==\s*0x([0-9a-fA-F]+)")
@@ -523,10 +527,10 @@ def _parse_display_text_cases(port_root):
             sub_cases[prefix] = cases
             sub_ranges.append((i, end_line))
 
-    # Find the main dispatch: look for "cc_18_dispatch" call (not the function def)
-    # and walk backwards to find "switch (byte)" or similar
+    # Find the main dispatch: look for the "cc_19_dispatch(r)" call (not the
+    # function def) and walk backwards to find "switch (byte)" or similar
     main_cases: set[int] = set()
-    main_dispatch_re = re.compile(r"cc_18_dispatch\s*\(\s*&")
+    main_dispatch_re = re.compile(r"\bcc_19_dispatch\s*\(\s*r\s*\)\s*;")
     for i, line in enumerate(lines):
         if main_dispatch_re.search(line):
             # Check this isn't inside a sub-dispatch function
@@ -535,7 +539,7 @@ def _parse_display_text_cases(port_root):
                 continue
             # Walk backwards to find the enclosing switch
             switch_line = None
-            for j in range(i, max(i - 200, -1), -1):
+            for j in range(i, max(i - 400, -1), -1):
                 if "switch" in lines[j] and "byte" in lines[j]:
                     switch_line = j
                     break

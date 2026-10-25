@@ -5,6 +5,11 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+# Human-editable asset tree (JSON, YAML, PNG): written by ``ebtools extract``,
+# read by ``ebtools pack-all`` and the C port's CMake build (src/CMakeLists.txt
+# ASSETS_DIR). Relative to the repo root.
+DEFAULT_ASSETS_DIR = Path("src") / "assets"
+
 
 class Music(BaseModel):
     model_config = ConfigDict(extra="ignore")
