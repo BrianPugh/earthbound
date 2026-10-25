@@ -1166,6 +1166,28 @@ bool state_dump_roundtrip_test(void) {
     return slots_byte_equal(0, 1);
 }
 
+/* Cold-process load check: in a fresh process (nothing but game_init has run), load
+ * the newest valid slot of the current slot pair, then write the restored state to
+ * the other slot with the same sequence number and require the two images to be
+ * byte-identical. Everything the slot carries must survive load + unpack + rebind in
+ * a process that never ran the scene; a field an unpack drops, or a rebind derives
+ * differently from the saving process, shows up as a mismatch. Overwrites the older
+ * slot of the pair, so run it on a copy. */
+bool state_dump_coldload_test(void) {
+    uint32_t s0 = 0, s1 = 0;
+    bool h0 = peek_slot(0, &s0);
+    bool h1 = peek_slot(1, &s1);
+    if (!h0 && !h1)
+        return false;
+    int src = (h0 && (!h1 || s0 >= s1)) ? 0 : 1;
+    uint32_t seq = src ? s1 : s0;
+    if (!read_slot(src))
+        return false;
+    if (!write_slot(src ? 0 : 1, seq))
+        return false;
+    return slots_byte_equal(0, 1);
+}
+
 /* Scribble every direct section's live storage with `v` (perturb/reject tests). */
 static void scribble_direct_sections(uint8_t v) {
     for (int i = 0; i < SECTION_COUNT; i++)

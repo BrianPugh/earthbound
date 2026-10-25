@@ -11,6 +11,8 @@
 
 /* Unix-specific: set save file path (defined in sdl2_save.c) */
 void platform_save_set_path(const char *path);
+/* Unix-specific: savestate slot file prefix (defined in sdl2_savestate.c) */
+void platform_savestate_set_path(const char *prefix);
 /* Unix-specific: scripted input playback (defined in sdl2_input_script.c) */
 bool input_script_open(const char *path);
 bool input_script_open_session(const char *path);
@@ -35,6 +37,7 @@ static void platform_cleanup(void) {
 int main(int argc, char *argv[]) {
     const char *verify_rom_path = NULL;
     bool savestate_selftest = false;
+    const char *coldload_prefix = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--verify") == 0 && i + 1 < argc) {
@@ -43,6 +46,10 @@ int main(int argc, char *argv[]) {
             /* Run the savestate save->load->save round-trip self-test and exit.
              * Implies headless so it neither opens a window nor plays the game. */
             savestate_selftest = true;
+            platform_headless = true;
+        } else if (strcmp(argv[i], "--selftest-coldload") == 0 && i + 1 < argc) {
+            /* Load PREFIX.0/.1 in this fresh process, re-save, compare; then exit. */
+            coldload_prefix = argv[++i];
             platform_headless = true;
         } else if (strcmp(argv[i], "--headless") == 0) {
             platform_headless = true;
@@ -78,7 +85,7 @@ int main(int argc, char *argv[]) {
                 verbose_level++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate]\n",
+            fprintf(stderr, "Usage: %s [--save FILE] [--input SCRIPT] [--session FIFO] [--headless] [--record-video FILE] [--record-audio FILE] [--record-paused] [--frames N] [--verbose] [--verify ROM] [--selftest-savestate] [--selftest-coldload PREFIX]\n",
                     argv[0]);
             return 1;
         }
@@ -131,6 +138,13 @@ int main(int argc, char *argv[]) {
         bool ok_rj = state_dump_reject_test();
         fprintf(stderr, "savestate reject (bad size / mode stack / index range / corrupt) self-test: %s\n", ok_rj ? "PASS" : "FAIL");
         exit((ok && ok_pert && ok_cs && ok_ap && ok_rj) ? 0 : 1);
+    }
+
+    if (coldload_prefix) {
+        platform_savestate_set_path(coldload_prefix);
+        bool ok = state_dump_coldload_test();
+        fprintf(stderr, "savestate cold-load self-test: %s\n", ok ? "PASS" : "FAIL");
+        exit(ok ? 0 : 1);
     }
 
     /* Initialize audio (loads audio packs from embedded assets) */

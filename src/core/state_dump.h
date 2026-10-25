@@ -50,6 +50,12 @@ bool state_dump_crashsafe_test(void);
  * live state is then restored from a good slot. Returns true on success. */
 bool state_dump_reject_test(void);
 
+/* Cold-process load self-test (`--selftest-coldload PREFIX`): in a fresh process,
+ * load the newest slot of the pair and re-save it to the other slot with the same
+ * sequence; true iff the two images are byte-identical. Overwrites the older slot,
+ * so run it on a copy of the snapshot. */
+bool state_dump_coldload_test(void);
+
 /* Un-sectioned asset-pointer self-test: some modules cache link-time-constant
  * ASSET_DATA bases in file-static pointers that are NOT part of any savestate
  * section (e.g. file_select.c's initial_stats_data). A cold load into such a
