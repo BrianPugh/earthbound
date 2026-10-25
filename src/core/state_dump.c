@@ -212,16 +212,21 @@ typedef struct {
     void (*unpack)(const void *scratch); /* NULL for direct sections */
 } StateSection;
 
-/* Static scratch buffers for the pack/unpack (file-static-backed) sections. */
-static OvalWindowSaveState     s_oval_ss;
-static FlyoverSaveState        s_flyover_ss;
-static OverworldDeferredSaveState s_ow_deferred_ss;
-static DoorTransitionSaveState s_door_tr_ss;
-static OwPaletteBackupSaveState s_ow_pal_ss;
-static TextMenuSaveState       s_text_menu_ss;
-static ItemTransformSaveState  s_item_xform_ss;
-static BattleBgSaveState       s_battle_bg_ss;
-static FrameCallbackSaveState  s_frame_cb_ss;
+/* Scratch buffer for the pack/unpack (file-static-backed) sections. They share one
+ * union: the writer packs each section just before compressing it, and the reader
+ * unpacks each right after decompressing it, so only one is ever live. */
+typedef union {
+    OvalWindowSaveState        oval;
+    FlyoverSaveState           flyover;
+    OverworldDeferredSaveState ow_deferred;
+    DoorTransitionSaveState    door_tr;
+    OwPaletteBackupSaveState   ow_pal;
+    TextMenuSaveState          text_menu;
+    ItemTransformSaveState     item_xform;
+    BattleBgSaveState          battle_bg;
+    FrameCallbackSaveState     frame_cb;
+} PackScratch;
+static PackScratch s_pack;
 
 /* Every serialized section, in write order. Every entry is a link-time constant,
  * so the table is const and lives in flash on the embedded targets: no RAM, and no
@@ -283,23 +288,23 @@ static const StateSection k_sections[] = {
      * menu previews); a savestate taken mid-operation must round-trip them or the
      * resumed operation corrupts. Each is gathered/scattered via a pack/unpack pair
      * owned by the file that holds the statics. */
-    ADDFN(SECTION_OVAL_WINDOW,        &s_oval_ss,
+    ADDFN(SECTION_OVAL_WINDOW,        &s_pack.oval,
           oval_window_savestate_pack,   oval_window_savestate_unpack),
-    ADDFN(SECTION_FLYOVER,            &s_flyover_ss,
+    ADDFN(SECTION_FLYOVER,            &s_pack.flyover,
           flyover_savestate_pack,       flyover_savestate_unpack),
-    ADDFN(SECTION_OVERWORLD_DEFERRED, &s_ow_deferred_ss,
+    ADDFN(SECTION_OVERWORLD_DEFERRED, &s_pack.ow_deferred,
           overworld_deferred_savestate_pack, overworld_deferred_savestate_unpack),
-    ADDFN(SECTION_DOOR_TRANSITION,    &s_door_tr_ss,
+    ADDFN(SECTION_DOOR_TRANSITION,    &s_pack.door_tr,
           door_transition_savestate_pack, door_transition_savestate_unpack),
-    ADDFN(SECTION_OW_PALETTE_BACKUP,  &s_ow_pal_ss,
+    ADDFN(SECTION_OW_PALETTE_BACKUP,  &s_pack.ow_pal,
           ow_palette_backup_savestate_pack, ow_palette_backup_savestate_unpack),
-    ADDFN(SECTION_TEXT_MENUS,         &s_text_menu_ss,
+    ADDFN(SECTION_TEXT_MENUS,         &s_pack.text_menu,
           text_menus_savestate_pack,    text_menus_savestate_unpack),
-    ADDFN(SECTION_ITEM_TRANSFORM,     &s_item_xform_ss,
+    ADDFN(SECTION_ITEM_TRANSFORM,     &s_pack.item_xform,
           item_transform_savestate_pack, item_transform_savestate_unpack),
-    ADDFN(SECTION_BATTLE_BG,          &s_battle_bg_ss,
+    ADDFN(SECTION_BATTLE_BG,          &s_pack.battle_bg,
           battle_bg_savestate_pack,     battle_bg_savestate_unpack),
-    ADDFN(SECTION_FRAME_CALLBACK,     &s_frame_cb_ss,
+    ADDFN(SECTION_FRAME_CALLBACK,     &s_pack.frame_cb,
           frame_callback_savestate_pack, frame_callback_savestate_unpack),
 };
 #undef ADD
@@ -611,12 +616,6 @@ static void known_set(int slot, uint32_t seq, uint32_t crc, uint32_t plen) {
 static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id, uint32_t layout_xor) {
     const StateSection *table = k_sections;
     const int n = SECTION_COUNT;
-    /* Gather the pack/unpack sections' scattered statics into their scratch buffers
-     * BEFORE the compress pass so the bytes are coherent. */
-    for (int i = 0; i < n; i++)
-        if (table[i].pack)
-            table[i].pack(table[i].ptr);
-
     s_known.valid = false;
     if (!platform_savestate_begin(slot))
         return false;
@@ -633,6 +632,10 @@ static bool write_slot_ex(int slot, uint32_t seq, uint16_t short_id, uint32_t la
         uint32_t size = table[i].size - (table[i].id == short_id && table[i].size ? 1u : 0u);
         comp_u16(&x, table[i].id);
         comp_u32(&x, size);
+        /* A pack/unpack section gathers its scattered statics into the shared scratch
+         * now (nothing runs between here and the compress, so the bytes are coherent). */
+        if (table[i].pack)
+            table[i].pack(table[i].ptr);
         comp_section(&x, table[i].id, (const uint8_t *)table[i].ptr, size); /* from the live global */
     }
     comp_u16(&x, SECTION_TERMINATOR);
