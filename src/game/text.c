@@ -200,9 +200,12 @@ void text_load_window_gfx(void) {
      * 0x2000, 0x2A00 bytes) and VWF name compositing would need to be
      * restructured to work within a smaller region or write directly to
      * ppu.vram. */
-    memset(buf_decomp_scratch(), 0, BUF_DECOMP_SCRATCH_SIZE);
+    /* Clear only the staging (the asm clears nothing): the entity fade
+     * metadata above it must survive, as it does above the asm's staging. */
+    uint8_t *staging = BUF_REGION(BUF_TEXT_GFX, 0, BUF_TEXT_GFX_SIZE);
+    memset(staging, 0, BUF_TEXT_GFX_SIZE);
     size_t decompressed_size = decomp(compressed, compressed_size,
-                                      buf_decomp_scratch(), BUF_DECOMP_SCRATCH_SIZE);
+                                      staging, BUF_TEXT_GFX_SIZE);
 
     if (decompressed_size == 0) {
         LOG_WARN("Failed to decompress text window graphics\n");

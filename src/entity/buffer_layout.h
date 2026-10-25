@@ -147,33 +147,22 @@ static inline uint8_t *buf_decomp_scratch(void) {
 #define BUF_ENTITY_FADE_SPRITES      0x0000
 #define BUF_ENTITY_FADE_SPRITES_SIZE 0x2B00
 
-/* Metadata: 20-byte EntityFadeEntry records, 1024 B like the asm ($7C00,
- * 51 entries). Relocated to sit right after the sprite copies. */
-#define BUF_ENTITY_FADE_STATES   (BUF_ENTITY_FADE_SPRITES + BUF_ENTITY_FADE_SPRITES_SIZE) /* 0x2B00 */
-#define BUF_ENTITY_FADE_STATES_SIZE 1024
-#define ENTITY_FADE_STATES_MAX   (BUF_ENTITY_FADE_STATES_SIZE / 20)  /* 51 */
-
-/* ===== Entity Tile Merge Slot Table (callbacks.c) ===== */
-/* 64 16-bit slots. Relocated from assembly's 0x7F00 to right after the
- * entity fade states. */
-#define BUF_TILE_MERGE_SLOTS     (BUF_ENTITY_FADE_STATES + BUF_ENTITY_FADE_STATES_SIZE) /* 0x2F00 */
-#define BUF_TILE_MERGE_SLOTS_SIZE 128
-
 /* ===== Pathfinding (pathfinding.c) ===== */
 /* The asm keeps both in its own PATHFINDING_BUFFER. Both are rebuilt by every
- * pathfinding call and are dead once it returns. */
-#define BUF_PATHFINDING_MATRIX      0x3000  /* BFS collision grid, rows × columns bytes */
+ * pathfinding call and are dead once it returns. They sit right after the
+ * entity fade sprite copies, which stay live while scripts pathfind. */
+#define BUF_PATHFINDING_MATRIX      (BUF_ENTITY_FADE_SPRITES + BUF_ENTITY_FADE_SPRITES_SIZE) /* 0x2B00 */
 #define BUF_PATHFINDING_MATRIX_SIZE 0x1000  /* max 64 × 64 */
-#define BUF_PF_HEAP                 0x4000  /* BFS heap/scratch (16-bit words) */
+#define BUF_PF_HEAP                 (BUF_PATHFINDING_MATRIX + BUF_PATHFINDING_MATRIX_SIZE) /* 0x3B00 */
 #define BUF_PF_HEAP_SIZE            0x0C00  /* asm PATHFINDING_BUFFER heap: 3072 bytes */
 
 /* ===== VWF Save/Restore (text.c) ===== */
 /* 1664-byte snapshot of vwf_buffer, used by vwf_render_string_at(),
  * vwf_render_eb_string_at(), and render_title_to_vram() to save/restore
  * VWF state when rendering titles or inline strings. Saved and restored
- * inside one call. Overlaps BUF_PF_HEAP at 0x4980–0x5000 (see aliases). */
+ * inside one call. Overlays the tail of BUF_PF_HEAP (see aliases). */
 #define BUF_VWF_SAVE_SIZE        1664  /* VWF_BUFFER_TILES(52) * VWF_TILE_BYTES(32) */
-#define BUF_VWF_SAVE             (BUFFER_SIZE - BUF_VWF_SAVE_SIZE)  /* 0x4980 */
+#define BUF_VWF_SAVE             (BUF_PF_HEAP + BUF_PF_HEAP_SIZE - BUF_VWF_SAVE_SIZE) /* 0x4080 */
 
 /* ===== Text Window GFX (text.c text_load_window_gfx, battle_ui.c) ===== */
 /* LOAD_WINDOW_GFX / FILE_SELECT_INIT staging, all inside one call:
@@ -187,7 +176,7 @@ static inline uint8_t *buf_decomp_scratch(void) {
 #define BUF_TEXT_GFX_CHECKER     0x0070  /* checkerboard pattern tile (16 B) */
 #define BUF_TEXT_GFX_CHECKER_SIZE 0x0010
 #define BUF_TEXT_GFX_FLAVOUR     0x0100  /* FLAVOURED_TEXT_GFX overlay (decomp) */
-#define BUF_TEXT_GFX_FLAVOUR_SIZE (BUFFER_SIZE - BUF_TEXT_GFX_FLAVOUR)
+#define BUF_TEXT_GFX_FLAVOUR_SIZE (BUF_TEXT_GFX_SIZE - BUF_TEXT_GFX_FLAVOUR)
 #define BUF_TEXT_GFX_MOVE_SRC    0x1000  /* MEMCPY24 source */
 #define BUF_TEXT_GFX_MOVE_DST    0x2000  /* MEMCPY24 destination */
 #define BUF_TEXT_GFX_MOVE_SIZE   0x2A00
@@ -211,6 +200,21 @@ static inline uint8_t *buf_decomp_scratch(void) {
 #define BUF_TEXT_TILES_BLOCK6_SIZE 0x0010
 #define BUF_TEXT_LAYER2_TILES    0x2000  /* → TEXT_LAYER_TILES+0x1000 */
 #define BUF_TEXT_LAYER2_TILES_SIZE 0x1800
+
+/* ===== Entity Fade metadata + Tile Merge Slot Table (callbacks.c) ===== */
+/* Metadata: 20-byte EntityFadeEntry records, 1024 B like the asm ($7C00,
+ * 51 entries). Tile merge slots: 64 16-bit slots (asm $7F00).
+ * The asm keeps both above everything staged at BUFFER+0 (the window GFX
+ * reload peaks at $4A00, decompressions at $4840), so a fade batch's
+ * bookkeeping survives LOAD_WINDOW_GFX (UNDRAW_FLYOVER_TEXT, battle entry)
+ * and LOAD_ANIMATION_SEQUENCE_FRAME while the sprite copies below get
+ * overwritten. They keep that relationship here: they start where the
+ * window GFX staging ends. */
+#define BUF_ENTITY_FADE_STATES   BUF_REGION_END(BUF_TEXT_GFX) /* 0x4A00 */
+#define BUF_ENTITY_FADE_STATES_SIZE 1024
+#define ENTITY_FADE_STATES_MAX   (BUF_ENTITY_FADE_STATES_SIZE / 20)  /* 51 */
+#define BUF_TILE_MERGE_SLOTS     (BUF_ENTITY_FADE_STATES + BUF_ENTITY_FADE_STATES_SIZE) /* 0x4E00 */
+#define BUF_TILE_MERGE_SLOTS_SIZE 128
 
 /* ===== Battle (battle_ui.c, battle.c) ===== */
 /* LOAD_BATTLE_SPRITE scatter-copies each enemy sprite's tile rows to the
@@ -328,6 +332,7 @@ BUF_ASSERT_WITHIN(BUF_TEXT_LAYER2_TILES, BUF_TEXT_GFX);
 BUF_ASSERT_WITHIN(BUF_TEXT_NAME_TILES, BUF_TEXT_LAYER2_TILES);
 BUF_ASSERT_WITHIN(BUF_TEXT_STATUS_TILES, BUF_TEXT_LAYER2_TILES);
 BUF_ASSERT_DISJOINT(BUF_TEXT_NAME_TILES, BUF_TEXT_STATUS_TILES);
+BUF_ASSERT_WITHIN(BUF_TEXT_GFX_FLAVOUR, BUF_TEXT_GFX);
 BUF_ASSERT_WITHIN(BUF_TEXT_TILES_BLOCK1, BUF_TEXT_GFX);
 BUF_ASSERT_WITHIN(BUF_TEXT_TILES_BLOCK2, BUF_TEXT_GFX);
 BUF_ASSERT_WITHIN(BUF_TEXT_TILES_BLOCK3, BUF_TEXT_GFX);
@@ -361,6 +366,14 @@ BUF_ASSERT_DISJOINT(BUF_ENTITY_FADE_STATES, BUF_VWF_SAVE);
 BUF_ASSERT_DISJOINT(BUF_TILE_MERGE_SLOTS, BUF_VWF_SAVE);
 /* One pathfinding call uses the matrix and the heap together. */
 BUF_ASSERT_DISJOINT(BUF_PATHFINDING_MATRIX, BUF_PF_HEAP);
+
+/* Like the asm, a fade batch's metadata and dissolve slots lie above all
+ * BUFFER+0 staging: the window GFX reload and the largest decompression
+ * (town map; animation sequences peak at 0x4618) leave them intact. */
+BUF_ASSERT_DISJOINT(BUF_TEXT_GFX, BUF_ENTITY_FADE_STATES);
+BUF_ASSERT_DISJOINT(BUF_TEXT_GFX, BUF_TILE_MERGE_SLOTS);
+BUF_ASSERT_DISJOINT(BUF_TOWN_MAP_GFX, BUF_ENTITY_FADE_STATES);
+BUF_ASSERT_DISJOINT(BUF_TOWN_MAP_GFX, BUF_TILE_MERGE_SLOTS);
 
 /* GAME_MODE_MAP_PALETTE_FADE (CC_1F_E1) keeps its arrays across frames and
  * must leave a paused entity fade batch's metadata intact. */
@@ -411,11 +424,14 @@ BUF_ASSERT_DISJOINT(BUF_CREDITS_PALETTE, BUF_CREDITS_TILEMAP);
  *    DESATURATE_PALETTES can run (same offsets as the asm).
  *  - BUF_BATTLE_PALETTE_SAVE, BUF_FADE / BUF_ENTITY_FADE_SPRITES: the instant
  *    win runs from the battle entry, with the overworld paused.
- *  - BUF_TEXT_GFX / everything: text_load_window_gfx() zeroes the whole
- *    buffer first. It runs at file select, game start, after a battle and in
- *    UNDRAW_FLYOVER_TEXT. Unlike the asm, whose staging ends below the fade
- *    metadata at $7C00, it also clears BUF_ENTITY_FADE_STATES, so it relies
- *    on no entity fade batch being in flight at those points.
+ *  - BUF_TEXT_GFX / everything below 0x4A00: text_load_window_gfx() zeroes
+ *    and rebuilds its staging. It runs at file select, game start, battle
+ *    entry and exit and in UNDRAW_FLYOVER_TEXT. Like the asm it overwrites
+ *    the entity fade sprite copies and leaves the fade metadata intact.
+ *  - BUF_VWF_SAVE / BUF_DECOMP_SCRATCH: render_title_to_vram() (titled
+ *    menu windows: status, equip, inventory, phone, Escargo Express) never
+ *    runs during an animation sequence cutscene, whose frames (up to 0x4618)
+ *    it would overwrite.
  *  - BUF_DECOMP_SCRATCH / everything: one-shot decomps (town map, credits,
  *    photograph palettes) are consumed before returning. The animation
  *    sequence (LOAD_ANIMATION_SEQUENCE_FRAME, up to 0x4618 B) and the title

@@ -226,18 +226,20 @@ typedef struct {
  * ENTITY FADE METADATA (callbacks.c — entity_fade_entries)
  *   Assembly: init_entity_fade_states_buffer.asm
  *   Active during: overworld (concurrent with sprite data above)
- *   BUF_ENTITY_FADE_STATES  0x2B00–0x2EFF  20-byte entries     1024 B
+ *   BUF_ENTITY_FADE_STATES  0x4A00–0x4DFF  20-byte entries     1024 B
+ *   Above the window GFX staging (0x4A00), like the asm's $7C00, so a fade
+ *   batch survives a window GFX reload or an animation sequence decomp.
  *
  * ENTITY TILE MERGE SLOT TABLE (callbacks.c — cr_animate_entity_tile_merge)
  *   Assembly: clear_spritemap_buffer.asm, animate_entity_tile_merge.asm
  *   Active during: overworld entity wipe animation
- *   BUF_TILE_MERGE_SLOTS  0x2F00–0x2F7F  64-entry slot table    128 B
+ *   BUF_TILE_MERGE_SLOTS  0x4E00–0x4E7F  64-entry slot table    128 B
  *
  * PATHFINDING COLLISION MATRIX + HEAP (pathfinding.c)
  *   Assembly: initialize_pathfinding_for_entities.asm
  *   Active during: overworld NPC pathfinding (on-demand)
- *   BUF_PATHFINDING_MATRIX  0x3000–0x4000   BFS collision grid  max 4 KB (64×64)
- *   BUF_PF_HEAP             0x4000–0x4C00   BFS heap/scratch    3 KB
+ *   BUF_PATHFINDING_MATRIX  0x2B00–0x3B00   BFS collision grid  max 4 KB (64×64)
+ *   BUF_PF_HEAP             0x3B00–0x4700   BFS heap/scratch    3 KB
  *
  * MAP PALETTE FADE (overworld_palette.c)
  *   Assembly: initialize_map_palette_fade.asm, update_map_palette_fade.asm
@@ -340,8 +342,8 @@ typedef struct {
  *
  * Suspect 3: Entity fade sprite alloc (0x0000+) vs fade metadata / pathfinding
  *   BOUNDED. The asm allocator is unchecked over 31 KB; here the copies get
- *   BUF_ENTITY_FADE_SPRITES_SIZE (0x2B00) below the metadata, which ends
- *   below BUF_PATHFINDING_MATRIX (static assert). double_entity_fade_state()
+ *   BUF_ENTITY_FADE_SPRITES_SIZE (0x2B00) below BUF_PATHFINDING_MATRIX
+ *   (static assert). double_entity_fade_state()
  *   asserts the budget and init_entity_fade_state() the entry count (debug
  *   builds); release builds stay unchecked like the asm.
  *

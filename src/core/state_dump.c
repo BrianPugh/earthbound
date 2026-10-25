@@ -61,7 +61,7 @@
  * docs/plans/savestate-unified-loop.md. */
 #define STATE_DUMP_MAGIC       0x44534245u  /* "EBSD" little-endian */
 #define STATE_DUMP_HEADER_SIZE 24           /* magic+version+frame+seq+crc32+payload_len+layout_id */
-#define STATE_DUMP_VERSION 15 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
+#define STATE_DUMP_VERSION 16 /* v6: raw-pointer purge (item #3A) changed PSI/oval/
                                * overworld-deferred layouts. v7: ABI hardening (item
                                * #3B) — PPUState.bg_viewport_fill enum→uint8_t shrank
                                * the PPU section; the format is now 32/64-bit identical.
@@ -83,7 +83,10 @@
                                * v14: the header CRC uses the standard reflected
                                * CRC-32 polynomial 0xEDB88320 (zlib.crc32); v8-v13
                                * used the typo 0xEDB88420.
-                               * v15: the header gained layout_id (24 bytes). */
+                               * v15: the header gained layout_id (24 bytes).
+                               * v16: entity fade metadata and tile merge slots moved
+                               * above the window GFX staging (0x2B00/0x2F00 ->
+                               * 0x4A00/0x4E00); pathfinding moved to 0x2B00. */
 
 /* Section IDs */
 enum {
