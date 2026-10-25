@@ -717,7 +717,8 @@ static int find_section(const StateSection *t, int n, uint16_t id) {
  * every section id this build knows has exactly this build's size, appears once, and
  * that none is missing (AUDIO excepted: it exists only in EB_ENABLE_AUDIO builds and
  * audio_resync_after_load copes with a stale audio_state); unknown ids are skipped
- * (forward compatibility). The compressed bytes are CRC'd as they are pulled, plus
+ * (forward compatibility); the mode stack's depth and mode ids must be in range.
+ * The compressed bytes are CRC'd as they are pulled, plus
  * any tail after the terminator, so this pass replaces verify_slot_crc for loads at
  * the same I/O cost. Nothing live is written, so a stream that fails here leaves the
  * running game untouched. */
@@ -750,6 +751,23 @@ static bool validate_slot_stream(int slot, uint32_t plen, uint32_t expected_crc,
                 return false;
             }
             seen[i / 32] |= 1u << (i % 32);
+        }
+        if (id == SECTION_MODE_STACK) {
+            /* game_loop_step indexes mode[depth - 1] and dispatches on it, so a bad
+             * depth or mode id would crash right after the load; check them here. */
+            uint8_t head[offsetof(ModeStack, state)];
+            if (!decomp_read(&r, head, sizeof head))
+                return false;
+            size -= (uint32_t)sizeof head;
+            uint8_t depth = head[offsetof(ModeStack, depth)];
+            bool bad = depth < 1 || depth > MODE_STACK_MAX;
+            for (uint8_t d = 0; !bad && d < depth; d++)
+                bad = head[offsetof(ModeStack, mode) + d] >= GAME_MODE_COUNT;
+            if (bad) {
+                LOG_WARN("savestate: mode stack depth %u or a mode id is out of range\n",
+                         (unsigned)depth);
+                return false;
+            }
         }
         if (!decomp_skip(&r, size))
             return false;
@@ -1028,10 +1046,20 @@ bool state_dump_reject_test(void) {
     table[k].size++;
     if (!wrote) return false;
 
-    /* With the live state scribbled, both bad images must fail to load and leave
+    /* With the live state scribbled, every bad image must fail to load and leave
      * every direct section untouched. */
     scribble_direct_sections(table, n, 0xA5);
     bool ok = !read_slot(0) && direct_sections_hold(table, n, 0xA5);
+
+    /* Slot 0 again: a well-formed image with an empty mode stack (depth 0), written
+     * from the restored live state. */
+    ok = ok && read_slot(1);
+    uint8_t depth = g_mode_stack.depth;
+    g_mode_stack.depth = 0;
+    ok = ok && write_slot(0, fixed_seq);
+    g_mode_stack.depth = depth;
+    scribble_direct_sections(table, n, 0xA5);
+    ok = ok && !read_slot(0) && direct_sections_hold(table, n, 0xA5);
     ok = ok && copy_slot_corrupted(1, 0, STATE_DUMP_HEADER_SIZE + 64);
     ok = ok && !read_slot(0) && direct_sections_hold(table, n, 0xA5);
 

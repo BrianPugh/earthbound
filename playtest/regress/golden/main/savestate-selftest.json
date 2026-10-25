@@ -6,7 +6,8 @@
     "savestate round-trip self-test: PASS",
     "savestate perturb (cold-load) self-test: PASS",
     "savestate crash-safe self-test: PASS",
-    "savestate asset-pointer self-test: PASS"
+    "savestate asset-pointer self-test: PASS",
+    "savestate reject (bad size / mode stack / corrupt) self-test: PASS"
    ]
   }
  },
