@@ -48,6 +48,20 @@ cmake --build build
 
 This produces `build/earthbound_pico.uf2`.
 
+### RAM budget
+
+Every link runs `cmake/check_ram_budget.cmake`, which fails the build when `.data + .bss` exceeds `RAM_BUDGET_BYTES` (set in `CMakeLists.txt`; `.data` includes the `.time_critical` PPU code copied to SRAM). `arm-none-eabi-size -A build/earthbound_pico.elf` on 2026-10-25 (pico-sdk 2.2.0, arm-none-eabi-gcc 15.3, Release, single core):
+
+| Section | Bytes |
+|---|---|
+| `.ram_vector_table` | 192 |
+| `.data` | 52,032 |
+| `.bss` | 188,864 |
+| `.stack_dummy` | 2,048 |
+| **`.data + .bss`** | **240,896** (budget 242,688) |
+
+The `EB_ENABLE_DUAL_CORE_PPU=ON` build doesn't link on that toolchain (`platform_worker_init`: "dangerous relocation: unsupported relocation" in `main.c`), so it has no recorded figure; pass `-DRAM_BUDGET_BYTES=...` when it does.
+
 ## Flashing
 
 1. Hold the BOOTSEL button on the Pico and plug in USB

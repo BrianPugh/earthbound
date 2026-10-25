@@ -128,6 +128,25 @@ endif()
 # Generate UF2 for drag-and-drop flashing
 pico_add_extra_outputs(earthbound_pico)
 
+# Static RAM budget: the build fails when .data + .bss exceeds RAM_BUDGET_BYTES
+# (.data includes the .time_critical PPU functions copied to SRAM). Measured
+# 2026-10-25, pico-sdk 2.2.0 + arm-none-eabi-gcc 15.3, Release, single core:
+# .data 52,032 + .bss 188,864 = 240,896 bytes. The budget leaves ~1.8 KB of
+# headroom; the rest of the 264 KB is the stacks (scratch banks) and the
+# vector table. Raise it only for intended growth, in the same commit, saying
+# why. Builds with EB_ENABLE_DUAL_CORE_PPU need their own -DRAM_BUDGET_BYTES.
+set(RAM_BUDGET_BYTES 242688 CACHE STRING "Max .data + .bss bytes for earthbound_pico")
+get_filename_component(EB_ARM_TOOLCHAIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+find_program(EB_ARM_SIZE arm-none-eabi-size HINTS "${EB_ARM_TOOLCHAIN_DIR}" REQUIRED)
+add_custom_command(TARGET earthbound_pico POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DSIZE_TOOL=${EB_ARM_SIZE}
+        -DELF=$<TARGET_FILE:earthbound_pico>
+        -DBUDGET=${RAM_BUDGET_BYTES}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_ram_budget.cmake
+    VERBATIM
+)
+
 # "make flash" — load UF2 via picotool (auto-reboots into BOOTSEL if needed)
 # picotool reboot may return a non-zero exit code even on success, so ignore it.
 add_custom_target(flash
