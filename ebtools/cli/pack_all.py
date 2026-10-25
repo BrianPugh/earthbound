@@ -1177,6 +1177,18 @@ def _pack_event_script_combined(
     )
 
 
+def _text_ref_macro_name(label: str) -> str:
+    """Return the C macro name for a dialogue label.
+
+    Local dialogue labels start with an underscore (``_ONET_PIKARL_GIVE_SHACK_KEY``).
+    C reserves identifiers that begin with an underscore followed by an uppercase
+    letter, so those get a ``TXT`` prefix (``TXT_ONET_PIKARL_GIVE_SHACK_KEY``).
+    """
+    if label.startswith("_"):
+        return "TXT" + label
+    return label
+
+
 def _generate_text_refs_header(
     flat_label_offsets: dict[str, int],
     output_dir: Path,
@@ -1199,10 +1211,9 @@ def _generate_text_refs_header(
         "",
     ]
 
-    # Group by YAML file prefix (everything before the first underscore after MSG_)
-    # For readability, just sort alphabetically.
+    # Sorted by label name for readability.
     for name, offset in sorted(flat_label_offsets.items()):
-        lines.append(f"#define {name:60s} 0x{offset:06X}u")
+        lines.append(f"#define {_text_ref_macro_name(name):60s} 0x{offset:06X}u")
 
     lines.append("")
     lines.append("#endif /* DATA_TEXT_REFS_H */")
