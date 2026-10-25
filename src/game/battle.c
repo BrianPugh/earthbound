@@ -1546,380 +1546,449 @@ void battle_ko_make_init(ModeState *init, uint16_t target_offset) {
     init->battle_ko.target = target_offset;
 }
 
+/* ---- GAME_MODE_BATTLE_KO phase helpers (asm/battle/ko_target.asm) ----
+ * The bool ko_* helpers return true with *out set when the step yields
+ * (push or pop), false when mode_step_battle_ko should run the next pc in
+ * this step. The per-phase helpers are EB_NOINLINE so their locals don't
+ * add up in the step's frame. */
+
+/* Push battle text `addr` as a GAME_MODE_DISPLAY_TEXT child. False (no push)
+ * when the text can't be resolved: the caller carries on inline. */
+static bool ko_push_text(uint32_t addr, StepResult *out) {
+    if (!battle_push_text(&g_mode_push_init, addr))
+        return false;
+    *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
+    return true;
+}
+
+/* STEP_PUSH a BW_FRAMES GAME_MODE_BATTLE_WAIT child of `frames`. */
+static StepResult ko_push_wait_frames(uint16_t frames) {
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    g_mode_push_init.battle_wait.kind = BW_FRAMES;
+    g_mode_push_init.battle_wait.remaining = frames;
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+}
+
+/* Set UNCONSCIOUS and clear every other affliction group. */
+static void ko_set_unconscious(Battler *target) {
+    target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
+    target->afflictions[STATUS_GROUP_SHIELD] = 0;
+    target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
+    target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
+    target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
+    target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
+    target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
+}
+
+/* Fade the dying enemy's sprite palettes (1-15) toward (r, g, b). */
+static void ko_fade_target(Battler *target, uint16_t speed, uint16_t r, uint16_t g, uint16_t b) {
+    set_battle_sprite_palette_effect_speed(speed);
+    for (int pal = 1; pal < 16; pal++) {
+        uint16_t pal_offset = (uint16_t)target->vram_sprite_index * 16 + pal;
+        setup_battle_sprite_palette_effect(pal_offset, r, g, b);
+    }
+}
+
+/* Fade every enemy sprite palette (1-63, skipping each group's colour 0)
+ * toward (r, g, b). */
+static void ko_fade_all(uint16_t speed, uint16_t r, uint16_t g, uint16_t b) {
+    set_battle_sprite_palette_effect_speed(speed);
+    for (int pal = 1; pal < 64; pal++) {
+        if ((pal & 15) == 0) continue; /* Skip every 16th */
+        setup_battle_sprite_palette_effect(pal, r, g, b);
+    }
+}
+
+/* Last enemy dying: ensure every conscious party member has >= 1 HP. */
+static void ko_last_enemy_hp_floor(void) {
+    reset_hppp_rolling();
+    for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0)
+            continue;
+        if (b->ally_or_enemy != 0)
+            continue;
+        uint8_t easyheal = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
+        if (easyheal == STATUS_0_UNCONSCIOUS)
+            continue;
+        if (b->npc_id != 0)
+            continue;
+        /* Check char_struct current_hp — if 0, set to 1 */
+        uint8_t char_row = b->row;
+        if (party_characters[char_row].current_hp == 0) {
+            b->hp_target = 1;
+            party_characters[char_row].current_hp_target = 1;
+        }
+    }
+}
+
+/* pc 0: entry/dispatch. Enemy setup; final-attack bracket + desc text push. */
+static EB_NOINLINE bool ko_enter(BattleKoState *s, Battler *target, StepResult *out) {
+    bt.skip_death_text_and_cleanup = 0;
+
+    if (target->ally_or_enemy == 0) {
+        s->pc = 10;  /* player / NPC path */
+        return false;
+    }
+
+    /* ---- ENEMY KO ---- */
+
+    /* Skip for certain Giygas phases — they can't be killed normally */
+    uint16_t enemy_id = target->id;
+    if (enemy_id == ENEMY_GIYGAS_2 || enemy_id == ENEMY_GIYGAS_3 ||
+        enemy_id == ENEMY_GIYGAS_5 || enemy_id == ENEMY_GIYGAS_6) {
+        *out = STEP_RESULT_POP(0);
+        return true;
+    }
+
+    /* Check if this is the last enemy — if so, ensure players have >= 1 HP */
+    if (battle_count_chars(1) == 1)
+        ko_last_enemy_hp_floor();
+
+    /* Accumulate EXP and money rewards */
+    bt.battle_exp_scratch += target->exp;
+    bt.battle_money_scratch += target->money;
+
+    /* Check for final attack */
+    if (enemy_config_table != NULL &&
+        enemy_config_table[target->id].final_action != 0) {
+        const EnemyData *edata = &enemy_config_table[target->id];
+        bt.enemy_performing_final_attack = 1;
+
+        /* Save current attacker/target state */
+        s->saved_attacker = bt.current_attacker;
+        s->saved_target = bt.current_target;
+        s->saved_flags = bt.battler_target_flags;
+
+        /* Set dying enemy as attacker for final attack */
+        bt.current_attacker = s->target;
+        target->current_action = edata->final_action;
+        target->current_action_argument = edata->final_action_arg;
+
+        /* Choose target and execute final attack */
+        choose_target(s->target);
+        set_battler_targets_by_action(s->target);
+        fix_attacker_name(0);
+        set_target_if_targeted();
+
+        /* Display final attack description text (with prompt) */
+        s->pc = 1;
+        if (battle_action_table) {
+            uint32_t desc_addr = battle_action_table[edata->final_action].description_text_pointer;
+            if (desc_addr != 0 &&
+                battle_push_text_ex(&g_mode_push_init, desc_addr, true, false, 0)) {
+                *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    s->pc = 3;  /* no final attack: straight to the death text */
+    return false;
+}
+
+/* pc 1: BATTLE_APPLY push (the final attack). */
+static EB_NOINLINE StepResult ko_final_attack(BattleKoState *s, Battler *target) {
+    dt.blinking_triangle_flag = 0;
+
+    /* Execute final attack function via APPLY_ACTION_TO_TARGETS.
+     * Assembly: passes the function pointer, which the apply loop
+     * writes to TEMP_FUNCTION_POINTER once per targeted battler. */
+    uint32_t func_ptr = 0;
+    if (battle_action_table && enemy_config_table)
+        func_ptr = battle_action_table[enemy_config_table[target->id].final_action]
+                       .battle_function_pointer;
+    s->pc = 2;
+    battle_apply_make_init(&g_mode_push_init, func_ptr);
+    return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &g_mode_push_init);
+}
+
+/* pc 2: final-attack bracket restore. */
+static EB_NOINLINE bool ko_final_attack_done(BattleKoState *s, StepResult *out) {
+    bt.enemy_performing_final_attack = 0;
+
+    /* Restore attacker/target state */
+    bt.current_attacker = s->saved_attacker;
+    bt.current_target = s->saved_target;
+    bt.battler_target_flags = s->saved_flags;
+    fix_attacker_name(0);
+    fix_target_name();
+
+    if (bt.special_defeat != 0) {
+        *out = STEP_RESULT_POP(0);
+        return true;
+    }
+    s->pc = 3;
+    return false;
+}
+
+/* pc 3: death text push. */
+static EB_NOINLINE bool ko_death_text(BattleKoState *s, Battler *target, StepResult *out) {
+    /* Assembly (ko_target.asm @SHOW_DEATH_TEXT): a set
+     * SKIP_DEATH_TEXT_AND_CLEANUP branches to @DONE, skipping the
+     * death text, the fades, the KO status and death_type handling.
+     * Final actions that replace the dying enemy in place (Pokey
+     * speeches, RAINBOW_OF_COLOURS) rely on this to keep the new
+     * enemy alive. */
+    if (bt.skip_death_text_and_cleanup != 0) {
+        *out = STEP_RESULT_POP(0);
+        return true;
+    }
+    s->pc = 4;
+    return enemy_config_table != NULL &&
+           enemy_config_table[target->id].death_text_ptr != 0 &&
+           ko_push_text(enemy_config_table[target->id].death_text_ptr, out);
+}
+
+/* pc 4: death animation, fade to white. */
+static EB_NOINLINE StepResult ko_flash_white(BattleKoState *s, Battler *target) {
+    dt.blinking_triangle_flag = 0;
+
+    /* Clear alt spritemap for all battlers, then set it for dying enemy */
+    for (int i = 0; i < BATTLER_COUNT; i++)
+        bt.battlers_table[i].use_alt_spritemap = 0;
+    target->use_alt_spritemap = 1;
+
+    ko_fade_target(target, 10, 31, 31, 31);
+    s->pc = 5;
+    return ko_push_wait_frames(SIXTH_OF_A_SECOND);
+}
+
+/* pc 6: KO status; death_type != 0 starts the group-death flash. */
+static EB_NOINLINE bool ko_apply_status(BattleKoState *s, Battler *target, StepResult *out) {
+    ko_set_unconscious(target);
+    target->hp_target = 0;
+
+    /* Check death_type for group death */
+    if (enemy_config_table != NULL &&
+        enemy_config_table[target->id].death_type != 0) {
+        /* Group death — set all remaining enemies to alt spritemap */
+        for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
+            if (bt.battlers_table[i].consciousness != 0)
+                bt.battlers_table[i].use_alt_spritemap = 1;
+        }
+
+        /* Play death SFX (assembly: ko_target.asm line 710) */
+        play_sfx(33);  /* SFX::ENEMY_DEFEATED */
+
+        /* Group flash white animation */
+        ko_fade_all(10, 31, 31, 31);
+        s->pc = 7;
+        *out = ko_push_wait_frames(SIXTH_OF_A_SECOND);
+        return true;
+    }
+    s->pc = 9;
+    return false;
+}
+
+/* pc 8: group death, KO all remaining enemies. */
+static EB_NOINLINE void ko_group_finish(BattleKoState *s) {
+    for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
+        if (bt.battlers_table[i].consciousness != 0)
+            bt.battlers_table[i].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
+    }
+    render_all_battle_sprites();
+    bt.special_defeat = 2;
+    s->pc = 9;
+}
+
+/* pc 9: ghost/possession. If the dead enemy is TINY_LIL_GHOST, cure
+ * possession from party members and potentially respawn the ghost. */
+static EB_NOINLINE void ko_ghost_respawn(Battler *target) {
+    if (target->npc_id != ENEMY_TINY_LIL_GHOST)
+        return;
+
+    /* Cure possession from any party member */
+    for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0) continue;
+        if (b->npc_id != 0) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
+            b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
+            break; /* Only cure one */
+        }
+    }
+
+    /* Check if any party member is still possessed — respawn ghost */
+    for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
+        Battler *b = &bt.battlers_table[i];
+        if (b->consciousness == 0) continue;
+        if (b->npc_id != 0) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
+            /* Respawn ghost in slot 6 (first NPC enemy slot) */
+            battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
+                                    ENEMY_TINY_LIL_GHOST);
+            bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
+            bt.battlers_table[TOTAL_PARTY_COUNT].has_taken_turn = 1;
+            break;
+        }
+    }
+}
+
+/* Possessed party member dying (ko_target.asm:27-62): kill the
+ * TINY_LIL_GHOST and respawn it for any OTHER possessed member. */
+static void ko_player_possession(Battler *target) {
+    if (target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] != STATUS_1_POSSESSED)
+        return;
+    if (bt.battlers_table[TOTAL_PARTY_COUNT].npc_id != ENEMY_TINY_LIL_GHOST)
+        return;
+    bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 0;
+
+    /* Respawn ghost for another possessed party member (start from dying target's slot) */
+    uint16_t target_slot = (uint16_t)(target - bt.battlers_table);
+    for (int j = 0; j < TOTAL_PARTY_COUNT; j++) {
+        uint16_t idx = (target_slot + j) % TOTAL_PARTY_COUNT;
+        Battler *b2 = &bt.battlers_table[idx];
+        if (b2 == target) continue;
+        if (b2->consciousness == 0) continue;
+        if (b2->npc_id != 0) continue;
+        if (b2->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
+            battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
+                                    ENEMY_TINY_LIL_GHOST);
+            bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
+            bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 1;
+            break;
+        }
+    }
+}
+
+/* pc 10: player/NPC KO. Possession, KO status, then the NPC death text
+ * (resume at 11) or the player's collapse text (resume at 12). */
+static EB_NOINLINE bool ko_player(BattleKoState *s, Battler *target, StepResult *out) {
+    ko_player_possession(target);
+
+    /* Set UNCONSCIOUS status and clear all other afflictions */
+    ko_set_unconscious(target);
+
+    if (target->npc_id != 0) {
+        /* NPC enemy ally death — look up death text from enemy_config_table */
+        s->pc = 11;
+        return enemy_config_table != NULL &&
+               enemy_config_table[target->id].death_text_ptr != 0 &&
+               ko_push_text(enemy_config_table[target->id].death_text_ptr, out);
+    }
+
+    /* Player character KO */
+    target->hp_target = 0;
+    uint8_t char_row = target->row;
+    party_characters[char_row].current_hp_target = 0;
+    party_characters[char_row].current_hp = 1;
+
+    /* Display KO text */
+    s->pc = 12;
+    return ko_push_text(MSG_BTL5_ALLY_COLLAPSED, out);
+}
+
+/* pc 11: NPC ally death. Teddy bears are replaced by a waiting party NPC;
+ * other NPCs hand the front row to party_npc_1. */
+static EB_NOINLINE void ko_npc_after(Battler *target) {
+    dt.blinking_triangle_flag = 0;
+    target->consciousness = 0;
+
+    /* Check for teddy bear replacement */
+    if (target->npc_id == PARTY_MEMBER_TEDDY_BEAR ||
+        target->npc_id == PARTY_MEMBER_PLUSH_TEDDY_BEAR) {
+        /* Check if a replacement NPC is available */
+        uint8_t npc_slot = target->row;
+        uint8_t replacement_npc;
+        if (npc_slot == 0)
+            replacement_npc = game_state.party_npc_1;
+        else
+            replacement_npc = game_state.party_npc_2;
+
+        if (replacement_npc != 0) {
+            /* Revive with replacement NPC */
+            target->consciousness = 1;
+            target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
+
+            /* Load replacement NPC HP */
+            uint16_t npc_hp;
+            if (npc_slot == 0)
+                npc_hp = game_state.party_npc_1_hp;
+            else
+                npc_hp = game_state.party_npc_2_hp;
+            target->hp_target = npc_hp;
+            target->hp = npc_hp;
+            target->npc_id = replacement_npc;
+
+            /* Look up AI type from NPC_AI_TABLE (assembly lines 222-232) */
+            if (npc_ai_table) {
+                target->id = npc_ai_table[replacement_npc * 2 + 1];
+            }
+        }
+    } else {
+        /* Non-teddy NPC death — reassign front row if needed */
+        if (game_state.party_npc_1 != 0) {
+            for (int i = 0; i < BATTLER_COUNT; i++) {
+                Battler *b = &bt.battlers_table[i];
+                if (b->consciousness == 0) continue;
+                if (b->ally_or_enemy != 0) continue;
+                if (b->npc_id == game_state.party_npc_1) {
+                    b->row = 0;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 StepResult mode_step_battle_ko(ModeState *ms) {
     BattleKoState *s = &ms->battle_ko;
     Battler *target = battler_from_offset(s->target);
+    StepResult r;
 
     for (;;) {
         switch (s->pc) {
-        case 0: {
-            bt.skip_death_text_and_cleanup = 0;
-
-            if (target->ally_or_enemy == 0) {
-                s->pc = 10;  /* player / NPC path */
-                break;
-            }
-
-            /* ---- ENEMY KO ---- */
-
-            /* Skip for certain Giygas phases — they can't be killed normally */
-            uint16_t enemy_id = target->id;
-            if (enemy_id == ENEMY_GIYGAS_2 || enemy_id == ENEMY_GIYGAS_3 ||
-                enemy_id == ENEMY_GIYGAS_5 || enemy_id == ENEMY_GIYGAS_6)
-                return STEP_RESULT_POP(0);
-
-            /* Check if this is the last enemy — if so, ensure players have >= 1 HP */
-            if (battle_count_chars(1) == 1) {
-                reset_hppp_rolling();
-                for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                    Battler *b = &bt.battlers_table[i];
-                    if (b->consciousness == 0)
-                        continue;
-                    if (b->ally_or_enemy != 0)
-                        continue;
-                    uint8_t easyheal = b->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL];
-                    if (easyheal == STATUS_0_UNCONSCIOUS)
-                        continue;
-                    if (b->npc_id != 0)
-                        continue;
-                    /* Check char_struct current_hp — if 0, set to 1 */
-                    uint8_t char_row = b->row;
-                    if (party_characters[char_row].current_hp == 0) {
-                        b->hp_target = 1;
-                        party_characters[char_row].current_hp_target = 1;
-                    }
-                }
-            }
-
-            /* Accumulate EXP and money rewards */
-            bt.battle_exp_scratch += target->exp;
-            bt.battle_money_scratch += target->money;
-
-            /* Check for final attack */
-            if (enemy_config_table != NULL &&
-                enemy_config_table[target->id].final_action != 0) {
-                const EnemyData *edata = &enemy_config_table[target->id];
-                bt.enemy_performing_final_attack = 1;
-
-                /* Save current attacker/target state */
-                s->saved_attacker = bt.current_attacker;
-                s->saved_target = bt.current_target;
-                s->saved_flags = bt.battler_target_flags;
-
-                /* Set dying enemy as attacker for final attack */
-                bt.current_attacker = s->target;
-                target->current_action = edata->final_action;
-                target->current_action_argument = edata->final_action_arg;
-
-                /* Choose target and execute final attack */
-                choose_target(s->target);
-                set_battler_targets_by_action(s->target);
-                fix_attacker_name(0);
-                set_target_if_targeted();
-
-                /* Display final attack description text (with prompt) */
-                s->pc = 1;
-                if (battle_action_table) {
-                    uint32_t desc_addr = battle_action_table[edata->final_action].description_text_pointer;
-                    if (desc_addr != 0 &&
-                        battle_push_text_ex(&g_mode_push_init, desc_addr, true, false, 0))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
-                }
-                break;
-            }
-
-            s->pc = 3;  /* no final attack: straight to the death text */
+        case 0:
+            if (ko_enter(s, target, &r)) return r;
             break;
-        }
 
-        case 1: {
-            dt.blinking_triangle_flag = 0;
-
-            /* Execute final attack function via APPLY_ACTION_TO_TARGETS.
-             * Assembly: passes the function pointer, which the apply loop
-             * writes to TEMP_FUNCTION_POINTER once per targeted battler. */
-            uint32_t func_ptr = 0;
-            if (battle_action_table && enemy_config_table)
-                func_ptr = battle_action_table[enemy_config_table[target->id].final_action]
-                               .battle_function_pointer;
-            s->pc = 2;
-            battle_apply_make_init(&g_mode_push_init, func_ptr);
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_APPLY, &g_mode_push_init);
-        }
+        case 1:
+            return ko_final_attack(s, target);
 
         case 2:
-            bt.enemy_performing_final_attack = 0;
-
-            /* Restore attacker/target state */
-            bt.current_attacker = s->saved_attacker;
-            bt.current_target = s->saved_target;
-            bt.battler_target_flags = s->saved_flags;
-            fix_attacker_name(0);
-            fix_target_name();
-
-            if (bt.special_defeat != 0)
-                return STEP_RESULT_POP(0);
-            s->pc = 3;
+            if (ko_final_attack_done(s, &r)) return r;
             break;
 
         case 3:
-            /* Assembly (ko_target.asm @SHOW_DEATH_TEXT): a set
-             * SKIP_DEATH_TEXT_AND_CLEANUP branches to @DONE, skipping the
-             * death text, the fades, the KO status and death_type handling.
-             * Final actions that replace the dying enemy in place (Pokey
-             * speeches, RAINBOW_OF_COLOURS) rely on this to keep the new
-             * enemy alive. */
-            if (bt.skip_death_text_and_cleanup != 0)
-                return STEP_RESULT_POP(0);
-            s->pc = 4;
-            if (enemy_config_table != NULL) {
-                uint32_t death_addr = enemy_config_table[target->id].death_text_ptr;
-                if (death_addr != 0 && battle_push_text(&g_mode_push_init, death_addr))
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
-            }
+            if (ko_death_text(s, target, &r)) return r;
             break;
 
         case 4:
-            dt.blinking_triangle_flag = 0;
-
-            /* Clear alt spritemap for all battlers, then set it for dying enemy */
-            for (int i = 0; i < BATTLER_COUNT; i++)
-                bt.battlers_table[i].use_alt_spritemap = 0;
-            target->use_alt_spritemap = 1;
-
-            /* Death animation: fade to white */
-            set_battle_sprite_palette_effect_speed(10);
-            for (int pal = 1; pal < 16; pal++) {
-                uint16_t pal_offset = (uint16_t)target->vram_sprite_index * 16 + pal;
-                setup_battle_sprite_palette_effect(pal_offset, 31, 31, 31);
-            }
-            s->pc = 5;
-            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.battle_wait.kind = BW_FRAMES;
-            g_mode_push_init.battle_wait.remaining = SIXTH_OF_A_SECOND;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+            return ko_flash_white(s, target);
 
         case 5:
             /* Fade to black */
-            set_battle_sprite_palette_effect_speed(20);
-            for (int pal = 1; pal < 16; pal++) {
-                uint16_t pal_offset = (uint16_t)target->vram_sprite_index * 16 + pal;
-                setup_battle_sprite_palette_effect(pal_offset, 0, 0, 0);
-            }
+            ko_fade_target(target, 20, 0, 0, 0);
             s->pc = 6;
-            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.battle_wait.kind = BW_FRAMES;
-            g_mode_push_init.battle_wait.remaining = THIRD_OF_A_SECOND;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+            return ko_push_wait_frames(THIRD_OF_A_SECOND);
 
         case 6:
-            /* Apply KO status */
-            target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
-            target->afflictions[STATUS_GROUP_SHIELD] = 0;
-            target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
-            target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
-            target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-            target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
-            target->hp_target = 0;
-
-            /* Check death_type for group death */
-            if (enemy_config_table != NULL &&
-                enemy_config_table[target->id].death_type != 0) {
-                /* Group death — set all remaining enemies to alt spritemap */
-                for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
-                    if (bt.battlers_table[i].consciousness != 0)
-                        bt.battlers_table[i].use_alt_spritemap = 1;
-                }
-
-                /* Play death SFX (assembly: ko_target.asm line 710) */
-                play_sfx(33);  /* SFX::ENEMY_DEFEATED */
-
-                /* Group flash white animation */
-                set_battle_sprite_palette_effect_speed(10);
-                for (int pal = 1; pal < 64; pal++) {
-                    if ((pal & 15) == 0) continue; /* Skip every 16th */
-                    setup_battle_sprite_palette_effect(pal, 31, 31, 31);
-                }
-                s->pc = 7;
-                memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-                g_mode_push_init.battle_wait.kind = BW_FRAMES;
-                g_mode_push_init.battle_wait.remaining = SIXTH_OF_A_SECOND;
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
-            }
-            s->pc = 9;
+            if (ko_apply_status(s, target, &r)) return r;
             break;
 
         case 7:
             /* Group fade to black */
-            set_battle_sprite_palette_effect_speed(20);
-            for (int pal = 1; pal < 64; pal++) {
-                if ((pal & 15) == 0) continue;
-                setup_battle_sprite_palette_effect(pal, 0, 0, 0);
-            }
+            ko_fade_all(20, 0, 0, 0);
             s->pc = 8;
-            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.battle_wait.kind = BW_FRAMES;
-            g_mode_push_init.battle_wait.remaining = 20;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+            return ko_push_wait_frames(20);
 
         case 8:
-            /* KO all remaining enemies */
-            for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
-                if (bt.battlers_table[i].consciousness != 0)
-                    bt.battlers_table[i].afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
-            }
-            render_all_battle_sprites();
-            bt.special_defeat = 2;
-            s->pc = 9;
+            ko_group_finish(s);
             break;
 
         case 9:
-            /* Ghost/possession: if the dead enemy is TINY_LIL_GHOST,
-             * cure possession from party members and potentially respawn ghost */
-            if (target->npc_id == ENEMY_TINY_LIL_GHOST) {
-                /* Cure possession from any party member */
-                for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                    Battler *b = &bt.battlers_table[i];
-                    if (b->consciousness == 0) continue;
-                    if (b->npc_id != 0) continue;
-                    if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
-                        b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
-                        break; /* Only cure one */
-                    }
-                }
-
-                /* Check if any party member is still possessed — respawn ghost */
-                for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
-                    Battler *b = &bt.battlers_table[i];
-                    if (b->consciousness == 0) continue;
-                    if (b->npc_id != 0) continue;
-                    if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
-                        /* Respawn ghost in slot 6 (first NPC enemy slot) */
-                        battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
-                                                ENEMY_TINY_LIL_GHOST);
-                        bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
-                        bt.battlers_table[TOTAL_PARTY_COUNT].has_taken_turn = 1;
-                        break;
-                    }
-                }
-            }
+            ko_ghost_respawn(target);
             return STEP_RESULT_POP(0);
 
-        case 10: {
-            /* ---- PLAYER / NPC KO ---- */
-
-            /* Check for possession — possessed chars that die have special handling.
-             * Assembly (ko_target.asm:27-62): when dying target IS possessed,
-             * kill the ghost and respawn it for any OTHER possessed member. */
-            if (target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
-                /* Kill the ghost enemy if it's TINY_LIL_GHOST */
-                if (bt.battlers_table[TOTAL_PARTY_COUNT].npc_id == ENEMY_TINY_LIL_GHOST) {
-                    bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 0;
-
-                    /* Respawn ghost for another possessed party member (start from dying target's slot) */
-                    uint16_t target_slot = (uint16_t)(target - bt.battlers_table);
-                    for (int j = 0; j < TOTAL_PARTY_COUNT; j++) {
-                        uint16_t idx = (target_slot + j) % TOTAL_PARTY_COUNT;
-                        Battler *b2 = &bt.battlers_table[idx];
-                        if (b2 == target) continue;
-                        if (b2->consciousness == 0) continue;
-                        if (b2->npc_id != 0) continue;
-                        if (b2->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
-                            battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
-                                                    ENEMY_TINY_LIL_GHOST);
-                            bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
-                            bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 1;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            /* Set UNCONSCIOUS status and clear all other afflictions */
-            target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = STATUS_0_UNCONSCIOUS;
-            target->afflictions[STATUS_GROUP_SHIELD] = 0;
-            target->afflictions[STATUS_GROUP_HOMESICKNESS] = 0;
-            target->afflictions[STATUS_GROUP_CONCENTRATION] = 0;
-            target->afflictions[STATUS_GROUP_STRANGENESS] = 0;
-            target->afflictions[STATUS_GROUP_TEMPORARY] = 0;
-            target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] = 0;
-
-            if (target->npc_id != 0) {
-                /* NPC enemy ally death — look up death text from enemy_config_table */
-                s->pc = 11;
-                if (enemy_config_table != NULL) {
-                    uint32_t death_addr = enemy_config_table[target->id].death_text_ptr;
-                    if (death_addr != 0 && battle_push_text(&g_mode_push_init, death_addr))
-                        return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
-                }
-                break;
-            }
-
-            /* Player character KO */
-            target->hp_target = 0;
-            uint8_t char_row = target->row;
-            party_characters[char_row].current_hp_target = 0;
-            party_characters[char_row].current_hp = 1;
-
-            /* Display KO text */
-            s->pc = 12;
-            if (battle_push_text(&g_mode_push_init, MSG_BTL5_ALLY_COLLAPSED))
-                return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
+        case 10:
+            if (ko_player(s, target, &r)) return r;
             break;
-        }
 
-        case 11: {
-            dt.blinking_triangle_flag = 0;
-            target->consciousness = 0;
-
-            /* Check for teddy bear replacement */
-            if (target->npc_id == PARTY_MEMBER_TEDDY_BEAR ||
-                target->npc_id == PARTY_MEMBER_PLUSH_TEDDY_BEAR) {
-                /* Check if a replacement NPC is available */
-                uint8_t npc_slot = target->row;
-                uint8_t replacement_npc;
-                if (npc_slot == 0)
-                    replacement_npc = game_state.party_npc_1;
-                else
-                    replacement_npc = game_state.party_npc_2;
-
-                if (replacement_npc != 0) {
-                    /* Revive with replacement NPC */
-                    target->consciousness = 1;
-                    target->afflictions[STATUS_GROUP_PERSISTENT_EASYHEAL] = 0;
-
-                    /* Load replacement NPC HP */
-                    uint16_t npc_hp;
-                    if (npc_slot == 0)
-                        npc_hp = game_state.party_npc_1_hp;
-                    else
-                        npc_hp = game_state.party_npc_2_hp;
-                    target->hp_target = npc_hp;
-                    target->hp = npc_hp;
-                    target->npc_id = replacement_npc;
-
-                    /* Look up AI type from NPC_AI_TABLE (assembly lines 222-232) */
-                    if (npc_ai_table) {
-                        target->id = npc_ai_table[replacement_npc * 2 + 1];
-                    }
-                }
-            } else {
-                /* Non-teddy NPC death — reassign front row if needed */
-                if (game_state.party_npc_1 != 0) {
-                    for (int i = 0; i < BATTLER_COUNT; i++) {
-                        Battler *b = &bt.battlers_table[i];
-                        if (b->consciousness == 0) continue;
-                        if (b->ally_or_enemy != 0) continue;
-                        if (b->npc_id == game_state.party_npc_1) {
-                            b->row = 0;
-                            break;
-                        }
-                    }
-                }
-            }
+        case 11:
+            ko_npc_after(target);
             return STEP_RESULT_POP(0);
-        }
 
         case 12:
         default:
