@@ -2506,14 +2506,15 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     bool use_sub_screen = (ppu.cgwsel & 0x02) != 0;
     bool subtract_mode = (ppu.cgadsub & 0x80) != 0;
     bool half_math = (ppu.cgadsub & 0x40) != 0;
-    /* Fixed color for color math — convert directly to BGR565 */
+    /* Fixed color for color math, in the framebuffer's pixel layout (an
+     * EB_PIXEL_RGB565 build swaps R and B; hand-building BGR565 here turned
+     * the red enemies-first swirl blue on the Game & Watch). */
 #ifdef EB_DISPLAY_GAMMA
     uint16_t fixed_color = bgr555_to_display(
         (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
 #else
-    uint16_t fixed_color = (uint16_t)ppu.coldata_r |
-                           ((uint16_t)ppu.coldata_g << 6) |
-                           ((uint16_t)ppu.coldata_b << 11);
+    uint16_t fixed_color = bgr555_to_pixel(
+        (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
 #endif
 
     /* Which layers need rendering (union of main + sub screen) */
