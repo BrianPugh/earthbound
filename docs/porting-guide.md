@@ -117,6 +117,8 @@ void platform_request_quit(void);
 
 The game tests button *groups* (`PAD_CONFIRM = PAD_A | PAD_L`, `PAD_CANCEL = PAD_B | PAD_SELECT`), so mapping one button per group is sufficient.
 
+For a device with only 2 buttons, map them to PAD_B and PAD_L and build `src/` with `EB_TWO_BUTTON_MODE`: on the overworld, cancel then opens the command window (PAD_A's job in the original) together with the HP/PP windows, instead of the HP/PP display alone, and L talks/checks; everywhere else PAD_CANCEL and PAD_CONFIRM work as usual.
+
 Aux buttons (`AUX_*`) are optional — edge detection and toggle logic are handled centrally in `game_main.c`. Just report raw level state (bit set = currently held).
 
 ### Audio (optional)

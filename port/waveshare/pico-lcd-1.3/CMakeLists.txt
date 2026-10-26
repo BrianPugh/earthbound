@@ -53,7 +53,10 @@ target_compile_definitions(earthbound_game PUBLIC EB_EMBEDDED=1)
 
 # Place hot PPU rendering functions in SRAM (avoids XIP cache contention),
 # and force -O3 for the PPU rendering file via pragma.
+# EB_TWO_BUTTON_MODE: the board has no SNES A, so cancel (board X) opens the
+# command window on the overworld; Y (SNES L) talks/checks and confirms.
 target_compile_definitions(earthbound_game PRIVATE
+    EB_TWO_BUTTON_MODE=1
     EB_PPU_RAM_SECTION=".time_critical"
     EB_PPU_FORCE_SPEED_OPT=1
     EB_MAX_FRAME_SKIP=2

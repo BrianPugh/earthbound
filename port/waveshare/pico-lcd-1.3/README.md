@@ -12,16 +12,17 @@ Port of the EarthBound C reimplementation to the [Waveshare Pico-LCD-1.3](https:
 
 ### Button Mapping
 
-| Board          | SNES   |
-|----------------|--------|
-| Joystick       | D-pad  |
-| Joystick press | Start  |
-| A              | A      |
-| B              | B      |
-| X              | X      |
-| Y              | Y      |
+| Board    | SNES  | In game |
+|----------|-------|---------|
+| Joystick | D-pad | Move, menu navigation |
+| X        | B     | Cancel/back; opens the command window on the overworld (2-button mode, below) |
+| Y        | L     | Talk/check, confirm |
+| B        | X     | Town map |
+| A        | —     | Toggle the FPS counter |
 
-Select, L, and R are currently unmapped (the board only has 9 inputs).
+SNES A, Y, Select, Start and R have no button, and the joystick press is unused.
+
+The build sets `EB_TWO_BUTTON_MODE`, since nothing sends SNES A: on the overworld, X (cancel) opens the command window, with the HP/PP windows alongside it, instead of the HP/PP display, and Y talks/checks; in menus X cancels and Y confirms.
 
 ## Prerequisites
 
