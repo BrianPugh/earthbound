@@ -186,6 +186,16 @@ void ppu_render_frame(scanline_callback_t send_scanline);
  * before signaling core 1 so both cores see the same state. */
 void ppu_prepare_frame(void);
 
+#ifdef EB_DISPLAY_GAMMA
+/* Display gamma for panels that show the SNES palette washed out: each 5-bit
+ * channel becomes 31 * (c / 31)^(gamma_x100 / 100), so 100 is the direct
+ * mapping and larger values darken the midtones. EB_DISPLAY_GAMMA (same
+ * units) is the build's default. Call between frames (it rebuilds a table
+ * ppu_prepare_frame reads); takes effect on the next frame. */
+void ppu_set_display_gamma(uint16_t gamma_x100);
+uint16_t ppu_display_gamma(void);
+#endif
+
 /* Extended render entry point for dual-core rendering.
  * ctx_id selects which tile cache and working buffers to use (0 or 1).
  * y_start/y_end/y_stride control the scanline range and step.

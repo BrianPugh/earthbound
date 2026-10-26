@@ -88,8 +88,8 @@ void st7789_init(st7789_t *lcd, const st7789_config_t *config) {
     uint8_t gctrl = 0x35;
     st7789_cmd(ST7789_CMD_GCTRL, &gctrl, 1);
 
-    /* VCOMS */
-    uint8_t vcoms = 0x25;
+    /* VCOMS (Waveshare Pico-LCD-1.3 reference value) */
+    uint8_t vcoms = 0x19;
     st7789_cmd(ST7789_CMD_VCOMS, &vcoms, 1);
 
     /* LCM control */

@@ -3,6 +3,9 @@
 #include "include/binary.h"
 #include "platform/platform.h"
 #include <limits.h>
+#ifdef EB_DISPLAY_GAMMA
+#include <math.h>
+#endif
 #include <string.h>
 #include <stdio.h>
 
@@ -154,6 +157,40 @@ typedef struct {
  * Eliminates per-pixel bgr555_to_pixel() calls during rendering.
  * BGR555→BGR565 is a single shift (same channel order, widen green). */
 static uint16_t cgram_render[256];
+
+#ifdef EB_DISPLAY_GAMMA
+/* Display gamma (ppu_set_display_gamma): per-channel 5-bit curves applied
+ * where SNES colours become pixels, i.e. the palette shadow above and the
+ * colour-math fixed colour, so it costs nothing per pixel. Colour math and
+ * brightness then act on the corrected values. */
+static uint16_t display_gamma = EB_DISPLAY_GAMMA;
+static uint8_t display_gamma_lut[32];
+static bool display_gamma_ready;
+
+void ppu_set_display_gamma(uint16_t gamma_x100)
+{
+    float e = (float)gamma_x100 / 100.0f;
+    for (int i = 0; i < 32; i++)
+        display_gamma_lut[i] = (uint8_t)(powf((float)i / 31.0f, e) * 31.0f + 0.5f);
+    display_gamma = gamma_x100;
+    display_gamma_ready = true;
+}
+
+uint16_t ppu_display_gamma(void)
+{
+    return display_gamma;
+}
+
+/* bgr555_to_pixel() through the gamma curve (green keeps the 5-bit value in
+ * the top of its 6-bit field, as bgr555_to_pixel does). */
+static pixel_t bgr555_to_display(uint16_t c)
+{
+    uint16_t r = display_gamma_lut[BGR555_R(c)];
+    uint16_t g = display_gamma_lut[BGR555_G(c)];
+    uint16_t b = display_gamma_lut[BGR555_B(c)];
+    return bgr555_to_pixel((uint16_t)BGR555(r, g, b));
+}
+#endif
 
 /* Tile row decode cache: avoids redundant bitplane decoding.
  * An 8×8 tile row is identical across 8 consecutive scanlines, and the same
@@ -1031,10 +1068,17 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
  * and the OBJ buckets. Call before signaling core 1 in dual-core mode to
  * avoid a data race on cgram_render[] and the bucket arrays. */
 void ppu_prepare_frame(void) {
+#ifdef EB_DISPLAY_GAMMA
+    if (!display_gamma_ready)
+        ppu_set_display_gamma(display_gamma);
+    for (int i = 0; i < 256; i++)
+        cgram_render[i] = bgr555_to_display(ppu.cgram[i]);
+#else
     for (int i = 0; i < 256; i++) {
         uint16_t c = ppu.cgram[i];
         cgram_render[i] = bgr555_to_pixel(c);
     }
+#endif
 #if EB_PPU_OBJ_BUCKET
     /* Bucket sprites by scanline band; render_obj_scanline then iterates only
      * the sprites overlapping each scanline (see build_obj_buckets). */
@@ -2463,9 +2507,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     bool subtract_mode = (ppu.cgadsub & 0x80) != 0;
     bool half_math = (ppu.cgadsub & 0x40) != 0;
     /* Fixed color for color math — convert directly to BGR565 */
+#ifdef EB_DISPLAY_GAMMA
+    uint16_t fixed_color = bgr555_to_display(
+        (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
+#else
     uint16_t fixed_color = (uint16_t)ppu.coldata_r |
                            ((uint16_t)ppu.coldata_g << 6) |
                            ((uint16_t)ppu.coldata_b << 11);
+#endif
 
     /* Which layers need rendering (union of main + sub screen) */
     uint8_t layers_needed = ppu.tm | ppu.ts;

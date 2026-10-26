@@ -4,10 +4,16 @@
 #include "hardware/gpio.h"
 
 #include "board.h"
+#include "snes/ppu.h"
 
 static uint16_t pad_state;
 static uint16_t pad_prev;
 static uint16_t aux_state;
+
+/* Joystick press cycles the display gamma presets (shown as GAM on the FPS
+ * overlay), for tuning the panel by eye; the press is unused in game. */
+static const uint16_t gamma_presets[] = { 100, 120, 140, 160, 180 };
+static bool joy_ctrl_prev;
 
 typedef struct {
     uint gpio;
@@ -53,6 +59,10 @@ bool platform_input_init(void) {
         gpio_pull_up(aux_map[i].gpio);
     }
 
+    gpio_init(PIN_JOY_CTRL);
+    gpio_set_dir(PIN_JOY_CTRL, GPIO_IN);
+    gpio_pull_up(PIN_JOY_CTRL);
+
     return true;
 }
 
@@ -72,6 +82,18 @@ void platform_input_poll(void) {
         if (!gpio_get(aux_map[i].gpio))  /* active low */
             aux_state |= aux_map[i].aux_bit;
     }
+
+    /* Polled between frames, so changing the gamma here is safe. */
+    bool joy_ctrl = !gpio_get(PIN_JOY_CTRL);
+    if (joy_ctrl && !joy_ctrl_prev) {
+        size_t n = sizeof(gamma_presets) / sizeof(gamma_presets[0]);
+        size_t next = 0;
+        for (size_t i = 0; i < n; i++)
+            if (gamma_presets[i] == ppu_display_gamma())
+                next = (i + 1) % n;
+        ppu_set_display_gamma(gamma_presets[next]);
+    }
+    joy_ctrl_prev = joy_ctrl;
 }
 
 uint16_t platform_input_get_pad(void) {

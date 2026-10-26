@@ -161,9 +161,14 @@ static int debug_format_tenths(char *buf, int size, uint32_t tenths) {
 
 /* Cached overlay text, computed once at frame start */
 #ifdef EB_PPU_PROFILE
-#define FPS_OVERLAY_LINES 13
+#define FPS_OVERLAY_BASE_LINES 13
 #else
-#define FPS_OVERLAY_LINES 5
+#define FPS_OVERLAY_BASE_LINES 5
+#endif
+#ifdef EB_DISPLAY_GAMMA
+#define FPS_OVERLAY_LINES (FPS_OVERLAY_BASE_LINES + 1)  /* + GAM */
+#else
+#define FPS_OVERLAY_LINES FPS_OVERLAY_BASE_LINES
 #endif
 
 static struct {
@@ -224,6 +229,12 @@ static int fps_overlay_timing_lines(void) {
     fps_overlay.colors[n++] = display_skip_run > 0
         ? PIXEL_RGB(0xFF, 0x44, 0x44)
         : PIXEL_RGB(0x88, 0x88, 0x88);
+#endif
+
+#ifdef EB_DISPLAY_GAMMA
+    snprintf(fps_overlay.lines[n], sizeof(fps_overlay.lines[0]),
+             "GAM %u", (unsigned)ppu_display_gamma());
+    fps_overlay.colors[n++] = PIXEL_RGB(0xFF, 0xFF, 0xFF);
 #endif
 
 #ifdef EB_PPU_PROFILE

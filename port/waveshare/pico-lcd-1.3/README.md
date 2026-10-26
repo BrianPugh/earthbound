@@ -19,8 +19,11 @@ Port of the EarthBound C reimplementation to the [Waveshare Pico-LCD-1.3](https:
 | Y        | L     | Talk/check, confirm |
 | B        | X     | Town map |
 | A        | —     | Toggle the FPS counter |
+| Joystick press | — | Cycle the display gamma (100, 120, 140, 160, 180; shown as `GAM` on the FPS overlay) |
 
-SNES A, Y, Select, Start and R have no button, and the joystick press is unused.
+SNES A, Y, Select, Start and R have no button.
+
+The panel shows the SNES palette washed out, so the build darkens the midtones with a display gamma: each 5-bit channel becomes `31 * (c / 31)^(gamma / 100)`, applied when the palette is converted (no per-pixel cost). The boot value is `EB_DISPLAY_GAMMA` (default 120, configure with `-DEB_DISPLAY_GAMMA=...`); 100 is the direct colour mapping.
 
 The build sets `EB_TWO_BUTTON_MODE`, since nothing sends SNES A: on the overworld, X (cancel) opens the command window, with the HP/PP windows alongside it, instead of the HP/PP display, and Y talks/checks; in menus X cancels and Y confirms.
 

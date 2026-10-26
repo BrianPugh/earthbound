@@ -51,6 +51,12 @@ target_compile_options(earthbound_game PRIVATE -Os)
 # PUBLIC so main.c and the drivers see the same logging/backend contract.
 target_compile_definitions(earthbound_game PUBLIC EB_EMBEDDED=1)
 
+# The panel shows the SNES palette washed out; darken the midtones with a
+# display gamma (exponent x100, see ppu_set_display_gamma). PUBLIC so the
+# board input (joystick press cycles presets) sees the API.
+set(EB_DISPLAY_GAMMA 120 CACHE STRING "Display gamma x100 (100 = direct colour mapping)")
+target_compile_definitions(earthbound_game PUBLIC EB_DISPLAY_GAMMA=${EB_DISPLAY_GAMMA})
+
 # Place hot PPU rendering functions in SRAM (avoids XIP cache contention),
 # and force -O3 for the PPU rendering file via pragma.
 # EB_TWO_BUTTON_MODE: the board has no SNES A, so cancel (board X) opens the
