@@ -1462,6 +1462,32 @@ static int gutter_floor_div(int n, int d)
     return n >= 0 ? n / d : -((-n + d - 1) / d);
 }
 
+/* Fill gutter row `pos` of edge `edge` for one edge run [a0, b0] whose shape
+ * k pixels inside the band spans [ak, bk]: both run ends are extrapolated
+ * outward along that slope (see gutter_edge_row). */
+static void gutter_edge_fill(GutterRow *gr, uint8_t bit, int edge, int pos, int depth_max,
+                             int len, int t_lo, int t_hi,
+                             int a0, int b0, int ak, int bk, int k)
+{
+    int d_first = edge < 2 ? 1 : pos;
+    int d_last = edge < 2 ? depth_max : pos;
+    for (int d = d_first; d <= d_last; d++) {
+        int lo = a0 == 0 ? t_lo
+                 : a0 + gutter_floor_div((a0 - ak) * d + k / 2, k);
+        int hi = b0 == len - 1 ? t_hi
+                 : b0 + gutter_floor_div((b0 - bk) * d + k / 2, k);
+        if (lo < t_lo) lo = t_lo;
+        if (hi > t_hi) hi = t_hi;
+        if (edge < 2) {
+            if (pos >= lo && pos <= hi)
+                gr->lr[edge][d - 1] |= bit;
+        } else {
+            for (int t = lo; t <= hi; t++)
+                gr->tb[t >> 2] |= (uint8_t)(bit << ((t & 3) * 2));
+        }
+    }
+}
+
 /* Continue window `win` past band edge `edge` into one gutter row of `gr`.
  * Left/right edges: `pos` is the native row t (may lie in a pad row) and
  * every depth of that row is filled. Top/bottom edges: `pos` is the depth d
@@ -1479,6 +1505,27 @@ static void gutter_edge_row(GutterRow *gr, int win, int edge, int pos)
     const uint8_t bit = (uint8_t)win;
     if (depth_max <= 0)
         return;
+
+    if (edge >= 2) {
+        /* Top/bottom edge: every band row is one span of the per-scanline
+         * window, so the edge run and the runs overlapping it k rows in are
+         * those spans; no column scan is needed. */
+        const uint8_t *wl = win == 1 ? ppu.wh0_table : ppu.wh2_table;
+        const uint8_t *wr = win == 1 ? ppu.wh1_table : ppu.wh3_table;
+        int row0 = EB_VIEWPORT_PAD_TOP + (edge == 2 ? 0 : SNES_HEIGHT - 1);
+        int a0 = wl[row0], b0 = wr[row0];
+        if (a0 > b0)
+            return;
+        for (int k = GUTTER_SLOPE_PROBE; k >= 1; k--) {
+            int row = EB_VIEWPORT_PAD_TOP + (edge == 2 ? k : SNES_HEIGHT - 1 - k);
+            int ak = wl[row], bk = wr[row];
+            if (ak <= bk && ak <= b0 && bk >= a0) {
+                gutter_edge_fill(gr, bit, edge, pos, depth_max, len, t_lo, t_hi, a0, b0, ak, bk, k);
+                return;
+            }
+        }
+        return;
+    }
 
     for (int a0 = 0; a0 < len; ) {
         if (!gutter_edge_inside(win, edge, 0, a0)) { a0++; continue; }
@@ -1503,25 +1550,8 @@ static void gutter_edge_row(GutterRow *gr, int win, int edge, int pos)
             break;
         }
 
-        if (bk >= 0) {
-            int d_first = edge < 2 ? 1 : pos;
-            int d_last = edge < 2 ? depth_max : pos;
-            for (int d = d_first; d <= d_last; d++) {
-                int lo = a0 == 0 ? t_lo
-                         : a0 + gutter_floor_div((a0 - ak) * d + k / 2, k);
-                int hi = b0 == len - 1 ? t_hi
-                         : b0 + gutter_floor_div((b0 - bk) * d + k / 2, k);
-                if (lo < t_lo) lo = t_lo;
-                if (hi > t_hi) hi = t_hi;
-                if (edge < 2) {
-                    if (pos >= lo && pos <= hi)
-                        gr->lr[edge][d - 1] |= bit;
-                } else {
-                    for (int t = lo; t <= hi; t++)
-                        gr->tb[t >> 2] |= (uint8_t)(bit << ((t & 3) * 2));
-                }
-            }
-        }
+        if (bk >= 0)
+            gutter_edge_fill(gr, bit, edge, pos, depth_max, len, t_lo, t_hi, a0, b0, ak, bk, k);
         a0 = b0 + 1;
     }
 }
@@ -1939,10 +1969,11 @@ static inline bool window_dual_combine(bool in_w1, bool in_w2,
 
 /* Run of columns from x with constant window membership, for the dual-window
  * paths. Returns the run's last column and sets in_w1 and in_w2, or returns -1
- * when x is a gutter pixel whose membership comes from the continued window
- * shape (window_membership with a gutter row). Elsewhere each window is the
- * span [left, right] of the clamped column, so membership changes only at
- * span edges and the band edges. The oval window (window 2 empty, both
+ * when x is a side-gutter pixel whose membership comes from the continued
+ * window shape (window_membership with a gutter row). Elsewhere each window
+ * is the span [left, right] of the clamped column, so membership changes only
+ * at span edges and the band edges; in a pad row the continued shape's row
+ * also ends a run where its bits change. The oval window (window 2 empty, both
  * windows enabled on BG1/BG2/OBJ) used to take the per-pixel path for 3
  * layers: ~0.25 ms per scanline on the RP2040. */
 static int window_dual_run(GutterRowSlot *gslot, bool wide_mode, int scanline,
@@ -1953,8 +1984,10 @@ static int window_dual_run(GutterRowSlot *gslot, bool wide_mode, int scanline,
 {
     int wx = x + wx_offset;
     int wy = scanline - EB_VIEWPORT_PAD_TOP;
-    bool gutter = wx < 0 || wx > SNES_WIDTH - 1 || wy < 0 || wy > SNES_HEIGHT - 1;
-    if (gutter && gutter_row_get(gslot, wide_mode, scanline))
+    bool in_band_x = wx >= 0 && wx <= SNES_WIDTH - 1;
+    bool gutter = !in_band_x || wy < 0 || wy > SNES_HEIGHT - 1;
+    const void *gr = gutter ? gutter_row_get(gslot, wide_mode, scanline) : NULL;
+    if (gr && !in_band_x)
         return -1;
 
     int cwx = wx < 0 ? 0 : (wx > SNES_WIDTH - 1 ? SNES_WIDTH - 1 : wx);
@@ -1967,6 +2000,25 @@ static int window_dual_run(GutterRowSlot *gslot, bool wide_mode, int scanline,
     for (int i = 0; i < 6; i++)
         if (edges[i] > wx && edges[i] < next)
             next = edges[i];
+
+#if GUTTER_HAS_PADS
+    if (gr) {
+        /* A pad row inside the band columns: the per-scanline windows take
+         * their membership from the continued shape's row (as in
+         * window_membership), so the run also ends where its bits change. */
+        const uint8_t *tb = ((const GutterRow *)gr)->tb;
+        uint8_t bits = (tb[wx >> 2] >> ((wx & 3) * 2)) & 3;
+        if (ppu.window_hdma_active)
+            *in_w1 = (bits & 1) != 0;
+        if (ppu.window2_hdma_active)
+            *in_w2 = (bits & 2) != 0;
+        int end = wx;
+        while (end + 1 < next && ((tb[(end + 1) >> 2] >> (((end + 1) & 3) * 2)) & 3) == bits)
+            end++;
+        next = end + 1;
+    }
+#endif
+
     if (next == INT_MAX || next - wx_offset > render_width)
         return render_width - 1;
     return next - 1 - wx_offset;
