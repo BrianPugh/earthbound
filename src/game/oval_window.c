@@ -14,6 +14,7 @@
  */
 
 #include "game/oval_window.h"
+#include "core/embedded.h"
 #include "game/battle.h"
 #include "game/battle_bg.h"
 #include "data/assets.h"
@@ -114,7 +115,7 @@ static bool swirl_window2_hdma;
 /* Sequence table for serializing the loaded_oval_window cursor as (seq id, frame
  * index) — savestate pointer purge, build item #3. Order defines the seq ids (1..N;
  * 0 = NULL/inactive). */
-static const struct { const OvalWindowData *base; uint16_t len; } oval_seq_table[] = {
+static const struct { const OvalWindowData *base; uint16_t len; } oval_seq_table[] EB_NORELOC = {
     { oval_standard_open,  (uint16_t)(sizeof(oval_standard_open)  / sizeof(oval_standard_open[0]))  },
     { oval_variant_open,   (uint16_t)(sizeof(oval_variant_open)   / sizeof(oval_variant_open[0]))   },
     { oval_standard_close, (uint16_t)(sizeof(oval_standard_close) / sizeof(oval_standard_close[0])) },

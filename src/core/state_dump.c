@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "core/memory.h"
+#include "core/embedded.h"
 #include "core/math.h"
 #include "core/mode_stack.h"
 #include "platform/platform.h"
@@ -902,7 +903,9 @@ typedef struct {
              MAX_WINDOW_MENU_ITEMS, 1, uint8_t, 0, NUM_MENU_OPTIONS - 1, 0u, 0)
 _Static_assert(MAX_WINDOWS == 8, "FC_MENU_ITEM_IDX rows cover windows 0-7");
 
-static const FieldCheck k_field_checks[] = {
+/* EB_NORELOC: the FC_BOUND_PREV row holds a pointer into .rodata, which an embedded
+ * target relocates only in .noreloc (see core/embedded.h). */
+static const FieldCheck k_field_checks[] EB_NORELOC = {
     /* Party lists are walked up to these counts. */
     FC_ONE(SECTION_GAME_STATE, GameState, party_count, uint8_t, 0, 6),
     FC_ONE(SECTION_GAME_STATE, GameState, player_controlled_party_count, uint8_t, 0, 6),
