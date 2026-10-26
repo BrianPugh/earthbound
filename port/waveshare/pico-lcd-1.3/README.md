@@ -73,6 +73,14 @@ Main SRAM is 256 KB and holds only the vector table, `.data` and `.bss` (the hea
 1. Hold the BOOTSEL button on the Pico and plug in USB
 2. Drag `earthbound_pico.uf2` onto the `RPI-RP2` drive
 
+To start from a save (e.g. one of the playtest saves, to skip the intro), bundle it into the UF2 first; this replaces any save on the board:
+
+```bash
+python tools/uf2_add_save.py build/earthbound_pico.uf2 ../../../playtest/saves/01-Start.srm earthbound_pico_save.uf2
+```
+
+The save region holds the same raw 8 KB SRAM image as the desktop port's `earthbound.srm`.
+
 ### Audio
 
 Audio is disabled by default. The SPC700/DSP emulator needs ~70 KB (64 KB of APU RAM), which fits in the ~83 KB of free main SRAM, but the APU state is heap-allocated (the Pico heap is empty) and the RP2040's CPU budget for emulating it is unmeasured. To enable audio (e.g. on an RP2350 with 520KB RAM), set `ENABLE_AUDIO ON` in `CMakeLists.txt`. PWM output goes to GPIO 0 (`PIN_AUDIO_PWM` in `board.h`); wire through an RC low-pass filter (1 kΩ + 100 nF) to an amplifier/speaker.
