@@ -782,26 +782,12 @@ int16_t cr_movement_cmd_animate_pal_fade(int16_t entity_offset, int16_t script_o
     return 0;
 }
 
-int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_offset,
-                                         uint16_t pc, uint16_t *out_pc) {
-    /* Port of C0AA23 → C47765: SETUP_SPOTLIGHT_HDMA_WINDOW.
-     * Reads 6 bytes: three 16-bit params from movement data.
-     * Builds per-scanline WH0/WH1 window tables to create a spotlight
-     * cone effect. Used by ending credits spotlight scenes (365, 398, 411).
-     *
-     * Assembly wrapper reads: left_x, y_pos, right_x (world coords).
-     * SETUP_SPOTLIGHT_HDMA_WINDOW converts to screen coords and builds
-     * an HDMA table: dark region (WH0=0,WH1=0xFF) above the cone,
-     * 16-scanline cone narrowing downward, then empty window below. */
-    int16_t left_x  = (int16_t)sw(pc);
-    int16_t y_pos   = (int16_t)sw(pc + 2);
-    int16_t right_x = (int16_t)sw(pc + 4);
-    *out_pc = pc + 6;
-
-    /* Convert world coordinates to screen coordinates */
-    int screen_y     = (int)(int16_t)((uint16_t)y_pos - ppu.bg_vofs[0]);
-    int screen_left  = (int)(int16_t)((uint16_t)left_x - ppu.bg_hofs[0]);
-    int screen_right = (int)(int16_t)((uint16_t)right_x - ppu.bg_hofs[0]);
+/* Fill the WH0/WH1 per-scanline tables with the spotlight cone stored in ert
+ * (see cr_movement_cmd_setup_spotlight). */
+static void apply_spotlight_to_ppu(void) {
+    int screen_y     = ert.spotlight_screen_y;
+    int screen_left  = ert.spotlight_screen_left;
+    int screen_right = ert.spotlight_screen_right;
 
     /* Phase 1: scanlines before cone — full window (dark area) */
     for (int s = 0; s < EB_VIEWPORT_HEIGHT && s < screen_y; s++) {
@@ -824,6 +810,41 @@ int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_of
         ppu.wh0_table[s] = 128;
         ppu.wh1_table[s] = 127;
     }
+}
+
+/* The tables are written once per SETUP_SPOTLIGHT call, so a savestate load
+ * has to rebuild them; without this a load during a Runaway Five show renders
+ * the stage with the loading process's stale window tables. The per-frame
+ * window producers (entity tick callbacks) rewrite the tables before the next
+ * render anyway. */
+void spotlight_savestate_rebind(void) {
+    if (ppu.window_hdma_active && ert.spotlight_active)
+        apply_spotlight_to_ppu();
+}
+
+int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_offset,
+                                         uint16_t pc, uint16_t *out_pc) {
+    /* Port of C0AA23 → C47765: SETUP_SPOTLIGHT_HDMA_WINDOW.
+     * Reads 6 bytes: three 16-bit params from movement data.
+     * Builds per-scanline WH0/WH1 window tables to create a spotlight
+     * cone effect. Used by the Runaway Five stage shows (scripts 365 at the
+     * Chaos Theater, 398 and 411 at the Topolla Theater).
+     *
+     * Assembly wrapper reads: left_x, y_pos, right_x (world coords).
+     * SETUP_SPOTLIGHT_HDMA_WINDOW converts to screen coords and builds
+     * an HDMA table: dark region (WH0=0,WH1=0xFF) above the cone,
+     * 16-scanline cone narrowing downward, then empty window below. */
+    int16_t left_x  = (int16_t)sw(pc);
+    int16_t y_pos   = (int16_t)sw(pc + 2);
+    int16_t right_x = (int16_t)sw(pc + 4);
+    *out_pc = pc + 6;
+
+    /* Convert world coordinates to screen coordinates */
+    ert.spotlight_screen_y     = (int16_t)((uint16_t)y_pos - ppu.bg_vofs[0]);
+    ert.spotlight_screen_left  = (int16_t)((uint16_t)left_x - ppu.bg_hofs[0]);
+    ert.spotlight_screen_right = (int16_t)((uint16_t)right_x - ppu.bg_hofs[0]);
+    ert.spotlight_active = 1;
+    apply_spotlight_to_ppu();
 
     ppu.window_hdma_active = true;
     return 0;

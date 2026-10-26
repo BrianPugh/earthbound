@@ -487,6 +487,17 @@ typedef struct {
     uint16_t entity_fade_states_buffer;  /* Running allocation counter */
     uint16_t entity_fade_states_length;  /* Number of 20-byte fade entries */
 
+    /* SETUP_SPOTLIGHT_HDMA_WINDOW's cone, in screen coordinates (BG1 scroll at
+     * the call). The asm keeps the HDMA table it builds from these at
+     * BUFFER+$900+760, where the port's buffer holds the palette fade arrays, so
+     * the port keeps the inputs here and rebuilds wh0/wh1_table on a savestate
+     * load (spotlight_savestate_rebind). spotlight_active is cleared when the
+     * scripts disable HDMA channel 4. */
+    int16_t spotlight_screen_y;
+    int16_t spotlight_screen_left;
+    int16_t spotlight_screen_right;
+    uint16_t spotlight_active;
+
     /* Title screen state */
     uint16_t title_screen_quick_mode;
 
@@ -638,6 +649,10 @@ int16_t get_direction_between_entities(int16_t source_type, int16_t source_id,
  *   cgadsub_val: value for CGADSUB ($33 = add, $B3 = subtract)
  *   intensity: 5-bit color intensity for COLDATA (applied to R, G, B) */
 void setup_color_math_window(uint8_t cgadsub_val, uint8_t intensity);
+
+/* Savestate load: rebuild the spotlight's per-scanline WH0/WH1 tables, which
+ * the savestate leaves out (PPUState savestate boundary). */
+void spotlight_savestate_rebind(void);
 
 /* SETUP_ENTITY_COLOR_MATH: Port of asm/overworld/entity/setup_entity_color_math.asm.
  * Reads current entity's var0 to determine color math mode and intensity.

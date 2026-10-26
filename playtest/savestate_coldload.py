@@ -56,6 +56,15 @@ SCENES = [
     ),
     ("town-twoson", "05-Twoson", "120 RIGHT; 60 DOWN", "90 LEFT; 40 UP"),
     (
+        # Runaway Five show at the Chaos Theater: snaps under the stage spotlight
+        # (SETUP_SPOTLIGHT_HDMA_WINDOW, written once per call)
+        "spotlight",
+        "run-18",
+        "flag 43 1; teleport 6791 8608 6; wait 20; press A; until input 60; press A; until idle 3000 advance;"
+        " until in:DOOR_TRANSITION 300 RIGHT" + "; until input 400; press A; wait 30" * 8 + "; wait 260",
+        "wait 60",
+    ),
+    (
         "town-map",
         "05-Twoson",
         "debug on; 10 B+R; until input 300; wait 10; press DOWN 5; press A; wait 10; press A; wait 10;"

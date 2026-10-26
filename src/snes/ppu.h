@@ -121,7 +121,7 @@ typedef struct {
      * scratch sized by EB_VIEWPORT_HEIGHT, rebuilt from higher-level state: per frame
      * by its producer (same derived-render-cache contract as swirl_window_hdma_buffer
      * in oval_window.c), or on load for one-shot producers (the battle letterbox:
-     * battle_savestate_rebind). It is deliberately EXCLUDED from the savestate so the format
+     * battle_savestate_rebind; the stage spotlight: spotlight_savestate_rebind). It is deliberately EXCLUDED from the savestate so the format
      * is fixed-size and portable across builds with different viewport dimensions.
      * Keep these arrays last and add no serialized field after them. */
     uint8_t wh0_table[EB_VIEWPORT_HEIGHT]; /* window 1 left per scanline */

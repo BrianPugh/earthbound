@@ -188,7 +188,7 @@ _Static_assert(offsetof(PPUState, wh0_table) + 6 * EB_VIEWPORT_HEIGHT == sizeof(
                "PPUState: serialized prefix + per-scanline tables must cover the whole struct");
 _Static_assert(sizeof(pb)                   == 2952,  "ABI: pb");
 _Static_assert(sizeof(dr)                   == 44,    "ABI: dr");
-_Static_assert(sizeof(ert)                  == 24392, "ABI: ert");
+_Static_assert(sizeof(ert)                  == 24400, "ABI: ert");
 _Static_assert(sizeof(entities)             == 3818,  "ABI: entities");
 _Static_assert(sizeof(scripts)              == 1750,  "ABI: scripts");
 _Static_assert(sizeof(SpritePriorityQueue)  == 258,   "ABI: SpritePriorityQueue");
@@ -1187,6 +1187,7 @@ static bool read_slot(int slot) {
     overworld_savestate_rebind();
     psi_animation_savestate_rebind();
     battle_savestate_rebind();
+    spotlight_savestate_rebind();
     /* Rebuild the non-serialized map scratch (tileset arrangement buffer, etc.).
      * Without this a cold-boot resume scrolls within the stale VRAM nametable
      * (map "loops") because fill_tilemaps() has no arrangement data to stream. */

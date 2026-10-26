@@ -705,6 +705,10 @@ int main(void) {
     FIELD(EntityRuntimeState, new_entity_priority, "i16"); SEP();
     FIELD(EntityRuntimeState, entity_fade_states_buffer, "u16"); SEP();
     FIELD(EntityRuntimeState, entity_fade_states_length, "u16"); SEP();
+    FIELD(EntityRuntimeState, spotlight_screen_y, "i16"); SEP();
+    FIELD(EntityRuntimeState, spotlight_screen_left, "i16"); SEP();
+    FIELD(EntityRuntimeState, spotlight_screen_right, "i16"); SEP();
+    FIELD(EntityRuntimeState, spotlight_active, "u16"); SEP();
     FIELD(EntityRuntimeState, title_screen_quick_mode, "u16"); SEP();
     FIELD(EntityRuntimeState, wait_for_naming_screen_actionscript, "u16"); SEP();
     FIELD(EntityRuntimeState, palette_upload_mode, "u8"); SEP();

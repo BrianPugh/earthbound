@@ -1442,6 +1442,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * Disabling it reverts to static wh0/wh1 values. */
         *out_pc = pc;
         ppu.window_hdma_active = false;
+        ert.spotlight_active = 0;
         return 0;
 
     case ROM_ADDR_DISABLE_HDMA_CHANNEL5:
