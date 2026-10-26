@@ -1478,20 +1478,10 @@ StepResult mode_step_overworld(ModeState *mst) {
                     return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &g_mode_push_init);
                 } else if ((core.pad1_pressed & PAD_CANCEL) &&
                            game_state.walking_style != WALKING_STYLE_BICYCLE) {
-#ifdef EB_TWO_BUTTON_MODE
-                    /* 2-button devices (cancel + L only): cancel opens the
-                     * command window, A's job, instead of the HP/PP display;
-                     * pm_enter() shows HP/PP alongside it in this mode. */
-                    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-                    g_mode_push_init.pause_menu.phase = PM_ENTER;
-                    st->phase = OWP_POST_TELEPORT;
-                    return STEP_RESULT_PUSH_INIT(GAME_MODE_PAUSE_MENU, &g_mode_push_init);
-#else
                     memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
                     g_mode_push_init.hppp_display.phase = HD_ENTER;
                     st->phase = OWP_POST_TELEPORT;
                     return STEP_RESULT_PUSH_INIT(GAME_MODE_HPPP_DISPLAY, &g_mode_push_init);
-#endif
                 } else if (core.pad1_pressed & PAD_X) {
                     /* show_town_map(): push the display variant if there is a map;
                      * OWP_RESUME_TOWNMAP re-enables entities afterward. No map ->

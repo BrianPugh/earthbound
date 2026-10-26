@@ -2743,11 +2743,6 @@ static EB_NOINLINE void pm_enter(PauseMenuState *st) {
     skip_adding_command_text = 0;
     build_command_menu();
     win.restore_menu_backup = 0;  /* STZ RESTORE_MENU_BACKUP (line 23) */
-#ifdef EB_TWO_BUTTON_MODE
-    /* Not in the original: 2-button devices open this window with cancel, which
-     * replaces the HP/PP display, so show HP/PP here. PM_CLEANUP hides them. */
-    show_hppp_windows();
-#endif
     st->phase = PM_MAIN;
 }
 
