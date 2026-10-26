@@ -2119,6 +2119,17 @@ void apply_letterbox_to_ppu(void) {
     }
 }
 
+/* The per-scanline tables are written only when the letterbox changes (battle BG
+ * load, post-battle shrink), so a savestate load has to rebuild them from the
+ * serialized bt.letterbox_hdma_table. Without this a mid-battle load renders with
+ * the loading process's stale tables: all black in a fresh process. */
+void battle_savestate_rebind(void) {
+#if EB_BATTLE_LETTERBOX
+    if (ppu.tm_hdma_active)
+        apply_letterbox_to_ppu();
+#endif
+}
+
 
 /*
  * UPDATE_BATTLE_SCREEN_EFFECTS — Port of asm/battle/effects/update_battle_screen_effects.asm.

@@ -1160,6 +1160,10 @@ void set_color_math_from_table(uint16_t index);
  * Loads two battle BG layers with letterbox configuration. */
 void load_battle_bg(uint16_t layer1_id, uint16_t layer2_id, uint16_t letterbox_style);
 
+/* Savestate load: rebuild the letterbox's per-scanline TM/TS tables, which the
+ * savestate leaves out (PPUState savestate boundary). */
+void battle_savestate_rebind(void);
+
 /* RELOAD_MAP (asm/overworld/reload_map.asm)
  * Restores overworld map after battle/menu screens. */
 void reload_map(void);

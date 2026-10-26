@@ -118,9 +118,10 @@ typedef struct {
     /* ---- Savestate boundary -------------------------------------------------------
      * Everything ABOVE is serialized: SECTION_PPU copies the fixed-size prefix up to
      * here (offsetof(PPUState, wh0_table)). Everything BELOW is per-scanline HDMA
-     * scratch sized by EB_VIEWPORT_HEIGHT, rebuilt from higher-level state before each
-     * frame's render (same derived-render-cache contract as swirl_window_hdma_buffer
-     * in oval_window.c). It is deliberately EXCLUDED from the savestate so the format
+     * scratch sized by EB_VIEWPORT_HEIGHT, rebuilt from higher-level state: per frame
+     * by its producer (same derived-render-cache contract as swirl_window_hdma_buffer
+     * in oval_window.c), or on load for one-shot producers (the battle letterbox:
+     * battle_savestate_rebind). It is deliberately EXCLUDED from the savestate so the format
      * is fixed-size and portable across builds with different viewport dimensions.
      * Keep these arrays last and add no serialized field after them. */
     uint8_t wh0_table[EB_VIEWPORT_HEIGHT]; /* window 1 left per scanline */
