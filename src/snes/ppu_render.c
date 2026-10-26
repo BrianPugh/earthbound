@@ -2,6 +2,7 @@
 #include "game/battle_bg.h"
 #include "include/binary.h"
 #include "platform/platform.h"
+#include <limits.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -127,7 +128,19 @@ typedef struct {
      * 256-column merge scan to nothing. Callers that consume the span must
      * re-init it (lo = INT_MAX, hi = 0) before each render_bg_scanline call. */
     int emit_lo, emit_hi;
+    /* Column clip [clip_lo, clip_hi) when `clip` is set: a dual-window layer
+     * whose visible pixels on this scanline are one span (WindowSpan) draws
+     * only that span, on the window-free paths. */
+    uint8_t clip;
+    int clip_lo, clip_hi;
 } BGRenderCtx;
+
+/* Columns [lo, hi] where the dual-window layers are unmasked on a scanline,
+ * when they form one span (ok); precompute_window_masks fills it. */
+typedef struct {
+    bool ok;
+    int lo, hi;
+} WindowSpan;
 
 /* Helpers to extract fields from a packed main word (or a 16-bit gp_lm —
  * GP/LM live in the same low bits either way). */
@@ -460,6 +473,20 @@ void emit_tile_run(
     int bpp, uint32_t tile_data_base, int bytes_per_tile,
     BGRenderCtx *ctx)
 {
+    if (ctx->clip) {
+        int skip = ctx->clip_lo - screen_x;
+        if (skip > 0) {
+            start_px += skip;
+            screen_x += skip;
+            count -= skip;
+        }
+        int over = screen_x + count - ctx->clip_hi;
+        if (over > 0)
+            count -= over;
+        if (count <= 0)
+            return;
+    }
+
     uint32_t tile_addr = tile_data_base + (uint32_t)tile_num * bytes_per_tile;
     if (tile_addr + bytes_per_tile > VRAM_SIZE) return;
     BGC_INC(emit_calls);
@@ -1895,6 +1922,81 @@ static inline void window_membership(const void *gr_opaque, int scanline, int wx
 #endif
 }
 
+/* Dual-window combination: inversions (window select bits 0 and 2) and the
+ * WBGLOG/WOBJLOG logic (0 OR, 1 AND, 2 XOR, 3 XNOR). */
+static inline bool window_dual_combine(bool in_w1, bool in_w2,
+                                       bool w1_inv, bool w2_inv, uint8_t logic)
+{
+    if (w1_inv) in_w1 = !in_w1;
+    if (w2_inv) in_w2 = !in_w2;
+    switch (logic) {
+    case 0:  return in_w1 | in_w2;
+    case 1:  return in_w1 & in_w2;
+    case 2:  return in_w1 ^ in_w2;
+    default: return !(in_w1 ^ in_w2);
+    }
+}
+
+/* Run of columns from x with constant window membership, for the dual-window
+ * paths. Returns the run's last column and sets in_w1 and in_w2, or returns -1
+ * when x is a gutter pixel whose membership comes from the continued window
+ * shape (window_membership with a gutter row). Elsewhere each window is the
+ * span [left, right] of the clamped column, so membership changes only at
+ * span edges and the band edges. The oval window (window 2 empty, both
+ * windows enabled on BG1/BG2/OBJ) used to take the per-pixel path for 3
+ * layers: ~0.25 ms per scanline on the RP2040. */
+static int window_dual_run(GutterRowSlot *gslot, bool wide_mode, int scanline,
+                           int x, int wx_offset, int render_width,
+                           uint8_t w1_left, uint8_t w1_right,
+                           uint8_t w2_left, uint8_t w2_right,
+                           bool *in_w1, bool *in_w2)
+{
+    int wx = x + wx_offset;
+    int wy = scanline - EB_VIEWPORT_PAD_TOP;
+    bool gutter = wx < 0 || wx > SNES_WIDTH - 1 || wy < 0 || wy > SNES_HEIGHT - 1;
+    if (gutter && gutter_row_get(gslot, wide_mode, scanline))
+        return -1;
+
+    int cwx = wx < 0 ? 0 : (wx > SNES_WIDTH - 1 ? SNES_WIDTH - 1 : wx);
+    *in_w1 = (cwx >= w1_left && cwx <= w1_right);
+    *in_w2 = (cwx >= w2_left && cwx <= w2_right);
+
+    /* First column past wx where membership or gutter status can change. */
+    const int edges[6] = { 0, SNES_WIDTH, w1_left, w1_right + 1, w2_left, w2_right + 1 };
+    int next = INT_MAX;
+    for (int i = 0; i < 6; i++)
+        if (edges[i] > wx && edges[i] < next)
+            next = edges[i];
+    if (next == INT_MAX || next - wx_offset > render_width)
+        return render_width - 1;
+    return next - 1 - wx_offset;
+}
+
+/* Clip a dual-window layer to its visible span on this scanline (WindowSpan)
+ * so it renders on the window-free paths. Only when the dual windows mask
+ * every screen the layer draws on: inside the span its masks are then
+ * base_tm/base_ts, and outside it the layer draws nothing. For the oval
+ * window this skips BG1/BG2 outside the spotlight. The first layer into
+ * best_bg also writes unconditionally, as on window-free frames. */
+static inline void bg_clip_to_window_span(BGRenderCtx *ctx, const WindowSpan *vis,
+                                          const WindowClassification *wc, bool need_sub,
+                                          bool bg_mosaic, bool merged_empty)
+{
+    if (!vis->ok || bg_mosaic)
+        return;
+    uint8_t bit = ctx->layer_bit;
+    bool draws_sub = need_sub && ctx->sub_on;
+    if (!ctx->main_on && !draws_sub)
+        return;
+    if ((ctx->main_on && !(wc->dual_tm & bit)) || (draws_sub && !(wc->dual_ts & bit)))
+        return;
+    ctx->clip = 1;
+    ctx->clip_lo = vis->lo;
+    ctx->clip_hi = vis->hi + 1;
+    ctx->no_window = 1;
+    ctx->uncond = (uint8_t)merged_empty;
+}
+
 /* Precompute per-scanline window masks and color math prevention.
  * Kept as a separate noinline function to reduce ppu_render_frame code size.
  * Called only on window scanlines whose window values changed (see the
@@ -1910,10 +2012,11 @@ void precompute_window_masks(
     uint8_t *eff_tm_line, uint8_t *eff_ts_line,
     uint8_t *cm_prevented_line,
     bool color_math_active, uint8_t prevent_mode,
-    const WindowClassification *wc)
+    const WindowClassification *wc, WindowSpan *dual_vis)
 {
     GutterRowSlot gslot;
     gslot.tried = false;
+    dual_vis->ok = false;
     if (ppu.tmw || ppu.tsw) {
         uint8_t w1_left, w1_right, w2_left, w2_right;
         if (ppu.window_hdma_active) {
@@ -1996,33 +2099,46 @@ void precompute_window_masks(
         }
         #undef BATCH_SPAN
 
-        /* Dual-window layers: per-pixel fallback (rare) */
-        for (int di = 0; di < dual_count; di++) {
-            uint8_t sel = wc->dual_sel[di];
-            uint8_t logic = wc->dual_logic[di];
-            bool d_w1_inv = sel & 0x01;
-            bool d_w2_inv = sel & 0x04;
-            for (int x = 0; x < render_width; x++) {
-                int wx = x + wx_offset;
-                /* Gutter pixels take the state of the window shape continued
-                 * past the native edge (see window_membership). */
+        /* Dual-window layers (the oval window, some swirls): one combine per
+         * run of constant membership (window_dual_run). Every dual layer
+         * that masks a pixel clears the same dual_tm/dual_ts bits, so one
+         * pass ORs the layers' results instead of a pass per layer. */
+        if (dual_count > 0) {
+            uint8_t dual_ktm = (uint8_t)~dual_tm, dual_kts = (uint8_t)~dual_ts;
+            /* Track whether the unmasked columns form one span. */
+            dual_vis->ok = true;
+            dual_vis->lo = 0;
+            dual_vis->hi = -1;
+            for (int x = 0; x < render_width; ) {
                 bool in_w1, in_w2;
-                window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, wx, w1_left, w1_right,
-                                  w2_left, w2_right, &in_w1, &in_w2);
-                if (d_w1_inv) in_w1 = !in_w1;
-                if (d_w2_inv) in_w2 = !in_w2;
-                bool masked;
-                switch (logic) {
-                case 0: masked = in_w1 | in_w2; break;
-                case 1: masked = in_w1 & in_w2; break;
-                case 2: masked = in_w1 ^ in_w2; break;
-                case 3: masked = !(in_w1 ^ in_w2); break;
-                default: masked = false; break;
+                int last = window_dual_run(&gslot, wide_mode, scanline, x, wx_offset, render_width,
+                                           w1_left, w1_right, w2_left, w2_right, &in_w1, &in_w2);
+                if (last < 0) {
+                    /* Gutter pixels take the state of the window shape
+                     * continued past the native edge (see window_membership). */
+                    window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, x + wx_offset,
+                                      w1_left, w1_right, w2_left, w2_right, &in_w1, &in_w2);
+                    last = x;
+                }
+                bool masked = false;
+                for (int di = 0; di < dual_count && !masked; di++) {
+                    uint8_t sel = wc->dual_sel[di];
+                    masked = window_dual_combine(in_w1, in_w2, sel & 0x01, sel & 0x04, wc->dual_logic[di]);
                 }
                 if (masked) {
-                    if (dual_tm) eff_tm_line[x] &= ~dual_tm;
-                    if (dual_ts) eff_ts_line[x] &= ~dual_ts;
+                    for (int i = x; i <= last; i++) {
+                        eff_tm_line[i] &= dual_ktm;
+                        eff_ts_line[i] &= dual_kts;
+                    }
+                } else if (dual_vis->hi < dual_vis->lo) {
+                    dual_vis->lo = x;
+                    dual_vis->hi = last;
+                } else if (x == dual_vis->hi + 1) {
+                    dual_vis->hi = last;
+                } else {
+                    dual_vis->ok = false;
                 }
+                x = last + 1;
             }
         }
     } else {
@@ -2098,26 +2214,22 @@ void precompute_window_masks(
                     if (w2_right + 1 <= inv_hi) CM_SPAN(w2_right + 1, inv_hi, val_inside);
                 }
             } else {
-                for (int x = 0; x < render_width; x++) {
-                    int wx = x + wx_offset;
-                    /* The battle swirl uses BOTH color windows (wobjsel=0xA0 ->
-                     * cm_w1_en && cm_w2_en), so it lands here. Gutter pixels
-                     * take the state of the swirl continued past the native
-                     * edge (see window_membership). */
+                /* The battle swirl uses BOTH color windows (wobjsel=0xA0 ->
+                 * cm_w1_en && cm_w2_en), so it lands here. */
+                for (int x = 0; x < render_width; ) {
                     bool in_w1, in_w2;
-                    window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, wx, w1_left, w1_right,
-                                      w2_left, w2_right, &in_w1, &in_w2);
-                    if (cm_w1_inv) in_w1 = !in_w1;
-                    if (cm_w2_inv) in_w2 = !in_w2;
-                    bool in_cw;
-                    switch (cm_logic) {
-                    case 0: in_cw = in_w1 | in_w2; break;
-                    case 1: in_cw = in_w1 & in_w2; break;
-                    case 2: in_cw = in_w1 ^ in_w2; break;
-                    case 3: in_cw = !(in_w1 ^ in_w2); break;
-                    default: in_cw = false; break;
+                    int last = window_dual_run(&gslot, wide_mode, scanline, x, wx_offset, render_width,
+                                               w1_left, w1_right, w2_left, w2_right, &in_w1, &in_w2);
+                    if (last < 0) {
+                        /* Gutter pixels take the state of the swirl continued
+                         * past the native edge (see window_membership). */
+                        window_membership(gutter_row_get(&gslot, wide_mode, scanline), scanline, x + wx_offset,
+                                          w1_left, w1_right, w2_left, w2_right, &in_w1, &in_w2);
+                        last = x;
                     }
-                    cm_prevented_line[x] = in_cw ? val_inside : val_outside;
+                    bool in_cw = window_dual_combine(in_w1, in_w2, cm_w1_inv, cm_w2_inv, cm_logic);
+                    memset(&cm_prevented_line[x], in_cw ? val_inside : val_outside, (size_t)(last - x + 1));
+                    x = last + 1;
                 }
             }
             #undef CM_SPAN
@@ -2399,6 +2511,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Classify window layers once per frame — depends only on window config
      * registers which don't change within a frame (only positions change). */
     WindowClassification win_class;
+    /* The dual-window layers' visible span on the scanline whose masks were
+     * last computed (precompute_window_masks; kept across cached scanlines). */
+    WindowSpan dual_vis = { false, 0, -1 };
     /* Layer windows are in effect only when the classification put some layer
      * into a batch. TMW/TSW alone don't decide it: a layer bit with neither of
      * its W12SEL/W34SEL/WOBJSEL windows enabled masks nothing (TMW=0x13 with
@@ -2584,7 +2699,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                                         eff_tm_line, eff_ts_line,
                                         cm_prevented_line,
                                         color_math_active, prevent_mode,
-                                        &win_class);
+                                        &win_class, &dual_vis);
             }
         }
         PROF_END(win, prof_win);
@@ -2671,6 +2786,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
              * them before each render; keep them defined for the copy. */
             ctx.emit_lo = 0;
             ctx.emit_hi = 0;
+            ctx.clip = 0;
+            ctx.clip_lo = 0;
+            ctx.clip_hi = 0;
 
             if (layer_fills) {
                 /* x_pad centers the native 256px content under the +PAD_LEFT
@@ -2681,6 +2799,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * scrolls in its own coordinate space and is centered by the
                  * camera, so a PAD_LEFT shift would desync it from entities. */
                 int fill_pad = fills_explicit ? EB_VIEWPORT_PAD_LEFT : 0;
+                bg_clip_to_window_span(&ctx, &dual_vis, &win_class, need_sub, bg_mosaic, merged_empty);
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &ctx, EB_VIEWPORT_WIDTH, fill_pad);
             } else if (wide_mode) {
@@ -2863,6 +2982,7 @@ merge_done:
                     bg_gutter_fill(bg, scanline, &ctx, best_bg);
 #endif
             } else {
+                bg_clip_to_window_span(&ctx, &dual_vis, &win_class, need_sub, bg_mosaic, merged_empty);
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &ctx, render_width, 0);
             }
