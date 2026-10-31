@@ -632,60 +632,85 @@ void print_menu_at_selection(uint16_t selection) {
 }
 
 /*
- * OPEN_WINDOW_AND_PRINT_MENU — Port of asm/text/window/open_window_and_print_menu.asm.
+ * LAYOUT_MENU_OPTIONS — Port of asm/text/menu/layout_menu_options.asm (US).
  *
- * Assembly calls LAYOUT_MENU_OPTIONS (C451FA.asm) which is a complex
- * layout engine. It arranges menu items into columns/rows based on
- * window dimensions and item count.
+ * Positions the focus window's options in `columns` columns, row-major, with
+ * pagination when they don't fit. The asm's X (extra column spacing) is 0 at
+ * every caller, so the fixed column width is interior_width / columns.
  *
- * Simplified C port: computes positions for items arranged in a grid
- * with the given number of columns, then prints each item's label
- * into the window using print_string.
- *
- * columns: number of columns for layout (1 = single column, 2 = two columns)
- * start_index: if non-zero, reassign userdata starting from this value
+ * proportional (asm Y, @LOCAL0D): CC_1C_07's horizontal menus pass 1. Each
+ * label's width is GET_STRING_PIXEL_WIDTH + 8 (8-bit), the window width is
+ * shared out in proportion (scale = width * $800 / total, column =
+ * label * scale >> 8 pixels), each label is centred in its column and the
+ * next column starts (column + 7) / 8 tiles further right. The widths are
+ * per option (the counter runs across rows), as in the asm.
  */
-void open_window_and_print_menu(uint16_t columns, uint16_t start_index) {
-    WindowInfo *w = get_window(win.current_focus_window);
-    if (!w || w->menu_count == 0) return;
-
-    if (columns < 1) columns = 1;
-
-    /* Calculate column width in tile units.
-     * Interior width = window width - 2 (borders). Divide among columns. */
-    uint16_t interior_w = w->width - 2;
-    uint16_t col_width = interior_w / columns;
-
-    /* Assembly LAYOUT_MENU_OPTIONS (line 154-156): max_rows = height / 2,
-     * where window_stats::height is the interior height (CREATE_WINDOW
-     * stores the config height minus 2), as in FIND_NEXT_MENU_OPTION. */
-    uint16_t max_rows = (uint16_t)((w->height - 2) / 2);
+static void layout_menu_options(WindowInfo *w, uint16_t columns, uint16_t proportional) {
+    /* window_stats::width/height are interior sizes (CREATE_WINDOW stores
+     * the config size minus 2); WindowInfo keeps the config size. */
+    uint16_t interior_w = (uint16_t)(w->width - 2);
     uint16_t total_items = w->menu_count;
-    uint16_t rows_needed = (total_items + columns - 1) / columns;
+
+    /* MENU_OPTION_LABEL_LENGTHS / MENU_OPTION_COLUMN_WIDTHS: 4 bytes each in
+     * ram.asm (MEMSET to 0 / $FF); more options than that overrun in the asm. */
+    uint8_t label_len[MAX_WINDOW_MENU_ITEMS];
+    uint8_t column_w[MAX_WINDOW_MENU_ITEMS];
+    memset(label_len, 0, sizeof(label_len));
+    memset(column_w, 0xFF, sizeof(column_w));
+
+    uint16_t col_width = 0;
+    if (proportional) {
+        uint16_t total = 0;
+        for (uint16_t i = 0; i < total_items; i++) {
+            /* The C labels are ASCII; measure the EB bytes print_string prints. */
+            const char *label = window_menu_item(w, i)->label;
+            uint8_t eb[MENU_LABEL_SIZE];
+            uint16_t n = 0;
+            for (; n < MENU_LABEL_SIZE - 1 && label[n]; n++)
+                eb[n] = ((uint8_t)label[n] == EB_CHAR_EQUIPPED)
+                            ? (uint8_t)label[n] : ascii_to_eb_char(label[n]);
+            eb[n] = 0;
+            label_len[i] = (uint8_t)(get_string_pixel_width(eb, 30) + 8);
+            total = (uint16_t)(total + label_len[i]);
+        }
+        /* MULT16 (16-bit product), then the DIVISION16S_DIVISOR_POSITIVE entry,
+         * which skips DIVISION16S's sign handling: an unsigned 16/16 divide. */
+        uint16_t scale = total ? (uint16_t)((uint16_t)(interior_w * 0x800) / total) : 0;
+        for (uint16_t i = 0; i < total_items; i++)
+            column_w[i] = (uint8_t)((uint16_t)(label_len[i] * scale) >> 8);
+    } else {
+        col_width = interior_w / columns;
+    }
+
+    /* @COMPUTE_ROW_COUNT: rows = height / 2; if the options need more rows,
+     * DEX;DEX keeps the last row for the overflow indicator plus a gap. */
+    uint16_t max_rows = (uint16_t)((w->height - 2) / 2);
+    uint16_t rows_needed = (uint16_t)((total_items + columns - 1) / columns);
     bool needs_pagination = (rows_needed > max_rows);
+    uint16_t rows_per_page = needs_pagination ? (uint16_t)(max_rows - 2) : max_rows;
+    uint16_t items_per_page = (uint16_t)(rows_per_page * columns);
 
-    /* If paginated, assembly (layout_menu_options.asm lines 170-173) does
-     * DEX;DEX — reduces rows_per_page by 2 from max_rows, reserving
-     * the last row for the overflow indicator with one blank row gap. */
-    uint16_t rows_per_page = needs_pagination ? (max_rows - 2) : max_rows;
-    uint16_t items_per_page = rows_per_page * columns;
-
-    /* Lay out items: row-major order with pagination.
-     * Assembly @PAGE_LOOP: resets text_y for each new page, assigns
-     * page numbers starting at 1. */
+    /* @PAGE_LOOP / @ROW_LOOP / @POSITION_OPTION. */
     uint16_t page = 1;
     uint16_t page_item = 0;
-
+    uint16_t x = 0;
     for (uint16_t i = 0; i < total_items; i++) {
         uint16_t col = page_item % columns;
         uint16_t row = page_item / columns;
-        window_menu_item(w, i)->text_x = (uint8_t)(col * col_width);
-        window_menu_item(w, i)->text_y = (uint8_t)(w->text_y + row);
-        window_menu_item(w, i)->page = page;
-
-        if (start_index) {
-            window_menu_item(w, i)->userdata = start_index + i;
+        if (col == 0)
+            x = 0;
+        MenuItem *item = window_menu_item(w, i);
+        if (proportional) {
+            /* 8-bit (column - label), halved (ROR), then >> 3 to tiles. */
+            uint8_t spare = (uint8_t)(column_w[i] - label_len[i]);
+            item->text_x = (uint8_t)(x + ((spare >> 1) >> 3));
+            x = (uint16_t)(x + ((column_w[i] + 7) >> 3));
+        } else {
+            item->text_x = (uint8_t)x;
+            x = (uint16_t)(x + col_width);
         }
+        item->text_y = (uint8_t)(w->text_y + row);
+        item->page = page;
 
         page_item++;
         if (page_item >= items_per_page) {
@@ -694,8 +719,8 @@ void open_window_and_print_menu(uint16_t columns, uint16_t start_index) {
         }
     }
 
-    /* Assembly (layout_menu_options.asm lines 303-359): if items overflow,
-     * add an overflow indicator at the last row with page=0 (always visible).
+    /* @OPTIONS_EXHAUSTED (asm lines 303-359): if the options overflow, add
+     * the overflow indicator on the last row with page=0 (always visible).
      * Selecting it cycles through pages. */
     MenuItem *oi = needs_pagination ? alloc_menu_item(w) : NULL;
     if (oi) {
@@ -711,45 +736,42 @@ void open_window_and_print_menu(uint16_t columns, uint16_t start_index) {
         oi->script = 0;
         w->menu_count++;
     }
+}
 
+/*
+ * OPEN_WINDOW_AND_PRINT_MENU — Port of asm/text/window/open_window_and_print_menu.asm.
+ *
+ * TXY; LDX #0; LAYOUT_MENU_OPTIONS; PRINT_MENU_ITEMS. The caller's X becomes
+ * the layout's proportional flag (1 only for CC_1C_07's horizontal menus).
+ */
+void open_window_and_print_menu(uint16_t columns, uint16_t proportional) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w || w->menu_count == 0) return;
+
+    if (columns < 1) columns = 1;
+
+    layout_menu_options(w, columns, proportional);
     w->menu_page_number = 1;
 
-    /* Assembly: LAYOUT_MENU_OPTIONS then PRINT_MENU_ITEMS */
     print_menu_items();
 }
 
-/* LAYOUT_AND_PRINT_MENU_AT_SELECTION — Port of asm/text/menu/layout_and_print_menu_at_selection.asm (59 lines).
+/* LAYOUT_AND_PRINT_MENU_AT_SELECTION — Port of asm/text/menu/layout_and_print_menu_at_selection.asm.
  *
- * Like open_window_and_print_menu, but also sets the initial cursor
- * position to `initial_selection` (0-based index into menu items).
- * If initial_selection == (uint16_t)-1, no pre-selection is applied.
- *
- * Assembly: LAYOUT_MENU_OPTIONS(A=columns, X=0, Y=0) then walks the
- * menu option linked list to set selected_option and menu_page_number
- * to the page containing initial_selection. */
-void layout_and_print_menu_at_selection(uint16_t columns, uint16_t start_index,
+ * LAYOUT_MENU_OPTIONS(A=columns, X=0, Y=proportional), then, unless
+ * initial_selection is -1, selects that option and shows its page. */
+void layout_and_print_menu_at_selection(uint16_t columns, uint16_t proportional,
                                         uint16_t initial_selection) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0) return;
 
     if (columns < 1) columns = 1;
 
-    /* Layout items (same as open_window_and_print_menu) */
-    uint16_t interior_w = w->width - 2;
-    uint16_t col_width = interior_w / columns;
+    layout_menu_options(w, columns, proportional);
 
-    for (uint16_t i = 0; i < w->menu_count; i++) {
-        uint16_t col = i % columns;
-        uint16_t row = i / columns;
-        window_menu_item(w, i)->text_x = (uint8_t)(col * col_width);
-        window_menu_item(w, i)->text_y = (uint8_t)(w->text_y + row);
-        if (start_index)
-            window_menu_item(w, i)->userdata = start_index + i;
-    }
-
-    /* Set initial selection position (assembly lines 17-55) */
     if (initial_selection != (uint16_t)(-1) && initial_selection < w->menu_count) {
         w->selected_option = initial_selection;
+        w->menu_page_number = window_menu_item(w, initial_selection)->page;
     }
 
     print_menu_items();

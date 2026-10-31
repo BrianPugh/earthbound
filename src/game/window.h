@@ -569,13 +569,13 @@ void add_menu_item_no_position(const char *label, uint16_t userdata);
 /* OPEN_WINDOW_AND_PRINT_MENU: Port of asm/text/window/open_window_and_print_menu.asm.
  * Calls LAYOUT_MENU_OPTIONS to arrange items in columns, then prints them.
  * columns: number of columns for layout.
- * start_index: 1-based starting index for userdata assignment (0 = don't reassign). */
-void open_window_and_print_menu(uint16_t columns, uint16_t start_index);
+ * proportional: asm X; 1 spaces the columns by label width (CC_1C_07). */
+void open_window_and_print_menu(uint16_t columns, uint16_t proportional);
 
 /* LAYOUT_AND_PRINT_MENU_AT_SELECTION: Port of asm/text/menu/layout_and_print_menu_at_selection.asm.
  * Like open_window_and_print_menu, but also sets initial cursor position.
  * initial_selection: 0-based index, or (uint16_t)-1 for no pre-selection. */
-void layout_and_print_menu_at_selection(uint16_t columns, uint16_t start_index,
+void layout_and_print_menu_at_selection(uint16_t columns, uint16_t proportional,
                                         uint16_t initial_selection);
 
 /* BACKUP_SELECTED_MENU_OPTION: Port of asm/misc/backup_selected_menu_option.asm.

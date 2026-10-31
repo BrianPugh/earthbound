@@ -2636,7 +2636,7 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         /* PRINT_HORIZONTAL_TEXT_STRING: 1 arg (column count).
          * Port of CC_1C_07 (asm/text/ccs/print_horizontal_strings.asm).
          * If arg==0, uses argument_memory for column count.
-         * Calls open_window_and_print_menu with start_index=1 (renumber items from 1). */
+         * OPEN_WINDOW_AND_PRINT_MENU with X=1: proportional (label-width) columns. */
         uint8_t columns_arg = script_read_byte(r);
         uint16_t columns = columns_arg ? (uint16_t)columns_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
         open_window_and_print_menu(columns, 1);
@@ -2694,7 +2694,7 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         /* PRINT_VERTICAL_TEXT_STRING: 1 arg (column count).
          * Port of CC_1C_0C (asm/text/ccs/print_vertical_strings.asm).
          * If arg==0, uses argument_memory for column count.
-         * Calls open_window_and_print_menu with start_index=0 (keep existing userdata). */
+         * OPEN_WINDOW_AND_PRINT_MENU with X=0: fixed-width columns. */
         uint8_t columns_arg = script_read_byte(r);
         uint16_t columns = columns_arg ? (uint16_t)columns_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
         open_window_and_print_menu(columns, 0);

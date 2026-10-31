@@ -781,7 +781,7 @@ void show_character_inventory(uint16_t window_id, uint16_t char_source) {
     }
 
     /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING,
-     * then OPEN_WINDOW_AND_PRINT_MENU(columns=2, start_index=0). */
+     * then OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0). */
     window_tick_without_instant_printing();
     open_window_and_print_menu(2, 0);
 }
