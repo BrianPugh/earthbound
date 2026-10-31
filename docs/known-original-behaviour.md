@@ -88,6 +88,10 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Defense spray: "used the Defense spray!" / "defense went up by 4!" with no animation; Pak of bubble gum: "But nothing happened." | 17-GoldMine surprise round, `give 161 1` (Ness) / `give 104 2` (Paula) | emu pt61os vs port pt61s | 2026-10-31 |
 | PSI Magnet α: blue lines, magenta bars, X and diamond over the target on the darkened BG, "Drained N PP from ..." | 17-GoldMine surprise round, Paula → Recover → PSI Magnet on the Cute Li'l UFO | emu pt61os sheet-0030 vs port pt61s sheet-0096 | 2026-10-31 |
 | Thunder Ω: jagged shapes, full-screen blue flash, zigzag bolts, blue then yellow full-screen flashes, bars, yellow target, frame for frame | 36-CavePast `teleport 623 6229 0; rng 100 200; until battle ...`, others Defend, `rng 2 2` | emu pt61ot sheet-0016 vs port pt61t sheet-0017 | 2026-10-31 |
+| Level 98 → 99 with 255-ish stats: the 254/255 stats stay put, Max HP jumps from 998 to 3825 (15 × vitality 255, no 999 cap), PP may rise by 0 or 1 when its potential is below the current max (RAND_MOD floor, random); a level-99 member keeps gaining exp past 9999999 (10002606 stored) | edited 17-GoldMine save (Ness L98 exp 8071600, Paula L99 exp 9999990), Desert Wolf + Bad Buffalo via `teleport 3424 9312`, Auto Fight | emu pt63oa vs port pt63a, `hpt`; `level_up_char.asm:582-588` | 2026-10-31 |
+| Battle money into a bank at $9999990 stops at $9,999,999 | same battle | `hpt` bank 9999999 on both | 2026-10-31 |
+| All members at 0 HP when a turn starts: each "got hurt and collapsed...", the windows go red, "lost the battle...", game over; Continue halves $8865 to $4433 (rounded up) | 17-GoldMine edited save, `hp 1 0; hp 2 0; hp 3 0` at the command menu | emu pt63od sheet-0050 vs port pt63d sheet-0047, go1/go2 | 2026-10-31 |
+| Setting every member's HP to 0 on the overworld starts the comeback (game over) sequence at once | 17-GoldMine, `hp` pokes while idle | emu pt63od (PLAY_COMEBACK_SEQUENCE) | 2026-10-31 |
 
 ## Text and windows
 
@@ -120,6 +124,12 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | HP/PP boxes: unconscious member's header pink, ailing member's header purple with the ailment icon; can't-equip members' boxes dimmed in the equipment shop list | 30-DeepDark `status 2 1 1; status 3 1 5`, `press B`; 15-Desert cabin shop | emu pt49od/oc vs port pt49d/c, `pt49-cmp/hpdead.png`, `ds5.png` | 2026-10-31 |
 | File select slot list, Continue/Copy/Delete/Set Up, Copy to where?, vertical No/Yes delete confirm, text speed/sound/flavour lists, naming prompt, CAPITAL/small keyboards, Don't Care names and the final Yep/Nope confirmation: identical except the selection highlights and the flavour prompt's wrap (leg-pt49 items 6-8) | 24-Museum `--no-boot`, slot 1 and New Game on slot 2 | emu pt49oe/of vs port pt49e/f, `pt49-cmp/` fs0, fs7, nm1, nm3, nm4, nm7 | 2026-10-31 |
 | Slow text speed types 1 letter every 3 frames (6 at word gaps) and blinks ▼ 15/10 frames, frame for frame the same as the port | 24-Museum after Set Up → Slow, `press L` at the phone | emu pt49oe vs port pt49e, per-frame shots `ts` | 2026-10-31 |
+| Status window with a 4-digit HP shows "382 / 3825" (current HP cut to 3 digits) and the HP meter shows "25"; exp above 9999999 prints 9999999; L99 shows "0 Exp. for next level." | Status after the L99 level-up above | emu pt63oa st99/stp vs port pt63a | 2026-10-31 |
+| ATM: withdrawing $111 with $99990 in the wallet debits all $111 and the wallet stops at $99999; depositing $1111 into $9999888 takes all of it and the balance stops at $9999999; depositing at the cap says it can't accept more than $9,999,999 | Onett drugstore ATM, `teleport 7784 1482 0`, Check | emu pt63oa atm3-8, dep1-4, full1-2 vs port pt63a | 2026-10-31 |
+| Selling a $200 item with $99995 leaves $99999 (the rest is lost); buying with exact change leaves $0 | Onett drugstore clerk, `teleport 7848 1490 0` | emu pt63oa sell6/buy8 vs port pt63a | 2026-10-31 |
+| 5-letter player name and 6-letter PSI/food names (WWWWW / WWWWWW) fit the HP/PP windows, PSI menu title and battle lines ("WWWWW tried / PSI WWWWWW α!") | edited 17-GoldMine save | emu pt63od rk1/0008-a vs port pt63d rk1/rk3 | 2026-10-31 |
+| PSI Teleport α with no destination flags (209-220, 146, 596 clear): A does nothing and the cursor jumps back to the first ability | 24-Museum, pause menu PSI → Ness → Teleport | emu pt63of tp6/tp7 vs port pt63f | 2026-10-31 |
+| A level-98 member whose exp is already past the level-99 threshold hangs the status window (GET_REQUIRED_EXP's subtraction goes negative); unreachable in play, the port prints 0 | hand-edited save only | emu pt63oa (first run) | 2026-10-31 |
 
 ## Overworld and collision
 
@@ -211,6 +221,9 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Dad and debug-menu saves, Set Up, Copy and a new game's intro autosave write the same SRAM bytes as the original apart from the timer; saves written by either side load in the other (file list, Set Up cursors for text speed/sound/flavour, Continue position and party) | 02-Sharks, 12-Zombies, blank 8 KB SRAM | emu pt58od/oe/og/oh/oi/ol vs port pt58d/e/f/g/h, docs/plans/leg-pt58.md | 2026-10-31 |
 | A slot whose primary block has a damaged signature shows as "Start New Game" with no message, although its backup copy is intact; a wrong SRAM version word ($1FFE) empties all 3 slots silently; both copies failing their checksums prints "We're very sorry..." and empties the slot; one bad copy is silently restored from the other | file select after boot, slot 1 of 12-Zombies with 1 bit flipped | CHECK_SRAM_INTEGRITY / CHECK_BLOCK_SIGNATURE / CHECK_SAVE_CORRUPTION / CORRUPTION_CHECK; emu pt58o6sig/ver/both/pri/bak | 2026-10-31 |
 | Boot writes 0x31 at SRAM $1FF0 (anti-piracy SRAM-size scratch) and signs all 6 blocks of a blank SRAM | any boot | TEST_SRAM_SIZE (asm/system/test_sram_size.asm:5), CHECK_ALL_BLOCKS_SIGNATURE; emu pt58oi | 2026-10-31 |
+| Escargo Pick-up with all 36 lockers full: "Our storage lockers are all full right now. Come again. (Click!)" | edited 17-GoldMine save, desert cabin phone 8040,1896 | emu pt63ob k1-k4 vs port pt63b | 2026-10-31 |
+| Eating a Hamburger while holding a Ketchup packet uses both ("took the Ketchup packet and used it on the Hamburger") | pause menu Goods | emu pt63ob fd1-fd6 vs port pt63b | 2026-10-31 |
+| Bad key machine used on the open desert: "But nothing happened." | 17-GoldMine desert | emu pt63od key2 vs port pt63d | 2026-10-31 |
 
 ## Audio
 
