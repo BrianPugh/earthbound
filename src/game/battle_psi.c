@@ -483,12 +483,11 @@ void display_psi_description(uint16_t ability_id) {
     if (!ensure_battle_psi_table()) return;
     uint32_t text_addr = battle_psi_table[ability_id].text;
 
-    /* Display the PSI description text script. USA does NOT set instant printing
-     * (see asm/text/menu/display_psi_description.asm), so this typewriters/yields.
-     * As a cursor_move_callback we cannot block: hand the address to the
-     * selection-menu step, which STEP_PUSHes GAME_MODE_DISPLAY_TEXT after we return
-     * and finishes the menu at SM_*_RESUME when the text pops. */
-    request_cursor_move_text(text_addr);
+    /* DISPLAY_TEXT the description. WINDOW_TICK_WITHOUT_INSTANT_PRINTING ends
+     * with SET_INSTANT_PRINTING (asm/text/window_tick_without_instant_printing.asm),
+     * so the US text prints at once, as the JP version's explicit
+     * SET_INSTANT_PRINTING does; it needs no yield. */
+    display_text_from_addr_inline(text_addr);
 
     clear_instant_printing();
 }

@@ -1314,8 +1314,6 @@ typedef enum {
     SM_SETUP = 0,  /* one-shot setup; ends with window_tick_work, then yields */
     SM_MAIN,       /* cursor blink + per-frame HP/PP render + input handling */
     SM_PAGE2,      /* second half of an overflow page-flip re-render */
-    SM_SETUP_RESUME, /* finish SM_SETUP after a deferred cursor-callback text push */
-    SM_MOVE_RESUME,  /* finish a cursor move after a deferred cursor-callback text push */
 } SelectionMenuPhase;
 
 /* Park-resume markers: which of the mode's window_tick_work / update_hppp_meter_work
@@ -1336,8 +1334,8 @@ typedef struct {
     uint8_t  redraw_cursor; /* toggle + rewrite the cursor tiles this frame */
     uint8_t  cursor_frame;  /* blink sub-frame (0/1) */
     uint8_t  menu_window;   /* focus window id captured at SM_SETUP; used to restore
-                             * focus on SM_*_RESUME before the menu-less-window early-out
-                             * (a deferred cursor-callback text push moves focus away) */
+                             * focus on an sm_flush resume before the menu-less-window
+                             * early-out (the parked child may move focus away) */
     uint16_t frame_counter; /* frames since last cursor toggle */
     uint16_t idle_ticks;    /* asm @LOCAL09: input ticks with no action since the last
                              * @SETUP_CURRENT_OPTION (drives the 60-frame money/HP-PP
