@@ -41,7 +41,7 @@ SCREEN_TRANSITION:
 	ASL
 	ASL
 	TAX
-	LDY #screen_transition_config::unknown5
+	LDY #screen_transition_config::slide_speed
 	LDA [@VIRTUAL06],Y
 	JSL INIT_TRANSITION_SCROLL_VELOCITY
 	LDY @LOCAL06

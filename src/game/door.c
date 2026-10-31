@@ -742,7 +742,7 @@ void check_door_near_leader(uint16_t direction) {
  * Sets up background scroll velocity for the transition effect.
  *
  * Assembly parameter mapping:
- *   A = speed (from config.scroll_speed)
+ *   A = speed (config.slide_speed, a 16-bit word at offset 5)
  *   X = direction * 4 (from config.direction << 2)
  *
  * The velocities are 32-bit 16.16 values (TRANSITION_*_VELOCITY_FRAC low word,
@@ -911,7 +911,7 @@ static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
     uint8_t animation_flags           = cfg->animation_flags;
     uint8_t fade_style                = cfg->fade_style;
     uint8_t direction                 = cfg->direction;
-    uint8_t unknown5                  = cfg->scroll_speed;
+    uint16_t slide_speed              = cfg->slide_speed;
     uint8_t secondary_duration        = cfg->secondary_duration;
     uint8_t secondary_animation_id    = cfg->secondary_animation_id;
     uint8_t secondary_animation_flags = cfg->secondary_animation_flags;
@@ -924,9 +924,11 @@ static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
     }
 
     /* Assembly lines 37-46: init transition scroll velocity.
-     * direction * 4 gives byte angle, speed from unknown5. */
+     * direction * 4 gives byte angle; the speed is the 16-bit word at offset 5
+     * (16-bit LDA [cfg],Y), nonzero for the hole falls (5, 33), the Moonside
+     * warps (17-27) and 31/32. */
     uint16_t dir_x4 = (uint16_t)direction << 2;
-    init_transition_scroll_velocity((uint16_t)unknown5, dir_x4);
+    init_transition_scroll_velocity(slide_speed, dir_x4);
 
     /* The two per-frame frame loops (and the finalize frame) are run-to-
      * completion as GAME_MODE_SCREEN_TRANSITION; the one-shot setup below and the

@@ -15,8 +15,7 @@ typedef struct {
     uint8_t animation_flags;       /*  2 */
     uint8_t fade_style;            /*  3 */
     uint8_t direction;             /*  4 */
-    uint8_t scroll_speed;          /*  5 */
-    uint8_t slide_speed;           /*  6 */
+    uint16_t slide_speed;          /*  5: scroll speed (LE word; the asm loads it 16-bit) */
     uint8_t start_sound_effect;    /*  7 */
     uint8_t secondary_duration;    /*  8 */
     uint8_t secondary_animation_id;    /*  9 */

@@ -2661,10 +2661,12 @@ static void clear_map_row_vram(int16_t y_tile) {
  * UPDATE_TRANSITION_SCROLL). Unlike REFRESH_MAP_AT_POSITION it loads no map
  * tiles and spawns no NPCs: it sets the scroll and walks ml.screen_left_x /
  * ml.screen_top_y one tile at a time to the new origin, blanking each newly
- * exposed column/row. Every screen transition config has scroll speed 0, so
- * the origin normally doesn't move and the tilemap is left as it is, which keeps
- * a non-map BG1 (the Your Sanctuary montage's picture at $3800) on screen
- * through the fade-out. The asm blanks column left+32 / row top+28, the first
+ * exposed column/row. Most screen transition configs have scroll speed 0, so
+ * the origin doesn't move and the tilemap is left as it is, which keeps a
+ * non-map BG1 (the Your Sanctuary montage's picture at $3800) on screen through
+ * the fade-out. The hole falls (styles 5, 33), the Moonside warps (17-27) and
+ * 31/32 slide the map, and the strips coming into view are blanked to black,
+ * as in the original. The asm blanks column left+32 / row top+28, the first
  * ones past the 256x224 view; the wide viewport uses its own size. The asm also
  * stores BG12_POSITION_X/Y_COPY, which nothing reads. */
 void scroll_map_to_position(uint16_t bg_x, uint16_t bg_y) {

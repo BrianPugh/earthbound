@@ -677,8 +677,7 @@
 	animation_flags .byte ;2
 	fade_style .byte ;3
 	direction .byte ;4
-	unknown5 .byte ;5
-	slide_speed .byte ;6
+	slide_speed .word ;5
 	start_sound_effect .byte ;7
 	secondary_duration .byte ;8
 	secondary_animation_id .byte ;9
