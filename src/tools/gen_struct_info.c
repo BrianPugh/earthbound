@@ -491,7 +491,8 @@ int main(void) {
     FIELD(DisplayTextState, citem, "u8"); SEP();
     FIELD(DisplayTextState, selected_text_speed, "u8"); SEP();
     FIELD(DisplayTextState, force_left_text_alignment, "u16"); SEP();
-    FIELD(DisplayTextState, pagination_window, "u16"); SEP();
+    FIELD(DisplayTextState, pagination_window, "u8"); SEP();
+    FIELD(DisplayTextState, last_text_pixel_offset_set, "u8"); SEP();
     FIELD(DisplayTextState, pagination_animation_frame, "i16"); SEP();
     FIELD(DisplayTextState, enable_word_wrap, "u16"); SEP();
     FIELD(DisplayTextState, allow_text_overflow, "u8"); SEP();

@@ -458,6 +458,7 @@ void set_text_pixel_position(uint16_t row, uint16_t pixel_pos) {
         /* Clear VWF ert.buffer at current tile (fill with 0xFF) */
         uint16_t buf_offset = vwf_tile * VWF_TILE_BYTES;
         memset(vwf_buffer + buf_offset, 0xFF, VWF_TILE_BYTES);
+        dt.last_text_pixel_offset_set = pixel_offset;
     }
 
     /* Override cursor_pixel_x to actual pixel position */

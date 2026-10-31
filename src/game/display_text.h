@@ -149,6 +149,14 @@ typedef struct {
     /* PAGINATION_WINDOW: controls the "▶" pagination indicator. */
     uint8_t  pagination_window;
 
+    /* LAST_TEXT_PIXEL_OFFSET_SET (ram.asm): the last non-zero sub-tile pixel
+     * offset SET_TEXT_PIXEL_POSITION applied (SET_TEXT_CURSOR_WITH_PIXEL_OFFSET
+     * stores it; only INITIALIZE_BATTLE_UI_STATE clears it). PRINT_NUMBER's
+     * padding (ADVANCE_TEXT_CURSOR_PIXELS) starts at text_x * 8 + this, so it
+     * persists across prints and windows. Fills the alignment hole after
+     * pagination_window. */
+    uint8_t  last_text_pixel_offset_set;
+
     /* PAGINATION_ANIMATION_FRAME: animation state for pagination arrow. */
     int16_t pagination_animation_frame;
 

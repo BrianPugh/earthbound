@@ -3788,7 +3788,13 @@ void print_number(int value, int min_digits) {
          * which is necessary for correct VWF tile state. */
         int effective = (pad_count > 0) ? pad_count : 0;
         uint16_t pad_pixels = (uint16_t)(effective * 6);
-        set_text_pixel_position(w->text_y, w->cursor_pixel_x + pad_pixels);
+        /* ADVANCE_TEXT_CURSOR_PIXELS: text_x * 8 + pixels +
+         * LAST_TEXT_PIXEL_OFFSET_SET, not the VWF pixel cursor. After a
+         * whole tile (the equip preview's arrow at pixel 76 leaves text_x
+         * 10, offset 4) the number starts at 84, 4 px past the tile. */
+        set_text_pixel_position(w->text_y,
+                                (uint16_t)(w->text_x * 8 + pad_pixels +
+                                           dt.last_text_pixel_offset_set));
     } else if (min_digits > digit_count) {
         /* No window padding — fallback to caller-specified min_digits */
         snprintf(buf, sizeof(buf), "%*d", min_digits, value);

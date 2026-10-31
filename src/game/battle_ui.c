@@ -1891,6 +1891,7 @@ void initialize_battle_ui_state(void) {
     dt.text_sound_mode = 1;
     bt.battle_mode_flag = 0;
     dt.text_prompt_waiting_for_input = 0;
+    dt.last_text_pixel_offset_set = 0;  /* STZ LAST_TEXT_PIXEL_OFFSET_SET */
     win.current_focus_window = WINDOW_ID_NONE;
 
     /* USA-only: reset BG2 tile usage map and VWF text alignment state */
