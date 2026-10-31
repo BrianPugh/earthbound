@@ -385,11 +385,31 @@ static void file_select_menu_display_only(void) {
 
     fs_print_slot_details();
 
-    /* Assembly (file_select_menu.asm:247-258): highlight selected slot with
-     * palette 6; STZ ENABLE_WORD_WRAP just before APPLY_WINDOW_TEXT_ATTRIBUTES. */
-    dt.enable_word_wrap = 0;
+    /* Assembly (file_select_menu.asm:247-258): the selected slot's row in
+     * palette 6, from after its cursor column (STZ ENABLE_WORD_WRAP;
+     * APPLY_WINDOW_TEXT_ATTRIBUTES). */
     uint16_t highlight_idx = (current_save_slot > 0) ? current_save_slot - 1 : 0;
-    highlight_menu_item(w, highlight_idx, 6, true);
+    if (highlight_idx < w->menu_count) {
+        MenuItem *item = window_menu_item(w, highlight_idx);
+        set_window_palette_index(6);
+        set_focus_text_cursor(item->text_x + 1, item->text_y);
+        dt.enable_word_wrap = 0;
+        apply_window_text_attributes();
+        set_window_palette_index(0);
+    }
+}
+
+/* The display-only highlight of FILE_SELECT_TEXT_SPEED_MENU(1) /
+ * FILE_SELECT_SOUND_MODE_MENU(1) (file_select_text_speed_menu.asm:47-68,
+ * file_select_sound_mode_menu.asm:48-69): the chosen option's label in
+ * palette 6 via SET_FILE_SELECT_TEXT_HIGHLIGHT, from after its cursor column. */
+static void highlight_chosen_option(WindowInfo *w, uint16_t index) {
+    if (index >= w->menu_count) return;
+    MenuItem *item = window_menu_item(w, index);
+    set_window_palette_index(6);
+    set_focus_text_cursor(item->text_x + 1, item->text_y);
+    set_file_select_text_highlight((uint16_t)-1, true, item->label);
+    set_window_palette_index(0);
 }
 
 /*
@@ -412,7 +432,7 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
 
     /* Assembly (file_select_text_speed_menu.asm:49-68): highlight with palette 6 */
     if (selected_speed >= 1 && selected_speed <= 3)
-        highlight_menu_item(w, selected_speed - 1, 6, true);
+        highlight_chosen_option(w, selected_speed - 1);
 }
 
 static void sound_mode_menu_display_only(uint8_t selected_sound) {
@@ -429,7 +449,7 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     /* Assembly (file_select_sound_mode_menu.asm:50-69): highlight with palette 6.
      * sound_setting is 1-based (1 = Stereo, 2 = Mono). */
     if (selected_sound >= 1 && selected_sound <= 2)
-        highlight_menu_item(w, selected_sound - 1, 6, true);
+        highlight_chosen_option(w, selected_sound - 1);
 }
 
 /*
@@ -1679,10 +1699,10 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             }
             /* Yep */
             change_music(158); /* MUSIC::NAME_CONFIRMATION */
-            /* file_select_menu_loop.asm:483: WINDOW_TICK (JSL RAND first; the
-               windows are already drawn), then 180 RENDER_FRAME_TICKs. The
-               tick's frame is the 181st wait frame. */
-            rng_next_byte();
+            /* file_select_menu_loop.asm:483: WINDOW_TICK (JSL RAND, then the
+               window render that shows SELECTION_MENU's Yep highlight), then
+               180 RENDER_FRAME_TICKs. The tick's frame is the 181st wait frame. */
+            window_tick_no_actionscript();
             st->wait_frames = 181;
             st->phase = NGN_CONFIRM_WAIT;
             continue;
@@ -2200,6 +2220,12 @@ void file_menu_setup(void) {
 
     /* Fade in (matching assembly: FADE_IN with X=1) */
     fade_in(1, 1);
+
+    /* RUN_FILE_MENU (asm/text/menu/run_file_menu.asm:5-9, US): the file menus
+     * run with ENABLE_WORD_WRAP = 0 and ALLOW_TEXT_OVERFLOW = 1 (restored in
+     * init_intro's II_FILE_MENU_FADE). */
+    dt.enable_word_wrap = 0;
+    dt.allow_text_overflow = 1;
 
     /* The file-menu cascade itself runs as GAME_MODE_FILE_MENU (FM_FADEIN_WAIT),
      * STEP_PUSHed by the init_intro parent after this setup returns. */

@@ -1190,50 +1190,74 @@ void set_window_palette_index(uint16_t palette_index) {
         w->curr_tile_attributes = palette_index * 1024;
 }
 
+/* A content_tilemap entry the asm would see as its blank tile 64. The C port
+ * leaves never-written entries 0 (render_all_windows skips them). */
+static bool content_entry_is_blank(uint16_t entry) {
+    return entry == 0 || entry == BLANK_TILE;
+}
+
 /*
  * SET_FILE_SELECT_TEXT_HIGHLIGHT — Port of asm/text/set_file_select_text_highlight.asm.
  *
- * Modifies tilemap attribute bits for a menu item's label text to apply
- * or clear a highlight palette. Assembly walks content_tilemap entries at
- * the item's (text_x+1, text_y) position and ORs in palette bits (SET)
- * or masks them off (CLEAR).
- *
- * Used by display-only file select menus to show the previously selected
- * option with a purple/highlight background (palette 6).
+ * Only for the focus window FILE_SELECT_TEXT_SPEED, FILE_SELECT_MUSIC_MODE,
+ * FILE_SELECT_MENU or FILE_SELECT_NAMING_CONFIRMATION_MESSAGE; a no-op for any
+ * other window. From the window's text cursor, one tile per character of
+ * `label`, for at most `count` tiles ((uint16_t)-1 = no cap) and up to the
+ * first blank tile: SET_SPRITE_ATTRIBUTE_BITS (tile & $3FF | curr_tile_attributes,
+ * on the upper and lower row) or, with set == false, CLEAR_SPRITE_ATTRIBUTE_BITS
+ * (tile & $3FF). Leaves text_x after the last tile and clears INSTANT_PRINTING.
  */
-void highlight_menu_item(WindowInfo *w, uint16_t item_index, uint16_t palette, bool set) {
-    if (!w || item_index >= w->menu_count) return;
+void set_file_select_text_highlight(uint16_t count, bool set, const char *label) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+    uint16_t id = w->id;
+    if (id != WINDOW_FILE_SELECT_TEXT_SPEED && id != WINDOW_FILE_SELECT_MUSIC_MODE
+        && id != WINDOW_FILE_SELECT_MENU && id != WINDOW_FILE_SELECT_CONFIRM_MSG)
+        return;
 
-    MenuItem *item = window_menu_item(w, item_index);
     uint16_t content_width = w->width - 2;
-    uint16_t attr = palette * 1024;
-
-    /* Assembly uses text_x + 1 to skip the cursor column */
-    uint16_t tx = item->text_x + 1;
-    uint16_t ty = item->text_y;
-
-    /* Walk through each character of the label.
-     * Assembly (set_file_select_text_highlight.asm line 78): stops when
-     * it hits a blank tile (tile == 64).  In the C port, unwritten entries
-     * are 0.  Skip any entry with a zero tile index to avoid painting
-     * palette bits onto empty positions (which would make them visible). */
-    for (int i = 0; item->label[i] != '\0'; i++) {
-        uint16_t upper_pos = ty * content_width * 2 + tx;
-        uint16_t lower_pos = upper_pos + content_width;
-
-        if (upper_pos < w->content_tilemap_size && lower_pos < w->content_tilemap_size) {
-            uint16_t upper_tile = w->content_tilemap[upper_pos] & 0x03FF;
-            if (upper_tile == 0 || upper_tile == BLANK_TILE)
-                break;  /* past end of rendered text */
-            if (set) {
-                w->content_tilemap[upper_pos] = upper_tile | attr;
-                w->content_tilemap[lower_pos] = (w->content_tilemap[lower_pos] & 0x03FF) | attr;
-            } else {
-                w->content_tilemap[upper_pos] &= 0x03FF;
-                w->content_tilemap[lower_pos] &= 0x03FF;
-            }
-        }
+    uint16_t attr = w->curr_tile_attributes;
+    uint16_t tx = w->text_x;
+    uint16_t pos = w->text_y * content_width * 2 + tx;
+    for (const char *c = label; *c != '\0' && count != 0; c++, count--) {
+        uint16_t lower = pos + content_width;
+        if (lower >= w->content_tilemap_size
+            || content_entry_is_blank(w->content_tilemap[pos]))
+            break;
+        uint16_t up_bits = set ? attr : 0;
+        w->content_tilemap[pos] = (w->content_tilemap[pos] & 0x03FF) | up_bits;
+        w->content_tilemap[lower] = (w->content_tilemap[lower] & 0x03FF) | up_bits;
         tx++;
+        pos++;
+    }
+    w->text_x = tx;
+    dt.instant_printing = 0;   /* STZ INSTANT_PRINTING */
+}
+
+/*
+ * APPLY_WINDOW_TEXT_ATTRIBUTES — Port of asm/text/apply_window_text_attributes.asm.
+ *
+ * On the focus window's current text row, finds the last non-blank tile, then
+ * from text_x through it sets every tile (blanks in between included) to
+ * tile & $3FF | curr_tile_attributes, on the upper and lower row.
+ */
+void apply_window_text_attributes(void) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    if (!w) return;
+    uint16_t content_width = w->width - 2;
+    uint16_t attr = w->curr_tile_attributes;
+    uint16_t row = w->text_y * content_width * 2;
+    if (row + 2u * content_width > w->content_tilemap_size) return;
+
+    int last = content_width - 1;
+    while (last >= 0 && content_entry_is_blank(w->content_tilemap[row + last]))
+        last--;
+    for (int col = w->text_x; col <= last; col++) {
+        uint16_t *up = &w->content_tilemap[row + col];
+        uint16_t *lo = &w->content_tilemap[row + content_width + col];
+        /* A C blank (0) is the asm's tile 64. */
+        *up = ((*up ? *up : BLANK_TILE) & 0x03FF) | attr;
+        *lo = ((*lo ? *lo : BLANK_TILE) & 0x03FF) | attr;
     }
 }
 
@@ -1679,15 +1703,14 @@ static void sm_setup_pre(WindowInfo *w) {
         win.restore_menu_backup = 0;
     }
     if (w->selected_option < w->menu_count) {
-        /* Assembly (lines 75-92): clear highlight from previously selected
-         * option before starting new selection loop. X=0 means CLEAR. */
+        /* Assembly (lines 75-92): SETUP_MENU_OPTION_VWF(option, text_x + 1,
+         * text_y), then clear the previously selected option's highlight
+         * (SET_FILE_SELECT_TEXT_HIGHLIGHT with X = 0, A = -1). */
+        MenuItem *prev = window_menu_item(w, w->selected_option);
         set_instant_printing();
-        if (w->id == WINDOW_FILE_SELECT_MAIN
-            || w->id == WINDOW_FILE_SELECT_MENU
-            || w->id == WINDOW_FILE_SELECT_TEXT_SPEED
-            || w->id == WINDOW_FILE_SELECT_MUSIC_MODE
-            || w->id == WINDOW_FILE_SELECT_CONFIRM_MSG)
-            highlight_menu_item(w, w->selected_option, 0, false);
+        set_focus_text_cursor(prev->text_x + 1, prev->text_y);
+        win.restore_menu_backup = 0;  /* setup_menu_option_vwf.asm:42-45 */
+        set_file_select_text_highlight((uint16_t)-1, false, prev->label);
         w->current_option = w->selected_option;
     } else {
         w->current_option = 0;
@@ -1916,17 +1939,26 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
         set_focus_text_cursor(sel->text_x, sel->text_y);
         win.restore_menu_backup = 0;  /* setup_menu_option_vwf.asm:42-45 */
         set_tile_attribute_and_redraw(47);
-        /* Assembly lines 445-485: highlight confirmed option with palette 6.
-         * SET_FILE_SELECT_TEXT_HIGHLIGHT (lines 24-36) only operates on 4
-         * specific file-select windows and is a no-op for all others. Restrict
-         * highlight to those windows. */
-        set_instant_printing();
-        if (w->id == WINDOW_FILE_SELECT_MAIN
-            || w->id == WINDOW_FILE_SELECT_MENU
-            || w->id == WINDOW_FILE_SELECT_TEXT_SPEED
-            || w->id == WINDOW_FILE_SELECT_MUSIC_MODE
-            || w->id == WINDOW_FILE_SELECT_CONFIRM_MSG)
-            highlight_menu_item(w, w->current_option, 6, true);
+        /* Assembly lines 444-485: highlight the confirmed option in palette 6,
+         * from the text cursor SET_TILE_ATTRIBUTE_AND_REDRAW just advanced:
+         *   ENABLE_WORD_WRAP == 0: APPLY_WINDOW_TEXT_ATTRIBUTES (the rest of
+         *     the row);
+         *   else ALLOW_TEXT_OVERFLOW == 1 (the file-select menus): the whole
+         *     row for FILE_SELECT_MAIN, else SET_FILE_SELECT_TEXT_HIGHLIGHT
+         *     capped at 4 tiles;
+         *   else SET_FILE_SELECT_TEXT_HIGHLIGHT uncapped (a no-op outside the
+         *     file-select windows). */
+        set_window_palette_index(6);
+        if (dt.enable_word_wrap == 0)
+            apply_window_text_attributes();
+        else if (dt.allow_text_overflow == 1) {
+            if (win.current_focus_window == WINDOW_FILE_SELECT_MAIN)
+                apply_window_text_attributes();
+            else
+                set_file_select_text_highlight(4, true, sel->label);
+        } else
+            set_file_select_text_highlight((uint16_t)-1, true, sel->label);
+        set_window_palette_index(0);
         w->selected_option = w->current_option;
         clear_instant_printing();
         return STEP_RESULT_POP(sel->userdata);

@@ -288,9 +288,16 @@ void set_focus_text_cursor(uint16_t x, uint16_t y);
  * Assembly: A=window_id, X=max_chars, PARAM00=title_pointer. */
 void set_window_title(uint16_t window_id, const char *title, int max_len);
 
-/* SET_FILE_SELECT_TEXT_HIGHLIGHT: apply/clear highlight palette on a menu item's
- * tilemap entries. Used by display-only file select menus. */
-void highlight_menu_item(WindowInfo *w, uint16_t item_index, uint16_t palette, bool set);
+/* SET_FILE_SELECT_TEXT_HIGHLIGHT (asm/text/set_file_select_text_highlight.asm):
+ * from the focus window's text cursor, set (or clear) curr_tile_attributes on
+ * one tile per character of label, at most count tiles ((uint16_t)-1 = no cap).
+ * Only acts on the 4 file-select windows the asm accepts. */
+void set_file_select_text_highlight(uint16_t count, bool set, const char *label);
+
+/* APPLY_WINDOW_TEXT_ATTRIBUTES (asm/text/apply_window_text_attributes.asm):
+ * curr_tile_attributes on the focus window's text row, from text_x through its
+ * last non-blank tile. */
+void apply_window_text_attributes(void);
 
 /* Add a menu item to the focus window */
 void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16_t text_y);

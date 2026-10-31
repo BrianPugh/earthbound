@@ -203,6 +203,10 @@ StepResult mode_step_init_intro(ModeState *ms) {
             return STEP_RESULT_CONTINUE();
 
         case II_FILE_MENU_FADE: {
+            /* RUN_FILE_MENU's tail after its WINDOW_TICK (run_file_menu.asm:
+             * 18-24, US): ENABLE_WORD_WRAP = -1, ALLOW_TEXT_OVERFLOW = 0. */
+            dt.enable_word_wrap = 0xFF;  /* LDA #<-1 */
+            dt.allow_text_overflow = 0;
             /* Assembly file_select_init.asm:78-81 — FADE_OUT_WITH_MOSAIC(step=1,
              * delay=1, mosaic=0) blanks the confirmation screen to black before
              * returning to MAIN_LOOP. Without this the screen is left at full
