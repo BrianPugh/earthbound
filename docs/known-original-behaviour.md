@@ -34,6 +34,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Screen quake on entry | Fire Spring, door 1880,3096 (save 33) | emu p33a | 2026-10-23 |
 | A pink cloud piece rides in the left gutter (x 0-14) while walking down past the Dalaam palace; it is a real cloud entity the original shows at the same world spot once it is inside the band | 36-CavePast, `flag 11 1; teleport 4448 3480 4`, walk DOWN; then `30 LEFT` | port pt51c 0005-0027 vs emu pt51oc 0027 | 2026-10-31 |
 | Walking across a sector edge never swaps tilesets or map palettes: a sector with another tileset combo is drawn as the loaded tileset's block 0 (Dalaam sky sector, Summers west sea), in band and gutters alike | 36-CavePast Dalaam 4448,3480 walking DOWN; Summers 4150,2880 | asm LOAD_MAP_AT_SECTOR only from LOAD/RELOAD_MAP_AT_POSITION; port pt51c vs emu pt51oc sheets | 2026-10-31 |
+| Emu-mode shots sit 1 px higher than the port's: the same frame matches exactly with the port shifted up 1 row (BG and OBJ alike) | any overworld scene, native port vs emu | pt65 shot pairs (Twoson, Fourside, Summers, Scaraba, Dalaam, Threed) | 2026-10-31 |
 
 ## Battle
 
@@ -181,6 +182,11 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Moonside surfer warps slide the map -3/-4,+5 px per frame for style 17 (warp 106) as in the original, party and NPCs riding along, black strips from the top and right | 19-Moonside, `teleport 7224 4070 4`, Talk to npc1380 immediately | per-frame shift, port pt51f sheet-0010 vs emu pt51of sheet-0010 | 2026-10-31 |
 | Sea of Eden entry (TELEPORT_TO 214, style 30): 96-frame fade to white and 60-frame fade-in identical; white held ~65 frames in the original, 1 in the port | 34-Magicant, `teleport 5556 3904 6; 10 LEFT; press L` | per-frame luminance, port pt51g sheet-0003 vs emu pt51og sheet-0003 | 2026-10-31 |
 | Mushroomized walking: the d-pad is normal for the first 1800 overworld frames after the battle, then rotates (RIGHT→DOWN, LEFT→UP, UP→RIGHT, DOWN→LEFT) and rotates again every 1800 frames; a mushroom sits on the leader's head | 06-ToHappy, `status 1 2 1` inside a battle, then win it (UPDATE_MUSHROOM_STATUS starts MUSHROOMIZATION_TIMER at 0x708 with modifier 0) | emu pt61om vs port pt61m | 2026-10-31 |
+| Town wanderers (random and bounded walk scripts) take the same steps, lengths and pauses with the same `rng` seed once the spawn set matches; the original runs 10-25% slower where many entities are loaded (Threed at night, Dalaam, Tenda Village: CPU lag), so its pauses run long and moves stall | Twoson 1700,6700, Threed 5400,9100 (12-Zombies), Fourside 2700,3600, Summers 7400,2800, Scaraba 7540,7470, Dalaam 4420,3850, Tenda 480,220, Saturn Valley 330,7640, Onett 1760,1420 (04-Police); `flag 11 1; rng 1 2; teleport X Y 4`, `state` every 2 frames | emu pt65o* vs port pt65*x (leg-pt65) | 2026-10-31 |
+| A wandering NPC's next direction after a talk differs between the two: the original's dialogue runs 2 frames longer and its text loop draws one more RAND | Twoson npc306, `teleport 1784 6553 6; wait 10; 3 LEFT`, Talk to | emu pt65ot vs port pt65tx `tk5` RNG trace | 2026-10-31 |
+| NPCs keep walking while the pause menu and text are open | Twoson npc306 | emu pt65ot vs port pt65tx | 2026-10-31 |
+| Static NPCs face the party while talking and turn back to their default facing up to 80 frames after control returns (NPC_IDLE_DIRECTION_CHECK_LOOP) | Twoson npc322, `teleport 2144 6564 0`, Talk to | emu pt65ot vs port pt65tx, 68 frames on both | 2026-10-31 |
+| Off-screen NPCs despawn on their blink loop's 48-frame IS_ENTITY_NEAR_LEADER check, so the distance at which one disappears (rel x 320 plus up to 48 frames of walking) varies with when it spawned | Twoson, walking LEFT from 1960,6656 | emu pt65ot vs port pt65tx `ds2`/`dsp` | 2026-10-31 |
 
 ## Story, scripts and flags
 
