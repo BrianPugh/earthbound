@@ -131,13 +131,22 @@ static void cc_1f_generate_active_sprite(ScriptReader *r) {
  *
  * Port of CC_1F_16 (asm/text/ccs/set_tpt_direction.asm) →
  * SET_NPC_DIRECTION (C462FF).
+ * tpt_id==0 → working_memory, direction==0 → argument_memory (asm :38-41
+ * and :46-52). Scripts pass direction 0 after
+ * get_direction_of_object_from_npc (CC_19_23), which leaves the 1-based
+ * direction in argument_memory, to turn an NPC toward the party.
  * Text encoding uses 1-indexed directions; assembly does DEX to convert.
- * Assembly: after setting direction, calls RENDER_ENTITY_SPRITE_ENTRY2 (4-dir render). */
+ * SET_NPC_DIRECTION re-renders (RENDER_ENTITY_SPRITE_ENTRY2, 4-dir) only
+ * when the direction changes. */
 static void cc_1f_change_tpt_direction(ScriptReader *r) {
-    uint16_t tpt_id = script_read_word(r);
-    uint8_t direction = script_read_byte(r);
+    uint16_t tpt_arg = script_read_word(r);
+    uint8_t dir_arg = script_read_byte(r);
+    uint16_t tpt_id = tpt_arg ? tpt_arg : (uint16_t)(get_working_memory() & 0xFFFF);
+    uint16_t direction = dir_arg ? (uint16_t)dir_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
+    if (direction == 0)
+        return;  /* resolved 0 would DEX to -1 (as CC_1F_13/14/E4 guard) */
     int16_t found = find_entity_by_npc_id(tpt_id);
-    if (found >= 0 && direction > 0) {
+    if (found >= 0) {
         int16_t new_dir = (int16_t)(direction - 1);
         if (entities.directions[found] != new_dir) {
             entities.directions[found] = new_dir;
