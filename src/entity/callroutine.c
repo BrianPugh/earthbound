@@ -1790,12 +1790,18 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
     case ROM_ADDR_DECREMENT_DELIVERY_TIMER: {
         /* Port of EF0D73 DECREMENT_DELIVERY_TIMER.
-         * Decrements ow.delivery_timers[var0] if non-zero. */
+         * Decrements ow.delivery_timers[var0] if non-zero and returns the
+         * timer (A = the decremented value, 0 once it has run out). The
+         * return value becomes the script tempvar: EVENT_499_500_COMMON
+         * loops PAUSE 1 s / DECREMENT / SHORTCALL_CONDITIONAL_NOT on it,
+         * so returning 0 ended every delivery countdown after 1 s. */
         *out_pc = pc;
         uint16_t var0 = (uint16_t)entities.var[0][entity_offset];
-        if (var0 < DELIVERY_TABLE_COUNT && ow.delivery_timers[var0] != 0)
+        if (var0 >= DELIVERY_TABLE_COUNT)
+            return 0;
+        if (ow.delivery_timers[var0] != 0)
             ow.delivery_timers[var0]--;
-        return 0;
+        return ow.delivery_timers[var0];
     }
 
     case ROM_ADDR_QUEUE_DELIVERY_SUCCESS: {
