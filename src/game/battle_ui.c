@@ -1876,8 +1876,14 @@ void initialize_battle_ui_state(void) {
     ow.redraw_all_windows = 0;
     ert.actionscript_state = 0;
 
-    /* Reset window system (covers WINDOW_HEAD/TAIL, window_stats, open_window_table) */
+    /* Reset window system (covers WINDOW_HEAD/TAIL, window_stats, open_window_table,
+     * TITLED_WINDOWS) */
     window_system_init();
+
+    /* Assembly lines 79-81: PAGINATION_WINDOW = PAGINATION_ANIMATION_FRAME = -1,
+     * so no window draws the title arrows until a menu sets them up. */
+    dt.pagination_window = WINDOW_ID_NONE;
+    dt.pagination_animation_frame = -1;
 
     /* Clear BG2_BUFFER: assembly clears 0x380 words = 0x700 bytes (28 rows of tilemap) */
     memset(win.bg2_buffer, 0, 0x700);
