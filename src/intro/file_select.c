@@ -1688,6 +1688,8 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             uint8_t item = entry[10 + j];
             if (item != 0) party_characters[c].items[j] = item;
         }
+        /* file_select_menu_loop.asm:577-579 */
+        party_characters[c].hp_pp_window_options = 0x0400;
     }
 
     /* Sync current HP/PP = max for all characters (assembly lines 538-555) */
@@ -1718,6 +1720,16 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     game_state.favourite_thing[1] = 0x83; /* CHAR::S_ */
     game_state.favourite_thing[2] = 0x79; /* CHAR::I */
     game_state.favourite_thing[3] = 0x50; /* CHAR::SPACE */
+
+    /* Assembly lines 613-641 (US retail): from index 4,
+       turn the first NUL before the last byte into a space, so a 6-letter
+       thing name gets a trailing space at [10] and [11] stays the terminator. */
+    for (size_t k = 4; k < sizeof(game_state.favourite_thing) - 1; k++) {
+        if (game_state.favourite_thing[k] == 0) {
+            game_state.favourite_thing[k] = 0x50; /* CHAR::SPACE */
+            break;
+        }
+    }
 
     /* Assembly line 644-645: unknownC3 = 1 */
     game_state.unknownC3 = 1;
