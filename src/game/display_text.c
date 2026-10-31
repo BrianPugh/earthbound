@@ -272,8 +272,8 @@ void render_pagination_arrows(void) {
      *
      * Assembly uses PREPARE_VRAM_COPY (line 227) to write directly to VRAM
      * after window_tick has already uploaded bg2_buffer. We match this by
-     * writing to ppu.vram — bg2_buffer would be overwritten by
-     * render_all_windows() before the next upload. */
+     * writing to ppu.vram — bg2_buffer would be overwritten by the next
+     * WINDOW_TICK's window redraw before the next upload. */
     if (dt.pagination_window == WINDOW_ID_NONE) return;
 
     WindowInfo *w = get_window(dt.pagination_window);
@@ -325,7 +325,7 @@ static uint16_t check_last_member_status_change(void) {
  *   1. RAND (advance PRNG)
  *   2. If dt.early_tick_exit, clear it and exit (assembly lines 5-10)
  *   3. If dt.instant_printing, exit (assembly lines 13-15)
- *   4. If ow.redraw_all_windows, render all; else if windows open, render tail
+ *   4. If ow.redraw_all_windows, render all; else if a window is open, render the tail
  *   5. HP/PP roller + meter tile updates
  *   6. If !ow.disabled_transitions && status changed, reload palette
  *   7. upload_battle_screen_to_vram() — sync win.bg2_buffer to VRAM
@@ -349,19 +349,12 @@ static bool window_tick_prepare(void) {
     if (dt.instant_printing)
         return false;
 
-    /* Assembly lines 16-28: render windows into win.bg2_buffer.
-     * Assembly: if ow.redraw_all_windows → RENDER_ALL_WINDOWS;
-     *           else if WINDOW_HEAD != -1 → RENDER_WINDOW_FRAME(tail);
-     *           else → skip to HP/PP.
-     * C port: both paths call render_all_windows() which copies
-     * per-window content_tilemap to win.bg2_buffer. Functionally equivalent
-     * since VWF tiles are persistent in VRAM and content_tilemap. */
-    if (ow.redraw_all_windows) {
-        render_all_windows();
-        ow.redraw_all_windows = 0;
-    } else if (any_window_open()) {
-        render_all_windows();
-    }
+    /* Assembly lines 16-28: render windows into win.bg2_buffer. Everything
+     * (HP/PP windows included) only when REDRAW_ALL_WINDOWS is set; otherwise
+     * just the tail (topmost) window, so a window underneath keeps what it
+     * last drew until something requests a full redraw (e.g. a dead member's
+     * HP/PP name plate keeps its colour while the meter rolls). */
+    window_tick_render_windows();
 
     /* Assembly lines 29-34: HP/PP updates */
     hp_pp_roller();

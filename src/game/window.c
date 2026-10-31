@@ -963,119 +963,143 @@ void close_menu_header_window(void) {
 #define BLANK_TILE    0x40
 #define INTERIOR_FILL (0x2000 | BLANK_TILE)
 
-void render_all_windows(void) {
-    /* Assembly's RENDER_ALL_WINDOWS writes to BG2_BUFFER, then
-     * UPLOAD_BATTLE_SCREEN_TO_VRAM copies BG2_BUFFER to VRAM.
-     * Target win.bg2_buffer so all text layer writes go through one ert.buffer. */
+/* RENDER_WINDOW_FRAME (asm/text/window/render_window_frame.asm): draw one
+ * window (border, title, body) into win.bg2_buffer, which UPLOAD_BATTLE_SCREEN_TO_VRAM
+ * later copies to VRAM. `wi` is the window's slot (OPEN_WINDOW_TABLE value). */
+void render_window_frame(int wi) {
     uint16_t *tilemap = (uint16_t *)win.bg2_buffer;
+    WindowInfo *w = &win.windows[wi];
+    if (!w->active) return;  /* defensive: list should only hold active windows */
 
-    /* Assembly (render_all_windows.asm lines 7-10): draw HPPP windows
-     * into win.bg2_buffer first, if RENDER_HPPP_WINDOWS flag is set. */
+    /* Draw window border using correct tile entries from RENDER_WINDOW_FRAME */
+    for (uint16_t ty = 0; ty < w->height; ty++) {
+        for (uint16_t tx = 0; tx < w->width; tx++) {
+            uint16_t entry;
+            bool is_top = (ty == 0);
+            bool is_bot = (ty == w->height - 1);
+            bool is_left = (tx == 0);
+            bool is_right = (tx == w->width - 1);
+
+            if (is_top && is_left)       entry = BORDER_TL;
+            else if (is_top && is_right)  entry = BORDER_TR;
+            else if (is_top)              entry = BORDER_TOP;
+            else if (is_bot && is_left)   entry = BORDER_BL;
+            else if (is_bot && is_right)  entry = BORDER_BR;
+            else if (is_bot)              entry = BORDER_BOTTOM;
+            else if (is_left)             entry = BORDER_LEFT;
+            else if (is_right)            entry = BORDER_RIGHT;
+            else                          entry = INTERIOR_FILL;
+
+            uint16_t map_x = w->x + tx;
+            uint16_t map_y = w->y + ty;
+            if (map_x < 32 && map_y < 32) {
+                /* Assembly (render_window_frame.asm:37-55, 199-219, 276-314):
+                 * At corners, check if another window already wrote a tile.
+                 * If so, use junction tile (0x13) for T-intersection. */
+                if (is_top && is_left) {
+                    uint16_t existing = tilemap[map_y * 32 + map_x];
+                    if (existing != 0 && existing != BORDER_TL)
+                        entry = JUNCTION_TL;
+                } else if (is_top && is_right) {
+                    uint16_t existing = tilemap[map_y * 32 + map_x];
+                    if (existing != 0 && existing != BORDER_TR)
+                        entry = JUNCTION_TR;
+                } else if (is_bot && is_left) {
+                    uint16_t existing = tilemap[map_y * 32 + map_x];
+                    if (existing != 0 && existing != BORDER_BL)
+                        entry = JUNCTION_BL;
+                } else if (is_bot && is_right) {
+                    uint16_t existing = tilemap[map_y * 32 + map_x];
+                    if (existing != 0 && existing != BORDER_BR)
+                        entry = JUNCTION_BR;
+                }
+                tilemap[map_y * 32 + map_x] = entry;
+            }
+        }
+    }
+
+    /* Title in the top border row (RENDER_WINDOW_FRAME @CHECK_TITLE): after
+     * the top-left corner comes the left end cap ($3C16), then
+     * (strlen*6+7)/8 title tiles from $02E0 + (slot-1)*16 (+$2000
+     * priority), then the h-flipped end cap ($7C16); the top edge follows.
+     * The glyph data was uploaded once at set_window_title time. */
+    if (w->title_slot > 0 && w->title_tile_count > 0 && w->y < 32) {
+        uint16_t tile_base = 0x02E0 + (w->title_slot - 1) * 16;
+        uint16_t mx = w->x + 1;
+        if (mx < 32)
+            tilemap[w->y * 32 + mx] = TITLE_CAP_LEFT;
+        mx++;
+        for (int t = 0; t < w->title_tile_count; t++, mx++) {
+            if (mx < 32)
+                tilemap[w->y * 32 + mx] = (tile_base + t) | 0x2000;
+        }
+        if (mx < 32)
+            tilemap[w->y * 32 + mx] = TITLE_CAP_RIGHT;
+    }
+
+    /* Copy per-window content_tilemap to win.bg2_buffer.
+     * Port of RENDER_WINDOW_FRAME @WRITE_BODY_TILE loop.
+     * Assembly adds $2000 (priority bit) via CLC; ADC #$2000 when
+     * copying from per-window tilemap to BG2_BUFFER. */
+    {
+        uint16_t content_width = w->width - 2;
+        uint16_t content_height = w->height - 2;  /* interior tile rows */
+
+        for (uint16_t row = 0; row < content_height; row++) {
+            for (uint16_t col = 0; col < content_width; col++) {
+                uint16_t src_idx = row * content_width + col;
+                if (src_idx >= w->content_tilemap_size) break;
+
+                uint16_t entry = w->content_tilemap[src_idx];
+                if (entry == 0) continue;  /* skip empty/transparent */
+
+                uint16_t screen_x = w->content_x + col;
+                uint16_t screen_y = w->content_y + row;
+                if (screen_x < 32 && screen_y < 32) {
+                    /* Add priority bit (assembly: CLC; ADC #$2000) */
+                    tilemap[screen_y * 32 + screen_x] = entry | 0x2000;
+                }
+            }
+        }
+    }
+}
+
+/* RENDER_ALL_WINDOWS (asm/battle/render_all_windows.asm): the HP/PP windows
+ * (if RENDER_HPPP_WINDOWS), then every open window in draw-order-list order
+ * (WINDOW_HEAD -> window_stats::next; head = bottom, tail = top). WINDOW_TICK
+ * only runs this when REDRAW_ALL_WINDOWS is set; otherwise it redraws the tail
+ * window alone. */
+void render_all_windows(void) {
     if (ow.render_hppp_windows & 0xFF) {
         draw_active_hppp_windows();
     }
+    for (int wi = win.window_head; wi >= 0; wi = win.windows[wi].next)
+        render_window_frame(wi);
+}
 
-    /* Render each active window in draw-order-list order (asm RENDER_ALL_WINDOWS
-     * walks WINDOW_HEAD → window_stats::next). The list order is the z-order
-     * (head = bottom, tail = top); slot index is irrelevant. This matches the
-     * assembly exactly and fixes windows created into reused (lower) slots that
-     * previously drew underneath older windows. */
-    for (int wi = win.window_head; wi >= 0; wi = win.windows[wi].next) {
-        WindowInfo *w = &win.windows[wi];
-        if (!w->active) continue;  /* defensive: list should only hold active windows */
-
-        /* Draw window border using correct tile entries from RENDER_WINDOW_FRAME */
-        for (uint16_t ty = 0; ty < w->height; ty++) {
-            for (uint16_t tx = 0; tx < w->width; tx++) {
-                uint16_t entry;
-                bool is_top = (ty == 0);
-                bool is_bot = (ty == w->height - 1);
-                bool is_left = (tx == 0);
-                bool is_right = (tx == w->width - 1);
-
-                if (is_top && is_left)       entry = BORDER_TL;
-                else if (is_top && is_right)  entry = BORDER_TR;
-                else if (is_top)              entry = BORDER_TOP;
-                else if (is_bot && is_left)   entry = BORDER_BL;
-                else if (is_bot && is_right)  entry = BORDER_BR;
-                else if (is_bot)              entry = BORDER_BOTTOM;
-                else if (is_left)             entry = BORDER_LEFT;
-                else if (is_right)            entry = BORDER_RIGHT;
-                else                          entry = INTERIOR_FILL;
-
-                uint16_t map_x = w->x + tx;
-                uint16_t map_y = w->y + ty;
-                if (map_x < 32 && map_y < 32) {
-                    /* Assembly (render_window_frame.asm:37-55, 199-219, 276-314):
-                     * At corners, check if another window already wrote a tile.
-                     * If so, use junction tile (0x13) for T-intersection. */
-                    if (is_top && is_left) {
-                        uint16_t existing = tilemap[map_y * 32 + map_x];
-                        if (existing != 0 && existing != BORDER_TL)
-                            entry = JUNCTION_TL;
-                    } else if (is_top && is_right) {
-                        uint16_t existing = tilemap[map_y * 32 + map_x];
-                        if (existing != 0 && existing != BORDER_TR)
-                            entry = JUNCTION_TR;
-                    } else if (is_bot && is_left) {
-                        uint16_t existing = tilemap[map_y * 32 + map_x];
-                        if (existing != 0 && existing != BORDER_BL)
-                            entry = JUNCTION_BL;
-                    } else if (is_bot && is_right) {
-                        uint16_t existing = tilemap[map_y * 32 + map_x];
-                        if (existing != 0 && existing != BORDER_BR)
-                            entry = JUNCTION_BR;
-                    }
-                    tilemap[map_y * 32 + map_x] = entry;
-                }
-            }
-        }
-
-        /* Title in the top border row (RENDER_WINDOW_FRAME @CHECK_TITLE): after
-         * the top-left corner comes the left end cap ($3C16), then
-         * (strlen*6+7)/8 title tiles from $02E0 + (slot-1)*16 (+$2000
-         * priority), then the h-flipped end cap ($7C16); the top edge follows.
-         * The glyph data was uploaded once at set_window_title time. */
-        if (w->title_slot > 0 && w->title_tile_count > 0 && w->y < 32) {
-            uint16_t tile_base = 0x02E0 + (w->title_slot - 1) * 16;
-            uint16_t mx = w->x + 1;
-            if (mx < 32)
-                tilemap[w->y * 32 + mx] = TITLE_CAP_LEFT;
-            mx++;
-            for (int t = 0; t < w->title_tile_count; t++, mx++) {
-                if (mx < 32)
-                    tilemap[w->y * 32 + mx] = (tile_base + t) | 0x2000;
-            }
-            if (mx < 32)
-                tilemap[w->y * 32 + mx] = TITLE_CAP_RIGHT;
-        }
-
-        /* Copy per-window content_tilemap to win.bg2_buffer.
-         * Port of RENDER_WINDOW_FRAME @WRITE_BODY_TILE loop.
-         * Assembly adds $2000 (priority bit) via CLC; ADC #$2000 when
-         * copying from per-window tilemap to BG2_BUFFER. */
-        {
-            uint16_t content_width = w->width - 2;
-            uint16_t content_height = w->height - 2;  /* interior tile rows */
-
-            for (uint16_t row = 0; row < content_height; row++) {
-                for (uint16_t col = 0; col < content_width; col++) {
-                    uint16_t src_idx = row * content_width + col;
-                    if (src_idx >= w->content_tilemap_size) break;
-
-                    uint16_t entry = w->content_tilemap[src_idx];
-                    if (entry == 0) continue;  /* skip empty/transparent */
-
-                    uint16_t screen_x = w->content_x + col;
-                    uint16_t screen_y = w->content_y + row;
-                    if (screen_x < 32 && screen_y < 32) {
-                        /* Add priority bit (assembly: CLC; ADC #$2000) */
-                        tilemap[screen_y * 32 + screen_x] = entry | 0x2000;
-                    }
-                }
-            }
-        }
+/* WINDOW_TICK's window pass (window_tick.asm:16-28): RENDER_ALL_WINDOWS and
+ * clear REDRAW_ALL_WINDOWS if it is set, else RENDER_WINDOW_FRAME(WINDOW_TAIL)
+ * if any window is open. */
+void window_tick_render_windows(void) {
+    if (ow.redraw_all_windows) {
+        render_all_windows();
+        ow.redraw_all_windows = 0;
+    } else if (win.window_head >= 0) {
+        render_window_frame(win.window_tail);
     }
+}
+
+/* The asm's "LDA OPEN_WINDOW_TABLE[CURRENT_FOCUS_WINDOW]; CMP WINDOW_TAIL;
+ * BEQ skip; STA REDRAW_ALL_WINDOWS" tail of PRINT_LETTER,
+ * PRINT_CHAR_WITH_SOUND and SET_TILE_ATTRIBUTE_AND_REDRAW: text written into a
+ * window under the topmost one only shows once every window is redrawn, since
+ * WINDOW_TICK otherwise repaints the tail window alone. A closed focus window
+ * reads OPEN_WINDOW_TABLE as -1, which never equals an open tail. */
+void redraw_all_windows_if_focus_not_tail(void) {
+    WindowInfo *w = get_window(win.current_focus_window);
+    int slot = w ? (int)(w - win.windows) : -1;
+    if (slot != win.window_tail)
+        ow.redraw_all_windows = 1;
 }
 
 /* ---- Tile-level rendering (WRITE_TILE_TO_WINDOW chain) ---- */
@@ -1189,12 +1213,10 @@ static void set_window_tile_attribute(uint16_t tile_code) {
  *
  * Calls set_window_tile_attribute, then flags ow.redraw_all_windows if the
  * focus window is not the topmost (tail) window.
- * Since the C port redraws all windows every frame via render_all_windows,
- * we always set the flag.
  */
 static void set_tile_attribute_and_redraw(uint16_t tile_code) {
     set_window_tile_attribute(tile_code);
-    ow.redraw_all_windows = 1;
+    redraw_all_windows_if_focus_not_tail();
 }
 
 /*
@@ -1327,8 +1349,8 @@ void print_char_with_sound(uint16_t tile_code) {
     /* Write tile via SET_WINDOW_TILE_ATTRIBUTE (assembly line 64) */
     set_window_tile_attribute(tile_code);
 
-    /* Flag redraw (assembly lines 65-73) */
-    ow.redraw_all_windows = 1;
+    /* Flag redraw if the focus window is not the tail (assembly lines 65-73) */
+    redraw_all_windows_if_focus_not_tail();
 
     /* Sound effect (assembly lines 76-102):
      * Play SFX::TEXT_PRINT (7) unless:
@@ -3485,10 +3507,7 @@ void print_money_in_window(uint32_t amount) {
             dt_lq_push_letter(eb);
             continue;
         }
-        print_eb_letter(eb);
-
-        /* PRINT_LETTER (asm lines 25-33): set REDRAW_ALL_WINDOWS if non-tail window */
-        ow.redraw_all_windows = 1;
+        print_eb_letter(eb);   /* flags REDRAW_ALL_WINDOWS for a non-tail window */
 
         /* Sound (asm lines 36-81): same as display_text's PRINT_LETTER. Outside
          * DISPLAY_TEXT there is no frame to wait on, so no delay. */

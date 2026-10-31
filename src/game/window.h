@@ -411,6 +411,11 @@ bool any_window_open(void);
 
 /* Render all open windows to the PPU BG2 layer */
 void render_all_windows(void);
+void render_window_frame(int slot);
+/* WINDOW_TICK's window pass: everything if REDRAW_ALL_WINDOWS, else the tail. */
+void window_tick_render_windows(void);
+/* Set REDRAW_ALL_WINDOWS unless the focus window is the topmost (tail) one. */
+void redraw_all_windows_if_focus_not_tail(void);
 
 /* ACTIVE_HPPP_WINDOW_Y_OFFSET: tilemap row where the HP/PP window starts.
  * From include/config.asm: .DEFINE ACTIVE_HPPP_WINDOW_Y_OFFSET 18 */

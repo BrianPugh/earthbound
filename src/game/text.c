@@ -3624,6 +3624,12 @@ void print_eb_letter(uint8_t eb) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) return;
 
+    /* PRINT_LETTER (print_letter.asm:24-33): after RENDER_VWF_CHARACTER, a
+     * letter in a window other than the topmost one sets REDRAW_ALL_WINDOWS
+     * (WINDOW_TICK only repaints the tail window otherwise). Flagged up front
+     * so the early returns below (RENDER_VWF_CHARACTER's own) still set it. */
+    redraw_all_windows_if_focus_not_tail();
+
     uint8_t font_id = (uint8_t)(w->font & 0xFF);
 
     /* Word-wrap indent handling (RENDER_VWF_CHARACTER lines 42-61).

@@ -309,7 +309,7 @@ static bool targeting_render_work_step(void) {
      * select_battle_row.asm:30 call WINDOW_TICK here, so the RNG advances once
      * per render (twice per target change: apply_selection + update_target_display). */
     rng_next_byte();
-    render_all_windows();
+    window_tick_render_windows();
     upload_battle_screen_to_vram();
     if (run_actionscript_frame_step())
         return true;
