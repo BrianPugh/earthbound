@@ -154,6 +154,19 @@ static void tilemap_pool_free(WindowInfo *w) {
     w->content_tilemap_offset = 0;  /* size == 0 means "no allocation"; offset unused */
 }
 
+/* Release w's TITLED_WINDOWS slot, if it has one (the asm's window_stats::
+ * unknown59 is the 1-based slot). title_tile_count is the C port's record of
+ * the rendered title, so it goes with the slot. */
+static void free_window_title_slot(WindowInfo *w) {
+    if (w->title_slot != 0) {
+        uint8_t slot_idx = w->title_slot - 1;
+        if (slot_idx < MAX_TITLED_WINDOWS)
+            win.titled_windows[slot_idx] = WINDOW_ID_NONE;
+    }
+    w->title_slot = 0;
+    w->title_tile_count = 0;
+}
+
 WindowInfo *create_window(uint16_t window_id) {
     /* Find existing or free slot */
     int slot = -1;
@@ -231,6 +244,9 @@ WindowInfo *create_window(uint16_t window_id) {
     w->cursor_move_callback_id = CURSOR_CB_NONE;
     w->menu_count = 0;
     w->palette_index = 0;
+    /* Assembly (create_window.asm:298-311): free the TITLED_WINDOWS slot and
+     * clear title and unknown59, so a reopened window loses its old title. */
+    free_window_title_slot(w);
     w->title[0] = '\0';
 
     /* Clear per-window content tilemap (assembly: free tiles via FREE_TILE_SAFE,
@@ -279,13 +295,7 @@ void close_window(uint16_t window_id) {
             clear_window_menu_options(&win.windows[i]);
 
             /* Free title slot (assembly close_window.asm:264-272) */
-            if (win.windows[i].title_slot != 0) {
-                uint8_t slot_idx = win.windows[i].title_slot - 1;
-                if (slot_idx < MAX_TITLED_WINDOWS)
-                    win.titled_windows[slot_idx] = WINDOW_ID_NONE;
-                win.windows[i].title_slot = 0;
-                win.windows[i].title_tile_count = 0;
-            }
+            free_window_title_slot(&win.windows[i]);
 
             /* Clear window area from BG3 tilemap (assembly lines 140-259).
              * MUST be done before setting active=false, because clear_window_text()
@@ -346,13 +356,7 @@ void close_all_windows(void) {
             win.windows[i].menu_page_number = 1;
 
             /* Free title slot */
-            if (win.windows[i].title_slot != 0) {
-                uint8_t slot_idx = win.windows[i].title_slot - 1;
-                if (slot_idx < MAX_TITLED_WINDOWS)
-                    win.titled_windows[slot_idx] = WINDOW_ID_NONE;
-                win.windows[i].title_slot = 0;
-                win.windows[i].title_tile_count = 0;
-            }
+            free_window_title_slot(&win.windows[i]);
 
             clear_window_text(win.windows[i].id);
             tilemap_pool_free(&win.windows[i]);
