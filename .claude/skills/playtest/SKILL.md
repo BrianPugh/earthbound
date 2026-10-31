@@ -147,6 +147,9 @@ When a suspected divergence comes up (port behaviour that might or might not be 
 | Debug CAST | 36-CavePast | `debug on`, B+R, `press DOWN 5`, A ×3, `press UP 5; press DOWN`, A |
 | Dalaam different-tileset sector | 36-CavePast | `flag 11 1; teleport 4448 3480 4` |
 | Damage screen shake | 06-ToHappy | `teleport 6112 7776`, fight Zap Eel + Even Slimier Little Pile; a mortal hit shakes ~60 frames plus 10-frame holds |
+| Fake Monotoli dissolve, mid-fade savestate | 19-Moonside | `flag 11 1; teleport 7604 4714 2; wait 20; press A; until input 60; press A; until in:TEXT_PROMPT 600; press A; wait 20` is ~20 frames into the dissolve (savestate_coldload "entity-fade") |
+| Town map | any town save (05-Twoson outside the hotel) | `give 202 1` (Town map), `press X`; fades in ~40 frames, B closes |
+| Chaos Theater show on foot | run-18 | hotel exit: from the lobby `40 DOWN; 130 RIGHT; UP` → 1376,6520; `24 DOWN`, RIGHT along y 6553 (a truck blocks at ~1850: `20 DOWN`, RIGHT, `20 UP`); a photographer scene fires at ~2255,6550; theater door 2227,6550 UP; then the Chaos Theater row above (pass Use from 7576,7385 facing UP, npc231 from 6795,8616). Spotlight cones ~1250 frames after the show text starts |
 
 When you reach a new scene that took effort to find, **add a row here** (save, exact steps) in the same commit as your work.
 
