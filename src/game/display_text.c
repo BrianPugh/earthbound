@@ -131,46 +131,56 @@ static uint8_t text_classify_source(const uint8_t *p) {
  * text register backups, dt.g_cc18_attrs_saved, dt.window_text_attrs_backup
  * all now in DisplayTextState dt. */
 
-/* Save current focus window's text attributes to backup.
- * Port of SAVE_WINDOW_TEXT_ATTRIBUTES (asm/battle/save_window_text_attributes.asm). */
-void save_window_text_attributes(void) {
-    dt.window_text_attrs_backup.id = win.current_focus_window;
+/* SAVE_WINDOW_TEXT_ATTRIBUTES (asm/battle/save_window_text_attributes.asm):
+ * copy the focus window's text cursor, padding, tile attributes and font into c. */
+void save_window_text_attributes_to(WindowTextAttributesCopy *c) {
+    c->id = win.current_focus_window;
     if (win.current_focus_window == WINDOW_ID_NONE) {
-        dt.window_text_attrs_backup.valid = true;
+        c->valid = true;
         return;
     }
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w) {
-        dt.window_text_attrs_backup.valid = true;
+        c->valid = true;
         return;
     }
-    dt.window_text_attrs_backup.text_x = w->text_x;
-    dt.window_text_attrs_backup.text_y = w->text_y;
-    dt.window_text_attrs_backup.cursor_pixel_x = w->cursor_pixel_x;
-    dt.window_text_attrs_backup.number_padding = w->number_padding;
-    dt.window_text_attrs_backup.curr_tile_attributes = w->curr_tile_attributes;
-    dt.window_text_attrs_backup.font = w->font;
-    dt.window_text_attrs_backup.valid = true;
+    c->text_x = w->text_x;
+    c->text_y = w->text_y;
+    c->cursor_pixel_x = w->cursor_pixel_x;
+    c->number_padding = w->number_padding;
+    c->curr_tile_attributes = w->curr_tile_attributes;
+    c->font = w->font;
+    c->valid = true;
 }
 
-/* Restore focus window's text attributes from backup.
- * Port of RESTORE_WINDOW_TEXT_ATTRIBUTES (asm/battle/restore_window_text_attributes.asm). */
-void restore_window_text_attributes(void) {
-    if (!dt.window_text_attrs_backup.valid)
+/* RESTORE_WINDOW_TEXT_ATTRIBUTES (asm/battle/restore_window_text_attributes.asm):
+ * refocus c's window, if still open, and put its saved attributes back. */
+void restore_window_text_attributes_from(const WindowTextAttributesCopy *c) {
+    if (!c->valid)
         return;
-    uint16_t saved_id = dt.window_text_attrs_backup.id;
+    uint16_t saved_id = c->id;
     if (saved_id == WINDOW_ID_NONE)
         return;
     WindowInfo *w = get_window(saved_id);
     if (!w)
         return;
     win.current_focus_window = saved_id;
-    w->text_x = dt.window_text_attrs_backup.text_x;
-    w->text_y = dt.window_text_attrs_backup.text_y;
-    w->cursor_pixel_x = dt.window_text_attrs_backup.cursor_pixel_x;
-    w->number_padding = dt.window_text_attrs_backup.number_padding;
-    w->curr_tile_attributes = dt.window_text_attrs_backup.curr_tile_attributes;
-    w->font = dt.window_text_attrs_backup.font;
+    w->text_x = c->text_x;
+    w->text_y = c->text_y;
+    w->cursor_pixel_x = c->cursor_pixel_x;
+    w->number_padding = c->number_padding;
+    w->curr_tile_attributes = c->curr_tile_attributes;
+    w->font = c->font;
+}
+
+/* The same on WINDOW_TEXT_ATTRIBUTES_BACKUP, which every caller but CC_18_02,
+ * CC_1A_05 and END_BLOCK uses. */
+void save_window_text_attributes(void) {
+    save_window_text_attributes_to(&dt.window_text_attrs_backup);
+}
+
+void restore_window_text_attributes(void) {
+    restore_window_text_attributes_from(&dt.window_text_attrs_backup);
 }
 
 /* --- Text memory helpers ---
@@ -2017,8 +2027,8 @@ static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
     uint32_t cancel_target = 0;
-    if (cc_18_dispatch(r, &g_mode_push_init, &child_mode, &child_resume,
-                       &cancel_target)) {
+    if (cc_18_dispatch(r, &st->saved_text_attrs, &g_mode_push_init, &child_mode,
+                       &child_resume, &cancel_target)) {
         st->resume = child_resume;
         st->cc18_cancel_target = cancel_target;
         *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
@@ -2037,8 +2047,8 @@ static bool dt_cc_1a(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
     uint8_t  child_resume = DT_RESUME_NONE;
     uint16_t window_id = 0;
     uint32_t saved_argmem = 0;
-    if (cc_1a_dispatch(r, &g_mode_push_init, &child_mode, &child_resume,
-                       &window_id, &saved_argmem)) {
+    if (cc_1a_dispatch(r, &st->saved_text_attrs, &g_mode_push_init, &child_mode,
+                       &child_resume, &window_id, &saved_argmem)) {
         st->resume = child_resume;
         st->cc1a_window_id = window_id;
         st->cc1a_saved_argmem = saved_argmem;
@@ -2184,10 +2194,11 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
          *   RESTORE_TEXT_STATE_ATTRIBUTES (conditional on display_text_state::unknown4)
          *   then POP_TEXT_STACK_FRAME.
          * unknown4 starts as 0 (cleared by INIT_TEXT_STATE), set to 1 by CC_18_02.
-         * In C: dt.g_cc18_attrs_saved tracks this per display_text call level. */
+         * In C: dt.g_cc18_attrs_saved tracks this per display_text call level, and
+         * st->saved_text_attrs is the level's saved_text_attributes. */
         if (byte == 0x02) {
             if (dt.g_cc18_attrs_saved) {
-                restore_window_text_attributes();
+                restore_window_text_attributes_from(&st->saved_text_attrs);
             }
             dt.g_cc18_attrs_saved = st->saved_cc18_attrs;
             return STEP_RESULT_POP(0);

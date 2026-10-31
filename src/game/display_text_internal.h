@@ -85,8 +85,10 @@ void cc_clear_event_flag(ScriptReader *r);
  * STEP_PUSH) and out_resume (DT_RESUME_CC18_SEL / DT_RESUME_CC18_SEL_RESTORE),
  * and 0x08 also returns its cancel-jump target via *out_cancel_target. Returns
  * true when a child push is requested. The caller (mode_step_display_text)
- * zeroes *out_init before the call. */
-bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+ * zeroes *out_init before the call. state_attrs is the calling DISPLAY_TEXT
+ * level's display_text_state::saved_text_attributes (CC_18_02 saves there). */
+bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
+                    ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint32_t *out_cancel_target);
 void cc_19_dispatch(ScriptReader *r);
 /* cc_1a_dispatch: most sub-ops run inline and return false. Sub 0x00/0x01
@@ -95,8 +97,10 @@ void cc_19_dispatch(ScriptReader *r);
  * (DT_RESUME_CC1A_PARTY_SEL), *out_window_id (window to close on POP) and
  * *out_saved_argmem (argument_memory to restore on POP), and returns true. The
  * battle path (mode != 1) stays inline-blocking (Phase B). The caller
- * (mode_step_display_text) zeroes *out_init before the call. */
-bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+ * (mode_step_display_text) zeroes *out_init before the call. state_attrs is as
+ * for cc_18_dispatch (CC_1A_05 saves there). */
+bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
+                    ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_window_id,
                     uint32_t *out_saved_argmem);
 void cc_1b_dispatch(ScriptReader *r);
@@ -124,7 +128,8 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_aux);
 
 /* ---- Menu functions (display_text_menus.c) ---- */
-void show_character_inventory(uint16_t window_id, uint16_t char_source);
+void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t window_id,
+                              uint16_t char_source);
 /* open_store_menu / select_escargo_express_item / open_telephone_menu /
  * display_telephone_contact_text are now run-to-completion modes
  * (GAME_MODE_STORE_MENU / _ESCARGO_MENU / _TELEPHONE_MENU; mode_step_* declared

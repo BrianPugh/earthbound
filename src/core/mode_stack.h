@@ -2277,6 +2277,8 @@ typedef struct {
     uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
     uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
     uint32_t     cc18_cancel_target;/* DT_RESUME_CC18_SEL: CC_18_08 cancel jump target */
+    WindowTextAttributesCopy saved_text_attrs; /* display_text_state::saved_text_attributes:
+                                                  CC_18_02 / CC_1A_05 save, END_BLOCK restores */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
 } DisplayTextModeState;  /* note: DisplayTextState (display_text.h) is the `dt` global type */
 

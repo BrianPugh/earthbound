@@ -94,7 +94,9 @@ void dt_lq_push_op(uint8_t op, uint8_t a, uint8_t b);
 #define BATTLE_NAME_ATTACKER_SIZE  30  /* sizeof(enemy_data::name) + 5 (USA) */
 #define BATTLE_NAME_TARGET_SIZE    28  /* sizeof(enemy_data::name) + 3 (USA) */
 
-/* Window text attributes backup (saved/restored by CC_18_02). */
+/* window_text_attributes_copy (include/structs.asm): the global
+ * WINDOW_TEXT_ATTRIBUTES_BACKUP (dt.window_text_attrs_backup) and each DISPLAY_TEXT
+ * level's display_text_state::saved_text_attributes (DisplayTextModeState). */
 typedef struct {
     uint8_t  id;
     uint8_t  text_x;
@@ -105,6 +107,12 @@ typedef struct {
     uint8_t  font;
     bool     valid;
 } WindowTextAttributesCopy;
+
+/* SAVE_WINDOW_TEXT_ATTRIBUTES / RESTORE_WINDOW_TEXT_ATTRIBUTES on a given copy
+ * (the asm passes the copy's address in A). save_window_text_attributes() and
+ * restore_window_text_attributes() (window.h) use WINDOW_TEXT_ATTRIBUTES_BACKUP. */
+void save_window_text_attributes_to(WindowTextAttributesCopy *c);
+void restore_window_text_attributes_from(const WindowTextAttributesCopy *c);
 
 /* Consolidated display text runtime state. */
 typedef struct {
@@ -196,7 +204,7 @@ typedef struct {
     /* CC_18_02 save flag (display_text_state::unknown4). */
     uint8_t g_cc18_attrs_saved;
 
-    /* Window text attributes backup (CC_18_02 save/restore). */
+    /* WINDOW_TEXT_ATTRIBUTES_BACKUP (save_/restore_window_text_attributes). */
     WindowTextAttributesCopy window_text_attrs_backup;
 
     /* HPPP meter flipout mode HP/PP backups. */

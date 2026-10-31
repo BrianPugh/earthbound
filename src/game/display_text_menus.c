@@ -706,7 +706,8 @@ StepResult mode_step_special_event(ModeState *st) {
  *   3. Loops over 14 inventory slots, prefixing equipped items with '*'
  *   4. Calls OPEN_WINDOW_AND_PRINT_MENU(2, 0) for 2-column layout
  */
-void show_character_inventory(uint16_t window_id, uint16_t char_source) {
+void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t window_id,
+                              uint16_t char_source) {
     /* Determine character ID.
      * Assembly lines 73-84: if char_source == 0, get from argument_memory;
      * else use char_source directly. */
@@ -723,12 +724,22 @@ void show_character_inventory(uint16_t window_id, uint16_t char_source) {
     /* Pre-processing: if main text window is focused, prepare for overlay.
      * Assembly lines 46-71: clears tilemap, resets cursor, saves attributes. */
     if (win.current_focus_window == 1) {
-        /* Assembly: CLEAR_WINDOW_TILEMAP(1), reset text_x/text_y to 0 */
+        /* Assembly lines 52-63: CLEAR_WINDOW_TILEMAP(1), then text_y = text_x
+         * = 0 (and the VWF pixel position the port tracks with them), so the
+         * save below records the cleared window's home position and the
+         * calling script's END_BLOCK puts the cursor there: the shop's next
+         * line starts on the top row (leg pt63 #2). */
         clear_window_tilemap(1);
-        /* Assembly line 68: SAVE_WINDOW_TEXT_ATTRIBUTES with window-specific param.
-         * The param is char_id + 6, used as a WINDOW_TEXT_ATTRIBUTES_BACKUP index.
-         * In C port, save_window_text_attributes uses a single backup. */
-        save_window_text_attributes();
+        WindowInfo *tw = get_window(1);
+        if (tw) {
+            tw->text_y = 0;
+            tw->text_x = 0;
+            tw->cursor_pixel_x = 0;
+        }
+        /* Assembly lines 64-68: SAVE_WINDOW_TEXT_ATTRIBUTES into the calling
+         * DISPLAY_TEXT level's display_text_state::saved_text_attributes (the
+         * CC's state pointer + 6), without setting unknown4. */
+        save_window_text_attributes_to(state_attrs);
         dt.force_left_text_alignment = 0;
     }
 

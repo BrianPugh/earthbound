@@ -1591,7 +1591,8 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
  *
  * CC 0x18 tree: window management commands.
  * Port from asm/text/ccs/cc_18_*.asm files. */
-bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
+                    ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint32_t *out_cancel_target) {
     uint8_t sub = script_read_byte(r);
 
@@ -1611,10 +1612,13 @@ bool cc_18_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         /* SAVE_WINDOW_TEXT_ATTRIBUTES: 0 args.
          * Port of tree_18.asm @SAVE_TEXT_ATTRIBUTES →
          * SAVE_WINDOW_TEXT_ATTRIBUTES (asm/battle/save_window_text_attributes.asm).
-         * Assembly (tree_18.asm lines 43-51): saves attrs then sets
-         * display_text_state::unknown4 = 1 so END_BLOCK restores them.
+         * Assembly (tree_18.asm lines 43-51): saves attrs into the calling
+         * DISPLAY_TEXT level's display_text_state::saved_text_attributes (+6),
+         * not WINDOW_TEXT_ATTRIBUTES_BACKUP, then sets unknown4 = 1 so its
+         * END_BLOCK restores them. A selector's cursor script that runs CC_18_02
+         * (the shop's carrier pick) so leaves the selector's backup alone.
          * Saves focus window ID, text position, padding, attributes, font. */
-        save_window_text_attributes();
+        save_window_text_attributes_to(state_attrs);
         dt.g_cc18_attrs_saved = 1;  /* display_text_state::unknown4 = 1 */
         break;
     case 0x03: {
@@ -2242,7 +2246,8 @@ void cc_19_dispatch(ScriptReader *r) {
     }
 }
 
-bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
+                    ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_window_id,
                     uint32_t *out_saved_argmem) {
     uint8_t sub = script_read_byte(r);
@@ -2316,7 +2321,7 @@ bool cc_1a_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          * char_source: 0 = read char_id from argument_memory, else = char_id directly. */
         uint8_t window_id_arg = script_read_byte(r);
         uint8_t char_source = script_read_byte(r);
-        show_character_inventory(window_id_arg, char_source);
+        show_character_inventory(state_attrs, window_id_arg, char_source);
         break;
     }
     case 0x06: {
