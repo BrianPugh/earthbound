@@ -70,15 +70,69 @@ static void audio_upload_pack(const uint8_t *pack_data, size_t pack_size) {
     }
 }
 
-/* Load an audio pack by index and upload to APU RAM */
-static bool audio_load_pack(uint8_t pack_index) {
+/* Run the SPC700 until cond(apu) holds, at most max_cycles (the asm's
+ * busy-waits on APUIO0 have no timeout; this one only guards against a hang). */
+static bool audio_run_until(bool (*cond)(const Apu *), int max_cycles) {
+    for (int ran = 0; ran < max_cycles; ran += 256) {
+        if (cond(apu)) return true;
+        apu_runCycles(apu, 256);
+    }
+    return cond(apu);
+}
+
+static bool spc_loader_ready(const Apu *a) { return a->outPorts[0] == 0xAA && a->outPorts[1] == 0xBB; }
+static bool spc_executed(const Apu *a) { return a->outPorts[0] == 0 && a->outPorts[1] == 0; }
+
+/* LOAD_SPC700_DATA (asm/audio/load_spc700_data.asm) sent to the running engine.
+ * WAIT_FOR_SPC700 writes $00FF to APUIO0/1 until it reads $BBAA: the engine's
+ * $FF command (main.spc700.s UNK075E) keys off all voices and enters its own
+ * RAM loader UNK0EE1, which answers $AA/$BB. The blocks then cross the ports;
+ * here they are copied straight into APU RAM (same end state). The terminal
+ * header (APUIO2/3 = $0500, APUIO1 = 0, APUIO0 = $CC) makes the loader set
+ * CONTROL = $31 and RET into the engine, which ignores the $0500 address: the
+ * engine is not restarted, so its state ($0420-$04FF, which start's
+ * UNK16A5 zeroes, holding STEREO_MONO_FLAG, and the zero page) survives.
+ * @WAIT_EXECUTE then waits for APUIO0/1 to read 0. Only the first load
+ * (INITIALIZE_MUSIC_SUBSYSTEM, before the engine runs) goes through the IPL
+ * and starts at $0500 (audio_init). */
+static void audio_upload_to_engine(const uint8_t *data, size_t size) {
+    /* The engine only reads port 0 on its tempo tick, so the $FF answer can
+     * take a few frames (~73000 cycles seen); 30 frames only guards a hang. */
+    const int max_wait = 30 * 17066;
+    if (!spc_loader_ready(apu)) {
+        apu->inPorts[2] = 0x00;  /* WAIT_FOR_SPC700: STZ APUIO2 / STZ APUIO0 */
+        apu->inPorts[3] = 0x00;
+        apu->inPorts[0] = 0x00;
+        apu->inPorts[1] = 0x00;
+        apu->inPorts[0] = 0xFF;  /* LDA #$00FF; STA APUIO0 */
+        apu->inPorts[1] = 0x00;
+        if (!audio_run_until(spc_loader_ready, max_wait))
+            LOG_WARN("audio: SPC700 loader didn't answer $BBAA\n");
+    }
+    audio_upload_pack(data, size);
+    apu->inPorts[2] = (uint8_t)(SPC700_ENGINE_ENTRY & 0xFF);
+    apu->inPorts[3] = (uint8_t)(SPC700_ENGINE_ENTRY >> 8);
+    apu->inPorts[1] = 0x00;
+    apu->inPorts[0] = 0xCC;
+    /* @WAIT_BLOCK_ACK sees the $CC echo, but the engine replaces it with 0
+     * a few instructions later, so wait for @WAIT_EXECUTE's condition only. */
+    if (!audio_run_until(spc_executed, max_wait))
+        LOG_WARN("audio: SPC700 engine didn't resume after an upload\n");
+}
+
+/* Load an audio pack by index into APU RAM. `to_engine`: through the running
+ * engine's loader (CHANGE_MUSIC); else raw (the boot load, see audio_init). */
+static bool audio_load_pack(uint8_t pack_index, bool to_engine) {
     size_t size = ASSET_SIZE(ASSET_AUDIOPACKS(pack_index));
     const uint8_t *data = ASSET_DATA(ASSET_AUDIOPACKS(pack_index));
     if (!data) {
         LOG_WARN("audio: failed to load audiopacks/%d.ebm\n", pack_index);
         return false;
     }
-    audio_upload_pack(data, size);
+    if (to_engine)
+        audio_upload_to_engine(data, size);
+    else
+        audio_upload_pack(data, size);
     return true;
 }
 
@@ -117,7 +171,7 @@ void audio_init(void) {
     uint8_t init_pack = dataset_table[0 * DATASET_ENTRY_SIZE + 2];  /* sequence_pack of entry 0 */
     audio_state.unknown_7eb543 = init_pack;
     audio_state.current_secondary_sample_pack = init_pack;
-    audio_load_pack(init_pack);
+    audio_load_pack(init_pack, false);
 
     /* Start SPC700 execution at $0500 (engine entry point).
        The IPL boot ROM has been bypassed by direct RAM writes.
@@ -137,16 +191,22 @@ void audio_init(void) {
      * FILE_SELECT_INIT applies the save's sound_setting (audio_set_channels). */
 }
 
-/* SET_AUDIO_CHANNELS (asm/audio/set_num_channels.asm): upload one byte of
- * STEREO_MONO_DATA to the engine's STEREO_MONO_FLAG ($0431): 0 when mode is 0,
- * else 1. The engine centres every voice's pan while the flag is nonzero
- * (main.spc700.s UNK09B8), so mode 0 is stereo and nonzero is mono; callers
- * pass sound_setting - 1. */
+/* SET_AUDIO_CHANNELS (asm/audio/set_num_channels.asm): LOAD_SPC700_DATA of
+ * one STEREO_MONO_DATA block, writing the engine's STEREO_MONO_FLAG ($0431):
+ * 0 when mode is 0, else 1. The engine centres every voice's pan while the
+ * flag is nonzero (main.spc700.s UNK09B8), so mode 0 is stereo and nonzero is
+ * mono; callers pass sound_setting - 1. Like any upload it goes through the
+ * engine's $FF stop + loader, so the playing music stops. */
 #define SPC_STEREO_MONO_FLAG 0x0431
 void audio_set_channels(uint16_t mode) {
     if (!apu) return;
+    /* STEREO_MONO_DATA (asm/data/stereo_mono_data.asm): one 1-byte block at
+     * $0431, then the terminal size word */
+    const uint8_t block[] = {
+        0x01, 0x00, SPC_STEREO_MONO_FLAG & 0xFF, SPC_STEREO_MONO_FLAG >> 8, mode ? 1 : 0, 0x00, 0x00,
+    };
     audio_lock();
-    apu->ram[SPC_STEREO_MONO_FLAG] = mode ? 1 : 0;
+    audio_upload_to_engine(block, sizeof(block));
     audio_unlock();
 }
 
@@ -204,43 +264,24 @@ void change_music(uint16_t track_id) {
     uint8_t secondary = dataset_table[idx * DATASET_ENTRY_SIZE + 1];
     uint8_t sequence  = dataset_table[idx * DATASET_ENTRY_SIZE + 2];
 
-    bool any_pack_loaded = false;
 
     /* Load primary sample pack if changed */
     if (primary != audio_state.current_primary_sample_pack && primary != 0xFF) {
         audio_state.current_primary_sample_pack = primary;
-        audio_load_pack(primary);
-        any_pack_loaded = true;
+        audio_load_pack(primary, true);
     }
 
     /* Load secondary sample pack if changed */
     if (secondary != audio_state.current_secondary_sample_pack && secondary != 0xFF &&
         secondary != audio_state.unknown_7eb543) {
         audio_state.current_secondary_sample_pack = secondary;
-        audio_load_pack(secondary);
-        any_pack_loaded = true;
+        audio_load_pack(secondary, true);
     }
 
     /* Load sequence pack if changed */
     if (sequence != audio_state.current_sequence_pack && sequence != 0xFF) {
         audio_state.current_sequence_pack = sequence;
-        audio_load_pack(sequence);
-        any_pack_loaded = true;
-    }
-
-    if (any_pack_loaded) {
-        /* Restart SPC700 at engine entry point, matching LOAD_SPC700_DATA
-           which always restarts execution at $0500 after the terminal block.
-           This re-initializes the engine's internal state (DSP registers,
-           instrument tables, echo settings) with the freshly loaded data. */
-        apu->spc->resetWanted = false;
-        apu->spc->pc = SPC700_ENGINE_ENTRY;
-        apu->spc->stopped = false;
-
-        /* Let the engine initialize before sending the track command */
-        for (int i = 0; i < 10; i++) {
-            apu_runCycles(apu, 17066);
-        }
+        audio_load_pack(sequence, true);
     }
 
     /* Send play command: write track number to port 0.
