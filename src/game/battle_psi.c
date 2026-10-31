@@ -842,6 +842,14 @@ void show_psi_animation(uint16_t anim_id) {
 
     psi_animation_state.displayed_palette = displayed_pal_base;
 
+    /* Wide viewport (presentation only): the animation layer, BG2 in the
+     * 2bpp layout and BG1 in the 4bpp one (the scroll registers set at the
+     * end), is a 256-px full-screen picture. load_battle_bg left it on FILL,
+     * whose tilemap wrap puts the band's opposite edge in the gutters during
+     * Flash's half-screen wipes; SEAM continues the band's own edge there
+     * and keeps the wrap for patterns and flashes. */
+    ppu.bg_viewport_fill[is_2bpp ? 1 : 0] = BG_VIEWPORT_SEAM;
+
     /* Former blocking render_frame_tick() that waited one frame for the VRAM upload
      * to land. show_psi_animation is battle-only (apply_psi_battle_effect + the debug
      * PSI cycler, both battle), so bt.battle_mode_flag is set → render_frame_tick_work_

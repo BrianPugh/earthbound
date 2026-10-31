@@ -51,6 +51,14 @@ typedef enum BGViewportMode : uint8_t {
                              * the gutters and pad rows show the backdrop. A
                              * 256-px picture in a 64-wide tilemap whose other
                              * page holds nothing (the Your Sanctuary montage) */
+    BG_VIEWPORT_SEAM   = 6, /* a 256-px picture that covers the screen (the
+                             * battle PSI animation layer): FILL in frames
+                             * whose tilemap wraps seamlessly across the
+                             * band's left/right edge (patterns, full-screen
+                             * flashes), CONTINUE in frames where the wrap
+                             * would show the opposite edge (half-screen
+                             * wipes). The renderer decides each frame;
+                             * plain FILL without side gutters */
 } BGViewportMode;
 
 typedef struct {

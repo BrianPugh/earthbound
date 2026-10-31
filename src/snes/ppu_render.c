@@ -1654,6 +1654,26 @@ typedef struct {
     int scroll_x, scroll_y, w_mask, h_mask, band_lo;
 } GutterBgSampler;
 
+/* Sampler for layer `bg_index` (8x8 tiles) at its current registers. */
+static void gbs_init(GutterBgSampler *s, int bg_index, int bpp, int band_lo)
+{
+    uint16_t sc_reg = ppu.bg_sc[bg_index];
+    uint8_t nba = bg_index < 2 ? ppu.bg_nba[0] >> (bg_index * 4)
+                               : ppu.bg_nba[1] >> ((bg_index - 2) * 4);
+    s->tilemap_base = (uint32_t)(sc_reg & 0xFC) << 9;
+    s->tile_data_base = (uint32_t)(nba & 0x0F) * 0x2000;
+    s->sc_size_h = (sc_reg & 0x01) ? 64 : 32;
+    s->sc_size_v = (sc_reg & 0x02) ? 64 : 32;
+    s->bpp = bpp;
+    s->bytes_per_tile = (bpp == 8) ? 64 : (bpp == 4) ? 32 : 16;
+    s->bg_index = bg_index;
+    s->scroll_x = ppu.bg_hofs[bg_index] & 0x3FF;
+    s->scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
+    s->w_mask = s->sc_size_h * 8 - 1;
+    s->h_mask = s->sc_size_v * 8 - 1;
+    s->band_lo = band_lo;
+}
+
 /* Tilemap entry and pixel row/column of band pixel (px, py). */
 static uint16_t gbs_entry(const GutterBgSampler *s, int px, int py,
                           int *wx, int *wy)
@@ -1732,6 +1752,9 @@ typedef struct {
 typedef struct {
     int n;
     int base_t;       /* edge position of the dominant colour, -1 = none */
+    int len;          /* edge length */
+    int clamp_from;   /* edge positions from here on had no room in run[]
+                       * (fine stripes): they extend straight out */
     GutterRun run[GUTTER_MAX_RUNS];
 } GutterEdge;
 
@@ -1742,6 +1765,8 @@ static void gutter_edge_scan(const GutterBgSampler *s, int edge, GutterEdge *ge)
     int base_len = 0;
     ge->n = 0;
     ge->base_t = -1;
+    ge->len = len;
+    ge->clamp_from = len;
 
     /* The dominant colour: the one with the most edge pixels. */
     {
@@ -1779,7 +1804,11 @@ static void gutter_edge_scan(const GutterBgSampler *s, int edge, GutterEdge *ge)
             if (gbs_key(s, px, py) != key) break;
             b0++;
         }
-        if (key != base && ge->n < GUTTER_MAX_RUNS) {
+        if (key != base && ge->n == GUTTER_MAX_RUNS) {
+            ge->clamp_from = a0;
+            break;
+        }
+        if (key != base) {
             /* The same-coloured run k px inside that touches [a0, b0]
              * (diagonal neighbours count, for 1-px lines). */
             for (int k = GUTTER_SLOPE_PROBE; k >= 1; k--) {
@@ -1820,9 +1849,12 @@ static void gutter_edge_scan(const GutterBgSampler *s, int edge, GutterEdge *ge)
 }
 
 /* Edge position whose pixel shows at depth d (>= 1) outside the edge,
- * position t, or -1 for transparent. Later runs win. */
+ * position t, or -1 for transparent. Later runs win; past clamp_from the
+ * edge pixel itself. */
 static int gutter_edge_source(const GutterEdge *ge, int d, int t)
 {
+    if (t >= ge->clamp_from && t < ge->len)
+        return t;
     for (int i = ge->n - 1; i >= 0; i--) {
         const GutterRun *r = &ge->run[i];
         if (!r->open_a &&
@@ -1876,21 +1908,7 @@ bg_gutter_fill(int bg_index, int scanline, const BGRenderCtx *ctx_in,
     if (bpp == 0 || ((ppu.bgmode >> (4 + bg_index)) & 1)) return pad_row;
 
     GutterBgSampler s;
-    uint16_t sc_reg = ppu.bg_sc[bg_index];
-    uint8_t nba = bg_index < 2 ? ppu.bg_nba[0] >> (bg_index * 4)
-                               : ppu.bg_nba[1] >> ((bg_index - 2) * 4);
-    s.tilemap_base = (uint32_t)(sc_reg & 0xFC) << 9;
-    s.tile_data_base = (uint32_t)(nba & 0x0F) * 0x2000;
-    s.sc_size_h = (sc_reg & 0x01) ? 64 : 32;
-    s.sc_size_v = (sc_reg & 0x02) ? 64 : 32;
-    s.bpp = bpp;
-    s.bytes_per_tile = (bpp == 8) ? 64 : (bpp == 4) ? 32 : 16;
-    s.bg_index = bg_index;
-    s.scroll_x = ppu.bg_hofs[bg_index] & 0x3FF;
-    s.scroll_y = ppu.bg_vofs[bg_index] & 0x3FF;
-    s.w_mask = s.sc_size_h * 8 - 1;
-    s.h_mask = s.sc_size_v * 8 - 1;
-    s.band_lo = band_lo;
+    gbs_init(&s, bg_index, bpp, band_lo);
 
     /* Priority-compared emit (gutter pixels may hold a lower layer). */
     BGRenderCtx ctx = *ctx_in;
@@ -1931,6 +1949,35 @@ bg_gutter_fill(int bg_index, int scanline, const BGRenderCtx *ctx_in,
     }
     return pad_row;
 }
+
+/* BG_VIEWPORT_SEAM: does this frame of the layer wrap seamlessly across the
+ * band's left/right edge? FILL shows band column 255's right neighbour, the
+ * wrapped column 0, in the right gutter (and column 255 left of column 0).
+ * Count the band rows where that seam pair differs (S) and, for comparison,
+ * the rows where an ordinary pair of neighbouring columns differs, sampled
+ * every 8 px (M per pair). A pattern or a full-screen flash crosses the seam
+ * like any other column boundary (S near the mean M); a half-screen wipe or
+ * a large shape at one edge differs along a long stretch of the seam while
+ * the columns inside rarely change (S >= 64 rows and over twice the mean M
+ * plus 8). Small shapes cut by the seam (Starstorm's stars) stay below 64
+ * rows and keep wrapping, so the gutters don't flip between modes. */
+#if EB_VIEWPORT_PAD_LEFT > 0
+#define SEAM_MIN_ROWS 64
+static bool __attribute__((noinline)) bg_seam_wraps(int bg_index, int bpp)
+{
+    if (bpp == 0 || ((ppu.bgmode >> (4 + bg_index)) & 1)) return true;
+    GutterBgSampler s;
+    gbs_init(&s, bg_index, bpp, ppu.sprite_y_offset ? 0 : 1);
+    int seam = 0, inner = 0, pairs = 0;
+    for (int y = 0; y < SNES_HEIGHT; y++)
+        seam += gbs_key(&s, SNES_WIDTH - 1, y) != gbs_key(&s, SNES_WIDTH, y);
+    if (seam < SEAM_MIN_ROWS) return true;
+    for (int c = 8; c < SNES_WIDTH; c += 8, pairs++)
+        for (int y = 0; y < SNES_HEIGHT; y++)
+            inner += gbs_key(&s, c - 1, y) != gbs_key(&s, c, y);
+    return seam * pairs <= 2 * inner + 8 * pairs;
+}
+#endif
 #endif
 
 /* Scratch for one scanline's gutter row (lives on precompute_window_masks's
@@ -2527,6 +2574,20 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     bool wide_mode = frame_wide_mode(bg_bpp, layers_needed,
                                      color_math_active && use_sub_screen);
 
+    /* Per-layer viewport mode for this frame: BG_VIEWPORT_SEAM resolves to
+     * FILL or CONTINUE (see bg_seam_wraps). */
+    BGViewportMode vp_mode[4];
+    for (int bg = 0; bg < 4; bg++) {
+        vp_mode[bg] = ppu.bg_viewport_fill[bg];
+        if (vp_mode[bg] != BG_VIEWPORT_SEAM) continue;
+        vp_mode[bg] = BG_VIEWPORT_FILL;
+#if EB_VIEWPORT_PAD_LEFT > 0
+        if (wide_mode && (layers_needed & (1 << bg)) &&
+            !bg_seam_wraps(bg, bg_bpp[bg]))
+            vp_mode[bg] = BG_VIEWPORT_CONTINUE;
+#endif
+    }
+
     int render_height = EB_VIEWPORT_HEIGHT;
     int render_width = EB_VIEWPORT_WIDTH;
     int fb_x_offset = 0;
@@ -2828,8 +2889,8 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             BGC_INC(layers);
 
             bool fills_via_tilemap = (ppu.bg_sc[bg] & 0x01) != 0;
-            bool fills_band = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_BAND);
-            bool fills_explicit = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_FILL) || fills_band;
+            bool fills_band = (vp_mode[bg] == BG_VIEWPORT_BAND);
+            bool fills_explicit = (vp_mode[bg] == BG_VIEWPORT_FILL) || fills_band;
             bool layer_fills = wide_mode && (fills_via_tilemap || fills_explicit);
 
             int bg_scanline;
@@ -2846,9 +2907,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * the photo sits PAD_TOP low in its frame. */
                 if (!ppu.sprite_y_offset &&
                     (fills_explicit ||
-                     ppu.bg_viewport_fill[bg] == BG_VIEWPORT_TALL))
+                     vp_mode[bg] == BG_VIEWPORT_TALL))
                     bg_scanline -= EB_VIEWPORT_PAD_TOP;
-                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP) {
+                if (vp_mode[bg] == BG_VIEWPORT_CLAMP) {
                     if (bg_scanline < 0) bg_scanline = 0;
                     else if (bg_scanline >= SNES_HEIGHT) bg_scanline = SNES_HEIGHT - 1;
                 }
@@ -2932,7 +2993,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 /* CONTINUE: gutter pixels (whole pad rows included) come
                  * from the band edge; the band itself renders below.
                  * Without side gutters only the pad rows need it (below). */
-                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CONTINUE) {
+                if (vp_mode[bg] == BG_VIEWPORT_CONTINUE) {
                     merged_empty = false;
                     if (bg_gutter_fill(bg, scanline, &ctx, best_bg))
                         goto bg_mosaic_done;
@@ -2953,14 +3014,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * picture) keep drawing to the viewport edge. */
                 if ((unsigned)(snes_scanline - (ppu.sprite_y_offset ? 0 : 1)) >=
                         SNES_HEIGHT &&
-                    ppu.bg_viewport_fill[bg] != BG_VIEWPORT_CLAMP &&
+                    vp_mode[bg] != BG_VIEWPORT_CLAMP &&
                     (ppu.sprite_y_offset ||
-                     ppu.bg_viewport_fill[bg] != BG_VIEWPORT_TALL)) {
+                     vp_mode[bg] != BG_VIEWPORT_TALL)) {
 #if EB_VIEWPORT_PAD_LEFT <= 0 && EB_VIEWPORT_PAD_TOP > 0
                     /* CONTINUE with pad rows only (the RP2040 port, 240x240):
                      * the pad rows continue the band's top/bottom edge. With
                      * side gutters the call above already covered them. */
-                    if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CONTINUE) {
+                    if (vp_mode[bg] == BG_VIEWPORT_CONTINUE) {
                         merged_empty = false;
                         bg_gutter_fill(bg, scanline, &ctx, best_bg);
                     }
@@ -3101,7 +3162,7 @@ merge_done:
 
 #if EB_VIEWPORT_PAD_LEFT > 0 || EB_VIEWPORT_PAD_TOP > 0
                 /* Clamp mode: extend edge pixels into the border area */
-                if (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_CLAMP)
+                if (vp_mode[bg] == BG_VIEWPORT_CLAMP)
                     bg_gutter_fill(bg, scanline, &ctx, best_bg);
 #endif
             } else {
