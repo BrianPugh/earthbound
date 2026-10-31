@@ -1881,7 +1881,9 @@ bg_gutter_fill(int bg_index, int scanline, const BGRenderCtx *ctx_in,
     };
     int bpp = mode_bpp[ppu.bgmode & BGMODE_MODE_MASK][bg_index];
     int band_lo = ppu.sprite_y_offset ? 0 : 1;
-    int bs = scanline - ppu.sprite_y_offset;
+    /* The layer's BG scanline, as the BG render computes it: overworld-space
+     * scenes drop a 256-px layer by PAD_TOP too. */
+    int bs = scanline - (ppu.sprite_y_offset ? ppu.sprite_y_offset : EB_VIEWPORT_PAD_TOP);
     bool pad_row = bs < band_lo || bs >= band_lo + SNES_HEIGHT;
 
     if (ppu.bg_viewport_fill[bg_index] == BG_VIEWPORT_CLAMP) {
@@ -2900,14 +2902,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 bg_scanline = snes_scanline;
                 /* Overworld-space scenes (sprite_y_offset 0) centre the map
                  * and its sprites through the camera (EB_VIEWPORT_CENTER_Y),
-                 * so the SNES picture sits PAD_TOP rows down. An explicit FILL
-                 * or TALL layer here is band content laid out from tilemap
-                 * row 0 (the credits photo frame on BG2, the staff roll on
-                 * BG3): drop it by PAD_TOP too, as fill_pad does for x, or
-                 * the photo sits PAD_TOP low in its frame. */
-                if (!ppu.sprite_y_offset &&
-                    (fills_explicit ||
-                     vp_mode[bg] == BG_VIEWPORT_TALL))
+                 * so the SNES picture sits PAD_TOP rows down. A layer that
+                 * doesn't fill through its tilemap is band content laid out
+                 * from tilemap row 0 (the text windows on BG3, the credits
+                 * photo frame on BG2, the staff roll on BG3): drop it by
+                 * PAD_TOP too, as these layers are already centred in x, or
+                 * the windows sit PAD_TOP higher over the map than in the
+                 * original (and higher than the same windows in battle). */
+                if (!ppu.sprite_y_offset)
                     bg_scanline -= EB_VIEWPORT_PAD_TOP;
                 if (vp_mode[bg] == BG_VIEWPORT_CLAMP) {
                     if (bg_scanline < 0) bg_scanline = 0;
@@ -3001,10 +3003,12 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 #endif
                 /* Rows outside the SNES picture. Scenes with a
                  * sprite_y_offset centre the 224-line band in the viewport;
-                 * overworld-space scenes (sprite_y_offset 0) draw a 256-px
-                 * layer top-aligned: viewport row y is BG line VOFS + y. The
-                 * SNES's 224-line picture starts at scanline 1, so it only
-                 * ever shows lines VOFS+1 .. VOFS+224; the rows above and
+                 * overworld-space scenes (sprite_y_offset 0) drop a 256-px
+                 * layer by PAD_TOP (above): viewport row y is BG line
+                 * VOFS + y - PAD_TOP. The SNES's 224-line picture starts at
+                 * scanline 1, so it only ever shows lines VOFS+1 .. VOFS+224
+                 * (one row lower than in sprite_y_offset scenes, like the
+                 * camera-centred map); the rows above and
                  * below hold tilemap rows the original never displays (e.g.
                  * the staff roll's $240C fill in BG3 rows 29-31, left there
                  * for Ness's room and THE END... ?). Keep the layer to the
@@ -3012,7 +3016,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * layers extend their edge rows, and in overworld space
                  * BG_VIEWPORT_TALL layers (text that scrolls through the
                  * picture) keep drawing to the viewport edge. */
-                if ((unsigned)(snes_scanline - (ppu.sprite_y_offset ? 0 : 1)) >=
+                if ((unsigned)(bg_scanline - (ppu.sprite_y_offset ? 0 : 1)) >=
                         SNES_HEIGHT &&
                     vp_mode[bg] != BG_VIEWPORT_CLAMP &&
                     (ppu.sprite_y_offset ||
