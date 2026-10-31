@@ -105,9 +105,15 @@ void window_system_init(void) {
     win.current_focus_window = WINDOW_ID_NONE;
     for (int i = 0; i < MAX_TITLED_WINDOWS; i++)
         win.titled_windows[i] = WINDOW_ID_NONE;
-    for (int i = 0; i < MAX_WINDOWS; i++)
+    for (int i = 0; i < MAX_WINDOWS; i++) {
         win.windows[i].next = win.windows[i].prev = -1;
+        win.windows[i].option_head = win.windows[i].option_tail = -1;
+    }
     win.window_head = win.window_tail = -1;
+    /* INITIALIZE_BATTLE_UI_STATE frees the whole MENU_OPTIONS pool
+     * (initialize_battle_ui_state.asm:92-105). */
+    for (int i = 0; i < NUM_MENU_OPTIONS; i++)
+        win.menu_options[i].type = 0;
 }
 
 /* Allocate a contiguous block from the shared tilemap pool.
@@ -180,6 +186,11 @@ WindowInfo *create_window(uint16_t window_id) {
             slot = i;
     }
 
+    /* An open window frees its options first (create_window.asm:44-46:
+     * CLEAR_FOCUS_WINDOW_MENU_OPTIONS with the focus set to it). */
+    if (w)
+        clear_window_menu_options(w);
+
     if (!w) {
         /* New window — allocate slot and load configuration */
         if (slot < 0) return NULL; /* no free slots */
@@ -188,6 +199,7 @@ WindowInfo *create_window(uint16_t window_id) {
         memset(w, 0, sizeof(*w));
         w->active = true;
         w->id = window_id;
+        w->option_head = w->option_tail = -1;  /* create_window.asm:253-254 */
 
         if (window_id < WINDOW_CONFIG_COUNT && window_configs[window_id][2] > 0) {
             w->x = window_configs[window_id][0];
@@ -349,8 +361,8 @@ void close_all_windows(void) {
      * WINDOW_TICK, INIT_USED_BG2_TILE_MAP. */
     for (int i = 0; i < MAX_WINDOWS; i++) {
         if (win.windows[i].active) {
-            /* Clear menu state */
-            win.windows[i].menu_count = 0;
+            /* CLOSE_WINDOW's CLEAR_WINDOW_MENU_OPTIONS */
+            clear_window_menu_options(&win.windows[i]);
             win.windows[i].selected_option = WINDOW_ID_NONE;
             win.windows[i].current_option = WINDOW_ID_NONE;
             win.windows[i].menu_page_number = 1;
@@ -458,58 +470,38 @@ void set_window_title(uint16_t window_id, const char *title, int max_len) {
         w->title_tile_count = (uint8_t)render_title_to_vram(w->title, w->title_slot);
 }
 
-/* Mark the pool entries the open windows own. */
-static void menu_options_in_use(uint32_t used[(NUM_MENU_OPTIONS + 31) / 32]) {
-    for (int k = 0; k < (NUM_MENU_OPTIONS + 31) / 32; k++)
-        used[k] = 0;
-    for (int i = 0; i < MAX_WINDOWS; i++) {
-        const WindowInfo *o = &win.windows[i];
-        if (!o->active) continue;
-        for (int j = 0; j < o->menu_items_reserved && j < MAX_WINDOW_MENU_ITEMS; j++)
-            used[o->menu_item_idx[j] / 32] |= 1u << (o->menu_item_idx[j] % 32);
-    }
-}
-
-/* Pool entry for item w->menu_count, NULL when the window is full or the pool
- * is exhausted. Matches the per-window array this pool replaced: an index the
- * window has filled since it was created keeps its entry and old contents
- * (create_window on an open window and CLEAR_WINDOW_MENU_OPTIONS reset only
- * menu_count, and callers rely on fields add_menu_item leaves alone, such as
- * page), while a new index takes a zeroed entry, like the array memset by
- * create_window. Free entries are taken lowest first, as
- * FIND_FIRST_EMPTY_MENU_OPTION does. The asm keeps at most NUM_MENU_OPTIONS
- * options live and its windows free theirs where this port's do (create/close
- * window, CLEAR_WINDOW_MENU_OPTIONS callers), so the pool only runs dry through
- * entries kept for reuse; one is then taken back from another window's unused
- * tail, which costs that window only its old contents. */
+/* ADD_MENU_OPTION's allocation (asm/text/menu/add_menu_option.asm): take the
+ * first free pool entry (FIND_FIRST_EMPTY_MENU_OPTION: menu_option::unknown0 ==
+ * 0), append it to w's chain and mark it used (unknown0 = 1). The entry keeps
+ * the fields the asm leaves alone (text_x, text_y, userdata) from its last use.
+ * NULL when the pool is full; the asm then returns the last pool entry without
+ * linking it, so the option never shows either. */
 static MenuItem *alloc_menu_item_slot(WindowInfo *w) {
-    uint8_t i = w->menu_count;
-    if (i >= MAX_WINDOW_MENU_ITEMS) return NULL;
-    if (i < w->menu_items_reserved) return window_menu_item(w, i);
-
-    uint32_t used[(NUM_MENU_OPTIONS + 31) / 32];
-    menu_options_in_use(used);
     int e = -1;
     for (int k = 0; k < NUM_MENU_OPTIONS; k++) {
-        if (!(used[k / 32] & (1u << (k % 32)))) {
+        if (win.menu_options[k].type == 0) {
             e = k;
             break;
         }
-    }
-    for (int j = 0; e < 0 && j < MAX_WINDOWS; j++) {
-        WindowInfo *o = &win.windows[j];
-        if (o != w && o->active && o->menu_items_reserved > o->menu_count)
-            e = o->menu_item_idx[--o->menu_items_reserved];
     }
     if (e < 0) {
         LOG_WARN("WARNING: MENU_OPTIONS pool full (%d items), dropping a menu item\n",
                  NUM_MENU_OPTIONS);
         return NULL;
     }
-    memset(&win.menu_options[e], 0, sizeof(MenuItem));
-    w->menu_item_idx[i] = (uint8_t)e;
-    w->menu_items_reserved = (uint8_t)(i + 1);
-    return &win.menu_options[e];
+    MenuItem *item = &win.menu_options[e];
+    if (w->option_head < 0) {
+        item->prev = -1;
+        w->option_head = (int8_t)e;
+    } else {
+        item->prev = w->option_tail;
+        win.menu_options[w->option_tail].next = (int8_t)e;
+    }
+    w->option_tail = (int8_t)e;
+    item->next = -1;
+    item->type = 1;
+    item->script = 0;
+    return item;
 }
 
 /* A new option for w. ADD_MENU_OPTION starts every option on page 1
@@ -532,9 +524,9 @@ void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16
     strncpy(item->label, label, MENU_LABEL_SIZE - 1);
     item->label[MENU_LABEL_SIZE - 1] = '\0';
     item->userdata = userdata;
+    item->type = 2;   /* ADD_MENU_ITEM (add_menu_item.asm:37-39) */
     item->text_x = (uint8_t)text_x;
     item->text_y = (uint8_t)text_y;
-    item->script = 0;
     /* ADD_MENU_OPTION (add_menu_option.asm:79-83) gives every option
      * sound_effect = 1 (CURSOR1), played by SELECTION_MENU on confirm.
      * ADD_MENU_ITEM_WITH_SOUND and the equip list override it afterwards. */
@@ -585,9 +577,10 @@ void add_menu_item_no_position(const char *label, uint16_t userdata) {
  * LAYOUT_MENU_OPTIONS), so the C port has no field for it. option_count is
  * menu_count here. */
 void clear_window_menu_options(WindowInfo *w) {
-    if (!w || w->menu_count == 0) return;
-    for (int i = 0; i < w->menu_count; i++)
-        window_menu_item(w, i)->type = 0;
+    if (!w || w->option_head < 0) return;
+    for (MenuItem *item = &win.menu_options[w->option_head]; item; item = menu_item_next(item))
+        item->type = 0;
+    w->option_head = w->option_tail = -1;
     w->menu_count = 0;
     w->selected_option = WINDOW_ID_NONE;
     w->current_option = WINDOW_ID_NONE;
@@ -642,8 +635,8 @@ static bool print_overflow_option(WindowInfo *w) {
 
     /* The option before the overflow one (the last real option, menu_option::
      * previous of the window's last-added option) holds the last page. */
-    uint16_t last_page = (w->menu_count >= 2)
-                         ? window_menu_item(w, w->menu_count - 2)->page : 1;
+    int8_t before = win.menu_options[w->option_tail].prev;
+    uint16_t last_page = (before >= 0) ? win.menu_options[before].page : 1;
     char tail[3];
     tail[0] = (w->menu_page_number == last_page)
               ? '1' : (char)('0' + w->menu_page_number + 1);  /* CHAR::ONE (+ page) */
@@ -666,8 +659,10 @@ void print_menu_items(void) {
     /* Assembly (print_menu_items.asm lines 38-44): only print items on
      * the current page (page == menu_page_number) or always-visible
      * items (page == 0, i.e. the overflow indicator). */
+    MenuItem *next_item = window_menu_item(w, 0);
     for (uint16_t i = 0; i < w->menu_count; i++) {
-        MenuItem *item = window_menu_item(w, i);
+        MenuItem *item = next_item;
+        next_item = menu_item_next(item);
         if (item->page != w->menu_page_number && item->page != 0)
             continue;
         /* CLEAR_MENU_OPTION_TEXT: write marker tile at column 0 to clear stale VWF */
@@ -684,8 +679,8 @@ void print_menu_items(void) {
 }
 
 /* PRINT_MENU_AT_SELECTION — Port of asm/text/menu/print_menu_at_selection.asm.
- * The asm walks `selection` links from the window's first option to find the
- * item's page; the C menu items are a packed array, so it indexes directly. */
+ * Walks `selection` links from the window's first option to find the item's
+ * page. */
 void print_menu_at_selection(uint16_t selection) {
     if (selection != (uint16_t)-1) {
         WindowInfo *w = get_window(win.current_focus_window);
@@ -720,17 +715,18 @@ static void layout_menu_options(WindowInfo *w, uint16_t columns, uint16_t propor
 
     /* MENU_OPTION_LABEL_LENGTHS / MENU_OPTION_COLUMN_WIDTHS: 4 bytes each in
      * ram.asm (MEMSET to 0 / $FF); more options than that overrun in the asm. */
-    uint8_t label_len[MAX_WINDOW_MENU_ITEMS];
-    uint8_t column_w[MAX_WINDOW_MENU_ITEMS];
+    uint8_t label_len[NUM_MENU_OPTIONS];
+    uint8_t column_w[NUM_MENU_OPTIONS];
     memset(label_len, 0, sizeof(label_len));
     memset(column_w, 0xFF, sizeof(column_w));
 
     uint16_t col_width = 0;
     if (proportional) {
         uint16_t total = 0;
-        for (uint16_t i = 0; i < total_items; i++) {
+        const MenuItem *it = window_menu_item(w, 0);
+        for (uint16_t i = 0; i < total_items; i++, it = menu_item_next(it)) {
             /* The C labels are ASCII; measure the EB bytes print_string prints. */
-            const char *label = window_menu_item(w, i)->label;
+            const char *label = it->label;
             uint8_t eb[MENU_LABEL_SIZE];
             uint16_t n = 0;
             for (; n < MENU_LABEL_SIZE - 1 && label[n]; n++)
@@ -761,12 +757,12 @@ static void layout_menu_options(WindowInfo *w, uint16_t columns, uint16_t propor
     uint16_t page = 1;
     uint16_t page_item = 0;
     uint16_t x = 0;
-    for (uint16_t i = 0; i < total_items; i++) {
+    MenuItem *item = window_menu_item(w, 0);
+    for (uint16_t i = 0; i < total_items; i++, item = menu_item_next(item)) {
         uint16_t col = page_item % columns;
         uint16_t row = page_item / columns;
         if (col == 0)
             x = 0;
-        MenuItem *item = window_menu_item(w, i);
         if (proportional) {
             /* 8-bit (column - label), halved (ROR), then >> 3 to tiles. */
             uint8_t spare = (uint8_t)(column_w[i] - label_len[i]);
@@ -1489,9 +1485,10 @@ StepResult mode_step_window_border_anim(ModeState *ms) {
  * on the current page.  Replaces GET_MENU_TILE_AT_POSITION tilemap scan.
  */
 static bool has_menu_item_at(WindowInfo *w, int16_t x, int16_t y) {
-    for (uint16_t i = 0; i < w->menu_count; i++) {
-        if (window_menu_item(w, i)->text_x == x && window_menu_item(w, i)->text_y == y) {
-            uint16_t page = window_menu_item(w, i)->page;
+    const MenuItem *item = window_menu_item(w, 0);
+    for (uint16_t i = 0; i < w->menu_count; i++, item = menu_item_next(item)) {
+        if (item->text_x == x && item->text_y == y) {
+            uint16_t page = item->page;
             if (page == w->menu_page_number || page == 0)
                 return true;
         }
@@ -1623,10 +1620,10 @@ static int16_t resolve_cursor_move(WindowInfo *w, int16_t packed) {
     if (packed == -1) return -1;
     int16_t target_x = packed & 0xFF;
     int16_t target_y = (packed >> 8) & 0xFF;
-    for (uint16_t i = 0; i < w->menu_count; i++) {
-        if (window_menu_item(w, i)->text_x == target_x &&
-            window_menu_item(w, i)->text_y == target_y) {
-            uint16_t page = window_menu_item(w, i)->page;
+    const MenuItem *item = window_menu_item(w, 0);
+    for (uint16_t i = 0; i < w->menu_count; i++, item = menu_item_next(item)) {
+        if (item->text_x == target_x && item->text_y == target_y) {
+            uint16_t page = item->page;
             if (page == w->menu_page_number || page == 0)
                 return (int16_t)i;
         }
@@ -1900,9 +1897,10 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
             /* Find the last real item's page number to know when to wrap.
              * Assembly checks the item before the overflow indicator. */
             uint16_t last_page = 1;
-            for (uint16_t i = 0; i < w->menu_count; i++) {
-                if (window_menu_item(w, i)->page > last_page)
-                    last_page = window_menu_item(w, i)->page;
+            const MenuItem *it = window_menu_item(w, 0);
+            for (uint16_t i = 0; i < w->menu_count; i++, it = menu_item_next(it)) {
+                if (it->page > last_page)
+                    last_page = it->page;
             }
 
             /* Cycle: if on last page, wrap to 1; else increment */

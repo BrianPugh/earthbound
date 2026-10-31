@@ -171,7 +171,7 @@ _Static_assert(sizeof(event_flags)          == 128,   "ABI: event_flags");
 _Static_assert(sizeof(ow)                   == 392,   "ABI: ow");
 _Static_assert(sizeof(bt)                   == 3780,  "ABI: bt");
 _Static_assert(sizeof(dt)                   == 284,   "ABI: dt");
-_Static_assert(sizeof(win)                  == 8264,  "ABI: win");
+_Static_assert(sizeof(win)                  == 8072,  "ABI: win");
 _Static_assert(sizeof(ml)                   == 6732,  "ABI: ml");
 /* SECTION_PPU serializes only the fixed PREFIX of PPUState — everything before the
  * per-scanline HDMA tables (wh0/wh1/wh2/wh3_table, tm/ts_per_scanline), which are
@@ -898,14 +898,6 @@ typedef struct {
     FC_ARRAY(sec_, offsetof(st_, arr_) + offsetof(elem_, fld_), n_, sizeof(elem_), \
              type_, lo_, hi_, flags_, 0)
 
-/* Window k's menu_item_idx[] (one entry per window: FC_ARRAY has one stride). */
-#define FC_MENU_ITEM_IDX(k_)                                                         \
-    FC_ARRAY(SECTION_WINDOW,                                                         \
-             offsetof(WindowSystemState, windows) + (k_) * sizeof(WindowInfo) +     \
-                 offsetof(WindowInfo, menu_item_idx),                                \
-             MAX_WINDOW_MENU_ITEMS, 1, uint8_t, 0, NUM_MENU_OPTIONS - 1, 0u, 0)
-_Static_assert(MAX_WINDOWS == 8, "FC_MENU_ITEM_IDX rows cover windows 0-7");
-
 /* EB_NORELOC: the FC_BOUND_PREV row holds a pointer into .rodata, which an embedded
  * target relocates only in .noreloc (see core/embedded.h). */
 static const FieldCheck k_field_checks[] EB_NORELOC = {
@@ -920,17 +912,21 @@ static const FieldCheck k_field_checks[] EB_NORELOC = {
            MAX_WINDOWS, int8_t, -1, MAX_WINDOWS - 1, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, title_slot,
            MAX_WINDOWS, uint8_t, 0, MAX_TITLED_WINDOWS, 0u),
-    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, menu_items_reserved,
-           MAX_WINDOWS, uint8_t, 0, MAX_WINDOW_MENU_ITEMS, 0u),
+    /* Each window's option chain (head, tail, length) in win.menu_options. */
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, option_head,
+           MAX_WINDOWS, int8_t, -1, NUM_MENU_OPTIONS - 1, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, option_tail,
+           MAX_WINDOWS, int8_t, -1, NUM_MENU_OPTIONS - 1, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, menu_count,
-           MAX_WINDOWS, uint8_t, 0, MAX_WINDOW_MENU_ITEMS, 0u),
-    /* Each window's items as win.menu_options indices (window_menu_item). */
-    FC_MENU_ITEM_IDX(0), FC_MENU_ITEM_IDX(1), FC_MENU_ITEM_IDX(2), FC_MENU_ITEM_IDX(3),
-    FC_MENU_ITEM_IDX(4), FC_MENU_ITEM_IDX(5), FC_MENU_ITEM_IDX(6), FC_MENU_ITEM_IDX(7),
+           MAX_WINDOWS, uint8_t, 0, NUM_MENU_OPTIONS, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_size,
            MAX_WINDOWS, uint16_t, 0, WINDOW_TILEMAP_POOL_SIZE, 0u),
     FC_AOS(SECTION_WINDOW, WindowSystemState, windows, WindowInfo, content_tilemap_offset,
            MAX_WINDOWS, uint16_t, 0, WINDOW_TILEMAP_POOL_SIZE, FC_PLUS_PREV),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, menu_options, MenuItem, next,
+           NUM_MENU_OPTIONS, int8_t, -1, NUM_MENU_OPTIONS - 1, 0u),
+    FC_AOS(SECTION_WINDOW, WindowSystemState, menu_options, MenuItem, prev,
+           NUM_MENU_OPTIONS, int8_t, -1, NUM_MENU_OPTIONS - 1, 0u),
     FC_ONE(SECTION_WINDOW, WindowSystemState, window_head, int8_t, -1, MAX_WINDOWS - 1),
     FC_ONE(SECTION_WINDOW, WindowSystemState, window_tail, int8_t, -1, MAX_WINDOWS - 1),
     /* A tileset combo is 5 bits of the sector tileset/palette byte. */

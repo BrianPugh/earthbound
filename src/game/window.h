@@ -68,11 +68,10 @@
 #define WINDOW_SINGLE_CHARACTER_SELECT 0x33
 
 /* MENU_OPTIONS (asm ram.asm): one pool of NUM_MENU_OPTIONS (include/enums.asm)
- * options that every window's menu draws from; win.menu_options here. */
+ * options that every window's menu draws from; win.menu_options here. A window
+ * chains any number of them (menu_option::next/previous), so one menu can hold
+ * the whole pool. */
 #define NUM_MENU_OPTIONS 70
-/* Port cap on one window's items (the asm chains any number from the pool);
- * add_menu_item drops the rest. */
-#define MAX_WINDOW_MENU_ITEMS 24
 
 /* Menu option - matches menu_option from structs.asm (45 bytes in asm) */
 #define MENU_LABEL_SIZE 26  /* asm: 25-byte label at offset 19, +1 for null */
@@ -81,7 +80,9 @@ typedef struct {
     uint16_t userdata;     /* value returned on selection (asm offset 12) */
     uint8_t  text_x;       /* x position in window tiles (asm offset 8) */
     uint8_t  text_y;       /* y position in window tiles (asm offset 10) */
-    uint8_t  type;         /* asm offset 0: 1=counted, 2=userdata return */
+    uint8_t  type;         /* asm offset 0: 0=free, 1=counted, 2=userdata return */
+    int8_t   next, prev;   /* asm offset 2/4: the window's option chain (pool
+                            * indices, -1 = none) */
     uint8_t  page;         /* asm offset 6: submenu page number */
     uint8_t  sound_effect; /* asm offset 14: SFX on select */
     uint8_t  pixel_align;  /* asm offset 44: USA only, pixel alignment */
@@ -155,14 +156,14 @@ typedef struct {
     uint8_t  title_tile_count;        /* number of VWF tile columns rendered for title (set once at set_window_title time) */
     char     title[WINDOW_TITLE_SIZE]; /* asm offset 60: window title text (tiny font) */
     uint8_t   palette_index;
-    /* The window's items, in order, as win.menu_options indices (the asm links
-     * them through menu_option::next instead). Entries [0, menu_items_reserved)
-     * stay this window's until it closes, so re-filling an open window reuses
-     * them (see alloc_menu_item in window.c). */
-    uint8_t   menu_item_idx[MAX_WINDOW_MENU_ITEMS];
-    uint8_t   menu_items_reserved;
+    /* First and last option of the window's chain in win.menu_options (-1 =
+     * none). The asm keeps these in window_stats::current_option (43) and
+     * option_count (45); this port uses current_option for the cursor's item
+     * index and menu_count for the chain's length. */
+    int8_t    option_head;
+    int8_t    option_tail;
     uint8_t   menu_count;
-    uint8_t   current_option;       /* asm offset 43 */
+    uint8_t   current_option;       /* cursor item index (asm offset 43 holds the pool index) */
     uint16_t *ABI_PTR_ALIGN content_tilemap; /* pointer into shared tilemap pool
                                                 (win.tilemap_pool). ABI-stable slot (item #3B). */
     ABI_PTR_PAD(content_tilemap)
@@ -251,9 +252,20 @@ typedef struct {
 
 extern WindowSystemState win;
 
-/* Item i (< menu_count) of window w. */
+/* The option after item in its window's chain, NULL at the end. */
+static inline MenuItem *menu_item_next(const MenuItem *item) {
+    return item->next >= 0 ? &win.menu_options[item->next] : NULL;
+}
+
+/* Item i (< menu_count) of window w (NULL for a window with no options): the asm walks menu_option::next from the
+ * window's first option (PRINT_MENU_AT_SELECTION etc.). */
 static inline MenuItem *window_menu_item(const WindowInfo *w, unsigned i) {
-    return &win.menu_options[w->menu_item_idx[i]];
+    if (w->option_head < 0)
+        return NULL;
+    MenuItem *item = &win.menu_options[w->option_head];
+    while (i-- > 0 && item->next >= 0)
+        item = &win.menu_options[item->next];
+    return item;
 }
 
 /* SET_WINDOW_FOCUS — Port of asm/text/set_window_focus.asm.
