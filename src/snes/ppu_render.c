@@ -524,8 +524,11 @@ void emit_tile_run(
             return;
     }
 
-    uint32_t tile_addr = tile_data_base + (uint32_t)tile_num * bytes_per_tile;
-    if (tile_addr + bytes_per_tile > VRAM_SIZE) return;
+    /* The PPU wraps tile addresses at the end of VRAM (word address & $7FFF):
+     * the Your Sanctuary montage keeps allocating tiles past $8000 words from
+     * its $6000 base. The base is 8 KB aligned, so a tile never straddles. */
+    uint32_t tile_addr = (tile_data_base + (uint32_t)tile_num * bytes_per_tile) &
+                         (VRAM_SIZE - 1);
     BGC_INC(emit_calls);
     BGC_ADD(pixels, count);
 
@@ -827,7 +830,8 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
              * tile_fully_blank): they emit nothing on any row, so dropping them
              * from the plan saves their emit overhead on the whole tile row. */
             if (row_cacheable && tile_fully_blank(
-                    tile_data_base + (uint32_t)tile_num * bytes_per_tile,
+                    (tile_data_base + (uint32_t)tile_num * bytes_per_tile) &
+                        (VRAM_SIZE - 1),
                     bytes_per_tile)) {
                 BGC_INC(elided_tiles);
             } else {
@@ -1677,9 +1681,8 @@ static uint16_t gbs_key(const GutterBgSampler *s, int px, int py)
 {
     int wx, wy;
     uint16_t entry = gbs_entry(s, px, py, &wx, &wy);
-    uint32_t tile = s->tile_data_base +
-                    (uint32_t)(entry & 0x3FF) * s->bytes_per_tile;
-    if (tile + s->bytes_per_tile > VRAM_SIZE) return 0;
+    uint32_t tile = (s->tile_data_base +
+                     (uint32_t)(entry & 0x3FF) * s->bytes_per_tile) & (VRAM_SIZE - 1);
     int ty = (entry & 0x8000) ? 7 - (wy & 7) : (wy & 7);
     int tx = (entry & 0x4000) ? (wx & 7) : 7 - (wx & 7);  /* bit in plane */
     const uint8_t *row = &ppu.vram[tile + ty * 2];
