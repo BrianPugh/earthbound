@@ -21,6 +21,9 @@
 /* Special EB text character codes (from CHAR enum in include/macros.asm) */
 #define EB_CHAR_EQUIPPED  0x22  /* CHAR::EQUIPPED — purple oval with "E" */
 #define EB_CHAR_SPACE     0x50  /* CHAR::SPACE — first font glyph */
+#define EB_CHAR_ZERO      0x60  /* CHAR::ZERO (US) */
+#define EB_CHAR_ONE       (EB_CHAR_ZERO + 1)  /* CHAR::ONE */
+#define EB_CHAR_COLON     0x6A  /* CHAR::COLON (US) */
 
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */

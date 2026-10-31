@@ -52,6 +52,30 @@ static const uint8_t *naming_prompts_data;
 #define INITIAL_STATS_ENTRY_SIZE 20
 static const uint8_t *initial_stats_data;
 
+/* FILE_SELECT_TEXT_* (asm/data/text/file_select_text.asm) — the file-select
+ * strings, one EB-encoded asset per label (earthbound.yml US/data). */
+#define FS_TEXT(name) ASSET_US_DATA_FILE_SELECT_TEXT_##name##_BIN
+#define TEXT_SPEED_STRING_LENGTH    7  /* include/enums.asm (US) */
+#define SOUND_SETTING_STRING_LENGTH 7  /* include/enums.asm (US) */
+
+/* PRINT_STRING of a whole FILE_SELECT_TEXT_* label (its asm length = asset size). */
+#define FS_PRINT(name) \
+    print_eb_string(ASSET_DATA(FS_TEXT(name)), (int)ASSET_SIZE(FS_TEXT(name)))
+
+/* ADD_MENU_ITEM with an EB-encoded ROM label (len bytes, NUL-terminated or padded). */
+static void fs_add_menu_item(const uint8_t *eb, size_t len, uint16_t userdata,
+                             uint16_t text_x, uint16_t text_y) {
+    char label[MENU_LABEL_SIZE];
+    if (len > MENU_LABEL_SIZE - 1) len = MENU_LABEL_SIZE - 1;
+    eb_to_ascii_buf(eb, (int)len, label);
+    add_menu_item(label, userdata, text_x, text_y);
+}
+#define FS_ADD_MENU_ITEM(name, userdata, x, y) \
+    fs_add_menu_item(ASSET_DATA(FS_TEXT(name)), ASSET_SIZE(FS_TEXT(name)), (userdata), (x), (y))
+
+/* Entry `index` of a padded FILE_SELECT_TEXT_*_STRINGS table. */
+#define FS_TABLE_ENTRY(name, index, stride) (ASSET_DATA(FS_TEXT(name)) + (size_t)(index) * (stride))
+
 /* Resolve the file-select asset pointers (don't-care names, HP-meter speeds,
  * naming prompts, initial stats). These are link-time-constant ASSET_DATA bases,
  * not runtime loads — but they must be resolved before any consumer reads them.
@@ -191,6 +215,60 @@ static void file_select_init(void) {
     ppu.cgram[0] = BGR555(0, 0, 0); /* black backdrop */
 }
 
+/* FILE_SELECT_MENU pass 1 (file_select_menu.asm:9-94): one menu item per
+ * slot, labelled "N: Name" (CHAR::ONE + slot, CHAR::COLON, CHAR::SPACE, the
+ * 5-byte name) or "N" + FILE_SELECT_TEXT_START_NEW_GAME, built in
+ * TEMPORARY_TEXT_BUFFER. Also fills save_files_present. */
+static void fs_add_slot_menu_items(void) {
+    for (int slot = 0; slot < SAVE_COUNT; slot++) {
+        uint8_t buf[32];
+        memset(buf, 0, sizeof(buf));
+        buf[0] = (uint8_t)(EB_CHAR_ONE + slot);
+        bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
+        if (occupied) {
+            buf[1] = EB_CHAR_COLON;
+            buf[2] = EB_CHAR_SPACE;
+            for (size_t i = 0; i < sizeof(party_characters[0].name) &&
+                               party_characters[0].name[i]; i++)
+                buf[3 + i] = party_characters[0].name[i];
+            save_files_present[slot] = 1;
+        } else {
+            memcpy(&buf[1], ASSET_DATA(FS_TEXT(START_NEW_GAME)), ASSET_SIZE(FS_TEXT(START_NEW_GAME)));
+            save_files_present[slot] = 0;
+        }
+        fs_add_menu_item(buf, sizeof(buf), (uint16_t)(slot + 1), 0, (uint16_t)slot);
+    }
+}
+
+/* FILE_SELECT_MENU pass 2 (file_select_menu.asm:115-214): for each occupied
+ * slot, FILE_SELECT_TEXT_LEVEL at (9, slot), the level at (13, slot), and
+ * FILE_SELECT_TEXT_TEXTSPEED + CHAR::SPACE + the speed name at (16, slot). */
+static void fs_print_slot_details(void) {
+    for (int slot = 0; slot < SAVE_COUNT; slot++) {
+        if (!save_files_present[slot]) continue;
+
+        load_game(slot);
+
+        set_focus_text_cursor(9, (uint16_t)slot);
+        FS_PRINT(LEVEL);
+
+        set_focus_text_cursor(13, (uint16_t)slot);
+        print_number(party_characters[0].level, 2);
+
+        set_focus_text_cursor(16, (uint16_t)slot);
+        int speed_idx = game_state.text_speed - 1;
+        if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
+        uint8_t buf[32];
+        memset(buf, 0, sizeof(buf));
+        size_t n = ASSET_SIZE(FS_TEXT(TEXTSPEED));
+        memcpy(buf, ASSET_DATA(FS_TEXT(TEXTSPEED)), n);
+        buf[n] = EB_CHAR_SPACE;
+        memcpy(&buf[n + 1], FS_TABLE_ENTRY(TEXTSPEED_STRINGS, speed_idx, TEXT_SPEED_STRING_LENGTH),
+               TEXT_SPEED_STRING_LENGTH);
+        print_eb_string(buf, (int)sizeof(buf));
+    }
+}
+
 /*
  * Display the file select menu showing 3 save slots.
  * Returns selected slot (1-3).
@@ -206,28 +284,10 @@ static int fm_file_select_build(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
     if (!w) return 1;
 
-    static char slot_labels[3][32];
-
     /* Pass 1: Build menu items for each save slot.
      * Assembly (file_select_menu.asm:20-25): LOAD_GAME_SLOT then check
      * favourite_thing[1] != 0 to determine occupancy. */
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
-        if (occupied) {
-            char name[6] = {0};
-            for (int i = 0; i < 5 && party_characters[0].name[i]; i++) {
-                name[i] = eb_char_to_ascii(party_characters[0].name[i]);
-            }
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d: %s",
-                     slot + 1, name);
-            save_files_present[slot] = 1;
-        } else {
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
-                     "%d: Start New Game", slot + 1);
-            save_files_present[slot] = 0;
-        }
-        add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
-    }
+    fs_add_slot_menu_items();
 
     /* Assembly (file_select_menu.asm:111): OPEN_WINDOW_AND_PRINT_MENU(columns=1)
      * lays out and prints menu item labels BEFORE slot details. */
@@ -236,29 +296,7 @@ static int fm_file_select_build(void) {
     /* Pass 2: Display per-slot details for occupied slots.
      * Assembly (file_select_menu.asm:115-214): after OPEN_WINDOW_AND_PRINT_MENU,
      * prints Level and Text Speed info at specific cursor positions. */
-    static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        if (!save_files_present[slot]) continue;
-
-        load_game(slot);
-
-        /* "Level:" at cursor (9, slot) */
-        set_focus_text_cursor(9, (uint16_t)slot);
-        print_string("Level:");
-
-        /* Level number at cursor (13, slot) */
-        set_focus_text_cursor(13, (uint16_t)slot);
-        print_number(party_characters[0].level, 2);
-
-        /* "Text Speed: Fast/Medium/Slow" at cursor (16, slot) */
-        set_focus_text_cursor(16, (uint16_t)slot);
-        int speed_idx = game_state.text_speed - 1;
-        if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
-        char speed_buf[32];
-        snprintf(speed_buf, sizeof(speed_buf), "Text Speed: %s",
-                 speed_names[speed_idx]);
-        print_string(speed_buf);
-    }
+    fs_print_slot_details();
 
     /* Assembly (file_select_menu.asm:271): SELECTION_MENU directly —
      * no RENDER_ALL_WINDOWS in between. The caller pushes GAME_MODE_SELECTION_
@@ -278,19 +316,19 @@ static int fm_submenu_build(void) {
     if (!w) return 0;
 
     /* Horizontal layout matching assembly (C1F07E): all at text_y=0 */
-    add_menu_item("Continue", 1, 0, 0);
+    FS_ADD_MENU_ITEM(CONTINUE, 1, 0, 0);
 
     /* Copy is only shown if an empty slot exists to copy to (assembly condition:
        slot != current_save_slot AND SAVE_FILES_PRESENT[slot] == 0) */
     for (int i = 0; i < SAVE_COUNT; i++) {
         if (i != (current_save_slot - 1) && !save_files_present[i]) {
-            add_menu_item("Copy", 2, 6, 0);
+            FS_ADD_MENU_ITEM(COPY, 2, 6, 0);
             break;
         }
     }
 
-    add_menu_item("Delete", 3, 10, 0);
-    add_menu_item("Set Up", 4, 15, 0);
+    FS_ADD_MENU_ITEM(DELETE, 3, 10, 0);
+    FS_ADD_MENU_ITEM(SET_UP, 4, 15, 0);
 
     /* Assembly (show_file_select_menu.asm:58-62): PRINT_MENU_ITEMS, then (US
      * only) ENABLE_WORD_WRAP = $FF, then SELECTION_MENU directly — no
@@ -316,7 +354,7 @@ static void fm_copy_dialog_build(void) {
      * window; anything else uses the two-choice window. */
     create_window(empty == 1 ? WINDOW_FILE_SELECT_COPY_1 : WINDOW_FILE_SELECT_COPY_2);
     set_instant_printing();
-    print_string("Copy to where?");   /* FILE_SELECT_TEXT_COPY_TO_WHERE, 14 chars */
+    FS_PRINT(COPY_TO_WHERE);
 
     /* One-file case: the single item sits at row 1. Two-file case: items fill
      * rows 1, 2, ... (@VIRTUAL04 starts at 1). Both at text_x 0. */
@@ -341,48 +379,11 @@ static void file_select_menu_display_only(void) {
     WindowInfo *w = create_window(WINDOW_FILE_SELECT_MAIN);
     if (!w) return;
 
-    static char slot_labels[3][32];
-
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
-        if (occupied) {
-            char name[6] = {0};
-            for (int i = 0; i < 5 && party_characters[0].name[i]; i++) {
-                name[i] = eb_char_to_ascii(party_characters[0].name[i]);
-            }
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]), "%d: %s",
-                     slot + 1, name);
-            save_files_present[slot] = 1;
-        } else {
-            snprintf(slot_labels[slot], sizeof(slot_labels[slot]),
-                     "%d: Start New Game", slot + 1);
-            save_files_present[slot] = 0;
-        }
-        add_menu_item(slot_labels[slot], (uint16_t)(slot + 1), 0, (uint16_t)slot);
-    }
+    fs_add_slot_menu_items();
 
     open_window_and_print_menu(1, 0);
 
-    static const char *speed_names[] EB_NORELOC = {"Fast", "Medium", "Slow"};
-    for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        if (!save_files_present[slot]) continue;
-
-        load_game(slot);
-
-        set_focus_text_cursor(9, (uint16_t)slot);
-        print_string("Level:");
-
-        set_focus_text_cursor(13, (uint16_t)slot);
-        print_number(party_characters[0].level, 2);
-
-        set_focus_text_cursor(16, (uint16_t)slot);
-        int speed_idx = game_state.text_speed - 1;
-        if (speed_idx < 0 || speed_idx > 2) speed_idx = 0;
-        char speed_buf[32];
-        snprintf(speed_buf, sizeof(speed_buf), "Text Speed: %s",
-                 speed_names[speed_idx]);
-        print_string(speed_buf);
-    }
+    fs_print_slot_details();
 
     /* Assembly (file_select_menu.asm:247-258): highlight selected slot with
      * palette 6; STZ ENABLE_WORD_WRAP just before APPLY_WINDOW_TEXT_ATTRIBUTES. */
@@ -402,10 +403,10 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    FS_PRINT(SELECT_TEXT_SPEED);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
     /* OPEN_TEXT_SPEED_MENU's pre-selection (see fm_textspeed_build). */
     print_menu_at_selection(selected_speed ? selected_speed - 1 : 1);
 
@@ -419,9 +420,9 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     if (!w) return;
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    FS_PRINT(SELECT_SOUND_SETTING);
+    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
+    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
     /* OPEN_SOUND_MENU's pre-selection (see fm_sound_build). */
     print_menu_at_selection(selected_sound ? selected_sound - 1 : 0);
 
@@ -442,11 +443,11 @@ static int fm_textspeed_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select text speed.");
+    FS_PRINT(SELECT_TEXT_SPEED);
 
-    add_menu_item("Fast", 1, 0, 1);
-    add_menu_item("Medium", 2, 0, 2);
-    add_menu_item("Slow", 3, 0, 3);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
+    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
 
     /* OPEN_TEXT_SPEED_MENU (open_text_speed_menu.asm:49-58): start the cursor
      * on the saved speed (text_speed - 1), or on Medium (1) when unset. */
@@ -485,10 +486,10 @@ static int fm_sound_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Please select sound setting.");
+    FS_PRINT(SELECT_SOUND_SETTING);
 
-    add_menu_item("Stereo", 1, 0, 1);
-    add_menu_item("Mono", 2, 0, 2);
+    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
+    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
 
     /* OPEN_SOUND_MENU (open_sound_menu.asm:38-49): start the cursor on the
      * saved setting (1-based, so sound_setting - 1), or on Stereo (0) when unset. */
@@ -539,13 +540,13 @@ static int fm_flavour_build(void) {
     w->menu_count = 0; /* Reset for re-entry (back-navigation) */
 
     set_focus_text_cursor(0, 0);
-    print_string("Which style of windows do you prefer?");
+    FS_PRINT(WHICH_STYLE);
 
-    add_menu_item("Plain flavor", 1, 0, 2);
-    add_menu_item("Mint flavor", 2, 0, 3);
-    add_menu_item("Strawberry flavor", 3, 0, 4);
-    add_menu_item("Banana flavor", 4, 0, 5);
-    add_menu_item("Peanut flavor", 5, 0, 6);
+    FS_ADD_MENU_ITEM(FLAVOR_PLAIN, 1, 0, 2);
+    FS_ADD_MENU_ITEM(FLAVOR_MINT, 2, 0, 3);
+    FS_ADD_MENU_ITEM(FLAVOR_STRAWBERRY, 3, 0, 4);
+    FS_ADD_MENU_ITEM(FLAVOR_BANANA, 4, 0, 5);
+    FS_ADD_MENU_ITEM(FLAVOR_PEANUT, 5, 0, 6);
 
     /* Set cursor move callback to preview palette (asm: SET_CURSOR_MOVE_CALLBACK).
      * Set the serializable id alongside the ptr (savestate hardening, D0a). */
@@ -1631,23 +1632,23 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* Favorite food — label on row 0, right-justified value on row 1 */
             create_window(WINDOW_FILE_SELECT_CONFIRM_FOOD);
             set_focus_text_cursor(0, 0);
-            print_string("Favorite food:");
+            FS_PRINT(FAVORITE_FOOD);
             print_right_justified_name(game_state.favourite_food, 6, WINDOW_FILE_SELECT_CONFIRM_FOOD);
 
             /* Favorite thing — same layout as food */
             create_window(WINDOW_FILE_SELECT_CONFIRM_THING);
             set_focus_text_cursor(0, 0);
-            print_string("Coolest thing:");
+            FS_PRINT(COOLEST_THING);
             print_right_justified_name(game_state.favourite_thing + 4, 6, WINDOW_FILE_SELECT_CONFIRM_THING);
 
             /* Are you sure? */
             WindowInfo *mw = create_window(WINDOW_FILE_SELECT_CONFIRM_MSG);
             if (mw) {
                 set_focus_text_cursor(0, 0);
-                print_string("Are you sure?");
+                FS_PRINT(ARE_YOU_SURE);
                 /* Horizontal layout: Yep at text_x=14, Nope at text_x=18. */
-                add_menu_item("Yep", 1, 14, 0);
-                add_menu_item("Nope", 0, 18, 0);
+                FS_ADD_MENU_ITEM(ARE_YOU_SURE_YEP, 1, 14, 0);
+                FS_ADD_MENU_ITEM(ARE_YOU_SURE_NOPE, 0, 18, 0);
             }
 
             /* PRINT_MENU_ITEMS then CREATE_FILE_SELECT_PARTY_SPRITES — no
@@ -1967,12 +1968,12 @@ StepResult mode_step_file_menu(ModeState *ms) {
                     set_instant_printing();
                     set_window_number_padding(0);
                     set_focus_text_cursor(0, 0);
-                    print_string("Are you sure you want to delete?");  /* 32 chars */
+                    FS_PRINT(ARE_YOU_SURE_DELETE);
 
                     set_text_pixel_position(1, 0);
                     set_focus_text_cursor(0, 1);
                     print_number(current_save_slot, 0);
-                    print_string(":");                 /* PRINT_LETTER CHAR::COLON */
+                    print_eb_letter(EB_CHAR_COLON);     /* PRINT_LETTER CHAR::COLON */
 
                     /* PRINT_CHARACTER_NAME(1): party member 1's name */
                     set_focus_text_cursor(2, 1);
@@ -1980,13 +1981,13 @@ StepResult mode_step_file_menu(ModeState *ms) {
                                     (int)sizeof(party_characters[0].name));
 
                     set_focus_text_cursor(8, 1);
-                    print_string("Level:");            /* FILE_SELECT_TEXT_LEVEL, 6 chars */
+                    FS_PRINT(LEVEL);
 
                     set_focus_text_cursor(12, 1);
                     print_number(party_characters[0].level, 0);
 
-                    add_menu_item("No", 0, 0, 2);
-                    add_menu_item("Yes", 1, 0, 3);
+                    FS_ADD_MENU_ITEM(ARE_YOU_SURE_DELETE_NO, 0, 0, 2);
+                    FS_ADD_MENU_ITEM(ARE_YOU_SURE_DELETE_YES, 1, 0, 3);
                 }
                 print_menu_items();
                 return fm_push_selection(st, FM_DELETE_RESULT, 1);

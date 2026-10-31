@@ -14947,6 +14947,188 @@ dumpEntries:
   size: 12
   extension: bin
   compressed: false
+# FILE_SELECT_TEXT_START_NEW_GAME — ': Start New Game' (FILE_SELECT_TEXT_NEW_GAME_LENGTH) EB-encoded (16 bytes)
+- subdir: US/data
+  name: 'file_select_text_start_new_game'
+  offset: 0x04C05E
+  size: 16
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_LEVEL — 'Level:' EB-encoded (6 bytes)
+- subdir: US/data
+  name: 'file_select_text_level'
+  offset: 0x04C06E
+  size: 6
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_TEXTSPEED — 'Text Speed:' EB-encoded (11 bytes)
+- subdir: US/data
+  name: 'file_select_text_textspeed'
+  offset: 0x04C074
+  size: 11
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_TEXTSPEED_STRINGS — 3 text speeds x TEXT_SPEED_STRING_LENGTH (7) bytes, NUL-padded EB-encoded (21 bytes)
+- subdir: US/data
+  name: 'file_select_text_textspeed_strings'
+  offset: 0x04C07F
+  size: 21
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_CONTINUE — 'Continue', NUL-terminated EB-encoded (9 bytes)
+- subdir: US/data
+  name: 'file_select_text_continue'
+  offset: 0x04C094
+  size: 9
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_COPY — 'Copy', NUL-terminated EB-encoded (5 bytes)
+- subdir: US/data
+  name: 'file_select_text_copy'
+  offset: 0x04C09D
+  size: 5
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_DELETE — 'Delete', NUL-terminated EB-encoded (7 bytes)
+- subdir: US/data
+  name: 'file_select_text_delete'
+  offset: 0x04C0A2
+  size: 7
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_SET_UP — 'Set Up', NUL-terminated EB-encoded (7 bytes)
+- subdir: US/data
+  name: 'file_select_text_set_up'
+  offset: 0x04C0A9
+  size: 7
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_COPY_TO_WHERE — 'Copy to where?' EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_copy_to_where'
+  offset: 0x04C0B0
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE_DELETE — 'Are you sure you want to delete?' EB-encoded (32 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure_delete'
+  offset: 0x04C0BE
+  size: 32
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE_DELETE_NO — 'No', NUL-terminated EB-encoded (3 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure_delete_no'
+  offset: 0x04C0DE
+  size: 3
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE_DELETE_YES — 'Yes', NUL-terminated EB-encoded (4 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure_delete_yes'
+  offset: 0x04C0E1
+  size: 4
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_SELECT_TEXT_SPEED — 'Please select text speed.' EB-encoded (25 bytes)
+- subdir: US/data
+  name: 'file_select_text_select_text_speed'
+  offset: 0x04C0E5
+  size: 25
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_SELECT_SOUND_SETTING — 'Please select sound setting.' EB-encoded (28 bytes)
+- subdir: US/data
+  name: 'file_select_text_select_sound_setting'
+  offset: 0x04C0FE
+  size: 28
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_SOUND_SETTING_STRINGS — 2 sound settings x SOUND_SETTING_STRING_LENGTH (7) bytes, NUL-padded EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_sound_setting_strings'
+  offset: 0x04C11A
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_WHICH_STYLE — 'Which style of windows do you prefer?' EB-encoded (37 bytes)
+- subdir: US/data
+  name: 'file_select_text_which_style'
+  offset: 0x04C128
+  size: 37
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FLAVOR_PLAIN — 'Plain flavor', NUL-terminated EB-encoded (13 bytes)
+- subdir: US/data
+  name: 'file_select_text_flavor_plain'
+  offset: 0x04C14D
+  size: 13
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FLAVOR_MINT — 'Mint flavor', NUL-terminated EB-encoded (12 bytes)
+- subdir: US/data
+  name: 'file_select_text_flavor_mint'
+  offset: 0x04C15A
+  size: 12
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FLAVOR_STRAWBERRY — 'Strawberry flavor', NUL-terminated EB-encoded (18 bytes)
+- subdir: US/data
+  name: 'file_select_text_flavor_strawberry'
+  offset: 0x04C166
+  size: 18
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FLAVOR_BANANA — 'Banana flavor', NUL-terminated EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_flavor_banana'
+  offset: 0x04C178
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FLAVOR_PEANUT — 'Peanut flavor', NUL-terminated EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_flavor_peanut'
+  offset: 0x04C186
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_FAVORITE_FOOD — 'Favorite food:' EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_favorite_food'
+  offset: 0x04C2AC
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_COOLEST_THING — 'Coolest thing:' EB-encoded (14 bytes)
+- subdir: US/data
+  name: 'file_select_text_coolest_thing'
+  offset: 0x04C2BA
+  size: 14
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE — 'Are you sure?' EB-encoded (13 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure'
+  offset: 0x04C2C8
+  size: 13
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE_YEP — 'Yep', NUL-terminated EB-encoded (4 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure_yep'
+  offset: 0x04C2D5
+  size: 4
+  extension: bin
+  compressed: false
+# FILE_SELECT_TEXT_ARE_YOU_SURE_NOPE — 'Nope', NUL-terminated EB-encoded (5 bytes)
+- subdir: US/data
+  name: 'file_select_text_are_you_sure_nope'
+  offset: 0x04C2D9
+  size: 5
+  extension: bin
+  compressed: false
 textTable:
   0x50: ' '
   0x51: '!'
