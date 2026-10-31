@@ -93,6 +93,7 @@ WINDOW_MAX = 53
 BATTLER_SIZE = 78
 BT_ID, BT_CONSCIOUSNESS, BT_ALLY_OR_ENEMY, BT_NPC_ID, BT_ROW = 0, 12, 14, 15, 16
 BT_HP, BT_HP_TARGET, BT_HP_MAX, BT_PP, BT_PP_TARGET = 17, 19, 21, 23, 25
+BT_AFFLICTIONS = 29
 FIRST_ENEMY_INDEX, BATTLER_COUNT = 8, 32
 ENEMY_CONFIG_SIZE, ENEMY_NAME, ENEMY_NAME_LEN = 94, 1, 25
 MAX_ENTITIES, PARTY_LEADER_ENTITY_INDEX = 30, 24
@@ -1275,6 +1276,10 @@ class Player:
                 log(f"STATUS party_status={v}")
             elif 1 <= cid <= 6 and 1 <= grp <= 7:
                 g.put8(g.char(cid) + CH_AFFLICTIONS + grp - 1, v)
+                # the battle copies its battler's afflictions back over the char's
+                b = g.party_battler(cid)
+                if b is not None:
+                    g.put8(b + BT_AFFLICTIONS + grp - 1, v)
                 log(f"STATUS char {cid} group {grp} = {v}")
             else:
                 self.err("usage: status CHAR GROUP(1-8) VALUE")
