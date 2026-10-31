@@ -35,6 +35,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | A pink cloud piece rides in the left gutter (x 0-14) while walking down past the Dalaam palace; it is a real cloud entity the original shows at the same world spot once it is inside the band | 36-CavePast, `flag 11 1; teleport 4448 3480 4`, walk DOWN; then `30 LEFT` | port pt51c 0005-0027 vs emu pt51oc 0027 | 2026-10-31 |
 | Walking across a sector edge never swaps tilesets or map palettes: a sector with another tileset combo is drawn as the loaded tileset's block 0 (Dalaam sky sector, Summers west sea), in band and gutters alike | 36-CavePast Dalaam 4448,3480 walking DOWN; Summers 4150,2880 | asm LOAD_MAP_AT_SECTOR only from LOAD/RELOAD_MAP_AT_POSITION; port pt51c vs emu pt51oc sheets | 2026-10-31 |
 | Emu-mode shots sit 1 px higher than the port's: the same frame matches exactly with the port shifted up 1 row (BG and OBJ alike) | any overworld scene, native port vs emu | pt65 shot pairs (Twoson, Fourside, Summers, Scaraba, Dalaam, Threed) | 2026-10-31 |
+| Lumine Hall wall text: in the dark phase the pillars in the right gutter turn red-brown and some green dots show beyond them; that is the CGRAM the band uses (real map tiles past x 288) | 32-LumineHall, `flag 196 1; teleport 3222 141 6; until text 300 LEFT; 30 UP; until in:PROCESS_INTERACTION 600 LEFT` | emu pt69olum vs port pt69lum 0036/0042, `pt69-cmp/lum-zoom.png` | 2026-10-31 |
 
 ## Battle
 
@@ -191,6 +192,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | NPCs keep walking while the pause menu and text are open | Twoson npc306 | emu pt65ot vs port pt65tx | 2026-10-31 |
 | Static NPCs face the party while talking and turn back to their default facing up to 80 frames after control returns (NPC_IDLE_DIRECTION_CHECK_LOOP) | Twoson npc322, `teleport 2144 6564 0`, Talk to | emu pt65ot vs port pt65tx, 68 frames on both | 2026-10-31 |
 | Off-screen NPCs despawn on their blink loop's 48-frame IS_ENTITY_NEAR_LEADER check, so the distance at which one disappears (rel x 320 plus up to 48 frames of walking) varies with when it spawned | Twoson, walking LEFT from 1960,6656 | emu pt65ot vs port pt65tx `ds2`/`dsp` | 2026-10-31 |
+| Town wanderers (Fourside npc943/947, Summers beach npc1055/1056, movement types 13/16) take the same first step after a seeded teleport, then drift apart; step sizes (5/10 px, 8-px grid), pauses (60-100 frames) and their wander boxes match | 16-Fourside `rng 1234 5678; teleport 2990 4200 4; rng 1234 5678`; 23-Summers same at 5860,3090 | emu pt69ofs/pt69osum vs port pt69fs/pt69sum, 160 samples | 2026-10-31 |
+| Threed hotel zombies close in 1 px per 4-5 frames in the original and 1 per 4 in the port, over the same pixel sequence (CPU lag frames with 6 zombies moving) | run-19, lobby walk then corridor door 7784,9272 | emu pt69ozt vs port pt69zt per-frame NEAR trace of npc494 | 2026-10-31 |
 
 ## Story, scripts and flags
 
@@ -236,6 +239,10 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Bad key machine used on the open desert: "But nothing happened." | 17-GoldMine desert | emu pt63od key2 vs port pt63d | 2026-10-31 |
 | Behaviour | Where | Evidence | Date |
 | Desert slot machine (npc779, Check from below): $1, the three Sanchez brothers spin and stop on random facings; all three the same wins (seeds 612 1047 and 61×17 61×29+3 win in both, "Amigo, you won!", a brother walks down, PSI caramel); spins take ~455-470 frames, the original 3 longer | 17-GoldMine, `flag 11 1; teleport 3160 9970 0; 20 UP; press L`, Yes | emu pt66os sheet-0005 / 0051-w36 vs port pt66s sheet-0012 / 0029-w36; port 2 wins in 64 seeds | 2026-10-31 |
+| Story cutscenes run their paths, speeds, facings, music, text and end states as the original: submarine → Deep Darkness, Master Barf + Poo (end state; turns drift with battle RNG), Lumine Hall wall text, Dept Store blackout (mook path, Paula removed), fake Monotoli dissolve, Topolla doorman, Paula's cabin rescue, Threed hotel zombie trap → jail, Star Master takes Poo, Sphinx plates → pyramid opens | saves 30, 32, 18, 19, run-13, run-19, 28 (steps in docs/plans/leg-pt69.md) | emu pt69o* vs port pt69*, leg pt69 | 2026-10-31 |
+| Dept Store blackout runs ~190 frames longer in the original: each of the 7 LOAD_MAP_PALETTE flashes costs 6-10 lag frames (ADJUST_SPRITE_PALETTES_BY_AVERAGE, palette DMA wait) and `play_music POKEY_INTRO` ~36 (SPC upload); the port follows the script's pauses (20/20/1/1/71/20) | 18-DeptStore, hotspot 10 (x 5040 on 1F) after hotspot 11 | emu pt69ods vs port pt69ds, 2-frame brightness timeline | 2026-10-31 |
+| Carpainter's lightning (no Franklin badge) runs ~120 frames longer in the original: the bolts start ~40 frames later after `play_music ENTER_STARMAN_JR` (SPC upload) and the screen stays black ~80 frames before Happy Happy (map load) | run-12, Carpainter npc376 from 7552,1913, No | emu pt69ocp vs port pt69cp | 2026-10-31 |
+| The Threed hotel trap room only springs after the lobby walk; a direct teleport to the corridor door gives the plain room | run-19, `flag 46 1; teleport 7784 9290 0; 30 UP` | emu pt69ozt and port pt69zt both | 2026-10-31 |
 
 ## Audio
 
