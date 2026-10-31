@@ -5716,6 +5716,14 @@ StepResult mode_step_battle(ModeState *ms) {
  * slots against the new ordering, swapping or reassigning as needed.
  */
 static uint16_t get_npc_max_hp(uint8_t member_id) {
+    /* The asm reads NPC_AI_TABLE / ENEMY_CONFIGURATION_TABLE straight from ROM.
+     * Their lazy pointers are first set by btl_begin / load_enemy_spawn_data,
+     * which can come after an NPC joins (Pokey, before any battle), so make
+     * sure they're loaded here rather than returning 0 HP. */
+    if (!npc_ai_table)
+        npc_ai_table = ASSET_DATA(ASSET_DATA_NPC_AI_TABLE_BIN);
+    if (!enemy_config_table)
+        enemy_config_table = (const EnemyData *)ASSET_DATA(ASSET_DATA_ENEMY_CONFIGURATION_TABLE_BIN);
     if (!npc_ai_table || !enemy_config_table) return 0;
     uint8_t enemy_idx = npc_ai_table[member_id * 2 + 1];
     return enemy_config_table[enemy_idx].hp;
