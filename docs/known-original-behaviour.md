@@ -93,6 +93,10 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Battle money into a bank at $9999990 stops at $9,999,999 | same battle | `hpt` bank 9999999 on both | 2026-10-31 |
 | All members at 0 HP when a turn starts: each "got hurt and collapsed...", the windows go red, "lost the battle...", game over; Continue halves $8865 to $4433 (rounded up) | 17-GoldMine edited save, `hp 1 0; hp 2 0; hp 3 0` at the command menu | emu pt63od sheet-0050 vs port pt63d sheet-0047, go1/go2 | 2026-10-31 |
 | Setting every member's HP to 0 on the overworld starts the comeback (game over) sequence at once | 17-GoldMine, `hp` pokes while idle | emu pt63od (PLAY_COMEBACK_SEQUENCE) | 2026-10-31 |
+| Behaviour | Where | Evidence | Date |
+| After a turn's last action the original holds a frozen screen ~15 frames before the next command menu (5 with the text window up, ~10 blank), the port 2-3: the asm's only wait there is CLOSE_BATTLE_WINDOW's tick; the rest is CPU lag (BG distortion stops, call chain in CHECK_DEAD_PLAYERS / CLOSE_WINDOW / BATTLE_SELECTION_MENU's title and menu-item printing, never in a frame wait) | 17-GoldMine, `teleport 3424 9312 6; rng 1 2; until battle 120 LEFT`, 3 Bashes, `state` + `shot` every frame | emu pt66ob sheet-0005 (frozen 2087-2104, close tick 2092-2093) vs port pt66b frames 1680-1729; asm main_battle_routine.asm 2955-3036 → @EXECUTE_TURNS → @CLOSE_BATTLE_WINDOW → @START_TURN → @OPEN_BATTLE_MENU | 2026-10-31 |
+| Gutsy bat: Offense 98→160 and Guts 152 for Ness; SMAAAASH with the full-screen green flash comes often (2 of 5 seeded rounds in the original) | 17-GoldMine, `flag 11 1; give 26 1`, Equip, Status; UFO trio battle | emu pt66ob 0054-gpre / 0084-status2 / 0574-e5_6-129 vs port pt66b 0053-gpre / 0082-status2 / sheet-0012 | 2026-10-31 |
+| Teddy bear party dummy: follows Ness on the overworld, is battler 1 (npc_id 16) in battle, and enemies' single-target actions often pick it (FIND_TARGETTABLE_NPC, 75% roll); PSI Magnet on it prints "The Teddy Bear does not have any PP!" | 05-Twoson, buy from npc295 (store 9, $178) at `teleport 7024 7036 0`; Mobile Sprouts at `teleport 7880 10056 6` | emu pt66ot sheet-0017 + WRAM trace (6 of 10 party-targeted actions on the bear) vs port pt66t (3 of 4) | 2026-10-31 |
 
 ## Text and windows
 
@@ -230,6 +234,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Escargo Pick-up with all 36 lockers full: "Our storage lockers are all full right now. Come again. (Click!)" | edited 17-GoldMine save, desert cabin phone 8040,1896 | emu pt63ob k1-k4 vs port pt63b | 2026-10-31 |
 | Eating a Hamburger while holding a Ketchup packet uses both ("took the Ketchup packet and used it on the Hamburger") | pause menu Goods | emu pt63ob fd1-fd6 vs port pt63b | 2026-10-31 |
 | Bad key machine used on the open desert: "But nothing happened." | 17-GoldMine desert | emu pt63od key2 vs port pt63d | 2026-10-31 |
+| Behaviour | Where | Evidence | Date |
+| Desert slot machine (npc779, Check from below): $1, the three Sanchez brothers spin and stop on random facings; all three the same wins (seeds 612 1047 and 61×17 61×29+3 win in both, "Amigo, you won!", a brother walks down, PSI caramel); spins take ~455-470 frames, the original 3 longer | 17-GoldMine, `flag 11 1; teleport 3160 9970 0; 20 UP; press L`, Yes | emu pt66os sheet-0005 / 0051-w36 vs port pt66s sheet-0012 / 0029-w36; port 2 wins in 64 seeds | 2026-10-31 |
 
 ## Audio
 
