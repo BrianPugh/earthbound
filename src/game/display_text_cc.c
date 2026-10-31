@@ -693,9 +693,15 @@ StepResult mode_step_text_prompt(ModeState *ms) {
     }
 }
 
-#undef TRIANGLE_TILE_BIG
-#undef TRIANGLE_TILE_SMALL
-#undef TRIANGLE_TILE_CLEAR
+
+/* SET_MAP_MUSIC (asm/battle/set_map_music.asm): CHANGE_MUSIC, then remember
+ * the track as both the current and the next map music, so later "resume map
+ * music" paths (battle exit, door same-track checks) use it. */
+static void set_map_music(uint16_t track) {
+    change_music(track);
+    ml.current_map_music_track = track;
+    ml.next_map_music_track = track;
+}
 
 bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
                     uint8_t *out_resume, uint16_t *out_aux) {
@@ -712,9 +718,10 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         script_read_byte(r);  /* slot (unused) */
         uint8_t track = script_read_byte(r);
         uint16_t track_id = track ? (uint16_t)track : (uint16_t)(get_argument_memory() & 0xFFFF);
-        if (track_id != 0) {
-            change_music((uint8_t)track_id);
-        }
+        /* Track 0 would index MUSIC_DATASET_TABLE[-1] in CHANGE_MUSIC; no
+         * script passes it, so it stays a no-op here. */
+        if (track_id != 0)
+            set_map_music(track_id);
         break;
     }
     case 0x01: {
@@ -736,10 +743,7 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         /* RESTORE_DEFAULT_MUSIC: 0 args.
          * Port of tree_1F.asm @RESTORE_DEFAULT_MUSIC → GET_MAP_MUSIC_AT_LEADER + SET_MAP_MUSIC.
          * Resolves the music track for the current map sector and plays it. */
-        uint16_t track = get_map_music_at_leader();
-        change_music(track);
-        ml.current_map_music_track = track;
-        ml.next_map_music_track = track;
+        set_map_music(get_map_music_at_leader());
         break;
     }
     case 0x04: {
