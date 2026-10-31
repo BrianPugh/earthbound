@@ -121,6 +121,41 @@ static void load_town_map_begin(uint16_t map_index) {
     }
 }
 
+/*
+ * Wide viewport (C port extension): the map is a 32x32 tilemap whose outer
+ * tiles are a 2-tile checker border, and the band shows all 32 columns, so the
+ * side gutters have no tilemap of their own. BG1 fills the viewport
+ * (BG_VIEWPORT_FILL) and, with side gutters, gets a second 32x32 screen (64x32
+ * tilemap) at word $3400 that continues the checker: screen 2 entry (c, r) is
+ * band column 0's entry at row r + c, so each tile outward swaps the 2 checker
+ * tiles, as each tile inward does. The left gutter shows screen 2's last
+ * columns and the right gutter its first ones; the top/bottom pad rows wrap to
+ * tilemap rows 31 and 28, which the map already fills with the same checker.
+ * In-band pixels are unchanged. Word $3400-$37FF holds overworld tile data the
+ * map doesn't show (the tilemap upload above already overwrites $3000-$33FF of
+ * it); reload_map() reloads it on close, and its overworld_setup_vram() resets
+ * BG1's tilemap size, the fill mode and the sprite offsets.
+ */
+static void town_map_extend_border(void) {
+    ppu.bg_viewport_fill[0] = BG_VIEWPORT_FILL;
+    /* A filling layer puts the frame in wide mode, where OAM is placed in
+     * viewport space: centre the icons over the band, as the map is. */
+    ppu.sprite_x_offset = EB_VIEWPORT_PAD_LEFT;
+    ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
+#if EB_VIEWPORT_PAD_LEFT > 0
+    const uint8_t *map = &ppu.vram[0x3000 * 2];
+    uint8_t *ext = &ppu.vram[0x3400 * 2];
+    for (int r = 0; r < 32; r++) {
+        for (int c = 0; c < 32; c++) {
+            const uint8_t *src = &map[((r + c) & 31) * 32 * 2];
+            ext[(r * 32 + c) * 2] = src[0];
+            ext[(r * 32 + c) * 2 + 1] = src[1];
+        }
+    }
+    ppu.bg_sc[0] |= 0x01;  /* 64x32: screen 2 at word $3400 */
+#endif
+}
+
 static void load_town_map_finish(uint16_t map_index) {
     (void)map_index;
     /* Copy first 2 ert.palettes (64 bytes) from BUFFER to PALETTES */
@@ -164,6 +199,8 @@ static void load_town_map_finish(uint16_t map_index) {
     if (label_data) {
         decomp(label_data, label_size, &ppu.vram[0x6000 * 2], TOWN_MAP_LABEL_GFX_SIZE);
     }
+
+    town_map_extend_border();
 
     ert.palette_upload_mode = 24;
     ppu.tm = 0x11;  /* BG1 + OBJ */
