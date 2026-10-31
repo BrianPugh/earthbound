@@ -124,6 +124,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | STATE shows `idle=leader-frozen` after battles while walking works | Winters caves (Jeff + Bubble Monkey) | emu ta11o | 2026-10-23 |
 | Enemies spawn only on 64-px boundaries, 24% chance | overworld | asm | 2026-10-23 |
 | `ow_enemies` counter wraps | overworld | asm | 2026-10-23 |
+| The same `N DIR` inputs outdoors give positions that drift 1-3 px from the original (a 24-frame DOWN moves 33 px in the port, 32 in the original), so a replayed route can snag on a cliff corner in one and not the other; indoors they match exactly | Onett night, from Ness's front step 2656,344 (fresh new game) | emu pt32o vs port pt32 (leg-pt32); CPU-lag frames skip a movement step in the original. Replay routes as waypoints, not inputs | 2026-10-30 |
+| Number of enemies on screen right after a door varies a lot (0-5 at Ness's front step at night) | Onett night, leaving Ness's house after Dad's call | port pt32 with 5 `rng` seeds: 5,1,2,1,2 (and 0 unseeded); emu pt32o 3; LOAD_MAP_AT_POSITION's SPAWN_HORIZONTAL rows, 24% roll each | 2026-10-30 |
 
 ## Story, scripts and flags
 
@@ -137,6 +139,9 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Hot spring prints "washed all of the extremely dirty gunk" but doesn't heal conscious members | Saturn Valley, 508,7352 | emu; the script only heals unconscious members | 2026-10-24 |
 | Doctor says "I can only treat an illness" for mushroomization | Twoson hospital | script `_SUB_DOCTOR_1` | 2026-10-24 |
 | Front door stays shut after Pokey joins at night | Ness's house (run-01) | emu run02e; flag 467 clears only on Dad's first call | 2026-10-23 |
+| The phone only says "Beeeep..." after Pokey joins until you walk into the shut front door once: the door's script (TEXT_DOOR_043) then sets FLG_MYHOME_PHONE (95) / FLG_MYHOME_PHONE_RING (753) and Dad calls | Ness's house 1F, door 7800,336 (walk RIGHT from 7766,334) | port pt32 and emu pt32o both; DOOR_SCRIPTS.yml TEXT_DOOR_043 (needs FLG_MYHOME_POKEY_DISAPPEAR 30) | 2026-10-30 |
+| Pokey won't join ("You're not taking anything on our big adventure?") until Ness has the Cracked bat from the present in Tracy's room (npc1412, 7464,744; door 7568,1000 off the 2F hallway) | Ness's house at night, after Mom's talk | MSG_ONET_POKEY_CHECK_BAT (E01ONET0.yml); port pt32 and emu pt32o | 2026-10-30 |
+| Ness has a PSI entry in the battle menu at level 1, before learning any PSI | first night battle (Runaway Dog / Spiteful Crow) | emu pt32o ab-b1 vs port pt32 | 2026-10-30 |
 | Present npc1412 doesn't spawn | Tracy's room, 01-Start | emu (flag 805 already set) | 2026-10-23 |
 | Cookie present says "took it" with 14 items | 01-Start | asm | 2026-10-23 |
 | Goodbye Exit sign blocks until flag 762 (Yariman B, Yes) | Dungeon Man (save 29) | emu dm1 | 2026-10-24 |
