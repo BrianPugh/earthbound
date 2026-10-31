@@ -384,7 +384,9 @@ static void file_select_menu_display_only(void) {
         print_string(speed_buf);
     }
 
-    /* Assembly (file_select_menu.asm:247-258): highlight selected slot with palette 6 */
+    /* Assembly (file_select_menu.asm:247-258): highlight selected slot with
+     * palette 6; STZ ENABLE_WORD_WRAP just before APPLY_WINDOW_TEXT_ATTRIBUTES. */
+    dt.enable_word_wrap = 0;
     uint16_t highlight_idx = (current_save_slot > 0) ? current_save_slot - 1 : 0;
     highlight_menu_item(w, highlight_idx, 6, true);
 }
@@ -449,11 +451,12 @@ static int fm_textspeed_build(void) {
     /* OPEN_TEXT_SPEED_MENU (open_text_speed_menu.asm:49-58): start the cursor
      * on the saved speed (text_speed - 1), or on Medium (1) when unset. */
     print_menu_at_selection(game_state.text_speed ? game_state.text_speed - 1 : 1);
-    /* Assembly (file_select_text_speed_menu.asm:75) clears ENABLE_WORD_WRAP
-     * here so selection_menu's confirm handler routes to APPLY_WINDOW_TEXT_ATTRIBUTES
-     * instead of SET_FILE_SELECT_TEXT_HIGHLIGHT.  The C port gates highlight
-     * by window ID instead (see selection_menu confirm handler), so this
-     * clear is unnecessary and would break word-wrap if not restored. */
+    /* file_select_text_speed_menu.asm:75 (@NO_HIGHLIGHT): STZ ENABLE_WORD_WRAP
+     * before SELECTION_MENU. It stays 0 through the sound and flavour menus
+     * (so the flavour prompt's wrapped line starts flush left, without the
+     * word-wrap indent) until SHOW_FILE_SELECT_MENU or the naming confirmation
+     * sets it back to $FF. */
+    dt.enable_word_wrap = 0;
     return -1;
 }
 
@@ -1651,6 +1654,9 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
              * RENDER_ALL_WINDOWS in between (file_select_menu_loop.asm:470-471). */
             print_menu_items();
             create_file_select_party_sprites();
+            /* file_select_menu_loop.asm:472-473: ENABLE_WORD_WRAP = $FF before
+             * SELECTION_MENU (the text-speed menu cleared it). */
+            dt.enable_word_wrap = 0xFF;
 
             /* SELECTION_MENU(1): B enabled, returns 0 (same as "Nope"). */
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
