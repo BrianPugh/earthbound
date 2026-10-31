@@ -99,8 +99,31 @@ WindowSystemState win = {
     .battle_menu_current_character_id = -1,
 };
 
+/* Zero a WINDOW_STATS slot except its text memory registers. No asm routine
+ * writes working/argument/secondary memory or their *_storage copies of a slot
+ * except the text CCs: the US CREATE_WINDOW copies them from
+ * GET_ACTIVE_WINDOW_ADDRESS after focusing the new window, i.e. onto
+ * themselves (create_window.asm:179-232; JP copies the previous focus
+ * window's), and INITIALIZE_BATTLE_UI_STATE resets only window_stats::id.
+ * So a new window starts with whatever the last window in its slot left
+ * there; Dad's save after a game over reads its Teleport-box destination
+ * from such a value (leg pt63 #3). */
+static void clear_window_slot(WindowInfo *w) {
+    uint32_t wm = w->working_memory, am = w->argument_memory;
+    uint32_t wms = w->working_memory_storage, ams = w->argument_memory_storage;
+    uint16_t sm = w->secondary_memory, sms = w->secondary_memory_storage;
+    memset(w, 0, sizeof(*w));
+    w->working_memory = wm;
+    w->argument_memory = am;
+    w->secondary_memory = sm;
+    w->working_memory_storage = wms;
+    w->argument_memory_storage = ams;
+    w->secondary_memory_storage = sms;
+}
+
 void window_system_init(void) {
-    memset(win.windows, 0, sizeof(win.windows));
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        clear_window_slot(&win.windows[i]);
     memset(win.tilemap_pool, 0, sizeof(win.tilemap_pool));
     win.current_focus_window = WINDOW_ID_NONE;
     for (int i = 0; i < MAX_TITLED_WINDOWS; i++)
@@ -196,7 +219,7 @@ WindowInfo *create_window(uint16_t window_id) {
         if (slot < 0) return NULL; /* no free slots */
 
         w = &win.windows[slot];
-        memset(w, 0, sizeof(*w));
+        clear_window_slot(w);
         w->active = true;
         w->id = window_id;
         w->option_head = w->option_tail = -1;  /* create_window.asm:253-254 */
