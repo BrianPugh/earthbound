@@ -14,6 +14,25 @@ from ebtools.parsers import FULL_ROM_PARSERS, PARSERS
 from ebtools.parsers.raw import write_raw
 from ebtools.rom import detect
 
+# Offset of EVENT_501 ($C342F4) inside bank_c3_scripts_combined ($C30000-$C3E012).
+# pack-all rebuilds the combined blob from the two halves: the early half
+# ($C30000-$C342F4) as a binary, the main half from editable JSON.
+BANK_C3_MAIN_SCRIPTS_OFFSET = 0x42F4
+
+
+def _split_bank_c3_scripts(events_dir: Path) -> None:
+    """Write bank_c3_early_scripts.bin and bank_c3_scripts.bin from the combined C3 script blob.
+
+    Only the combined blob is a dump entry (so only it is embedded); pack-all
+    needs the halves to remap text addresses and re-emit the combined blob.
+    """
+    combined_path = events_dir / "bank_c3_scripts_combined.bin"
+    if not combined_path.exists():
+        return
+    combined = combined_path.read_bytes()
+    (events_dir / "bank_c3_early_scripts.bin").write_bytes(combined[:BANK_C3_MAIN_SCRIPTS_OFFSET])
+    (events_dir / "bank_c3_scripts.bin").write_bytes(combined[BANK_C3_MAIN_SCRIPTS_OFFSET:])
+
 
 def dump_data(
     doc: DumpDoc,
@@ -545,6 +564,7 @@ def extract(
 
     # Locale-specific assets (in US/ subdirectory)
     us_dir = out_path / "US"
+    _split_bank_c3_scripts(us_dir / "events")
     _locale_exports = [
         ("E1AE7C.bin.lzhal", "locale/E1AE7C.json"),
         ("E1AE83.bin.lzhal", "locale/E1AE83.json"),
