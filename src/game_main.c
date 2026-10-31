@@ -1619,6 +1619,8 @@ bool game_is_fast_forward(void) {
 }
 
 void game_init(void) {
+    /* GAME_INIT (asm/system/game_init.asm:4): CHECK_SRAM_INTEGRITY first. */
+    check_sram_integrity();
     memory_init();
     ppu_init();
 

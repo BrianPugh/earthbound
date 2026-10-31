@@ -117,9 +117,15 @@ void platform_audio_unlock(void);
  * Save data — persistent storage
  *
  * The game calls platform_save_read/write with byte offsets and sizes
- * into a flat SAVE_FILE_SIZE byte buffer (7680 bytes = 3 slots × 2 copies
- * × 1280 bytes). On desktop this is a file; on SNES it's SRAM; on
- * embedded it might be flash.
+ * into the flat 8 KB battery-SRAM image (3 slots × 2 copies × 1280 bytes,
+ * then a zero tail with the SRAM version word at $1FFE). On desktop this
+ * is a file; on SNES it's SRAM; on embedded it might be flash.
+ *
+ * Writes are at most one 1280-byte block (or the 512-byte tail) each, and
+ * only on player actions: save points and the file-select menus, plus the
+ * boot-time CHECK_SRAM_INTEGRITY in game_init(), which writes only when
+ * the image needs formatting (version word wrong, e.g. blank flash: 6
+ * blocks + the tail) or a block repair, and nothing when SRAM is intact.
  *
  * platform_save_init() is called once at startup. Returns false if the
  * storage backend can't be initialized.

@@ -139,6 +139,7 @@ enum {
     SECTION_BATTLE_BG            = 0x0029,
     SECTION_FRAME_CALLBACK       = 0x002A,
     SECTION_ENDING_CREDITS       = 0x002B,
+    SECTION_CORRUPTION_CHECK     = 0x002C,
     SECTION_TERMINATOR       = 0xFFFF,
 };
 
@@ -275,6 +276,8 @@ static const StateSection k_sections[] = {
     ADD(SECTION_LOADED_BG_DATA_1,     &loaded_bg_data_layer1, sizeof(loaded_bg_data_layer1)),
     ADD(SECTION_LOADED_BG_DATA_2,     &loaded_bg_data_layer2, sizeof(loaded_bg_data_layer2)),
     ADD(SECTION_CURRENT_SAVE_SLOT,    &current_save_slot,     sizeof(current_save_slot)),
+    /* Set at boot by check_sram_integrity, consumed by the first file-select list. */
+    ADD(SECTION_CORRUPTION_CHECK,     &corruption_check_results, sizeof(corruption_check_results)),
 
     /* VWF text-render engine cursor (text.c globals): without these a savestate
      * taken mid-typewriter resumes the partial glyph run with a stale cursor →

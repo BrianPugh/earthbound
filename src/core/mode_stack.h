@@ -2103,6 +2103,7 @@ typedef enum {
     FM_NG_NAMING,       /* new-game: push GAME_MODE_NEW_GAME_NAMING */
     FM_NG_NAMING_RESULT,/* naming popped: started (pop 1) or backed out (re-enter flavour) */
     FM_COPY_RESULT,     /* after the copy-destination selection_menu(1) (SHOW_FILE_COPY_DIALOG) */
+    FM_CORRUPTION_CHECK,/* CORRUPTION_CHECK: "save data lost" text per flagged slot, then the slot list's menu */
 } FileMenuPhase;
 
 typedef struct {
@@ -2110,6 +2111,7 @@ typedef struct {
     uint8_t  result_ready;  /* 1 = `result` holds an inline early-exit value (no child was pushed) */
     uint16_t selected;      /* chosen slot, 1-based (file_select_menu result) */
     uint16_t result;        /* inline early-exit result for the *_RESULT phase */
+    uint8_t  corrupt_slot;  /* FM_CORRUPTION_CHECK: next 0-based slot to check */
 } FileMenuState;
 
 /* GAME_MODE_NEW_GAME_NAMING — run-to-completion port of new_game_naming()

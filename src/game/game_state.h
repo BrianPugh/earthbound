@@ -266,5 +266,10 @@ bool save_game(int slot);
 bool load_game(int slot);
 bool erase_save(int slot);
 bool copy_save(int to, int from); /* 0-based slots; COPY_SAVE */
+/* CHECK_SRAM_INTEGRITY: boot-time version/signature/checksum check and repair. */
+void check_sram_integrity(void);
+/* CORRUPTION_CHECK_RESULTS: bit N set = slot N's 2 copies were both bad at boot
+ * (erased); file-select shows MSG_SYS_SAVE_DATA_LOST for it and clears it. */
+extern uint8_t corruption_check_results;
 
 #endif /* GAME_STATE_H */

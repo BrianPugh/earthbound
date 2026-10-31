@@ -1853,6 +1853,13 @@ static void fm_finalize_and_start(void) {
     display_text_from_addr_inline(MSG_SYS_GAME_START_INIT);
 }
 
+/* SAVE_GAME_SLOT(CURRENT_SAVE_SLOT - 1), which FILE_SELECT_TEXT_SPEED_MENU (on a
+ * choice), FILE_SELECT_SOUND_MODE_MENU and OPEN_FLAVOUR_MENU (also on B) end
+ * with, in both the Set Up and the new-game cascades. */
+static void fm_save_current_slot(void) {
+    save_game(current_save_slot - 1);
+}
+
 /* Push GAME_MODE_SELECTION_MENU as a child after a *_build() has laid out the
  * focus window. Sets the FM phase to read the result in on re-entry. Replicates
  * selection_menu()'s early-exit (no focus window / empty menu → result 0 with no
@@ -1915,8 +1922,36 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 st->phase = FM_SELECT_RESULT;
                 continue;
             }
+            /* file_select_menu.asm:261 (@FIRST_TIME_SELECT): CORRUPTION_CHECK
+             * before the slot list's SELECTION_MENU. */
+            if (corruption_check_results != 0) {   /* AND #$00FF; BEQ @RETURN */
+                save_window_text_attributes();
+                create_window(WINDOW_PSI_DESCRIPTION);
+                st->corrupt_slot = 0;
+                st->phase = FM_CORRUPTION_CHECK;
+                continue;
+            }
             return fm_push_selection(st, FM_SELECT_RESULT, 0);
         }
+
+        case FM_CORRUPTION_CHECK:
+            /* CORRUPTION_CHECK (asm/system/saves/corruption_check.asm) loop: for
+             * each slot whose bit is set, SET_CNUM(slot + 1) and DISPLAY_TEXT_PTR
+             * MSG_SYS_SAVE_DATA_LOST (a DISPLAY_TEXT child; re-entered here when
+             * it pops). Then CLOSE_FOCUS_WINDOW, clear the results, restore the
+             * text attributes, and on to the slot list's SELECTION_MENU. */
+            while (st->corrupt_slot < SAVE_COUNT) {
+                uint8_t slot = st->corrupt_slot++;
+                if (!(corruption_check_results & (1u << slot)))  /* SAVE_SLOT_BIT_FLAGS */
+                    continue;
+                set_cnum((uint32_t)slot + 1);
+                if (dt_make_child_init(&g_mode_push_init, MSG_SYS_SAVE_DATA_LOST))
+                    return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
+            }
+            close_focus_window();
+            corruption_check_results = 0;
+            restore_window_text_attributes();
+            return fm_push_selection(st, FM_SELECT_RESULT, 0);
 
         case FM_SELECT_RESULT: {
             uint16_t selected = fm_take_result(st);
@@ -2070,6 +2105,7 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 continue;
             }
             fm_textspeed_apply(ts);
+            fm_save_current_slot();   /* file_select_text_speed_menu.asm:85-88 */
             st->phase = FM_SETUP_SND;
             continue;
         }
@@ -2081,12 +2117,14 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
         case FM_SETUP_SND_RESULT: {
             uint16_t sm = fm_take_result(st);
+            if (sm != 0)
+                fm_sound_apply(sm);
+            fm_save_current_slot();   /* file_select_sound_mode_menu.asm:86-89, B included */
             if (sm == 0) {
                 close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
                 st->phase = FM_SETUP_TS;
                 continue;
             }
-            fm_sound_apply(sm);
             st->phase = FM_SETUP_FLV;
             continue;
         }
@@ -2098,14 +2136,15 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
         case FM_SETUP_FLV_RESULT: {
             uint16_t fl = fm_take_result(st);
+            if (fl != 0)
+                fm_flavour_apply(fl);
+            fm_save_current_slot();   /* open_flavour_menu.asm:95-98, B included */
             if (fl == 0) {
                 close_window(WINDOW_FILE_SELECT_FLAVOUR);
                 st->phase = FM_SETUP_SND;
                 continue;
             }
-            fm_flavour_apply(fl);
-            save_game(st->selected - 1);   /* @MENU_OTHER_SELECTED */
-            close_all_windows();
+            close_all_windows();   /* @MENU_OTHER_SELECTED */
             st->phase = FM_SELECT;
             continue;
         }
@@ -2125,6 +2164,7 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 continue;
             }
             fm_textspeed_apply(ts);
+            fm_save_current_slot();   /* file_select_text_speed_menu.asm:85-88 */
             st->phase = FM_NG_SND;
             continue;
         }
@@ -2136,12 +2176,14 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
         case FM_NG_SND_RESULT: {
             uint16_t sm = fm_take_result(st);
+            if (sm != 0)
+                fm_sound_apply(sm);
+            fm_save_current_slot();   /* file_select_sound_mode_menu.asm:86-89, B included */
             if (sm == 0) {
                 close_window(WINDOW_FILE_SELECT_MUSIC_MODE);
                 st->phase = FM_NG_TS;
                 continue;
             }
-            fm_sound_apply(sm);
             st->phase = FM_NG_FLV;
             continue;
         }
@@ -2153,12 +2195,14 @@ StepResult mode_step_file_menu(ModeState *ms) {
         }
         case FM_NG_FLV_RESULT: {
             uint16_t fl = fm_take_result(st);
+            if (fl != 0)
+                fm_flavour_apply(fl);
+            fm_save_current_slot();   /* open_flavour_menu.asm:95-98, B included */
             if (fl == 0) {
                 close_window(WINDOW_FILE_SELECT_FLAVOUR);
                 st->phase = FM_NG_SND;
                 continue;
             }
-            fm_flavour_apply(fl);
             st->phase = FM_NG_NAMING;
             continue;
         }

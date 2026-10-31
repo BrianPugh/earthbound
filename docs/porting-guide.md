@@ -284,7 +284,7 @@ The game library uses no `malloc`/`free`. All assets are compiled into the execu
 
 ### No File I/O
 
-Assets are embedded at compile time — no filesystem needed. Save/load uses `save_game()`/`load_game()` which currently serialize to a memory buffer. Persistent saves on embedded platforms would need a flash/EEPROM backend (not yet abstracted).
+Assets are embedded at compile time — no filesystem needed. Save/load goes through `platform_save_read()`/`platform_save_write()` (see `platform.h` for the image layout and when the game writes); the RP2040 port backs it with the last 2 flash sectors (`drivers/platform/rp2040/save.c`).
 
 ### Frame Timing
 

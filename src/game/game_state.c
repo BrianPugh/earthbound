@@ -357,34 +357,60 @@ void reset_hppp_rolling(void) {
     fastest_hppp_meter_speed = 1;
 }
 
-/* On-cartridge SRAM signature stamped into every valid block header. Real
- * EarthBound's CHECK_BLOCK_SIGNATURE (asm/system/saves/check_block_signature.asm)
- * STRCMPs the 28-byte header against this; a mismatch makes it ERASE the block.
- * SRAM_SIGNATURE (asm/data/sram_signature.asm, earthbound.yml data/
- * sram_signature): ASCIIZ (the asset includes the NUL), copied over the
- * zeroed header like ERASE_SAVE_BLOCK, so the remaining bytes stay zero. */
+/* SRAM_SIGNATURE (asm/data/sram_signature.asm, earthbound.yml data/
+ * sram_signature): the block signature string as ASCIIZ (the asset includes
+ * the NUL). ERASE_SAVE_BLOCK copies it over the zeroed block header, and
+ * CHECK_BLOCK_SIGNATURE STRCMPs the header against it. */
 #define SRAM_BLOCK_SIGNATURE ASSET_DATA(ASSET_DATA_SRAM_SIGNATURE_BIN)
+#define SRAM_BLOCK_SIGNATURE_SIZE ASSET_SIZE(ASSET_DATA_SRAM_SIGNATURE_BIN)
 
 /* Byte offset (within the SRAM image / .srm file) of the 16-bit SRAM version
- * word. Real EarthBound's CHECK_SRAM_INTEGRITY reads SAVE_BASE + $1FFE on boot
- * and, if it != SRAM_VERSION, memsets the ENTIRE 8 KB SRAM to zero (wiping every
- * slot). SAVE_BASE is file offset 0, so this is just $1FFE. Writing it keeps a
- * port-written .srm from being reformatted when loaded on real hardware/snes9x. */
+ * word, SAVE_BASE + $1FFE (CHECK_SRAM_INTEGRITY). SAVE_BASE is file offset 0. */
 #define SRAM_VERSION_WORD_OFFSET 0x1FFE
-/* Full on-cartridge SRAM size. snes9x sizes the .srm from the ROM's SRAM header
- * and will not load a file that is short of this. The 6 save blocks only cover
- * the first 7680 bytes; padding out to 8192 makes the file the size emulators
- * expect (the gap stays zero). */
+/* Full on-cartridge SRAM size (CHECK_SRAM_INTEGRITY's MEMSET24 length). The 6
+ * save blocks cover the first 7680 bytes; the rest stays zero apart from the
+ * version word. snes9x also won't load a .srm shorter than this. */
 #define SRAM_IMAGE_SIZE 0x2000
 
-/* Stamp the on-cartridge metadata that real EarthBound validates but the port's
- * own (checksum-only) loader ignores: the per-slot writes leave the version word
- * and file tail untouched, so refresh them on every save. */
-static bool write_sram_version_word(void) {
-    uint8_t ver[2] = { (uint8_t)(SRAM_VERSION & 0xFF), (uint8_t)(SRAM_VERSION >> 8) };
-    /* Writing 2 bytes at $1FFE extends the file to the full 8 KB SRAM image
-     * (the unwritten gap between the save blocks and here is zero-filled). */
-    return platform_save_write(ver, SRAM_VERSION_WORD_OFFSET, sizeof(ver));
+/* CORRUPTION_CHECK_RESULTS: one SAVE_SLOT_BIT_FLAGS bit per slot whose 2 copies
+ * both failed their checksums at boot. Set by check_sram_integrity(), shown and
+ * cleared by the file-select list (file_select.c, corruption_check). */
+uint8_t corruption_check_results;
+
+/* Platform save I/O note: every routine below goes through platform_save_read/
+ * write, one 1280-byte block (or the 512-byte SRAM tail) per write, using
+ * ert.save_scratch as the only buffer. On the flash backends each write is a
+ * sector erase + program, so the boot check writes nothing when SRAM is intact;
+ * repairs only happen when a block is actually bad, and the setup menus write
+ * only on a button press (never per frame). */
+
+static size_t sram_block_offset(int block) {
+    return (size_t)block * sizeof(SaveBlock);
+}
+
+/* Read one save block (0-5). A short read (a .srm shorter than the block) leaves
+ * the missing bytes zero, like the zeroed SRAM it stands for. */
+static void sram_read_block(int block, SaveBlock *buf) {
+    memset(buf, 0, sizeof(*buf));
+    platform_save_read(buf, sram_block_offset(block), sizeof(*buf));
+}
+
+static bool sram_write_block(int block, const SaveBlock *buf) {
+    return platform_save_write(buf, sram_block_offset(block), sizeof(*buf));
+}
+
+/* ERASE_SAVE_BLOCK (asm/system/saves/erase_save_block.asm): MEMSET24 the block
+ * to 0, then MEMCPY24 STRLEN(SRAM_SIGNATURE) bytes of the signature over it.
+ * The asset's NUL lands on a byte that is already 0. */
+static void make_erased_block(SaveBlock *buf) {
+    memset(buf, 0, sizeof(*buf));
+    memcpy(buf->header.signature, SRAM_BLOCK_SIGNATURE, SRAM_BLOCK_SIGNATURE_SIZE);
+}
+
+static bool erase_save_block(int block) {
+    SaveBlock *buf = &ert.save_scratch;
+    make_erased_block(buf);
+    return sram_write_block(block, buf);
 }
 
 /* Compute ADD checksum for a save block.
@@ -413,11 +439,103 @@ static uint16_t compute_xor_checksum(const SaveBlock *block) {
     return xor_sum;
 }
 
+/* VALIDATE_SAVE_BLOCK_CHECKSUMS (validate_save_block_checksums.asm), as a bool
+ * (the asm returns 0 for valid, -1 for a mismatch). An erased block (all-zero
+ * data, checksums 0) is valid. */
+static bool block_checksums_valid(const SaveBlock *block) {
+    return block->header.checksum == compute_add_checksum(block) &&
+           block->header.checksum_complement == compute_xor_checksum(block);
+}
+
+/* STRCMP(SRAM_SIGNATURE, block): equal through the signature's NUL. */
+static bool block_signature_valid(const SaveBlock *block) {
+    return memcmp(block->header.signature, SRAM_BLOCK_SIGNATURE, SRAM_BLOCK_SIGNATURE_SIZE) == 0;
+}
+
+/* CHECK_SAVE_CORRUPTION (asm/system/saves/check_save_corruption.asm) for one
+ * 0-based slot: a bad primary is erased and refilled from the backup (COPY_SAVE_
+ * BLOCK); a bad backup is erased and refilled from the primary; when both are
+ * bad, both stay erased and the slot's bit is set in CORRUPTION_CHECK_RESULTS.
+ * The asm erases a block before copying over it; the copy rewrites all 1280
+ * bytes, so only the copy is written here (same final SRAM, one flash write). */
+static void check_save_corruption(int slot) {
+    SaveBlock *buf = &ert.save_scratch;
+    int primary = slot * SAVE_COPY_COUNT;
+    int backup = primary + 1;
+
+    sram_read_block(primary, buf);
+    if (!block_checksums_valid(buf)) {
+        sram_read_block(backup, buf);
+        if (block_checksums_valid(buf)) {
+            sram_write_block(primary, buf);     /* @RESTORE_FROM_BACKUP */
+            return; /* @CHECK_BACKUP_BLOCK re-validates the good backup: no-op */
+        }
+        erase_save_block(primary);
+        erase_save_block(backup);
+        corruption_check_results |= (uint8_t)(1u << slot);   /* SAVE_SLOT_BIT_FLAGS */
+        return;
+    }
+    /* @CHECK_BACKUP_BLOCK, then COPY_SAVE_BLOCK(backup <- primary) if bad. One
+     * scratch block only (the Pico's core-0 stack has no room for a second). */
+    sram_read_block(backup, buf);
+    if (!block_checksums_valid(buf)) {
+        sram_read_block(primary, buf);
+        sram_write_block(backup, buf);
+    }
+}
+
+/* Port of CHECK_SRAM_INTEGRITY (asm/system/saves/check_sram_integrity.asm), the
+ * first thing GAME_INIT does:
+ *   1. version word at $1FFE != SRAM_VERSION -> MEMSET24 all 8 KB to 0;
+ *   2. CHECK_ALL_BLOCKS_SIGNATURE: CHECK_BLOCK_SIGNATURE erases (ERASE_SAVE_BLOCK)
+ *      every block whose header STRCMPs unequal to SRAM_SIGNATURE;
+ *   3. CORRUPTION_CHECK_RESULTS = 0, CHECK_SAVE_CORRUPTION on slots 0-2;
+ *   4. store SRAM_VERSION at $1FFE.
+ * The wipe is written in its final form: the 6 zeroed blocks fail step 2 and are
+ * erased (signed), so they are written signed straight away, and the zeroed tail
+ * is written last together with the version word. When the version word is
+ * already right, step 4 rewrites the same value and is skipped, so an intact SRAM
+ * costs no write at all (the flash backends erase a sector per write). */
+void check_sram_integrity(void) {
+    uint8_t ver[2] = { 0, 0 };
+    bool wipe = platform_save_read(ver, SRAM_VERSION_WORD_OFFSET, sizeof(ver)) != sizeof(ver) ||
+                (uint16_t)(ver[0] | (ver[1] << 8)) != SRAM_VERSION;
+
+    for (int block = 0; block < SAVE_COUNT * SAVE_COPY_COUNT; block++) {
+        if (!wipe) {
+            sram_read_block(block, &ert.save_scratch);
+            if (block_signature_valid(&ert.save_scratch))
+                continue;
+        }
+        erase_save_block(block);
+    }
+
+    corruption_check_results = 0;
+    for (int slot = 0; slot < SAVE_COUNT; slot++)
+        check_save_corruption(slot);
+
+    if (wipe) {
+        uint8_t *tail = (uint8_t *)&ert.save_scratch;
+        size_t tail_size = SRAM_IMAGE_SIZE - SAVE_FILE_SIZE;
+        _Static_assert(SRAM_IMAGE_SIZE - SAVE_FILE_SIZE <= sizeof(SaveBlock),
+                       "SRAM tail must fit the save scratch block");
+        memset(tail, 0, tail_size);
+        tail[SRAM_VERSION_WORD_OFFSET - SAVE_FILE_SIZE] = (uint8_t)(SRAM_VERSION & 0xFF);
+        tail[SRAM_VERSION_WORD_OFFSET - SAVE_FILE_SIZE + 1] = (uint8_t)(SRAM_VERSION >> 8);
+        platform_save_write(tail, SAVE_FILE_SIZE, tail_size);
+    }
+}
+
+/* SAVE_GAME_SLOT (save_game_slot.asm) + SAVE_GAME_BLOCK (save_game_block.asm):
+ * writes the game into both blocks of a 0-based slot. The signature is not
+ * written by the asm (the block already carries it from the boot check or an
+ * erase); it is stamped here too since the block is built from scratch, and the
+ * checksums don't cover the header. */
 bool save_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
     SaveBlock *block = &ert.save_scratch;
-    memset(block, 0, sizeof(*block));
+    make_erased_block(block);
 
     /* Port of save_game_block.asm lines 22-23: TIMER → game_state.timer */
     game_state.timer = core.play_timer;
@@ -427,14 +545,6 @@ bool save_game(int slot) {
     memcpy(block->party_characters, party_characters, sizeof(party_characters));
     memcpy(block->event_flags, event_flags, sizeof(block->event_flags));
 
-    /* Stamp the on-cartridge block signature so real EarthBound's
-     * CHECK_BLOCK_SIGNATURE accepts the slot instead of erasing it. The checksums
-     * below cover only game_state onward (header excluded), so this does not
-     * affect them — matching the assembly, which signs during format/erase. */
-    size_t sig_len = ASSET_SIZE(ASSET_DATA_SRAM_SIGNATURE_BIN);
-    if (sig_len > sizeof(block->header.signature)) sig_len = sizeof(block->header.signature);
-    memcpy(block->header.signature, SRAM_BLOCK_SIGNATURE, sig_len);
-
     /* Compute checksums — assembly uses ADD + XOR, NOT ADD + ~ADD.
      * See validate_save_block_checksums.asm: checksum = ADD, checksum_complement = XOR. */
     block->header.checksum = compute_add_checksum(block);
@@ -442,38 +552,23 @@ bool save_game(int slot) {
 
     /* Write both copies */
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
-        size_t offset = (size_t)(slot * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
-        if (!platform_save_write(block, offset, sizeof(SaveBlock)))
+        if (!sram_write_block(slot * SAVE_COPY_COUNT + copy, block))
             return false;
     }
-
-    /* Refresh the global version word (and pad the image to 8 KB) so the file
-     * survives real EarthBound's boot integrity check / loads in snes9x. */
-    return write_sram_version_word();
+    return true;
 }
 
+/* Port of LOAD_GAME_SLOT (asm/system/saves/load_game_slot.asm): copies the
+ * slot's primary block (at slot * $A00) into game_state, party_characters and
+ * event_flags without checking it. The boot check (check_sram_integrity) has
+ * already repaired a bad primary from the backup, or erased both copies, so the
+ * primary is always valid by the time anything loads it. Returns false only when
+ * the slot number is out of range. */
 bool load_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
     SaveBlock *block = &ert.save_scratch;
-    bool loaded = false;
-
-    /* Try both copies */
-    for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
-        size_t offset = (size_t)(slot * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
-        if (platform_save_read(block, offset, sizeof(SaveBlock)) != sizeof(SaveBlock))
-            continue;
-
-        uint16_t checksum = compute_add_checksum(block);
-        uint16_t xor_checksum = compute_xor_checksum(block);
-        if (block->header.checksum == checksum &&
-            block->header.checksum_complement == xor_checksum) {
-            loaded = true;
-            break;
-        }
-    }
-
-    if (!loaded) return false;
+    sram_read_block(slot * SAVE_COPY_COUNT, block);
 
     memcpy(&game_state, &block->game_state, sizeof(GameState));
     memcpy(party_characters, block->party_characters, sizeof(party_characters));
@@ -494,44 +589,30 @@ bool load_game(int slot) {
     return true;
 }
 
-/* Port of ERASE_SAVE (erase_save_slot.asm) + ERASE_SAVE_BLOCK (erase_save_block.asm):
- * Zeroes both copies of a save slot (primary + backup). The assembly leaves the
- * block's signature in place; an empty (all-zero) block is fine here because the
- * remaining slots' checksums still fail validation, so real EarthBound treats it
- * as empty. We still refresh the global version word so the rest of the image
- * (other slots) survives the boot integrity check on hardware/snes9x. */
+/* Port of ERASE_SAVE (erase_save_slot.asm): ERASE_SAVE_BLOCK on both copies of
+ * a 0-based slot, which zeroes them and signs them again. */
 bool erase_save(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
-    SaveBlock *block = &ert.save_scratch;
-    memset(block, 0, sizeof(*block));
-
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
-        size_t offset = (size_t)(slot * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
-        if (!platform_save_write(block, offset, sizeof(SaveBlock)))
+        if (!erase_save_block(slot * SAVE_COPY_COUNT + copy))
             return false;
     }
-
-    return write_sram_version_word();
+    return true;
 }
 
 /* Port of COPY_SAVE (asm/system/saves/copy_save_slot.asm) + COPY_SAVE_BLOCK
  * (asm/system/saves/copy_save_block.asm): raw-copies both SRAM blocks (primary +
  * backup) of slot `from` over slot `to`, header and checksums included, with no
- * re-validation. Slots are 0-based. Like erase_save, it also refreshes the global
- * version word so the image survives real EarthBound's boot integrity check. */
+ * re-validation. Slots are 0-based. */
 bool copy_save(int to, int from) {
     if (to < 0 || to >= SAVE_COUNT || from < 0 || from >= SAVE_COUNT) return false;
 
     SaveBlock *block = &ert.save_scratch;
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
-        size_t src = (size_t)(from * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
-        size_t dst = (size_t)(to * SAVE_COPY_COUNT + copy) * sizeof(SaveBlock);
-        if (platform_save_read(block, src, sizeof(SaveBlock)) != sizeof(SaveBlock))
-            return false;
-        if (!platform_save_write(block, dst, sizeof(SaveBlock)))
+        sram_read_block(from * SAVE_COPY_COUNT + copy, block);
+        if (!sram_write_block(to * SAVE_COPY_COUNT + copy, block))
             return false;
     }
-
-    return write_sram_version_word();
+    return true;
 }
