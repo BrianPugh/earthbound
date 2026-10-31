@@ -65,6 +65,15 @@ SCENES = [
         "wait 60",
     ),
     (
+        # Fake Monotoli's dissolve (DELETE_TPT style 9): snaps mid entity fade, whose
+        # metadata lives in ert.buffer and is reached through the animate callroutines
+        "entity-fade",
+        "19-Moonside",
+        "flag 11 1; teleport 7604 4714 2; wait 20; press A; until input 60; press A;"
+        " until in:TEXT_PROMPT 600; press A; wait 20",
+        "wait 40",
+    ),
+    (
         "town-map",
         "05-Twoson",
         "debug on; 10 B+R; until input 300; wait 10; press DOWN 5; press A; wait 10; press A; wait 10;"
