@@ -2814,21 +2814,21 @@ dumpEntries:
 # ATTACK_TYPE_PALETTES — 3 attack types x 16 colors x 2 bytes = 96 bytes
 - subdir: data
   name: 'attack_type_palettes'
-  offset: 0x03F8E9
+  offset: 0x03F8F1
   size: 96
   extension: bin
   compressed: false
 # ENEMY_PSI_COLOURS — 11 entries x 3 bytes (R, G, B 5-bit components for COLDATA)
 - subdir: data
   name: 'enemy_psi_colours'
-  offset: 0x03F949
+  offset: 0x03F951
   size: 33
   extension: bin
   compressed: false
 # MISC_SWIRL_COLOURS — 5 entries x 3 bytes (R, G, B 5-bit components for COLDATA)
 - subdir: data
   name: 'misc_swirl_colours'
-  offset: 0x03F96A
+  offset: 0x03F972
   size: 15
   extension: bin
   compressed: false
