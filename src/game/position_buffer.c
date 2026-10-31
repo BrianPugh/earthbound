@@ -1560,6 +1560,13 @@ void update_leader_movement(int16_t entity_offset) {
         ow.player_intangibility_frames--;
     }
 
+    /* 2b. Debug slow motion (assembly lines 19-27): with DEBUG on and X
+     * held, the leader only updates on every 16th frame. */
+    if (ow.debug_flag && (core.pad1_held & PAD_X) &&
+        (core.frame_counter & 0x000F) != 0) {
+        return;
+    }
+
     /* 3. Sync leader's char_struct.position_index with write head.
      * Assembly lines 30-39: reads current_party_members → entity var1 →
      * CHOSEN_FOUR_PTRS → char_struct.position_index = position_buffer_index.
@@ -1595,12 +1602,15 @@ void update_leader_movement(int16_t entity_offset) {
     }
 
     /* 5. Tile collision check (assembly lines 61-82).
-     * Assembly calls CHECK_PLAYER_COLLISION_AT_POSITION which reads the
-     * entity's size from ENTITY_SIZES[slot*2]. */
-    game_state.trodden_tile_type = lookup_surface_flags(
+     * CHECK_PLAYER_COLLISION_AT_POSITION (A = leader x, X = leader y,
+     * Y = leader entity slot) ORs the hitbox's top and bottom tile rows,
+     * and leaves CHECKED_COLLISION_LEFT_X/TOP_Y set. LOOKUP_SURFACE_FLAGS
+     * (left and right columns) gives different flags at stair and ladder
+     * edges, e.g. the top of the Mini Barf stairs (leg pt74). */
+    game_state.trodden_tile_type = check_player_collision_at_position(
         (int16_t)game_state.leader_x_coord,
         (int16_t)game_state.leader_y_coord,
-        entities.sizes[leader_ent_offset]);
+        leader_ent_offset);
 
     /* 6-7. Write to position ert.buffer (assembly lines 83-119).
      * position_buffer_write reads from game_state (matching assembly).
