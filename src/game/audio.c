@@ -30,9 +30,20 @@ static size_t dataset_table_count;
 /* SPC700 engine entry point (matching LOAD_SPC700_DATA's default start address) */
 #define SPC700_ENGINE_ENTRY 0x0500
 
+/* One frame of audio is AUDIO_FRAME_SAMPLES DSP samples (one per 32 SPC700
+ * cycles): 534 * 60 fps = 32040 Hz, the real APU's rate (its resonator runs
+ * ~0.1% above the nominal 1.024 MHz; snes9x and the recorder use it too). The
+ * frame's samples are read 1:1 from lakesnes's ring behind audio_read_pos, so
+ * none is dropped or repeated. */
+#define AUDIO_FRAME_SAMPLES 534
+#define SPC_CYCLES_PER_SAMPLE 32
+#define SPC_CYCLES_PER_FRAME (AUDIO_FRAME_SAMPLES * SPC_CYCLES_PER_SAMPLE)
+#define DSP_RING_SAMPLES 0x400  /* lakesnes Dsp.sampleBuffer */
+
 /* APU state */
 static Apu *apu;
 AudioState audio_state;
+static uint16_t audio_read_pos;  /* next unread sample, in Dsp.sampleOffset units */
 
 /* SFX queue (8-entry circular buffer, matching assembly) */
 static uint8_t sfx_queue[8];
@@ -102,7 +113,7 @@ typedef struct {
 /* Busy-waits have no timeout in the asm; this one only guards against a hang.
  * The engine reads port 0 on its tempo tick, so the $FF answer can take a few
  * frames (~73000 cycles seen). */
-#define APU_WAIT_MAX_CYCLES (30 * 17066)
+#define APU_WAIT_MAX_CYCLES (30 * SPC_CYCLES_PER_FRAME)
 /* SPC cycles run between two checks of a pending wait */
 #define APU_WAIT_SLICE 256
 static ApuOp apu_ops[APU_OP_QUEUE_SIZE];
@@ -212,6 +223,7 @@ static void apu_ops_drain_inline(void) {
     while (apu_ops_step()) {
         apu_op_waited += apu_runCycles(apu, APU_WAIT_SLICE);
     }
+    audio_read_pos = apu->dsp->sampleOffset;
 }
 
 static void apu_op_push(ApuOp op) {
@@ -310,8 +322,9 @@ void audio_init(void) {
 
     /* Run the SPC700 for a few frames to let it initialize */
     for (int i = 0; i < 10; i++) {
-        apu_runCycles(apu, 17066);
+        apu_runCycles(apu, SPC_CYCLES_PER_FRAME);
     }
+    audio_read_pos = apu->dsp->sampleOffset;
 
     /* STEREO_MONO_FLAG ($0431) keeps the engine's power-on 0 (stereo) until
      * FILE_SELECT_INIT applies the save's sound_setting (audio_set_channels). */
@@ -530,11 +543,21 @@ void audio_generate_samples(int16_t *buffer, int samples) {
 
     audio_lock();
 
-    /* Run ~17066 SPC700 cycles per frame (1.024 MHz / 60 fps).
-       The DSP generates one sample every 32 SPC cycles. */
+    /* Run the SPC700 until a frame of new samples is ready, then read them
+     * (resampled to `samples`; callers pass AUDIO_FRAME_SAMPLES, so 1:1). */
     frames_unpulled = 0;
-    apu_run_cycles(17066);
-    dsp_getSamples(apu->dsp, buffer, samples);
+    const Dsp *dsp = apu->dsp;
+    uint16_t avail;
+    while ((avail = (uint16_t)(dsp->sampleOffset - audio_read_pos)) < AUDIO_FRAME_SAMPLES)
+        apu_run_cycles((AUDIO_FRAME_SAMPLES - avail) * SPC_CYCLES_PER_SAMPLE);
+    if (avail > DSP_RING_SAMPLES)  /* overwritten already: take the newest */
+        audio_read_pos = (uint16_t)(dsp->sampleOffset - AUDIO_FRAME_SAMPLES);
+    for (int i = 0; i < samples; i++) {
+        uint16_t k = (uint16_t)(audio_read_pos + (uint32_t)i * AUDIO_FRAME_SAMPLES / (uint32_t)samples);
+        buffer[i * 2] = dsp->sampleBuffer[(k & (DSP_RING_SAMPLES - 1)) * 2];
+        buffer[i * 2 + 1] = dsp->sampleBuffer[(k & (DSP_RING_SAMPLES - 1)) * 2 + 1];
+    }
+    audio_read_pos = (uint16_t)(audio_read_pos + AUDIO_FRAME_SAMPLES);
 
     audio_unlock();
 }

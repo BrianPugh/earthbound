@@ -7,9 +7,9 @@
 #include <SDL.h>
 #include <string.h>
 
-#define AUDIO_SAMPLE_RATE 32000
+#define AUDIO_SAMPLE_RATE 32040  /* SAMPLES_PER_FRAME * 60; audio.c AUDIO_FRAME_SAMPLES */
 #define AUDIO_BUFFER_SAMPLES 1024
-#define SAMPLES_PER_FRAME 534  /* 32040 / 60 ~ 534 for NTSC */
+#define SAMPLES_PER_FRAME 534  /* one frame of DSP samples (audio.c) */
 
 static SDL_AudioDeviceID audio_device;
 static SDL_mutex *audio_mutex;
