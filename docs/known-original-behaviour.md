@@ -111,6 +111,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Seeding `rng` while a boss's pre-battle text is still printing doesn't line up the first command menu (Clumsy Robot 48536 12782 port vs 37251 1726 original); seeding before the talk/touch does (Guardian Digger, Spook, Evil Mani-Mani) | run-44 Clumsy Robot room, `teleport 6088 5992 0`, walk to 6060,5964 | emu pt75oh vs port pt75h | 2026-10-31 |
 | Bash turns replay exactly against the original once `rng` is seeded before the talk (Guardian General 3 turns, Master Barf turn 1, Carbon Dog 5 turns through the Diamond Dog transformation); Auto Fight and PSI turns drift (Guardian General Auto Fight 19510 vs 10753 frames, the port's party wiped) and Electro Specter's shock attack picks other targets | run-52 pyramid npc1180 (`teleport 4270 8944 2; 6 RIGHT; rng 300 400; press L`), 30-DeepDark npc1229, 33-FireSpring npc1276, 32-LumineHall npc1246 | port pt80a/d/f/g vs emu pt80oa/od/of/og, RNG compared each turn | 2026-10-31 |
 | Carbon Dog "gave off a rainbow of colors!" → Diamond Dog (3344 HP) with the power shield deflecting the next bash | 33-FireSpring, `teleport 3344 6410 0; 30 UP`, talk npc1276, bash ×5 | port pt80g vs emu pt80og, same text, HP and RNG | 2026-10-31 |
+| Rockin Ω on the 9999-HP Giygas sometimes prints "It did not work on Giygas!" instead of a redirected hit: PSI_ROCKIN_COMMON's DETERMINE_DODGE roll (RNG), so the same turn can redirect in one game and miss in the other | 36-CavePast, Giygas + Heavily Armed Pokey, Ness PSI Rockin Ω | `asm/battle/actions/psi_rockin_common.asm`; emu pt81oa sheet-1419 vs port pt81a sheet-1039 | 2026-10-31 |
 
 ## Text and windows
 
@@ -285,6 +286,8 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Monotoli office: Stop! scene, confession, Paula rejoins (flag 15, music 24), heliport → roof 3464,3784, Pokey's helicopter scene (end 3464,3793, music 172) | 21-Monotoli | emu pt82oe vs port pt82e | 2026-10-31 |
 | Sky Runner to Summers lands at 5056,3152 (music 56); the original's flight runs ~9% longer (lag) | run-49, `flag 748 0` | emu pt82of2 vs port pt82f2 | 2026-10-31 |
 | Summers museum: $3 × 4 admission, Omar steps aside, plaque read by Poo, Hieroglyph copy, same facings and end 7974,9568 | 24-Museum | emu pt82og vs port pt82g | 2026-10-31 |
+| Post-Magicant endgame chain plays the same text, prompts, flags, positions and music: meteorite piece, Andonuts takes it (flags 132/134), Saturn hotel sleep (flag 169 cleared, same length), PD2 No/Yes talk and boarding (5488,340), Starman/Starstorm Ω, PD3 scene, Apple Kid (285), Andonuts walks off, robot talk Yes ×3 → 592,6964, PD Communicate, Pokey's intro (same RNG at the first menu), Devil's Machine speech, prayers 7-9, "The war against Giygas is over..." | 35-Onett → walked to the lair | emu pt81oa vs port pt81a, `playtest/out/pt81-cmp/` | 2026-10-31 |
+| Robot transfer: each member lies in a black screen with 6 grey FLASH_PULSE pulses (181/148/115/82/49/16 per 2 frames, EVENT_782 DIM_COLOR_PULSE), identical colour steps; the original runs ~50 frames later (lag) | after the robot talk's second Yes ("Ready... stand by...") | per-2-frame capture, pt81a/pt81oa `-f*` shots | 2026-10-31 |
 
 ## Audio
 
