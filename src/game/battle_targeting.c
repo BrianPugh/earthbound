@@ -179,8 +179,10 @@ static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
     /* Create the target text window (WINDOW::BATTLE_TARGET_TEXT = 0x31) */
     create_window(WINDOW_BATTLE_TARGET_TEXT);
 
-    /* Print "To " prefix */
-    print_string("To ");
+    /* PRINT_STRING(BATTLE_TO_TEXT, TO_TEXT_LENGTH): the asset is exactly the
+     * printed length (3, US) */
+    print_eb_string(ASSET_DATA(ASSET_US_DATA_BATTLE_TO_TEXT_BIN),
+                    (int)ASSET_SIZE(ASSET_US_DATA_BATTLE_TO_TEXT_BIN));
 
     if (enemy_index != -1) {
         /* Assembly: SET_TARGET_NAME_WITH_ARTICLE(row * NUM_BATTLERS_IN_FRONT_ROW

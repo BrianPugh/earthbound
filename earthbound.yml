@@ -14933,6 +14933,62 @@ dumpEntries:
   size: 13
   extension: bin
   compressed: false
+# BATTLE_TO_TEXT — 'To ' EB-encoded (3 bytes, the asm print length)
+- subdir: US/data
+  name: 'battle_to_text'
+  offset: 0x0454F2
+  size: 3
+  extension: bin
+  compressed: false
+# BATTLE_MENU_TEXT — 10 battle command labels (Bash, Goods, Auto Fight, PSI, Defend, Pray, Shoot, Spy, Run Away, Mirror) x 16 bytes, then Do Nothing x 12, NUL-padded EB-encoded (172 bytes)
+- subdir: US/data
+  name: 'battle_menu_text'
+  offset: 0x049FE1
+  size: 172
+  extension: bin
+  compressed: false
+# ITEM_USE_MENU_STRINGS — Use/Give/Drop/Help! x 6 bytes, NUL-padded EB-encoded (24 bytes)
+- subdir: US/data
+  name: 'item_use_menu_strings'
+  offset: 0x043550
+  size: 24
+  extension: bin
+  compressed: false
+# THETHE — 'The ' then 'the ' EB-encoded, 4 bytes each (8 bytes)
+- subdir: US/data
+  name: 'thethe'
+  offset: 0x020998
+  size: 8
+  extension: bin
+  compressed: false
+# DEBUG_MENU_TEXT — 24 debug menu labels x 10 bytes, NUL-padded EB-encoded; 5 entries + Meter are the untranslated Mother 2 bytes, the last entry is empty (240 bytes)
+- subdir: US/data
+  name: 'debug_menu_text'
+  offset: 0x03E874
+  size: 240
+  extension: bin
+  compressed: false
+# DEBUG_ON_TEXT — 'ON', NUL-terminated EB-encoded (3 bytes)
+- subdir: US/data
+  name: 'debug_on_text'
+  offset: 0x03E970
+  size: 3
+  extension: bin
+  compressed: false
+# DEBUG_OFF_TEXT — 'OFF', NUL-terminated EB-encoded (4 bytes)
+- subdir: US/data
+  name: 'debug_off_text'
+  offset: 0x03E973
+  size: 4
+  extension: bin
+  compressed: false
+# SRAM_SIGNATURE — save block signature, ASCIIZ (21 bytes; asm/data/sram_signature.asm in bank 2F)
+- subdir: data
+  name: 'sram_signature'
+  offset: 0x2F0591
+  size: 21
+  extension: bin
+  compressed: false
 # NAME_REGISTRY_REQUEST_STRING — "Register your name, please" EB-encoded (26 bytes)
 - subdir: US/data
   name: 'name_registry_request_string'

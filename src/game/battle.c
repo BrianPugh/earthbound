@@ -2758,6 +2758,31 @@ auto_fight_return:
     return STEP_RESULT_POP(bt.battle_menu_selected_action);
 }
 
+/* BATTLE_MENU_TEXT (asm/data/text/battle_menu_text.asm, earthbound.yml
+ * US/data battle_menu_text): PADDEDEBTEXT labels, 16 bytes each except the
+ * last (DO_NOTHING, 12). Offsets of each label within the table. */
+#define BATTLE_MENU_TEXT_STRIDE      16
+#define BATTLE_MENU_TEXT_BASH        (0 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_GOODS       (1 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_AUTO_FIGHT  (2 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_PSI         (3 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_DEFEND      (4 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_PRAY        (5 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_SHOOT       (6 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_SPY         (7 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_RUN_AWAY    (8 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_MIRROR      (9 * BATTLE_MENU_TEXT_STRIDE)
+#define BATTLE_MENU_TEXT_DO_NOTHING  (10 * BATTLE_MENU_TEXT_STRIDE)
+
+/* SELECTION_MENU_ITEM_SETUP with the BATTLE_MENU_TEXT label at offset `off`
+ * (the label is NUL-padded; the last one ends with the table). */
+static void battle_menu_item(size_t off, uint16_t userdata, uint16_t text_x, uint16_t text_y) {
+    size_t size = ASSET_SIZE(ASSET_US_DATA_BATTLE_MENU_TEXT_BIN);
+    size_t len = size - off < BATTLE_MENU_TEXT_STRIDE ? size - off : BATTLE_MENU_TEXT_STRIDE;
+    add_menu_item_eb(ASSET_DATA(ASSET_US_DATA_BATTLE_MENU_TEXT_BIN) + off, len,
+                     userdata, text_x, text_y);
+}
+
 /* Manual menu setup: create the command window and add its items. */
 static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
     bt.half_hppp_meter_speed = 1;
@@ -2788,20 +2813,20 @@ static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
         set_window_title(window_id, name_buf, 5);
     }
 
-    /* Add attack option (Bash/Shoot/Do Nothing) */
+    /* Add attack option (BATTLE_MENU_TEXT_BASH/SHOOT/DO_NOTHING) */
     if (st->weapon_type == 0) {
-        add_menu_item("Bash", 1, 0, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_BASH, 1, 0, 0);
     } else if (st->weapon_type == 1) {
-        add_menu_item("Shoot", 1, 0, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_SHOOT, 1, 0, 0);
     } else {
-        add_menu_item("Do Nothing", 1, 0, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_DO_NOTHING, 1, 0, 0);
     }
 
     /* Add Goods and Defend options (unless paralyzed/immobilized)
-     * Assembly: BATTLE_MENU_TEXT+16="Goods" userdata=2, +64="Defend" userdata=5 */
+     * Assembly: BATTLE_MENU_TEXT+16 (GOODS) userdata=2, +64 (DEFEND) userdata=5 */
     if (st->weapon_type != 2) {
-        add_menu_item("Goods", 2, 6, 0);
-        add_menu_item("Defend", 5, 6, 1);
+        battle_menu_item(BATTLE_MENU_TEXT_GOODS, 2, 6, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_DEFEND, 5, 6, 1);
     }
 
     /* Add Defend and Run Away (only for first character selecting) */
@@ -2815,26 +2840,26 @@ static void bm_build_menu(BattleMenuState *st, const CharStruct *ch) {
         if (st->char_id == PARTY_MEMBER_PAULA || st->char_id == PARTY_MEMBER_POO) {
             x_offset += 2;
         }
-        add_menu_item("Auto Fight", 3, x_offset, 0);
-        add_menu_item("Run Away", 6, x_offset, 1);
+        battle_menu_item(BATTLE_MENU_TEXT_AUTO_FIGHT, 3, x_offset, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_RUN_AWAY, 6, x_offset, 1);
     }
 
     /* Add Jeff's Spy or PSI option */
     if (st->char_id == PARTY_MEMBER_JEFF) {
-        add_menu_item("Spy", 4, 0, 1);
+        battle_menu_item(BATTLE_MENU_TEXT_SPY, 4, 0, 1);
     } else if ((ch->afflictions[STATUS_GROUP_CONCENTRATION] & 0xFF) == 0) {
         /* Can use PSI (not concentration-blocked) */
-        add_menu_item("PSI", 4, 0, 1);
+        battle_menu_item(BATTLE_MENU_TEXT_PSI, 4, 0, 1);
     }
 
     /* Add Paula's Pray */
     if (st->char_id == PARTY_MEMBER_PAULA) {
-        add_menu_item("Pray", 7, 11, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_PRAY, 7, 11, 0);
     }
 
     /* Add Poo's Mirror */
     if (st->char_id == PARTY_MEMBER_POO) {
-        add_menu_item("Mirror", 7, 13, 0);
+        battle_menu_item(BATTLE_MENU_TEXT_MIRROR, 7, 13, 0);
     }
 }
 

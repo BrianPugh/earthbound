@@ -26,6 +26,8 @@
 #define EB_CHAR_COLON     0x6A  /* CHAR::COLON (US) */
 #define EB_CHAR_LPAREN    88    /* '(' (the asm's literal 88) */
 #define EB_CHAR_RPAREN    89    /* ')' (the asm's literal 89) */
+#define EB_CHAR_SLASH     0x5F  /* '/' (DISPLAY_STATUS_WINDOW's LDA #$5F) */
+#define EB_CHAR_BULLET    0x70  /* CHAR::BULLET (US) */
 
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */
@@ -82,6 +84,13 @@ void print_string(const char *str);
    Renders immediately via VWF → VRAM → per-window content_tilemap.
    Used by display_text() for script text where bytes are already EB-encoded. */
 void print_eb_string(const uint8_t *eb_str, int len);
+
+/* ADD_MENU_ITEM / ADD_MENU_ITEM_NO_POSITION with an EB-encoded ROM label of
+   len bytes (NUL-terminated or NUL-padded). The port's menu items hold ASCII
+   labels, so the label is converted first. */
+void add_menu_item_eb(const uint8_t *eb, size_t len, uint16_t userdata,
+                      uint16_t text_x, uint16_t text_y);
+void add_menu_item_no_position_eb(const uint8_t *eb, size_t len, uint16_t userdata);
 
 /* Render one EB-encoded letter now: the RENDER_VWF_CHARACTER half of
  * PRINT_LETTER (no sound, no delay). print_eb_string renders through it, or

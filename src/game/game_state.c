@@ -360,8 +360,10 @@ void reset_hppp_rolling(void) {
 /* On-cartridge SRAM signature stamped into every valid block header. Real
  * EarthBound's CHECK_BLOCK_SIGNATURE (asm/system/saves/check_block_signature.asm)
  * STRCMPs the 28-byte header against this; a mismatch makes it ERASE the block.
- * From asm/data/sram_signature.asm — ASCIIZ, the remaining bytes stay zero. */
-static const char SRAM_BLOCK_SIGNATURE[] = "HAL Laboratory, inc.";
+ * SRAM_SIGNATURE (asm/data/sram_signature.asm, earthbound.yml data/
+ * sram_signature): ASCIIZ (the asset includes the NUL), copied over the
+ * zeroed header like ERASE_SAVE_BLOCK, so the remaining bytes stay zero. */
+#define SRAM_BLOCK_SIGNATURE ASSET_DATA(ASSET_DATA_SRAM_SIGNATURE_BIN)
 
 /* Byte offset (within the SRAM image / .srm file) of the 16-bit SRAM version
  * word. Real EarthBound's CHECK_SRAM_INTEGRITY reads SAVE_BASE + $1FFE on boot
@@ -429,7 +431,9 @@ bool save_game(int slot) {
      * CHECK_BLOCK_SIGNATURE accepts the slot instead of erasing it. The checksums
      * below cover only game_state onward (header excluded), so this does not
      * affect them — matching the assembly, which signs during format/erase. */
-    memcpy(block->header.signature, SRAM_BLOCK_SIGNATURE, sizeof(SRAM_BLOCK_SIGNATURE));
+    size_t sig_len = ASSET_SIZE(ASSET_DATA_SRAM_SIGNATURE_BIN);
+    if (sig_len > sizeof(block->header.signature)) sig_len = sizeof(block->header.signature);
+    memcpy(block->header.signature, SRAM_BLOCK_SIGNATURE, sig_len);
 
     /* Compute checksums — assembly uses ADD + XOR, NOT ADD + ~ADD.
      * See validate_save_block_checksums.asm: checksum = ADD, checksum_complement = XOR. */

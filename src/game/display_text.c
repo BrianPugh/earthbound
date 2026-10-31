@@ -881,9 +881,9 @@ void display_status_window(uint16_t char_id) {
     /* Current HP */
     set_text_pixel_position(3, 94);
     print_number((int)c->current_hp, 2);
-    /* Slash (EB char 0x5F = '/') */
+    /* Slash (asm: LDA #$5F; PRINT_LETTER) */
     set_text_pixel_position(3, 114);
-    print_string("/");
+    print_eb_string((const uint8_t[]){ EB_CHAR_SLASH }, 1);
     /* Max HP */
     set_text_pixel_position(3, 121);
     print_number((int)c->max_hp, 2);
@@ -891,9 +891,9 @@ void display_status_window(uint16_t char_id) {
     /* Current PP */
     set_text_pixel_position(4, 94);
     print_number((int)c->current_pp, 2);
-    /* Slash (EB char 0x5F = '/') */
+    /* Slash (asm: LDA #$5F; PRINT_LETTER) */
     set_text_pixel_position(4, 114);
-    print_string("/");
+    print_eb_string((const uint8_t[]){ EB_CHAR_SLASH }, 1);
     /* Max PP */
     set_text_pixel_position(4, 121);
     print_number((int)c->max_pp, 2);
@@ -1351,6 +1351,7 @@ void print_cc_table_value(uint16_t index) {
  *      If the_flag == 0: return (enemy doesn't use article).
  *   4. If dt.last_printed_character == CHAR::BULLET (0x70, start of line): print "The ".
  *      Otherwise: print "the ". */
+#define THETHE_LENGTH 4
 void print_enemy_article(uint16_t mode) {
     if (mode == 0) {
         /* Attacker */
@@ -1377,11 +1378,14 @@ void print_enemy_article(uint16_t mode) {
         if (enemy_config_table[dt.target_enemy_id].the_flag == 0)
             return;
     }
-    /* Print "The " at start of line, "the " otherwise */
-    if (dt.last_printed_character == 0x70)
-        print_string("The ");
+    /* THETHE (earthbound.yml US/data thethe): the capitalised article after
+     * CHAR::BULLET (start of line), the lower-case one otherwise; each is
+     * PRINT_STRING_WITH_WORDWRAP'd with length 4. */
+    const uint8_t *thethe = ASSET_DATA(ASSET_US_DATA_THETHE_BIN);
+    if (dt.last_printed_character == EB_CHAR_BULLET)
+        print_string_with_wordwrap(thethe, THETHE_LENGTH);
     else
-        print_string("the ");
+        print_string_with_wordwrap(thethe + THETHE_LENGTH, THETHE_LENGTH);
 }
 
 /* --- Simple CC argument skip table ---

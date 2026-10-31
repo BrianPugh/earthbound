@@ -709,10 +709,13 @@ StepResult mode_step_debug_ymenu(ModeState *st) {
             print_number((int)s->index, 1);
             print_char_with_sound(0x0020);  /* space */
             advance_vwf_tile();
+            /* DEBUG_ON_TEXT / DEBUG_OFF_TEXT (EBTEXTZ), PRINT_STRING to the NUL */
             if (event_flag_get(s->index))
-                print_string("ON");
+                print_eb_string(ASSET_DATA(ASSET_US_DATA_DEBUG_ON_TEXT_BIN),
+                                (int)ASSET_SIZE(ASSET_US_DATA_DEBUG_ON_TEXT_BIN));
             else
-                print_string("OFF");
+                print_eb_string(ASSET_DATA(ASSET_US_DATA_DEBUG_OFF_TEXT_BIN),
+                                (int)ASSET_SIZE(ASSET_US_DATA_DEBUG_OFF_TEXT_BIN));
         } else { /* DBG_YMENU_GUIDE: count entities with active scripts */
             int count = 0;
             for (int i = 0; i < MAX_ENTITIES; i++) {
@@ -922,7 +925,10 @@ StepResult mode_step_debug_goods(ModeState *mst) {
  *  9=Tea  10=Teleport  11=Star~  12=Star^  13=Player0  14=Player1
  *  15=GUIDE  16=TRACK  17=CAST  18=STONE  19=STAFF  20=Meter
  *  21=REPLAY  22=TEST1  23=TEST2  24=(disable replay)
+ * The labels come from the ROM: the retail ROM (CLEAN_ROM) keeps Mother 2's
+ * katakana bytes for 10-14 and 20, which the US font has no glyphs for.
  */
+#define DEBUG_MENU_STRING_LENGTH 10  /* @DEBUGSTRINGLENGTH (US) */
 StepResult mode_step_debug_menu(ModeState *mst) {
     DebugMenuState *s = &mst->debug_menu;
 
@@ -941,29 +947,16 @@ StepResult mode_step_debug_menu(ModeState *mst) {
          * (here DebugMenuState.message_addr), reset before each selection. */
         s->message_addr = 0;
         create_window(WINDOW_PHONE_MENU);
-        add_menu_item_no_position("Flag",      1);
-        add_menu_item_no_position("Goods",     2);
-        add_menu_item_no_position("Save",      3);
-        add_menu_item_no_position("Apple",     4);
-        add_menu_item_no_position("Banana",    5);
-        add_menu_item_no_position("TV",        6);
-        add_menu_item_no_position("Event",     7);
-        add_menu_item_no_position("Warp",      8);
-        add_menu_item_no_position("Tea",       9);
-        add_menu_item_no_position("Teleport", 10);
-        add_menu_item_no_position("Star ~",   11);
-        add_menu_item_no_position("Star ^",   12);
-        add_menu_item_no_position("Player 0", 13);
-        add_menu_item_no_position("Player 1", 14);
-        add_menu_item_no_position("GUIDE",    15);
-        add_menu_item_no_position("TRACK",    16);
-        add_menu_item_no_position("CAST",     17);
-        add_menu_item_no_position("STONE",    18);
-        add_menu_item_no_position("STAFF",    19);
-        add_menu_item_no_position("Meter",    20);
-        add_menu_item_no_position("REPLAY",   21);
-        add_menu_item_no_position("TEST1",    22);
-        add_menu_item_no_position("TEST2",    23);
+        /* @MENU_ITEM_LOOP: ADD_MENU_OPTION for each DEBUG_MENU_TEXT entry
+         * (earthbound.yml US/data debug_menu_text) up to the first empty one;
+         * the options are numbered from 1. */
+        {
+            const uint8_t *text = ASSET_DATA(ASSET_US_DATA_DEBUG_MENU_TEXT_BIN);
+            size_t count = ASSET_SIZE(ASSET_US_DATA_DEBUG_MENU_TEXT_BIN) / DEBUG_MENU_STRING_LENGTH;
+            for (size_t i = 0; i < count && text[i * DEBUG_MENU_STRING_LENGTH] != 0; i++)
+                add_menu_item_no_position_eb(text + i * DEBUG_MENU_STRING_LENGTH,
+                                             DEBUG_MENU_STRING_LENGTH, (uint16_t)(i + 1));
+        }
         open_window_and_print_menu(1, 0);
         memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
         g_mode_push_init.selection_menu.phase        = SM_SETUP;

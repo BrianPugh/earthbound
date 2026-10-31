@@ -62,16 +62,8 @@ static const uint8_t *initial_stats_data;
 #define FS_PRINT(name) \
     print_eb_string(ASSET_DATA(FS_TEXT(name)), (int)ASSET_SIZE(FS_TEXT(name)))
 
-/* ADD_MENU_ITEM with an EB-encoded ROM label (len bytes, NUL-terminated or padded). */
-static void fs_add_menu_item(const uint8_t *eb, size_t len, uint16_t userdata,
-                             uint16_t text_x, uint16_t text_y) {
-    char label[MENU_LABEL_SIZE];
-    if (len > MENU_LABEL_SIZE - 1) len = MENU_LABEL_SIZE - 1;
-    eb_to_ascii_buf(eb, (int)len, label);
-    add_menu_item(label, userdata, text_x, text_y);
-}
 #define FS_ADD_MENU_ITEM(name, userdata, x, y) \
-    fs_add_menu_item(ASSET_DATA(FS_TEXT(name)), ASSET_SIZE(FS_TEXT(name)), (userdata), (x), (y))
+    add_menu_item_eb(ASSET_DATA(FS_TEXT(name)), ASSET_SIZE(FS_TEXT(name)), (userdata), (x), (y))
 
 /* Entry `index` of a padded FILE_SELECT_TEXT_*_STRINGS table. */
 #define FS_TABLE_ENTRY(name, index, stride) (ASSET_DATA(FS_TEXT(name)) + (size_t)(index) * (stride))
@@ -236,7 +228,7 @@ static void fs_add_slot_menu_items(void) {
             memcpy(&buf[1], ASSET_DATA(FS_TEXT(START_NEW_GAME)), ASSET_SIZE(FS_TEXT(START_NEW_GAME)));
             save_files_present[slot] = 0;
         }
-        fs_add_menu_item(buf, sizeof(buf), (uint16_t)(slot + 1), 0, (uint16_t)slot);
+        add_menu_item_eb(buf, sizeof(buf), (uint16_t)(slot + 1), 0, (uint16_t)slot);
     }
 }
 
@@ -424,9 +416,9 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
     FS_PRINT(SELECT_TEXT_SPEED);
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
     /* OPEN_TEXT_SPEED_MENU's pre-selection (see fm_textspeed_build). */
     print_menu_at_selection(selected_speed ? selected_speed - 1 : 1);
 
@@ -441,8 +433,8 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     w->menu_count = 0;
     set_focus_text_cursor(0, 0);
     FS_PRINT(SELECT_SOUND_SETTING);
-    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
-    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
+    add_menu_item_eb(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
+    add_menu_item_eb(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
     /* OPEN_SOUND_MENU's pre-selection (see fm_sound_build). */
     print_menu_at_selection(selected_sound ? selected_sound - 1 : 0);
 
@@ -465,9 +457,9 @@ static int fm_textspeed_build(void) {
     set_focus_text_cursor(0, 0);
     FS_PRINT(SELECT_TEXT_SPEED);
 
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
-    fs_add_menu_item(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 0, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 1, 0, 1);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 1, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 2, 0, 2);
+    add_menu_item_eb(FS_TABLE_ENTRY(TEXTSPEED_STRINGS, 2, TEXT_SPEED_STRING_LENGTH), TEXT_SPEED_STRING_LENGTH, 3, 0, 3);
 
     /* OPEN_TEXT_SPEED_MENU (open_text_speed_menu.asm:49-58): start the cursor
      * on the saved speed (text_speed - 1), or on Medium (1) when unset. */
@@ -508,8 +500,8 @@ static int fm_sound_build(void) {
     set_focus_text_cursor(0, 0);
     FS_PRINT(SELECT_SOUND_SETTING);
 
-    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
-    fs_add_menu_item(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
+    add_menu_item_eb(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 0, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 1, 0, 1);
+    add_menu_item_eb(FS_TABLE_ENTRY(SOUND_SETTING_STRINGS, 1, SOUND_SETTING_STRING_LENGTH), SOUND_SETTING_STRING_LENGTH, 2, 0, 2);
 
     /* OPEN_SOUND_MENU (open_sound_menu.asm:38-49): start the cursor on the
      * saved setting (1-based, so sound_setting - 1), or on Stereo (0) when unset. */

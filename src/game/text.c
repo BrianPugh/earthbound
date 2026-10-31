@@ -779,12 +779,9 @@ static uint8_t temporary_other_gear;
 #define ETEXT13_OFF  102
 #define ETEXT13_LEN  5
 
-static const uint8_t *equip_text_data;  /* loaded from status_equip_window_text_8_13.bin */
-
-static void load_equip_text_data(void) {
-    if (!equip_text_data)
-        equip_text_data = ASSET_DATA(ASSET_DATA_STATUS_EQUIP_WINDOW_TEXT_8_13_BIN);
-}
+/* An embedded asset base, so valid in every phase (including one restored
+ * from a savestate without passing the phase that used to load it). */
+#define EQUIP_TEXT_DATA ASSET_DATA(ASSET_DATA_STATUS_EQUIP_WINDOW_TEXT_8_13_BIN)
 
 /* Helper: get equipment item strength value from item config.
  * Reads the signed strength byte from item_parameters for the given
@@ -840,28 +837,18 @@ static void display_equipment_menu(uint16_t char_id) {
         set_window_title(WINDOW_EQUIP_MENU, name_buf, 6);
     }
 
-    load_equip_text_data();
-
     /* For each equipment slot (0-3): add menu option with slot label,
      * then print ": <item name>" after it. */
     uint16_t line = 0;
     for (uint16_t slot = 0; slot < EQUIP_COUNT; slot++) {
         dt.force_left_text_alignment = 1;
 
-        /* Add slot label ("  Weapon", "      Body", etc.) as menu option.
-         * Assembly: ADD_POSITIONED_MENU_OPTION with text_x=0, text_y=slot. */
-        char slot_label[16];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT10_OFF + slot * ETEXT10_STRIDE,
-                            ETEXT10_STRIDE, slot_label);
-        } else {
-            static const char *fallback[] EB_NORELOC = { "  Weapon", "      Body", "     Arms", "     Other" };
-            snprintf(slot_label, sizeof(slot_label), "%s", fallback[slot]);
-        }
-        /* add_menu_item with explicit position: column 0, row = slot.
+        /* Add slot label (TEXT_10) as menu option.
+         * Assembly: ADD_POSITIONED_MENU_OPTION with text_x=0, text_y=slot.
          * Userdata = slot+1 (1=Weapon..4=Other), matching assembly's
          * counted-mode selection_menu return. */
-        add_menu_item(slot_label, slot + 1, 0, slot);
+        add_menu_item_eb(EQUIP_TEXT_DATA + ETEXT10_OFF + slot * ETEXT10_STRIDE,
+                         ETEXT10_STRIDE, slot + 1, 0, slot);
 
         /* Read equipment slot index for this character.
          * equipment[WEAPON..OTHER] is a 1-based inventory slot index (0 = nothing). */
@@ -870,12 +857,8 @@ static void display_equipment_menu(uint16_t char_id) {
         /* Build item name string */
         char item_buf[32];
         if (equip_slot_idx == 0) {
-            /* No item equipped — show "(Nothing) " from TEXT_12 */
-            if (equip_text_data) {
-                eb_to_ascii_buf(equip_text_data + ETEXT12_OFF, ETEXT12_LEN, item_buf);
-            } else {
-                snprintf(item_buf, sizeof(item_buf), "(Nothing)");
-            }
+            /* No item equipped — show TEXT_12 */
+            eb_to_ascii_buf(EQUIP_TEXT_DATA + ETEXT12_OFF, ETEXT12_LEN, item_buf);
         } else {
             /* Read item at this inventory slot */
             uint8_t item_id = party_characters[char_idx].items[equip_slot_idx - 1];
@@ -900,7 +883,7 @@ static void display_equipment_menu(uint16_t char_id) {
          * Assembly: SET_FOCUS_TEXT_CURSOR(X=line, A=6), PRINT_LETTER ':',
          * PRINT_LETTER ' ', PRINT_STRING(ert.buffer, 49). */
         set_focus_text_cursor(6, line);
-        print_string(": ");
+        print_eb_string((const uint8_t[]){ EB_CHAR_COLON, EB_CHAR_SPACE }, 2);
         print_string(item_buf);
         line++;
     }
@@ -924,19 +907,9 @@ static void display_character_equipment_stats(uint16_t char_id) {
     window_tick_without_instant_printing();
     set_window_number_padding(2);
 
-    load_equip_text_data();
-
     /* --- Row 0: Offense --- */
     set_focus_text_cursor(0, 0);
-    {
-        char label[12];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT8_OFF, ETEXT8_LEN, label);
-        } else {
-            snprintf(label, sizeof(label), "Offense:");
-        }
-        print_string(label);
-    }
+    print_eb_string(EQUIP_TEXT_DATA + ETEXT8_OFF, ETEXT8_LEN);
 
     /* Compute current offense: base_offense + weapon strength */
     int16_t offense = party_characters[char_idx].base_offense;
@@ -951,15 +924,7 @@ static void display_character_equipment_stats(uint16_t char_id) {
 
     /* --- Row 1: Defense --- */
     set_focus_text_cursor(0, 1);
-    {
-        char label[12];
-        if (equip_text_data) {
-            eb_to_ascii_buf(equip_text_data + ETEXT9_OFF, ETEXT9_LEN, label);
-        } else {
-            snprintf(label, sizeof(label), "Defense:");
-        }
-        print_string(label);
-    }
+    print_eb_string(EQUIP_TEXT_DATA + ETEXT9_OFF, ETEXT9_LEN);
 
     /* Compute current defense: base_defense + body + arms + other strength */
     int16_t defense = party_characters[char_idx].base_defense;
@@ -1309,11 +1274,10 @@ static void display_psi_ability_details(uint16_t palette_index, uint16_t ability
  * GAME_MODE_PSI_MENU (mode_step_psi_menu, with the pause-menu machinery further
  * down this file), STEP_PUSHed by the pause menu's PSI case. */
 
-/* PSI category names — structural labels matching asm/data/psi_categories.asm (US).
- * These are 8-byte PADDEDEBTEXT in ROM; we use ASCII equivalents here. */
-static const char *status_psi_category_names[4] EB_NORELOC = {
-    "Offense", "Recover", "Assist", "Other"
-};
+/* PSI_CATEGORIES (asm/data/psi_categories.asm): 4 category names, 8-byte
+ * PADDEDEBTEXT each (earthbound.yml US/data psi_categories). */
+#define STATUS_PSI_CATEGORY_COUNT     4
+#define STATUS_PSI_CATEGORY_NAME_SIZE 8
 
 /* OPEN_STATUS_MENU is now GAME_MODE_STATUS_MENU (mode_step_status_menu, with
  * the pause-menu machinery further down this file), STEP_PUSHed by the pause
@@ -1581,7 +1545,6 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
         case EQ_CHANGE:
             /* EQUIPMENT_CHANGE_MENU entry (equipment_change_menu.asm). */
-            load_equip_text_data();
             st->phase = EQ_SLOT;
             continue;
 
@@ -1626,9 +1589,9 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             create_window(WINDOW_EQUIP_MENU_ITEMLIST);
 
             /* Set window title from TEXT_11: "Weapons", "Body", "Arms", "Others" */
-            if (equip_text_data) {
+            {
                 char title_buf[WINDOW_TITLE_SIZE];
-                const uint8_t *title_src = equip_text_data + ETEXT11_OFF
+                const uint8_t *title_src = EQUIP_TEXT_DATA + ETEXT11_OFF
                                            + (slot_type - 1) * ETEXT11_STRIDE;
                 eb_to_ascii_buf(title_src, ETEXT11_STRIDE, title_buf);
                 /* STRLEN equivalent: length excluding trailing spaces/nulls */
@@ -1694,15 +1657,8 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
             /* Add "None" option for unequipping (assembly lines 152-155).
              * Userdata = -1 (0xFFFF) to signal unequip. */
-            {
-                char none_label[8];
-                if (equip_text_data) {
-                    eb_to_ascii_buf(equip_text_data + ETEXT13_OFF, ETEXT13_LEN, none_label);
-                } else {
-                    snprintf(none_label, sizeof(none_label), "None");
-                }
-                add_menu_item_no_position(none_label, (uint16_t)-1);
-            }
+            add_menu_item_no_position_eb(EQUIP_TEXT_DATA + ETEXT13_OFF, ETEXT13_LEN,
+                                         (uint16_t)-1);
 
             /* Layout items with initial selection on the equipped item.
              * Assembly lines 156-159: LAYOUT_AND_PRINT_MENU_AT_SELECTION. */
@@ -1834,9 +1790,10 @@ StepResult mode_step_status_menu(ModeState *ms) {
              * window, build the 4-item menu (userdata = category + 1). */
             st->first_display = 1;
             create_window(WINDOW_STATUS_PSI_CATEGORY);
-            for (int i = 0; i < 4; i++) {
-                add_menu_item_no_position(status_psi_category_names[i],
-                                          (uint16_t)(i + 1));
+            for (int i = 0; i < STATUS_PSI_CATEGORY_COUNT; i++) {
+                add_menu_item_no_position_eb(
+                    ASSET_DATA(ASSET_US_DATA_PSI_CATEGORIES_BIN) + i * STATUS_PSI_CATEGORY_NAME_SIZE,
+                    STATUS_PSI_CATEGORY_NAME_SIZE, (uint16_t)(i + 1));
             }
             open_window_and_print_menu(1, 0);
             st->phase = SU_CAT_HEAD;
@@ -2896,6 +2853,8 @@ static EB_NOINLINE bool pm_goods_inv_result(PauseMenuState *st, StepResult *out)
 }
 
 /* --- Item selected: build action menu (assembly lines 138-194) --- */
+#define ITEM_USE_MENU_COUNT       4
+#define ITEM_USE_MENU_STRING_SIZE 6  /* PADDEDEBTEXT ..., 6 (US) */
 static void pm_build_item_action_menu(PauseMenuState *st) {
     create_window(WINDOW_INVENTORY_MENU);
 
@@ -2913,15 +2872,13 @@ static void pm_build_item_action_menu(PauseMenuState *st) {
     }
 
     /* Build Use/Give/Drop/Help menu (assembly lines 159-192).
-     * ITEM_USE_MENU_STRINGS: "Use"(0), "Give"(1), "Drop"(2), "Help!"(3)
-     * Userdata: Use=1, Give=2, Drop=3, Help!=4 */
-    static const char *item_action_labels[4] EB_NORELOC = {
-        "Use", "Give", "Drop", "Help!"
-    };
-
+     * ITEM_USE_MENU_STRINGS (earthbound.yml US/data): Use, Give, Drop, Help!,
+     * 6 bytes each. Userdata: Use=1, Give=2, Drop=3, Help!=4 */
     set_focus_text_cursor(0, 0);
-    for (int i = start_action; i < 4; i++) {
-        add_menu_item_no_position(item_action_labels[i], i + 1);
+    for (int i = start_action; i < ITEM_USE_MENU_COUNT; i++) {
+        add_menu_item_no_position_eb(
+            ASSET_DATA(ASSET_US_DATA_ITEM_USE_MENU_STRINGS_BIN) + i * ITEM_USE_MENU_STRING_SIZE,
+            ITEM_USE_MENU_STRING_SIZE, (uint16_t)(i + 1));
     }
     open_window_and_print_menu(1, 0);
 
@@ -3723,6 +3680,24 @@ void print_eb_string(const uint8_t *eb_str, int len) {
         else
             print_eb_letter(eb);
     }
+}
+
+static void eb_menu_label(const uint8_t *eb, size_t len, char label[MENU_LABEL_SIZE]) {
+    if (len > MENU_LABEL_SIZE - 1) len = MENU_LABEL_SIZE - 1;
+    eb_to_ascii_buf(eb, (int)len, label);
+}
+
+void add_menu_item_eb(const uint8_t *eb, size_t len, uint16_t userdata,
+                      uint16_t text_x, uint16_t text_y) {
+    char label[MENU_LABEL_SIZE];
+    eb_menu_label(eb, len, label);
+    add_menu_item(label, userdata, text_x, text_y);
+}
+
+void add_menu_item_no_position_eb(const uint8_t *eb, size_t len, uint16_t userdata) {
+    char label[MENU_LABEL_SIZE];
+    eb_menu_label(eb, len, label);
+    add_menu_item_no_position(label, userdata);
 }
 
 /*
