@@ -2649,11 +2649,14 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         /* Set BG3_Y_POS = -1 */
         ppu.bg_vofs[2] = 0xFFFF;
 
-        /* Wide viewport (C port): sequence 1 is the photographer's camera
-         * shutter (EVENT_452), a full-screen overlay; continue it into the
-         * gutters. UNDRAW_FLYOVER_TEXT puts BG3 back to CENTER. */
-        if (lasf_id == 1)
-            ppu.bg_viewport_fill[2] = BG_VIEWPORT_CONTINUE;
+        /* Wide viewport (C port): every sequence is a full-screen BG3
+         * overlay (1 the photographer's shutter, 2 Carpainter's lightning
+         * and yellow flash, 3 Starman Jr.'s teleport beam from the top
+         * edge, 4 the Sky Runner's BOOM, 5 the hotel zombies' stars,
+         * 6 THE END); continue it into the gutters. Frames whose band edges
+         * are transparent (BOOM, stars, THE END) leave the gutters as they
+         * are. UNDRAW_FLYOVER_TEXT puts BG3 back to CENTER. */
+        ppu.bg_viewport_fill[2] = BG_VIEWPORT_CONTINUE;
         return 0;
     }
 

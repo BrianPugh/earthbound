@@ -1641,9 +1641,9 @@ static void gutter_row_build(GutterRow *gr, int scanline)
  * BG_VIEWPORT_CLAMP extends the band's edge pixels sideways (the merged
  * word).
  *
- * BG_VIEWPORT_CONTINUE continues a full-screen overlay (the photographer's
- * camera shutter, BG3 animation sequence 1) the way gutter_edge_row()
- * continues the swirl windows. Along each band edge, the colour covering
+ * BG_VIEWPORT_CONTINUE continues a full-screen overlay (the BG3 animation
+ * sequences: the photographer's camera shutter, Carpainter's lightning)
+ * the way gutter_edge_row() continues the swirl windows. Along each band edge, the colour covering
  * most of the edge fills the gutter (the shutter's black). Every other run
  * of one colour along the edge (a white blade edge, the iris hole) is paired
  * with the same-coloured run it joins up to 8 px inside, and both run ends

@@ -45,7 +45,8 @@ typedef enum BGViewportMode : uint8_t {
                              * text: the staff roll) */
     BG_VIEWPORT_CONTINUE = 4, /* like CENTER; the gutters continue the band's
                                * edge colours and the lines crossing its edge
-                               * (a full-screen overlay: the camera shutter) */
+                               * (a full-screen overlay: the animation
+                               * sequences, e.g. the camera shutter) */
     BG_VIEWPORT_BAND   = 5, /* placed like FILL (the scroll origin at the SNES
                              * band's corner) but drawn only inside the band;
                              * the gutters and pad rows show the backdrop. A
