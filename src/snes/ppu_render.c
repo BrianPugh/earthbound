@@ -78,6 +78,14 @@ static BGCounters g_bgc;
 #define LAYER_BG4  0x08
 #define LAYER_OBJ  0x10
 
+/* obj_prio entry: 0 = no OBJ pixel, else (sprite priority + 1) | OBJ_PK_NO_MATH.
+ * On the SNES, colour math never applies to OBJ pixels drawn with sprite
+ * palettes 0-3 (CGRAM 128-191); CGADSUB's OBJ bit only enables it for
+ * palettes 4-7 (fullsnes, bsnes ppu/screen.cpp). The flag rides in the
+ * priority key so the hot loops pay nothing for it: obj_thresh[] has 16
+ * entries with the flagged keys mirroring the plain ones. */
+#define OBJ_PK_NO_MATH 0x08
+
 /* Tile row cache entry for bitplane decode caching. 12 bytes, 4-aligned so
  * indices[] (offset 4) can be read and written as two words. */
 typedef struct __attribute__((aligned(4))) {
@@ -1193,6 +1201,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int ctx_id, int scanline, uint16_t
         int pixel_y = row & 7;
         int tiles_wide = w >> 3;
         int pal_base_idx = 128 + spr_pal * 16;
+        uint8_t prio_key = (uint8_t)((spr_prio + 1) | (spr_pal < 4 ? OBJ_PK_NO_MATH : 0));
 
 #if EB_PPU_OBJ_BUCKET
         /* Widen the obj_prio dirty span for this sprite's x-range. */
@@ -1258,7 +1267,7 @@ static bool PPU_HOT_FUNC(render_obj_scanline)(int ctx_id, int scanline, uint16_t
                  * always wins regardless of the priority field.  Since we iterate
                  * 127→0, later (lower-index) sprites unconditionally overwrite. */
                 obj_color[screen_x] = rgb;
-                obj_prio[screen_x] = spr_prio + 1;
+                obj_prio[screen_x] = prio_key;
             }
         }
     }
@@ -2627,7 +2636,9 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
      * Higher values = higher priority.  Used by the fast path to merge BG
      * layers during rendering.  OBJ interleaves at known thresholds. */
     uint8_t bg_gp[4][2]; /* [bg_index][prio_bit] */
-    uint8_t obj_thresh[5]; /* [obj_prio_key 0-4]: OBJ wins if bg_gp < this */
+    /* [obj_prio key]: OBJ wins if bg_gp < this. Keys 1-4 are math-eligible
+     * OBJ (palettes 4-7), 9-12 the same priorities with OBJ_PK_NO_MATH. */
+    uint8_t obj_thresh[16];
     if (fast_composite) {
         /* Mode 1 priority (most common for EarthBound):
          * BG1p1=7, BG2p1=6, BG1p0=5, BG2p0=4, BG3p1=3, BG3p0=2
@@ -2666,6 +2677,8 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             obj_thresh[4] = 6;
             break;
         }
+        memset(obj_thresh + 5, 0, sizeof(obj_thresh) - 5);
+        memcpy(obj_thresh + OBJ_PK_NO_MATH, obj_thresh, 5);
     }
 
     /* Window mask arrays: tm_line and ts_line are always valid pointers
@@ -3307,7 +3320,9 @@ merge_done:
 
                 if (obj_pk > 0 && bg_gp_val < obj_thresh[obj_pk]) {
                     color = obj_color[x];
-                    main_layer = LAYER_OBJ;
+                    /* Palettes 0-3 are never math-eligible: a layer bit
+                     * outside CGADSUB's 0x3F (and not the 0x20 backdrop). */
+                    main_layer = (obj_pk & OBJ_PK_NO_MATH) ? 0 : LAYER_OBJ;
                 } else if (bg_gp_val > 0) {
                     color = MAIN_COLOR(bg_w);
                     main_layer = GP_LM_LM(bg_w);
