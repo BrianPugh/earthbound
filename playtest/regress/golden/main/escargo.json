@@ -43,18 +43,18 @@
    "until": [
     "met"
    ],
-   "win": "sha256:5942e399032854d0"
+   "win": "sha256:2b692e10ddc7e737"
   },
   "items": {
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L59 HP 465/465 PP 163/163 | 2:Paula L54 HP 183/183 PP 194/194 | 3:Jeff L53 HP 296/296 PP 0/0",
    "state": "STATE items modes=[OVERWORLD>PAUSE_MENU>DISPLAY_TEXT>DISPLAY_TEXT>TELEPHONE_MENU>DISPLAY_TEXT>ESCARGO_MENU>SELECTION_MENU] idle=modes input=1 pos=(4304,688) dir=UP music=106 money=99996 battle=0 ow_enemies=3 surface=0x00",
-   "text": "sha256:70bcba533dc0fb89",
+   "text": "sha256:0244aea7df7be8b7",
    "until": [
     "met"
    ],
-   "win": "sha256:3409779170b9e926"
+   "win": "sha256:aa09bb670770d48d"
   },
   "ordered": {
    "enemies": "",

@@ -4,9 +4,9 @@
   "after": {
    "enemies": "",
    "err": [],
-   "party": "PARTY 1:Ness L4 HP 35/47 PP 15/15",
+   "party": "PARTY 1:Ness L4 HP 41/47 PP 15/15",
    "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(2660,440) dir=DOWN music=46 money=20 battle=0 ow_enemies=2 blink=88 surface=0x00",
-   "text": "sha256:278af906893a6cfd",
+   "text": "sha256:7b7520f736adfedd",
    "until": [
     "met"
    ],

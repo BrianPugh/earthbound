@@ -21,7 +21,7 @@
    "until": [
     "met"
    ],
-   "win": "sha256:e640be4e7bd0014b"
+   "win": "sha256:916a1d91650bf221"
   },
   "photos": {
    "enemies": "",
@@ -30,7 +30,7 @@
    "state": "STATE photos modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "photos-2": {
    "enemies": "",
@@ -39,7 +39,7 @@
    "state": "STATE photos-2 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "photos-3": {
    "enemies": "",
@@ -48,7 +48,7 @@
    "state": "STATE photos-3 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "photos-4": {
    "enemies": "",
@@ -57,7 +57,7 @@
    "state": "STATE photos-4 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "roll-1": {
    "enemies": "",
@@ -66,7 +66,7 @@
    "state": "STATE roll-1 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "roll-2": {
    "enemies": "",
@@ -75,16 +75,16 @@
    "state": "STATE roll-2 modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "staff-item": {
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L86 HP 844/844 PP 621/621 | 2:Paula L78 HP 260/260 PP 283/283 | 3:Jeff L77 HP 408/408 PP 0/0 | 4:Poo L74 HP 468/468 PP 153/153",
    "state": "STATE staff-item modes=[OVERWORLD>DEBUG_MENU>SELECTION_MENU] idle=modes input=1 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
-   "text": "sha256:021fd155ea721f5e",
+   "text": "sha256:6fc266588eda038b",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   },
   "staff-title": {
    "enemies": "",
@@ -93,7 +93,7 @@
    "state": "STATE staff-title modes=[OVERWORLD>DEBUG_MENU>ENDING] idle=modes input=0 pos=(599,6945) dir=UP music=70 money=78719 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
-   "win": "sha256:d59fb12309de403e"
+   "win": "sha256:f7c2ce34af6c47b7"
   }
  },
  "order": [

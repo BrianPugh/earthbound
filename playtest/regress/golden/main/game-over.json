@@ -18,12 +18,12 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L15 HP 0/127 PP 45/45 st=1:unconscious",
-   "state": "STATE game-over modes=[OVERWORLD>GAME_OVER>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(6112,7776) dir=DOWN music=64 money=1253 battle=0 ow_enemies=4 surface=0x08(shallow-water)",
-   "text": "sha256:43ca880f753f46ba",
+   "state": "STATE game-over modes=[OVERWORLD>GAME_OVER>DISPLAY_TEXT>SELECTION_MENU] idle=modes input=1 pos=(6112,7776) dir=DOWN music=7 money=1253 battle=0 ow_enemies=4 surface=0x08(shallow-water)",
+   "text": "sha256:300a0ca98c89d3d3",
    "until": [
     "met"
    ],
-   "win": "sha256:4dab659296d3c8ff"
+   "win": "sha256:147dc91ac218775b"
   },
   "revived": {
    "enemies": "",

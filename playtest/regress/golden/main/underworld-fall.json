@@ -16,7 +16,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
-   "state": "STATE fall-1 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>TEXT_DELAY] idle=modes input=0 pos=(3200,1152) dir=DOWN music=4 money=93545 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "state": "STATE fall-1 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>TEXT_DELAY] idle=modes input=0 pos=(3200,1152) dir=DOWN music=15 money=93545 battle=0 ow_enemies=0 surface=0x80(solid)",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [
     "met",
@@ -28,7 +28,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L65 HP 512/512 PP 188/188 | 2:Paula L61 HP 211/211 PP 225/225 | 3:Jeff L59 HP 315/315 PP 0/0 | 4:Poo L55 HP 350/350 PP 117/117",
-   "state": "STATE fall-2 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>TEXT_DELAY] idle=modes input=0 pos=(3200,1152) dir=DOWN music=4 money=93545 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "state": "STATE fall-2 modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>TEXT_DELAY] idle=modes input=0 pos=(3200,1152) dir=DOWN music=15 money=93545 battle=0 ow_enemies=0 surface=0x80(solid)",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
    "win": "sha256:e3b0c44298fc1c14"
