@@ -154,6 +154,8 @@ typedef struct {
     uint8_t asf_flush;   /* FADE_TICK_OVERWORLD_RENDER: 1 = resume after a parked
                           * actionscript frame's child popped (do the post-render
                           * update_screen + fade_update, then loop). */
+    uint8_t ticked;      /* GAME_MODE_ENTITY_FADE_WAIT: 1 once the first
+                          * WINDOW_TICK ran (the asm loop is a do-while). */
 } FadeWaitState;
 
 /* GAME_MODE_TEXT_WAIT_FADE phases. Port of display_text_and_wait_for_fade():

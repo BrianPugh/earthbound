@@ -96,11 +96,12 @@ static StepResult mode_step_fade_wait(ModeState *st) {
 }
 
 /* GAME_MODE_ENTITY_FADE_WAIT — run one window_tick per frame until the entity
- * fade-out animation finishes (ow.entity_fade_entity == -1), then pop. Replaces
- * the raw blocking loops `while (ow.entity_fade_entity != -1) { window_tick(); }`
- * (overworld_interaction.c display_text_and_wait_for_fade, text.c open_menu paths,
- * game_main.c menu cleanup). The exit is checked at the top (check-before, like
- * FADE_WAIT); window_tick_work() does window_tick()'s work without the yield,
+ * fade-out animation finishes (ow.entity_fade_entity == -1), then pop. Port of
+ * the asm's do-while loops `do { WINDOW_TICK } while (ENTITY_FADE_ENTITY != -1)`
+ * (DISPLAY_TEXT_AND_WAIT_FOR_FADE, OPEN_MENU's @WAIT_ENTITY_FADE / checktalk
+ * @WAIT_FADE, the debug Y-menu @WAIT_FADE): the first WINDOW_TICK (a frame and a
+ * RAND) runs even when no fade entity exists, so the exit test is skipped until
+ * `ticked`. window_tick_work() does window_tick()'s work without the yield,
  * which the pump owns — work-then-yield matches the original ordering exactly. */
 static StepResult mode_step_entity_fade_wait(ModeState *st) {
     /* Park-propagating resume (savestate D4b): a callroutine parked the window
@@ -113,8 +114,9 @@ static StepResult mode_step_entity_fade_wait(ModeState *st) {
         window_tick_work_flush();
         return STEP_RESULT_CONTINUE();
     }
-    if (ow.entity_fade_entity == -1)
+    if (st->fade_wait.ticked && ow.entity_fade_entity == -1)
         return STEP_RESULT_POP(0);
+    st->fade_wait.ticked = 1;
     if (window_tick_work_step()) {
         st->fade_wait.asf_flush = 1;
         return actionscript_frame_take_push();

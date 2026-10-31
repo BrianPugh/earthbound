@@ -57,7 +57,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L79 HP 795/795 PP 590/590 | 2:Paula L73 HP 246/246 PP 265/265 | 3:Jeff L73 HP 378/378 PP 0/0 | 4:Poo L69 HP 436/436 PP 147/147",
-   "state": "STATE woke modes=[OVERWORLD] idle=yes input=1 pos=(276,7776) dir=LEFT music=48 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
+   "state": "STATE woke modes=[OVERWORLD] idle=yes input=1 pos=(275,7776) dir=LEFT music=48 money=79181 battle=0 ow_enemies=0 surface=0x00 debug=1",
    "text": "sha256:5cf862796037778a",
    "until": [
     "met"

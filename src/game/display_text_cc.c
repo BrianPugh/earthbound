@@ -744,11 +744,20 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         break;
     }
     case 0x02: {
-        /* PLAY_SOUND: 1 arg (sfx_id).
-         * Port of CC_1F_02: plays a sound effect via the SFX queue. */
-        uint8_t sfx_id = script_read_byte(r);
+        /* PLAY_SOUND: 1 arg (sfx_id, 0 = argument memory).
+         * Port of CC_1F_02 (asm/text/ccs/play_sfx.asm) ->
+         * PLAY_SOUND_AND_UPDATE_METERS: PLAY_SOUND, then
+         * UPDATE_HPPP_METER_AND_RENDER, whose RENDER_FRAME_TICK costs a frame
+         * (an actionscript frame + vblank wait). That frame is one
+         * update_hppp_meter_work frame of GAME_MODE_TEXT_DELAY. */
+        uint8_t sfx_arg = script_read_byte(r);
+        uint16_t sfx_id = sfx_arg ? (uint16_t)sfx_arg
+                                  : (uint16_t)(get_argument_memory() & 0xFFFF);
         play_sfx(sfx_id);
-        break;
+        out_init->text_delay.remaining  = 1;
+        out_init->text_delay.cancelable = 0;
+        *out_mode = GAME_MODE_TEXT_DELAY;
+        return true;
     }
     case 0x03: {
         /* RESTORE_DEFAULT_MUSIC: 0 args.
