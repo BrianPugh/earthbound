@@ -520,6 +520,10 @@ void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16
     item->text_x = (uint8_t)text_x;
     item->text_y = (uint8_t)text_y;
     item->script = 0;
+    /* ADD_MENU_OPTION (add_menu_option.asm:79-83) gives every option
+     * sound_effect = 1 (CURSOR1), played by SELECTION_MENU on confirm.
+     * ADD_MENU_ITEM_WITH_SOUND and the equip list override it afterwards. */
+    item->sound_effect = 1;
     w->menu_count++;
 }
 
@@ -542,6 +546,7 @@ void add_menu_item_no_position(const char *label, uint16_t userdata) {
     item->type = 2;   /* assembly: STA #2, menu_option::unknown0 */
     item->text_x = 0;
     item->text_y = 0;
+    item->sound_effect = 1;  /* ADD_MENU_OPTION: CURSOR1 on confirm */
     w->menu_count++;
 }
 
@@ -731,7 +736,7 @@ static void layout_menu_options(WindowInfo *w, uint16_t columns, uint16_t propor
         oi->text_x = 0;
         oi->text_y = (uint8_t)(w->text_y + max_rows - 1);
         oi->page = 0;  /* visible on all pages */
-        oi->sound_effect = 0;
+        oi->sound_effect = 1;  /* ADD_MENU_ITEM_FAR; unused: page 0 confirms page */
         oi->pixel_align = 0;
         oi->script = 0;
         w->menu_count++;
