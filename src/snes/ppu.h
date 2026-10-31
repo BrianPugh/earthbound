@@ -46,6 +46,11 @@ typedef enum BGViewportMode : uint8_t {
     BG_VIEWPORT_CONTINUE = 4, /* like CENTER; the gutters continue the band's
                                * edge colours and the lines crossing its edge
                                * (a full-screen overlay: the camera shutter) */
+    BG_VIEWPORT_BAND   = 5, /* placed like FILL (the scroll origin at the SNES
+                             * band's corner) but drawn only inside the band;
+                             * the gutters and pad rows show the backdrop. A
+                             * 256-px picture in a 64-wide tilemap whose other
+                             * page holds nothing (the Your Sanctuary montage) */
 } BGViewportMode;
 
 typedef struct {

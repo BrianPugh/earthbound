@@ -2345,6 +2345,13 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         ppu.bg_sc[0] = (uint8_t)((0x3800 >> 8) | 1);  /* tilemap base $3800, horizontal */
         ppu.bg_nba[0] = (ppu.bg_nba[0] & 0xF0) | ((0x6000 >> 12) & 0x0F);  /* tile base $6000 */
         ppu.tm = 0x11;  /* BG1 + OBJ on main screen */
+        /* Wide viewport: each location is a 32x30 picture shown at scroll 0
+         * (DISPLAY_YOUR_SANCTUARY_LOCATION), and Ness keeps the screen
+         * position the overworld camera gave him, inside the SNES band. Put
+         * the picture in the band too, and keep the tilemap's empty second
+         * page and rows 30-31 (never on the original's screen) out of the
+         * gutters. overworld_setup_vram() resets the mode on the map reload. */
+        ppu.bg_viewport_fill[0] = BG_VIEWPORT_BAND;
         return 0;
 
     case ROM_ADDR_DISPLAY_YOUR_SANCTUARY_LOCATION: {

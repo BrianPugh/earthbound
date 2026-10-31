@@ -2825,7 +2825,8 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             BGC_INC(layers);
 
             bool fills_via_tilemap = (ppu.bg_sc[bg] & 0x01) != 0;
-            bool fills_explicit = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_FILL);
+            bool fills_band = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_BAND);
+            bool fills_explicit = (ppu.bg_viewport_fill[bg] == BG_VIEWPORT_FILL) || fills_band;
             bool layer_fills = wide_mode && (fills_via_tilemap || fills_explicit);
 
             int bg_scanline;
@@ -2901,7 +2902,24 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                  * scrolls in its own coordinate space and is centered by the
                  * camera, so a PAD_LEFT shift would desync it from entities. */
                 int fill_pad = fills_explicit ? EB_VIEWPORT_PAD_LEFT : 0;
+                /* BAND: only the SNES picture, rows and columns; the rest of
+                 * the tilemap wrap is never on the original's screen. */
+                if (fills_band && (unsigned)bg_scanline >= SNES_HEIGHT)
+                    goto bg_mosaic_done;
                 bg_clip_to_window_span(&ctx, &dual_vis, &win_class, need_sub, bg_mosaic, merged_empty);
+                if (fills_band) {
+                    int band_lo = EB_VIEWPORT_PAD_LEFT > 0 ? EB_VIEWPORT_PAD_LEFT : 0;
+                    int band_hi = EB_VIEWPORT_PAD_LEFT + SNES_WIDTH;
+                    if (band_hi > EB_VIEWPORT_WIDTH) band_hi = EB_VIEWPORT_WIDTH;
+                    if (!ctx.clip) {
+                        ctx.clip = 1;
+                        ctx.clip_lo = band_lo;
+                        ctx.clip_hi = band_hi;
+                    } else {
+                        if (ctx.clip_lo < band_lo) ctx.clip_lo = band_lo;
+                        if (ctx.clip_hi > band_hi) ctx.clip_hi = band_hi;
+                    }
+                }
                 render_bg_scanline(bg, eff_scanline, bg_bpp[bg],
                                    &ctx, EB_VIEWPORT_WIDTH, fill_pad);
             } else if (wide_mode) {
