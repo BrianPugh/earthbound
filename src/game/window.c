@@ -1685,6 +1685,7 @@ static StepResult sm_setup_finish_tail(SelectionMenuState *st) {
     st->cursor_frame  = 1;
     st->redraw_cursor = 1;
     st->frame_counter = 0;
+    st->idle_ticks    = 0;   /* @SETUP_CURRENT_OPTION: STZ @LOCAL09 */
     st->primed        = 0;   /* first SM_MAIN frame renders only (no input) */
     st->phase         = SM_MAIN;
     return STEP_RESULT_CONTINUE();   /* yield #1 (the setup window_tick) */
@@ -1740,6 +1741,7 @@ static StepResult sm_move_tick(SelectionMenuState *st) {
  * GAME_MODE_DISPLAY_TEXT and finishes step 2's focus restore + step 3 at
  * SM_MOVE_RESUME; the hover script already ran, so the resume skips it. */
 static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st) {
+    st->idle_ticks = 0;   /* STZ @LOCAL09 */
     if (w->current_option >= w->menu_count)
         return sm_move_tick(st);
     MenuItem *ci = window_menu_item(w, w->current_option);
@@ -1919,6 +1921,25 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
     if (st->allow_cancel && (pressed & PAD_CANCEL)) {
         play_sfx(2);  /* SFX::CURSOR2 */
         return STEP_RESULT_POP(0);
+    }
+
+    /* Assembly @NO_CANCEL (selection_menu.asm:549-562): count idle input ticks.
+     * Once more than 60 have passed with the command menu (window 0) as the
+     * topmost window (OPEN_WINDOW_TABLE[0] == WINDOW_TAIL), open the HP/PP and
+     * money windows if the money window isn't open yet, focus window 0 and
+     * redo @SETUP_CURRENT_OPTION (which restarts the count). */
+    st->idle_ticks++;
+    {
+        WindowInfo *cmd = get_window(WINDOW_COMMAND_MENU);
+        if (cmd && (int)(cmd - win.windows) == win.window_tail && st->idle_ticks > 60) {
+            if (!get_window(WINDOW_CARRIED_MONEY)) {
+                /* SHOW_HPPP_AND_MONEY_WINDOWS */
+                show_hppp_windows();
+                display_money_window();
+            }
+            set_window_focus(WINDOW_COMMAND_MENU);
+            return sm_setup_current_option(w, st);
+        }
     }
 
     /* Assembly @FRAME_WAIT_CHECK (line 569-572): increment the frame counter; if

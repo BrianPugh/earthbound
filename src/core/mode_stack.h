@@ -1339,6 +1339,9 @@ typedef struct {
                              * focus on SM_*_RESUME before the menu-less-window early-out
                              * (a deferred cursor-callback text push moves focus away) */
     uint16_t frame_counter; /* frames since last cursor toggle */
+    uint16_t idle_ticks;    /* asm @LOCAL09: input ticks with no action since the last
+                             * @SETUP_CURRENT_OPTION (drives the 60-frame money/HP-PP
+                             * pop-up, selection_menu.asm @NO_CANCEL) */
     uint8_t  sm_flush;      /* park-resume marker (SelectionMenuFlush): which window/
                              * meter frame parked, so its tail runs after the push */
 } SelectionMenuState;
