@@ -3,6 +3,7 @@
 #ifdef EB_ENABLE_AUDIO
 
 #include "game/overworld.h"
+#include "game/game_state.h"
 #include "platform/platform.h"
 #include "data/assets.h"
 #include "include/binary.h"
@@ -132,9 +133,21 @@ void audio_init(void) {
         apu_runCycles(apu, 17066);
     }
 
-    /* Set stereo mode: write 1 byte (value $01) to SPC address $0431.
-       Port of SET_AUDIO_CHANNELS(1) - stereo mode. */
-    apu->ram[0x0431] = 0x01;
+    /* STEREO_MONO_FLAG ($0431) keeps the engine's power-on 0 (stereo) until
+     * FILE_SELECT_INIT applies the save's sound_setting (audio_set_channels). */
+}
+
+/* SET_AUDIO_CHANNELS (asm/audio/set_num_channels.asm): upload one byte of
+ * STEREO_MONO_DATA to the engine's STEREO_MONO_FLAG ($0431): 0 when mode is 0,
+ * else 1. The engine centres every voice's pan while the flag is nonzero
+ * (main.spc700.s UNK09B8), so mode 0 is stereo and nonzero is mono; callers
+ * pass sound_setting - 1. */
+#define SPC_STEREO_MONO_FLAG 0x0431
+void audio_set_channels(uint16_t mode) {
+    if (!apu) return;
+    audio_lock();
+    apu->ram[SPC_STEREO_MONO_FLAG] = mode ? 1 : 0;
+    audio_unlock();
 }
 
 void audio_shutdown(void) {
@@ -283,6 +296,12 @@ void audio_resync_after_load(void) {
      * current values — restoring save-time parity would desync the command protocol. */
     sfx_queue_start = 0;
     sfx_queue_end   = 0;
+
+    /* The live APU's STEREO_MONO_FLAG may come from another session (or a fresh
+     * process); re-apply the restored save's sound setting the way
+     * FILE_SELECT_INIT does. 0 = not chosen yet (engine default, stereo). */
+    if (game_state.sound_setting)
+        audio_set_channels((uint16_t)(game_state.sound_setting - 1));
 
     audio_state.current_music_track          = 0xFFFF;
     audio_state.current_primary_sample_pack   = 0xFF;

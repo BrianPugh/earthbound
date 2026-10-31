@@ -1695,8 +1695,9 @@ typedef struct {
 } TextInputState;
 
 /* GAME_MODE_NAMING_PROMPT — run-to-completion port of the name_a_character()
- * prompt-wait loop: render the name box (with its bullet+dashes display) and the
- * prompt message each frame until any button is pressed, then pop so the caller
+ * prompt wait, CC_13_14(A=1, X=0) (halt.asm): render the name box (with its
+ * bullet+dashes display) and the prompt message each frame, blinking the ▼ at
+ * the message window's bottom-right, until a text-advance button is pressed, then pop so the caller
  * proceeds to the keyboard (GAME_MODE_TEXT_INPUT). The one-shot setup (create
  * windows, print prompt, render the initial name tiles -> name_tile_cols) is done
  * by the wrapper before pumping; name_tile_cols is the only hoisted local.
@@ -1705,6 +1706,8 @@ typedef struct {
     uint8_t  primed;         /* 0 = first frame: render without reading input */
     uint8_t  flush;          /* D4b: 1 = resume after a parked actionscript frame */
     int16_t  name_tile_cols; /* columns of the pre-rendered name display */
+    uint8_t  tri_big;        /* CC_13_14 triangle: 1 = big sub-frame, 0 = small */
+    uint8_t  tri_ticks;      /* CC_13_14 triangle: ticks left in the sub-frame */
 } NamingPromptState;
 
 /* GAME_MODE_SCREEN_TRANSITION — run-to-completion port of the two frame loops in

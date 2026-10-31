@@ -338,4 +338,10 @@ void set_window_number_padding(uint16_t padding);
  * row = text_y, pixel_pos = horizontal pixel position. */
 void set_text_pixel_position(uint16_t row, uint16_t pixel_pos);
 
+/* Blinking-triangle tilemap entries (asm/data/text/blinking_triangle_tiles.asm),
+ * written at a prompt window's bottom-right by CC_13_14 (halt.asm). */
+#define TRIANGLE_TILE_BIG   0x3C14
+#define TRIANGLE_TILE_SMALL 0x3C15
+#define TRIANGLE_TILE_CLEAR 0xBC11
+
 #endif /* GAME_DISPLAY_TEXT_H */

@@ -23,6 +23,9 @@ void audio_shutdown(void);
 /* Change music track (uploads required packs, sends play command) */
 void change_music(uint16_t track_id);
 
+/* SET_AUDIO_CHANNELS: 0 = stereo, nonzero = mono (callers pass sound_setting - 1). */
+void audio_set_channels(uint16_t mode);
+
 /* Play a sound effect */
 void play_sfx(uint16_t sfx_id);
 
@@ -68,6 +71,7 @@ typedef struct {
 static inline void audio_init(void) {}
 static inline void audio_shutdown(void) {}
 static inline void change_music(uint16_t track_id) { (void)track_id; }
+static inline void audio_set_channels(uint16_t mode) { (void)mode; }
 static inline void play_sfx(uint16_t sfx_id) { (void)sfx_id; }
 static inline void stop_music(void) {}
 static inline void write_apu_port1(uint8_t value) { (void)value; }

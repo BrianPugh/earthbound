@@ -19,7 +19,7 @@ void game_state_init(void) {
 
     /* Defaults */
     game_state.text_speed = 2; /* medium */
-    game_state.sound_setting = 0; /* stereo */
+    game_state.sound_setting = 1; /* stereo (1-based, like the asm's menu result) */
 }
 
 bool event_flag_get(uint16_t flag) {
@@ -477,6 +477,15 @@ bool load_game(int slot) {
 
     /* Port of load_game_slot.asm lines 92-93: game_state.timer → TIMER */
     core.play_timer = game_state.timer;
+
+    /* Save compatibility: ports before 2026-10-31 stored sound_setting 0-based
+     * (0 = Stereo, 1 = Mono); the asm stores the 1-based menu result (1 = Stereo,
+     * 2 = Mono), which is all the original ever writes. A 0 can only come from
+     * such an old port save, so read it as Stereo instead of letting
+     * FILE_SELECT_INIT's DEC turn it into SET_AUDIO_CHANNELS(-1) (mono). An old
+     * port Mono (1) reads as Stereo; it can't be told apart from a new Stereo. */
+    if (game_state.sound_setting == 0)
+        game_state.sound_setting = 1;
 
     return true;
 }

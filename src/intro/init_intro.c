@@ -232,6 +232,9 @@ StepResult mode_step_init_intro(ModeState *ms) {
              * NOT freed — it's needed by the main game loop. */
             ow.disabled_transitions = 0;
             free_title_screen_script_data();
+            /* file_select_init.asm:88-91: SET_AUDIO_CHANNELS(sound_setting - 1)
+             * (sound_setting is 1-based: 1 = Stereo -> 0, 2 = Mono -> 1). */
+            audio_set_channels((uint16_t)(game_state.sound_setting - 1));
             return STEP_RESULT_POP(0);
         }
 

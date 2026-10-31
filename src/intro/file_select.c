@@ -404,7 +404,8 @@ static void text_speed_menu_display_only(uint8_t selected_speed) {
     add_menu_item("Fast", 1, 0, 1);
     add_menu_item("Medium", 2, 0, 2);
     add_menu_item("Slow", 3, 0, 3);
-    print_menu_items();
+    /* OPEN_TEXT_SPEED_MENU's pre-selection (see fm_textspeed_build). */
+    print_menu_at_selection(selected_speed ? selected_speed - 1 : 1);
 
     /* Assembly (file_select_text_speed_menu.asm:49-68): highlight with palette 6 */
     if (selected_speed >= 1 && selected_speed <= 3)
@@ -419,12 +420,13 @@ static void sound_mode_menu_display_only(uint8_t selected_sound) {
     print_string("Please select sound setting.");
     add_menu_item("Stereo", 1, 0, 1);
     add_menu_item("Mono", 2, 0, 2);
-    print_menu_items();
+    /* OPEN_SOUND_MENU's pre-selection (see fm_sound_build). */
+    print_menu_at_selection(selected_sound ? selected_sound - 1 : 0);
 
     /* Assembly (file_select_sound_mode_menu.asm:50-69): highlight with palette 6.
-     * C port stores sound_setting as 0-indexed (0=Stereo, 1=Mono). */
-    if (selected_sound <= 1)
-        highlight_menu_item(w, selected_sound, 6, true);
+     * sound_setting is 1-based (1 = Stereo, 2 = Mono). */
+    if (selected_sound >= 1 && selected_sound <= 2)
+        highlight_menu_item(w, selected_sound - 1, 6, true);
 }
 
 /*
@@ -444,7 +446,9 @@ static int fm_textspeed_build(void) {
     add_menu_item("Medium", 2, 0, 2);
     add_menu_item("Slow", 3, 0, 3);
 
-    print_menu_items();
+    /* OPEN_TEXT_SPEED_MENU (open_text_speed_menu.asm:49-58): start the cursor
+     * on the saved speed (text_speed - 1), or on Medium (1) when unset. */
+    print_menu_at_selection(game_state.text_speed ? game_state.text_speed - 1 : 1);
     /* Assembly (file_select_text_speed_menu.asm:75) clears ENABLE_WORD_WRAP
      * here so selection_menu's confirm handler routes to APPLY_WINDOW_TEXT_ATTRIBUTES
      * instead of SET_FILE_SELECT_TEXT_HIGHLIGHT.  The C port gates highlight
@@ -483,13 +487,17 @@ static int fm_sound_build(void) {
     add_menu_item("Stereo", 1, 0, 1);
     add_menu_item("Mono", 2, 0, 2);
 
-    print_menu_items();
+    /* OPEN_SOUND_MENU (open_sound_menu.asm:38-49): start the cursor on the
+     * saved setting (1-based, so sound_setting - 1), or on Stereo (0) when unset. */
+    print_menu_at_selection(game_state.sound_setting ? game_state.sound_setting - 1 : 0);
     return -1;
 }
 
-/* Apply a sound-mode selection (result > 0). */
+/* Apply a sound-mode selection (result > 0). FILE_SELECT_SOUND_MODE_MENU
+ * (file_select_sound_mode_menu.asm:83) stores the 1-based selection:
+ * 1 = Stereo, 2 = Mono. */
 static void fm_sound_apply(uint16_t result) {
-    game_state.sound_setting = (uint8_t)(result - 1);
+    game_state.sound_setting = (uint8_t)result;
 }
 
 /*
@@ -541,7 +549,11 @@ static int fm_flavour_build(void) {
     w->cursor_move_callback = preview_flavour_callback;
     w->cursor_move_callback_id = CURSOR_CB_FLAVOUR_PREVIEW;
 
-    print_menu_items();
+    /* OPEN_FLAVOUR_MENU (open_flavour_menu.asm:48-62): an unset flavour becomes
+     * Plain (1), then the cursor starts on text_flavour - 1. */
+    if (game_state.text_flavour == 0)
+        game_state.text_flavour = 1;
+    print_menu_at_selection(game_state.text_flavour - 1);
     return -1;
 }
 
@@ -1126,11 +1138,32 @@ void text_input_prepare(ModeState *init, int name_target, int max_len,
     clear_instant_printing();
 }
 
-/* GAME_MODE_NAMING_PROMPT step — run-to-completion port of the name_a_character()
- * prompt-wait loop. Renders the name box + prompt each frame; the pump owns the
- * yield. `primed` reproduces the blocking loop's render-before-first-read. */
+/* GAME_MODE_NAMING_PROMPT step — run-to-completion port of name_a_character()'s
+ * prompt wait, CC_13_14 with A=1 (blinking triangle) and X=0 (halt.asm).
+ * Renders the name box + prompt each frame; the pump owns the yield.
+ *
+ * Frame 1 (`primed` 0) is CC_13_14's WINDOW_TICK frame: no input read, no
+ * triangle. (CC_13_14 first drains TEXT_PROMPT_WAITING_FOR_INPUT, never set
+ * here, and its text-speed shortcut needs BLINKING_TRIANGLE_FLAG, a battle-text
+ * flag that is 0 on the naming screens.) Then the triangle loop: the big ▼ for
+ * 15 frames, the small one for 10, repeating; every frame first checks for
+ * B/SELECT/A/L, and a press during a big frame clears the tile, during a small
+ * frame leaves it (halt.asm @BUTTON_PRESSED_FRAME0 vs @FRAME1_WAIT_TICK). */
+static void naming_prompt_frame_done(NamingPromptState *s) {
+    if (!s->primed) {
+        s->primed = 1;
+        s->tri_big = 1;
+        s->tri_ticks = 15;
+    } else if (--s->tri_ticks == 0) {
+        s->tri_big = (uint8_t)!s->tri_big;
+        s->tri_ticks = s->tri_big ? 15 : 10;
+    }
+}
+
 StepResult mode_step_naming_prompt(ModeState *st) {
     NamingPromptState *s = &st->naming_prompt;
+    uint16_t *tilemap = (uint16_t *)&ppu.vram[VRAM_TEXT_LAYER_TILEMAP * 2];
+    WindowInfo *fw = get_window(win.current_focus_window);
 
     /* Resume after a parked actionscript frame (D4b): the child completed the
      * actionscript frame; run only the post-render tail and yield. */
@@ -1139,13 +1172,14 @@ StepResult mode_step_naming_prompt(ModeState *st) {
         render_all_priority_sprites();
         sync_palettes_to_cgram();
         battle_bg_update();
-        s->primed = 1;
+        naming_prompt_frame_done(s);
         return STEP_RESULT_CONTINUE();
     }
 
-    if (s->primed) {
-        if (platform_input_get_pad_new() & PAD_ANY_BUTTON)
-            return STEP_RESULT_POP(0);
+    if (s->primed && (platform_input_get_pad_new() & PAD_TEXT_ADVANCE)) {
+        if (s->tri_big && fw)
+            tilemap[text_prompt_triangle_pos(fw)] = TRIANGLE_TILE_CLEAR;
+        return STEP_RESULT_POP(0);
     }
 
     vwf_frame_reset();
@@ -1155,6 +1189,11 @@ StepResult mode_step_naming_prompt(ModeState *st) {
         if (nw) kb_write_name_tilemap(nw, s->name_tile_cols);
     }
     upload_battle_screen_to_vram();
+    /* The asm writes the sub-frame's tile to VRAM once and nothing redraws it;
+     * here the window buffer is uploaded over VRAM each frame, so rewrite it
+     * after the upload. */
+    if (s->primed && fw)
+        tilemap[text_prompt_triangle_pos(fw)] = s->tri_big ? TRIANGLE_TILE_BIG : TRIANGLE_TILE_SMALL;
     oam_clear();
     if (run_actionscript_frame_step()) {
         s->flush = 1;
@@ -1164,7 +1203,7 @@ StepResult mode_step_naming_prompt(ModeState *st) {
     sync_palettes_to_cgram();
     battle_bg_update();
 
-    s->primed = 1;
+    naming_prompt_frame_done(s);
     return STEP_RESULT_CONTINUE();
 }
 

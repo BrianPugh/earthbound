@@ -302,6 +302,16 @@ void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16
  * which auto-layouts first). */
 void print_menu_items(void);
 
+/* PRINT_MENU_AT_SELECTION — Port of asm/text/menu/print_menu_at_selection.asm.
+ * Unless selection is (uint16_t)-1, sets the focus window's selected_option to
+ * `selection` (0-based) and its menu_page_number to that item's page, then
+ * prints the menu items. selection_menu then starts its cursor there. */
+void print_menu_at_selection(uint16_t selection);
+
+/* Tilemap index (into VRAM_TEXT_LAYER_TILEMAP) of window w's CC_13_14 blinking
+ * triangle (defined in display_text_cc.c). */
+uint16_t text_prompt_triangle_pos(const WindowInfo *w);
+
 /* The blocking selection_menu() helper has been removed; callers STEP_PUSH
  * GAME_MODE_SELECTION_MENU (mode_step_selection_menu) instead, replicating the
  * null/empty-menu early-out (return 0, no push) inline at each push site. */

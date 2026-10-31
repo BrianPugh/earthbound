@@ -532,9 +532,12 @@ StepResult mode_step_actionscript_wait(ModeState *ms) {
  * convention. The triangle tilemap entries come from
  * asm/data/text/blinking_triangle_tiles.asm.
  * ------------------------------------------------------------------------- */
-#define TRIANGLE_TILE_BIG   0x3C14
-#define TRIANGLE_TILE_SMALL 0x3C15
-#define TRIANGLE_TILE_CLEAR 0xBC11
+
+/* Bottom-right tilemap index of a window's blinking triangle (halt.asm:
+ * (y + height) * 32 + (x + width) + 32, with C content dims = asm + 2). */
+uint16_t text_prompt_triangle_pos(const WindowInfo *w) {
+    return (uint16_t)((w->y + w->height - 1) * 32 + (w->x + w->width - 2));
+}
 
 /* Post-window decision half of tp_window_and_decide (halt.asm 31-56): pick the
  * wait branch. Split out so a parked window_tick frame can run it on resume. */
@@ -557,8 +560,7 @@ static StepResult tp_decide(TextPromptState *st) {
         st->primed = 0;
         st->phase = TP_WAIT_BUTTON;
     } else {
-        /* (y + height) * 32 + (x + width) + 32, with C content dims = asm + 2. */
-        st->tri_pos = (uint16_t)((w->y + w->height - 1) * 32 + (w->x + w->width - 2));
+        st->tri_pos = text_prompt_triangle_pos(w);
         st->tri_big = 1;
         st->tri_ticks = 15;
         st->tri_need_tile = 1;

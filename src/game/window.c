@@ -616,6 +616,21 @@ void print_menu_items(void) {
     }
 }
 
+/* PRINT_MENU_AT_SELECTION — Port of asm/text/menu/print_menu_at_selection.asm.
+ * The asm walks `selection` links from the window's first option to find the
+ * item's page; the C menu items are a packed array, so it indexes directly. */
+void print_menu_at_selection(uint16_t selection) {
+    if (selection != (uint16_t)-1) {
+        WindowInfo *w = get_window(win.current_focus_window);
+        if (w) {
+            w->selected_option = selection;
+            if (selection < w->menu_count)
+                w->menu_page_number = window_menu_item(w, selection)->page;
+        }
+    }
+    print_menu_items();
+}
+
 /*
  * OPEN_WINDOW_AND_PRINT_MENU — Port of asm/text/window/open_window_and_print_menu.asm.
  *
