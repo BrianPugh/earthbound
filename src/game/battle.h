@@ -66,6 +66,9 @@ enum PartyMemberId {
 #define BATTLER_COUNT        20
 #define MAX_ENEMY_BATTLER_SLOTS (BATTLER_COUNT - FIRST_ENEMY_INDEX) /* 12 */
 #define MAX_ENEMY_ENCOUNTER_SLOTS 23 /* max enemies in a battle group roster (Giygas phases) */
+/* ENEMY_BATTLE_GROUPS_TABLE ROM address: BTL_ENTRY_PTR_TABLE pointers minus this
+ * index the extracted groups table. */
+#define ENEMY_BATTLE_GROUPS_ROM_BASE 0xD0D52D
 
 /* ---- Damage constants (from include/config.asm) ---- */
 

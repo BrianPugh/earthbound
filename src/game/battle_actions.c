@@ -1797,18 +1797,27 @@ static uint32_t call_for_help_decide(uint16_t param) {
 
     uint16_t enemy_id = attacker->current_action_argument & 0xFF;
 
-    /* Check if this enemy type exists in the current battle group.
-     * Assembly scans BTL_ENTRY_PTR_TABLE group data via ROM pointer;
-     * we scan bt.enemies_in_battle_ids[] which was populated from the same data. */
-    bool found_in_group = false;
-    for (uint16_t i = 0; i < bt.enemies_in_battle; i++) {
-        if (bt.enemies_in_battle_ids[i] == enemy_id) {
-            found_in_group = true;
-            break;
-        }
-    }
-    if (!found_in_group)
+    /* Check if this enemy type is listed in the current battle group (asm
+     * lines 26-51): walk every BTL_ENTRY_PTR_TABLE group entry (count byte,
+     * enemy word) up to the $FF terminator and accept a matching enemy
+     * whatever its count. Groups list their helpers with count 0 (Master
+     * Barf's piles, Starman Deluxe's Starmen, ...), so they never appear in
+     * bt.enemies_in_battle_ids[], which holds `count` copies of each entry. */
+    const uint8_t *ptr_table = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
+    const uint8_t *groups_table = ASSET_DATA(ASSET_DATA_ENEMY_BATTLE_GROUPS_TABLE_BIN);
+    if (!ptr_table || !groups_table)
         goto help_failed;
+    {
+        uint32_t entry_off = (uint32_t)bt.current_battle_group * 8;
+        uint32_t rom_ptr = (uint32_t)ptr_table[entry_off]
+                         | ((uint32_t)ptr_table[entry_off + 1] << 8)
+                         | ((uint32_t)ptr_table[entry_off + 2] << 16);
+        const uint8_t *entry = groups_table + (rom_ptr - ENEMY_BATTLE_GROUPS_ROM_BASE);
+        while (entry[0] != 0xFF && read_u16_le(&entry[1]) != enemy_id)
+            entry += 3;
+        if (entry[0] == 0xFF)
+            goto help_failed;
+    }
 
     /* Count existing alive enemies of the same type (slots 8-31) */
     uint16_t existing_count = 0;
@@ -1829,10 +1838,14 @@ static uint32_t call_for_help_decide(uint16_t param) {
     if (!enemy_config_table) goto help_failed;
     const EnemyData *edata = &enemy_config_table[enemy_id];
     uint16_t max_called = edata->max_called;
-    int16_t numerator = ((int16_t)max_called - (int16_t)existing_count) * 0xCD;
-    int16_t threshold = (max_called > 0) ? (numerator / (int16_t)max_called) : 0;
+    /* MULT168 keeps the low 16 bits of the product, and
+     * DIVISION16S_DIVISOR_POSITIVE divides unsigned: more live copies than
+     * max_called wrap to a large quotient, and a divisor of 0 gives $FFFF.
+     * SUCCESS_255 compares the low byte. */
+    uint16_t numerator = (uint16_t)((max_called - existing_count) * 0xCD);
+    uint16_t threshold = max_called ? (uint16_t)(numerator / max_called) : 0xFFFF;
 
-    if (!battle_success_255((uint16_t)(uint8_t)threshold))
+    if (!battle_success_255(threshold & 0xFF))
         goto help_failed;
 
     /* Get new enemy's battle sprite info */

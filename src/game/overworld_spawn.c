@@ -225,9 +225,6 @@ static const uint8_t *enemy_placement_groups_data = NULL;
 #define MAP_WIDTH_TILES8  1024
 #define MAP_HEIGHT_TILES8 1280
 
-/* ENEMY_BATTLE_GROUPS_TABLE ROM base address (for pointer conversion) */
-#define ENEMY_BATTLE_GROUPS_ROM_BASE 0xD0D52D
-
 static bool enemy_spawn_data_loaded = false;
 
 void load_enemy_spawn_data(void) {
