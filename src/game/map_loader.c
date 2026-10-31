@@ -2395,6 +2395,8 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
     }
 }
 
+static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile);
+
 /* --- LOAD_MAP_AT_POSITION ---
  * Port of asm/overworld/load_map_at_position.asm.
  *
@@ -2450,23 +2452,26 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
         ow.npc_spawns_enabled = 1;
     }
 
-    /* Spawn NPCs in visible sectors.
-     * NPC sectors are 256×256 pixels (32×32 tiles).
-     * Grid is 32 columns (X, 0-31) × 40 rows (Y, 0-39).
-     * Convert camera pixel position to NPC sector coordinates and
-     * spawn in a 3×3 grid of sectors around the camera. */
-    {
-        uint16_t npc_sx = x_pixels >> 8;
-        uint16_t npc_sy = y_pixels >> 8;
-        uint16_t sx_start = (npc_sx > 0) ? npc_sx - 1 : 0;
-        uint16_t sy_start = (npc_sy > 0) ? npc_sy - 1 : 0;
-        uint16_t sx_end = (npc_sx + 1 < 32) ? npc_sx + 1 : 31;
-        uint16_t sy_end = (npc_sy + 1 < 40) ? npc_sy + 1 : 39;
-        for (uint16_t sy = sy_start; sy <= sy_end; sy++) {
-            for (uint16_t sx = sx_start; sx <= sx_end; sx++) {
-                spawn_npcs_at_sector(sx, sy);
-            }
-        }
+    /* Spawn NPCs row by row (asm lines 145-164: SPAWN_NPCS_IN_ROW for rows
+     * -1..30 from the view's top-left tile, interleaved there with
+     * LOAD_MAP_ROW_TO_VRAM). Each row visits only the NPC sectors that tiles
+     * left-2..left+35 touch, so an NPC in a sector the scan never reaches stays
+     * unspawned until the camera scrolls to it, even when it would pass
+     * spawn_npcs_at_sector's screen filter. The order and the set of sectors
+     * decide entity slots and the RAND calls of each NPC's init, so they must
+     * match for later wander patterns to match.
+     *
+     * Wide viewport: rows 30 (= 224/8 + 2) and -1 sit one row past the rows
+     * map_refresh_tilemaps spawns when scrolling (top+29 down, top-1 up). The
+     * scroll spawns are widened by EB_VIEWPORT_PAD_TOP/8 rows and the row span
+     * by the wide view's width (spawn_npcs_in_row), so the load scan covers
+     * the same wide area plus the asm's margin: rows -1-PAD..H/8+2+PAD of the
+     * wide view's top-left tile, spanning its full width. NPCs visible in the
+     * gutters on arrival are spawned here, by the same mechanism as scrolling,
+     * and none pop in after the load. At 256x224 this is exactly the asm. */
+    for (int16_t row = -1 - EB_VIEWPORT_PAD_TOP / 8;
+         row < EB_VIEWPORT_HEIGHT / 8 + 3 + EB_VIEWPORT_PAD_TOP / 8; row++) {
+        spawn_npcs_in_row(view_x_tile, (int16_t)(view_y_tile + row));
     }
 
     /* Set ow.npc_spawns_enabled to -1 after initial spawn.
