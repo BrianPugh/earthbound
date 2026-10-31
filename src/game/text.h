@@ -24,6 +24,8 @@
 #define EB_CHAR_ZERO      0x60  /* CHAR::ZERO (US) */
 #define EB_CHAR_ONE       (EB_CHAR_ZERO + 1)  /* CHAR::ONE */
 #define EB_CHAR_COLON     0x6A  /* CHAR::COLON (US) */
+#define EB_CHAR_LPAREN    88    /* '(' (the asm's literal 88) */
+#define EB_CHAR_RPAREN    89    /* ')' (the asm's literal 89) */
 
 /* Initialize the text rendering system.
    Loads fonts from extracted assets and sets up VRAM for text display. */

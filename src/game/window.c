@@ -482,7 +482,7 @@ static void menu_options_in_use(uint32_t used[(NUM_MENU_OPTIONS + 31) / 32]) {
  * window, CLEAR_WINDOW_MENU_OPTIONS callers), so the pool only runs dry through
  * entries kept for reuse; one is then taken back from another window's unused
  * tail, which costs that window only its old contents. */
-static MenuItem *alloc_menu_item(WindowInfo *w) {
+static MenuItem *alloc_menu_item_slot(WindowInfo *w) {
     uint8_t i = w->menu_count;
     if (i >= MAX_WINDOW_MENU_ITEMS) return NULL;
     if (i < w->menu_items_reserved) return window_menu_item(w, i);
@@ -510,6 +510,17 @@ static MenuItem *alloc_menu_item(WindowInfo *w) {
     w->menu_item_idx[i] = (uint8_t)e;
     w->menu_items_reserved = (uint8_t)(i + 1);
     return &win.menu_options[e];
+}
+
+/* A new option for w. ADD_MENU_OPTION starts every option on page 1
+ * (asm/text/menu/add_menu_option.asm:79-81); only LAYOUT_MENU_OPTIONS' overflow
+ * option has page 0, which PRINT_MENU_ITEMS and SELECTION_MENU treat as the
+ * page-flip entry. */
+static MenuItem *alloc_menu_item(WindowInfo *w) {
+    MenuItem *item = alloc_menu_item_slot(w);
+    if (item)
+        item->page = 1;
+    return item;
 }
 
 void add_menu_item(const char *label, uint16_t userdata, uint16_t text_x, uint16_t text_y) {
@@ -597,6 +608,51 @@ uint16_t get_window_menu_option_count(uint16_t window_id) {
     return w->menu_count;
 }
 
+/* PRINT_MENU_ITEMS' page-0 (overflow) option (asm/text/print_menu_items.asm:
+ * 47-145): the $014F arrow, then, if the window has a title, retitle it
+ * "Title(page)" (the old title up to its '(') and print "Title(next page)"
+ * after the arrow, the next page wrapping to 1 after the last real option's
+ * page. Returns false for an untitled window, whose option prints its label. */
+static bool print_overflow_option(WindowInfo *w) {
+    set_window_palette_index(0);
+    print_char_with_sound(0x014F);
+    advance_vwf_tile();
+    set_window_palette_index(0);
+    if (w->title[0] == '\0')
+        return false;
+
+    /* TEMPORARY_TEXT_BUFFER: title up to '(' (asm 88), then "(page)". */
+    char buf[WINDOW_TITLE_SIZE + 3];
+    int n = 0;
+    while (n < WINDOW_TITLE_SIZE - 1 && w->title[n] != '\0' && w->title[n] != '(') {
+        buf[n] = w->title[n];
+        n++;
+    }
+    buf[n++] = '(';
+    buf[n++] = (char)('0' + w->menu_page_number);   /* + CHAR::ZERO */
+    buf[n++] = ')';
+    buf[n] = '\0';
+    advance_vwf_tile();
+    set_window_title(w->id, buf, -1);
+    advance_vwf_tile();
+
+    /* PRINT_STRING(buf, strlen - 2): "Title(" without the page digit and ')'. */
+    buf[n - 2] = '\0';
+    print_string(buf);
+
+    /* The option before the overflow one (the last real option, menu_option::
+     * previous of the window's last-added option) holds the last page. */
+    uint16_t last_page = (w->menu_count >= 2)
+                         ? window_menu_item(w, w->menu_count - 2)->page : 1;
+    char tail[3];
+    tail[0] = (w->menu_page_number == last_page)
+              ? '1' : (char)('0' + w->menu_page_number + 1);  /* CHAR::ONE (+ page) */
+    tail[1] = ')';   /* asm 89 */
+    tail[2] = '\0';
+    print_string(tail);   /* two PRINT_LETTERs */
+    return true;
+}
+
 void print_menu_items(void) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0) {
@@ -621,7 +677,9 @@ void print_menu_items(void) {
         set_focus_text_cursor(item->text_x + 1, item->text_y);
         w = get_window(win.current_focus_window);  /* re-fetch after cursor set */
         if (!w) return;
-        print_string(item->label);
+        if (item->page == 0 && print_overflow_option(w))
+            continue;
+        print_string(item->label);   /* @PRINT_OPTION_LABEL */
     }
 }
 
@@ -1810,21 +1868,10 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
 
         /* Assembly (selection_menu.asm lines 430-537): if the selected item has
          * page==0, it's the overflow indicator — flip to the next page instead
-         * of returning a selection. In assembly, LAYOUT_MENU_OPTIONS always sets
-         * page>=1 for real items before SELECTION_MENU runs, so page==0
-         * unambiguously identifies the overflow indicator. Detect active
-         * pagination by checking whether any item has page>1. */
-        bool is_overflow = false;
+         * of returning a selection. Every other option has page >= 1
+         * (ADD_MENU_OPTION starts it on page 1, LAYOUT_MENU_OPTIONS numbers
+         * the pages). */
         if (sel->page == 0) {
-            for (uint16_t i = 0; i < w->menu_count; i++) {
-                if (window_menu_item(w, i)->page > 1) {
-                    is_overflow = true;
-                    break;
-                }
-            }
-        }
-
-        if (is_overflow) {
             play_sfx(2);  /* SFX::CURSOR2 */
 
             /* Find the last real item's page number to know when to wrap.

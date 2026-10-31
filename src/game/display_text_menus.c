@@ -1052,9 +1052,9 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
  * Assembly flow:
  *   1. SAVE_WINDOW_TEXT_ATTRIBUTES
  *   2. CREATE_WINDOW(ESCARGO_EXPRESS_ITEM)
- *   3. Build title from STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods").
- *      Assembly also appends 3 EB chars (88,97,89) but these are title
- *      decoration; the C port uses just the base text.
+ *   3. Title: the 12 bytes of STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods")
+ *      followed by "(1)" (EB 88, 97, 89), the page number PRINT_MENU_ITEMS
+ *      rewrites when the list has more than one page.
  *   4. Loop i=0..35 (36 escargo slots):
  *      - If escargo_express_items[i] != 0, look up item name, add to menu
  *   5. OPEN_WINDOW_AND_PRINT_MENU(2, 0) — 2 columns
@@ -1072,11 +1072,23 @@ StepResult mode_step_escargo_menu(ModeState *ms) {
         save_window_text_attributes();
         create_window(WINDOW_ESCARGO_EXPRESS_ITEM);
 
-        /* Build window title: STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods") */
+        /* Window title (asm lines 10-40): MEMCPY16 12 bytes of
+         * STATUS_EQUIP_WINDOW_TEXT_7 ("Stored Goods") into TEMPORARY_TEXT_BUFFER,
+         * append '(' CHAR::ONE ')' and a terminator at +12. */
         load_menu_title_assets();
         if (status_equip_text_7) {
+            enum { STORED_GOODS_TITLE_LEN = 12 };
+            uint8_t eb[STORED_GOODS_TITLE_LEN + 4];
+            memset(eb, 0, sizeof(eb));
+            size_t n = status_equip_text_7_size < STORED_GOODS_TITLE_LEN
+                       ? status_equip_text_7_size : STORED_GOODS_TITLE_LEN;
+            memcpy(eb, status_equip_text_7, n);
+            eb[STORED_GOODS_TITLE_LEN]     = EB_CHAR_LPAREN;
+            eb[STORED_GOODS_TITLE_LEN + 1] = EB_CHAR_ONE;
+            eb[STORED_GOODS_TITLE_LEN + 2] = EB_CHAR_RPAREN;
+            eb[STORED_GOODS_TITLE_LEN + 3] = 0;
             char title_buf[WINDOW_TITLE_SIZE];
-            eb_to_ascii_buf(status_equip_text_7, (int)status_equip_text_7_size, title_buf);
+            eb_to_ascii_buf(eb, (int)sizeof(eb), title_buf);
             set_window_title(WINDOW_ESCARGO_EXPRESS_ITEM, title_buf, -1);
         }
 
