@@ -74,6 +74,12 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y);
  * Parameters are the camera center in pixels. */
 void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels);
 
+/* Set the BG1/BG2 scroll to (bg_x, bg_y) and blank (tile 0) each map column/row
+ * the view origin crosses, without loading map tiles or spawning NPCs.
+ * Port of SCROLL_MAP_TO_POSITION (asm/overworld/camera/scroll_map_to_position.asm),
+ * used by screen transitions. Parameters are BG scroll positions, not the camera. */
+void scroll_map_to_position(uint16_t bg_x, uint16_t bg_y);
+
 /* Look up surface/collision flags at a world position for an entity of given size.
  * size_code: index into ENTITY_COLLISION tables (from entities.sizes[]), NOT entity slot.
  * Port of LOOKUP_ENTITY_SURFACE_FLAGS (asm/overworld/collision/lookup_entity_surface_flags.asm). */

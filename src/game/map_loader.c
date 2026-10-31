@@ -2619,6 +2619,85 @@ static void spawn_npcs_in_row(int16_t left_x_tile, int16_t row_y_tile) {
     }
 }
 
+/* --- CLEAR_MAP_COLUMN_VRAM ---
+ * Port of asm/overworld/map/clear_map_column_vram.asm: write 32 zero entries
+ * down tile column x (mod 64) of the BG1 and BG2 tilemaps (DMA mode 27, the
+ * column mode LOAD_MAP_COLUMN_TO_VRAM uses). Columns 32-63 are in the second
+ * nametable. */
+static void clear_map_column_vram(int16_t x_tile) {
+    uint16_t col = (uint16_t)x_tile & 0x3F;
+    uint16_t nametable = 0;
+    if (col > 31) {
+        col &= 0x1F;
+        nametable = TILEMAP_SIZE;
+    }
+    static const uint16_t bases[2] = { VRAM_OVERWORLD_LAYER_1_TILEMAP,
+                                       VRAM_OVERWORLD_LAYER_2_TILEMAP };
+    for (int b = 0; b < 2; b++) {
+        for (uint16_t row = 0; row < 32; row++) {
+            size_t addr = (size_t)(bases[b] + nametable + row * 32 + col) * 2;
+            ppu.vram[addr]     = 0;
+            ppu.vram[addr + 1] = 0;
+        }
+    }
+}
+
+/* --- CLEAR_MAP_ROW_VRAM ---
+ * Port of asm/overworld/map/clear_map_row_vram.asm: zero tile row y (mod 32) of
+ * both nametables of the BG1 and BG2 tilemaps (32 entries each). The asm's x
+ * parameter is unused. */
+static void clear_map_row_vram(int16_t y_tile) {
+    uint16_t offset = (uint16_t)(((uint16_t)y_tile & 0x1F) * 32);
+    static const uint16_t bases[4] = {
+        VRAM_OVERWORLD_LAYER_1_TILEMAP, VRAM_OVERWORLD_LAYER_1_TILEMAP + TILEMAP_SIZE,
+        VRAM_OVERWORLD_LAYER_2_TILEMAP, VRAM_OVERWORLD_LAYER_2_TILEMAP + TILEMAP_SIZE,
+    };
+    for (int b = 0; b < 4; b++)
+        memset(&ppu.vram[(size_t)(bases[b] + offset) * 2], 0, 64);
+}
+
+/* --- SCROLL_MAP_TO_POSITION ---
+ * Port of asm/overworld/camera/scroll_map_to_position.asm (called only by
+ * UPDATE_TRANSITION_SCROLL). Unlike REFRESH_MAP_AT_POSITION it loads no map
+ * tiles and spawns no NPCs: it sets the scroll and walks ml.screen_left_x /
+ * ml.screen_top_y one tile at a time to the new origin, blanking each newly
+ * exposed column/row. Every screen transition config has scroll speed 0, so
+ * the origin normally doesn't move and the tilemap is left as it is, which keeps
+ * a non-map BG1 (the Your Sanctuary montage's picture at $3800) on screen
+ * through the fade-out. The asm blanks column left+32 / row top+28, the first
+ * ones past the 256x224 view; the wide viewport uses its own size. The asm also
+ * stores BG12_POSITION_X/Y_COPY, which nothing reads. */
+void scroll_map_to_position(uint16_t bg_x, uint16_t bg_y) {
+    ppu.bg_hofs[0] = bg_x;
+    ppu.bg_hofs[1] = bg_x;
+    ppu.bg_vofs[0] = bg_y;
+    ppu.bg_vofs[1] = bg_y;
+
+    /* Arithmetic >> 3 (LSR x3 + ORA #$E000 for negatives). */
+    int16_t target_x_tile = (int16_t)bg_x >> 3;
+    int16_t target_y_tile = (int16_t)bg_y >> 3;
+
+    while (ml.screen_left_x != target_x_tile) {
+        if ((uint16_t)(ml.screen_left_x - target_x_tile) & 0x8000) {
+            ml.screen_left_x++;
+            clear_map_column_vram((int16_t)(ml.screen_left_x + EB_VIEWPORT_WIDTH / 8));
+        } else {
+            ml.screen_left_x--;
+            clear_map_column_vram((int16_t)(ml.screen_left_x - 1));
+        }
+    }
+
+    while (ml.screen_top_y != target_y_tile) {
+        if ((uint16_t)(ml.screen_top_y - target_y_tile) & 0x8000) {
+            ml.screen_top_y++;
+            clear_map_row_vram((int16_t)(ml.screen_top_y + EB_VIEWPORT_HEIGHT / 8));
+        } else {
+            ml.screen_top_y--;
+            clear_map_row_vram((int16_t)(ml.screen_top_y - 1));
+        }
+    }
+}
+
 /* --- MAP_REFRESH_TILEMAPS ---
  * Port of REFRESH_MAP_AT_POSITION (asm/overworld/refresh_map_at_position.asm).
  *
