@@ -5069,23 +5069,26 @@ static EB_NOINLINE bool btl_step_exec_setup(BattleRoutineState *st, StepResult *
     return false;
 }
 
-/* Enemy attack palette effect for the attacker's action type */
+/* Enemy attack palette effect for the attacker's action type
+ * (asm @CHECK_ENEMY_PALETTE; the caller checks enemy + action) */
 static void btl_enemy_attack_palette(const Battler *attacker) {
-    if (attacker->ally_or_enemy == 1 && attacker->current_action != 0 &&
-        battle_action_table) {
-        uint8_t action_type = battle_action_table[attacker->current_action].type;
-        if (action_type == ACTION_TYPE_PHYSICAL ||
-            action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
-            load_attack_palette(1);
-        } else if (action_type == ACTION_TYPE_PSI) {
-            load_attack_palette(2);
-        } else if (action_type == ACTION_TYPE_OTHER) {
-            load_attack_palette(3);
-        }
+    if (!battle_action_table)
+        return;
+    uint8_t action_type = battle_action_table[attacker->current_action].type;
+    if (action_type == ACTION_TYPE_PHYSICAL ||
+        action_type == ACTION_TYPE_PIERCING_PHYSICAL) {
+        load_attack_palette(1);
+    } else if (action_type == ACTION_TYPE_PSI) {
+        load_attack_palette(2);
+    } else if (action_type == ACTION_TYPE_OTHER) {
+        load_attack_palette(3);
     }
 }
 
-/* PP cost, attack palette, then the attacker's 12-frame bob */
+/* PP cost, then for an enemy with an action the attack palette and the
+ * 12-frame bob (asm main_battle_routine.asm @CHECK_PP_COST ..
+ * @ANIMATE_WAIT_CHECK). Party members and action-less enemies branch
+ * straight to @CHECK_STATUS_TEXT: no shake, no wait. */
 static EB_NOINLINE bool btl_step_exec_pp(BattleRoutineState *st, StepResult *out) {
     Battler *attacker = &bt.battlers_table[st->attacker];
 
@@ -5101,14 +5104,17 @@ static EB_NOINLINE bool btl_step_exec_pp(BattleRoutineState *st, StepResult *out
         }
     }
 
+    st->phase = BTL_EXEC_RETARGET1;
+    if (attacker->ally_or_enemy != 1 || attacker->current_action == 0)
+        return false;
+
     btl_enemy_attack_palette(attacker);
 
-    /* Animate attacker (12-frame bob) */
+    /* @ANIMATE_ATTACKER: 12-frame bob, 12 WINDOW_TICKs */
     attacker->shake_timer = 12;
     memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     g_mode_push_init.battle_wait.kind = BW_FRAMES;
     g_mode_push_init.battle_wait.remaining = 12;
-    st->phase = BTL_EXEC_RETARGET1;
     *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
     return true;
 }
