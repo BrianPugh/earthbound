@@ -4102,10 +4102,14 @@ void blit_vwf_glyph(const uint8_t *glyph_data, uint8_t height, uint8_t width) {
 
     uint8_t *dst = vwf_buffer + tile_idx * VWF_TILE_BYTES;
 
+    uint8_t rows = (height > 16) ? 16 : height;
+
     /* Fill tile with 0xFF if starting at tile boundary.
-       Both planes = 1 → color 3 = opaque dark background. */
+       Both planes = 1 → color 3 = opaque dark background.
+       blit_vwf_glyph.asm's MEMSET16 clears height*2 bytes (LDA @VIRTUAL04 /
+       ASL / TAX), so the tiny font (8 rows) leaves the lower 8x8 half alone. */
     if (pixel_offset == 0) {
-        memset(dst, 0xFF, VWF_TILE_BYTES);
+        memset(dst, 0xFF, (size_t)rows * 2);
     }
 
     /* AND shifted glyph mask into plane 1 only.
@@ -4113,7 +4117,6 @@ void blit_vwf_glyph(const uint8_t *glyph_data, uint8_t height, uint8_t width) {
        Where glyph bit is 0: plane 1 cleared → color 1 (text).
        Where glyph bit is 1: plane 1 stays 1 → color 3 (background).
        High bits introduced by right-shift must be filled with 1 (background). */
-    uint8_t rows = (height > 16) ? 16 : height;
     /* Fill mask for high bits that are outside the glyph area after shifting */
     uint8_t high_fill = (uint8_t)(0xFF << (8 - pixel_offset)) & 0xFF;
     if (pixel_offset == 0) high_fill = 0;
@@ -4143,8 +4146,8 @@ void blit_vwf_glyph(const uint8_t *glyph_data, uint8_t height, uint8_t width) {
 
         uint8_t *dst2 = vwf_buffer + new_tile * VWF_TILE_BYTES;
 
-        /* Fill next tile with 0xFF (assembly line 117: MEMSET16) */
-        memset(dst2, 0xFF, VWF_TILE_BYTES);
+        /* Fill next tile with 0xFF (assembly line 117: MEMSET16, height*2 bytes) */
+        memset(dst2, 0xFF, (size_t)rows * 2);
 
         /* Blit overflow glyph data only if pixel_offset != 0
          * (assembly lines 119-120: CMP #8; BEQ @DONE skips when

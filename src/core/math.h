@@ -23,8 +23,8 @@ uint32_t mul16(uint16_t a, uint16_t b);
 uint16_t div32_16(uint32_t dividend, uint16_t divisor, uint16_t *remainder);
 
 /* COSINE_SINE (asm/system/math/cosine_sine.asm)
- * Computes value * sine_table[angle] using SNES Mode 7 signed multiply.
- * angle is 0-255 (256 = full circle), sine_table is signed 8-bit.
+ * Computes value * SINE_LOOKUP_TABLE[angle] using SNES Mode 7 signed multiply.
+ * angle is 0-255 (256 = full circle), the table is signed 8-bit.
  * Returns low 16 bits of the 24-bit product. */
 int16_t cosine_sine(int16_t value, uint8_t angle);
 

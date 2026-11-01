@@ -305,32 +305,19 @@ static void set_battler_flashing(uint16_t row) {
  * allow_cancel: 1 = B/SELECT cancels, 0 = can't cancel.
  * action_param: index into battle_action_table for targetability check.
  */
-/* The "WINDOW_TICK equivalent" battle render the targeting UIs run each frame,
- * minus the trailing wait_for_vblank() — the pump owns the single yield. Shared
- * by both targeting modes below.
- *
- * Park-propagating split (savestate D4b): a parked actionscript callroutine
- * becomes a STEP_PUSH instead of a nested pump_mode. _step() returns true iff a
- * frame parked — the caller must STEP_PUSH GAME_MODE_ACTIONSCRIPT_FRAME
- * (actionscript_frame_take_push) and call _flush() at its resume; on no park the
- * render finishes inline and _step() returns false. */
+/* The WINDOW_TICK the targeting UIs run each render frame
+ * (select_battle_target.asm:52/183, select_battle_row.asm:30), minus the
+ * trailing wait_for_vblank() — the pump owns the single yield. Shared by both
+ * targeting modes below. In battle RENDER_FRAME_TICK takes its battle branch
+ * (UPDATE_BATTLE_SCREEN_EFFECTS: battle sprites, screen-effect timers, both BG
+ * layers) and never runs an actionscript frame, so _step() returns false there;
+ * the park/flush pair is kept for the general window_tick_work contract. */
 static bool targeting_render_work_step(void) {
-    /* WINDOW_TICK's first line is JSL RAND. select_battle_target.asm:52/183 and
-     * select_battle_row.asm:30 call WINDOW_TICK here, so the RNG advances once
-     * per render (twice per target change: apply_selection + update_target_display). */
-    rng_next_byte();
-    window_tick_render_windows();
-    upload_battle_screen_to_vram();
-    if (run_actionscript_frame_step())
-        return true;
-    sync_palettes_to_cgram();
-    battle_bg_update();
-    return false;
+    return window_tick_work_step();
 }
 
 static void targeting_render_work_flush(void) {
-    sync_palettes_to_cgram();
-    battle_bg_update();
+    window_tick_work_flush();
 }
 
 /* select_battle_target's `update_target_display` work: recompute x_pos, flash the

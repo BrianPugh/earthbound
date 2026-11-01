@@ -2245,7 +2245,7 @@ void update_battle_screen_effects(void) {
         uint16_t phase = bt.wobble_duration % 72;
         bt.wobble_duration--;
         int16_t sine_index = (phase * 256) / 72;
-        int16_t sine_val = (int16_t)sine_table[sine_index];
+        int16_t sine_val = (int16_t)sine_lookup((uint8_t)sine_index);
         bt.screen_effect_horizontal_offset = (sine_val * 64) / 256;
     }
 

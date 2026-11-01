@@ -1,5 +1,5 @@
 #include "core/math.h"
-#include "game/battle_bg.h"   /* sine_table[] */
+#include "game/battle_bg.h"   /* sine_lookup() */
 #include <stdbool.h>
 
 /* RNG state — two 16-bit variables, matching assembly's RAND_A/RAND_B.
@@ -103,9 +103,9 @@ uint16_t div32_16(uint32_t dividend, uint16_t divisor, uint16_t *remainder) {
  *   REP #$20        ; 16-bit A
  *   LDA f:MPYM      ; read low 16 bits of 24-bit product
  *
- * Returns low 16 bits of (value x sine_table[angle]). */
+ * Returns low 16 bits of (value x SINE_LOOKUP_TABLE[angle]). */
 int16_t cosine_sine(int16_t value, uint8_t angle) {
-    return (int16_t)(((int32_t)value * (int32_t)sine_table[angle]) >> 8);
+    return (int16_t)(((int32_t)value * (int32_t)sine_lookup(angle)) >> 8);
 }
 
 /* COSINE — cos(angle) = sin(angle - 64).

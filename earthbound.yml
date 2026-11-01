@@ -2734,6 +2734,13 @@ dumpEntries:
   size: 256
   extension: bin
   compressed: false
+# SINE_LOOKUP_TABLE — 256 signed bytes, peak 127 (PREPARE_BG_OFFSET_TABLES, COSINE_SINE, battle wobble)
+- subdir: data
+  name: 'sine_lookup_table'
+  offset: 0x00B425
+  size: 256
+  extension: bin
+  compressed: false
 # SWIRL_PRIMARY_TABLE — 7 entries x 4 bytes: speed, HDMA table id, frames, unused
 - subdir: data
   name: 'swirl_primary_table'

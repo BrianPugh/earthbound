@@ -56,28 +56,6 @@ static void palette_cycle_rotate(LoadedBGData *data, uint8_t first,
                                  uint16_t count, uint8_t step);
 static uint16_t bg_palette_count;
 
-/* Sine table for distortion — matches ROM's SINE_LOOKUP_TABLE (256 signed
- * bytes, peak ±127).  Generated mathematically: round(127 * sin(i*2π/256)).
- * The ROM stores these as .BYTE in asm/data/sine_table.asm. */
-const int8_t sine_table[256] = {
-       0,    3,    6,    9,   12,   16,   19,   22,   25,   28,   31,   34,   37,   40,   43,   46,
-      49,   51,   54,   57,   60,   63,   65,   68,   71,   73,   76,   78,   81,   83,   85,   88,
-      90,   92,   94,   96,   98,  100,  102,  104,  106,  107,  109,  111,  112,  113,  115,  116,
-     117,  118,  120,  121,  122,  122,  123,  124,  125,  125,  126,  126,  126,  127,  127,  127,
-     127,  127,  127,  127,  126,  126,  126,  125,  125,  124,  123,  122,  122,  121,  120,  118,
-     117,  116,  115,  113,  112,  111,  109,  107,  106,  104,  102,  100,   98,   96,   94,   92,
-      90,   88,   85,   83,   81,   78,   76,   73,   71,   68,   65,   63,   60,   57,   54,   51,
-      49,   46,   43,   40,   37,   34,   31,   28,   25,   22,   19,   16,   12,    9,    6,    3,
-       0,   -3,   -6,   -9,  -12,  -16,  -19,  -22,  -25,  -28,  -31,  -34,  -37,  -40,  -43,  -46,
-     -49,  -51,  -54,  -57,  -60,  -63,  -65,  -68,  -71,  -73,  -76,  -78,  -81,  -83,  -85,  -88,
-     -90,  -92,  -94,  -96,  -98, -100, -102, -104, -106, -107, -109, -111, -112, -113, -115, -116,
-    -117, -118, -120, -121, -122, -122, -123, -124, -125, -125, -126, -126, -126, -127, -127, -127,
-    -127, -127, -127, -127, -126, -126, -126, -125, -125, -124, -123, -122, -122, -121, -120, -118,
-    -117, -116, -115, -113, -112, -111, -109, -107, -106, -104, -102, -100,  -98,  -96,  -94,  -92,
-     -90,  -88,  -85,  -83,  -81,  -78,  -76,  -73,  -71,  -68,  -65,  -63,  -60,  -57,  -54,  -51,
-     -49,  -46,  -43,  -40,  -37,  -34,  -31,  -28,  -25,  -22,  -19,  -16,  -12,   -9,   -6,   -3,
-};
-
 void battle_bg_init(void) {
     memset(&bg_state, 0, sizeof(bg_state));
     memset(bg_distortion, 0, sizeof(bg_distortion));
@@ -714,7 +692,7 @@ distortion:
      *
      * Phase accumulator: high byte = speed, low byte = 0.
      * Each scanline: phase += frequency. Index = phase >> 8.
-     * Offset = (amp_hi * sine_table[index]) >> 8.
+     * Offset = (amp_hi * sine_lookup(index)) >> 8.
      *
      * For styles with target_layer > 0, the BG scroll position is
      * folded into the base offset and phase. */
