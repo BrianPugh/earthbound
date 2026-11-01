@@ -22,6 +22,7 @@
 #include "game/text.h"
 #include "game/window.h"
 #include "game/battle.h"
+#include "game/battle_bg.h"
 #include "game/fade.h"
 #include "game/game_state.h"
 #include "game/overworld.h"
@@ -643,9 +644,14 @@ StepResult mode_step_flyover(ModeState *st) {
                     continue;
                 }
             }
+            /* FADE_OUT_WITH_MOSAIC @FADE_DONE: INIDISP $80, STZ HDMAEN_MIRROR,
+             * then a bare vblank wait before returning. */
             ppu.inidisp = 0x80;
+            ppu.window_hdma_active = false;
+            ppu.window2_hdma_active = false;
+            bg_distortion_off();
             s->phase = FOP_S_CLEAN1;
-            continue;
+            return STEP_RESULT_CONTINUE();
 
         case FOP_S_CLEAN1:
             ppu.tm = 0x17;
@@ -687,9 +693,14 @@ StepResult mode_step_flyover(ModeState *st) {
                     continue;
                 }
             }
+            /* FADE_OUT_WITH_MOSAIC @FADE_DONE: INIDISP $80, STZ HDMAEN_MIRROR,
+             * then a bare vblank wait before returning. */
             ppu.inidisp = 0x80;
+            ppu.window_hdma_active = false;
+            ppu.window2_hdma_active = false;
+            bg_distortion_off();
             s->phase = FOP_CT_SETUP_A;
-            continue;
+            return STEP_RESULT_CONTINUE();
 
         case FOP_CT_SETUP_A:
             /* flyover_init_screen() leading force-blank frame (park-propagating). */

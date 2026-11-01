@@ -8,19 +8,16 @@
 FadeState fade_state;
 
 void fade_to_brightness(uint8_t target, uint8_t step, uint8_t delay) {
+    /* FADE_IN / FADE_OUT (fade_in.asm, fade_out.asm) always arm step and
+     * delay, even when the screen is already at the target: the NMI then runs
+     * one step after delay+1 frames (a fade-out from 0 force-blanks and kills
+     * HDMA, a fade-in from 15 clamps to $0F and clears force blank). The
+     * target only picks the sign; step 0 is a cancel (step == 0 means idle). */
     fade_state.target = target;
-    uint8_t current = ppu.inidisp & 0x0F;
-    if (target > current)
-        fade_state.step = (int8_t)step;
-    else if (target < current)
-        fade_state.step = -(int8_t)step;
-    else {
-        fade_state.fading = false;
-        return;
-    }
+    fade_state.step = target ? (int8_t)step : (int8_t)-(int8_t)step;
     fade_state.delay = delay;
     fade_state.counter = 0;
-    fade_state.fading = true;
+    fade_state.fading = fade_state.step != 0;
 }
 
 void fade_in(uint8_t step, uint8_t delay) {

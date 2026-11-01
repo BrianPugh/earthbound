@@ -91,7 +91,8 @@ static const uint8_t *entity_hdma_scanline_width(void) {
  * that narrows into an oval at the entity position.
  *
  * Assembly builds an HDMA table with:
- *   - Header: (screen_y+5) scanlines with beam rect (ent_x±16)
+ *   - Header: (screen_y+1) scanlines with beam rect (ent_x±16), where
+ *     screen_y = abs_y - BG1_Y_POS + 4
  *   - Oval: up to 11 scanlines narrowing per the width table
  *   - Tail: remaining scanlines with no window (128/127)
  */
@@ -131,10 +132,11 @@ void render_entity_hdma_window(int16_t entity_offset,
         beam_r = 127;
     }
 
-    /* Header: scanlines 0..(screen_y+4) get the beam rectangle.
-     * Assembly writes count = (screen_y+4+1) = screen_y+5 scanlines. */
+    /* Header: screen_y already holds the asm's y4 (abs_y - BG1_Y_POS + 4).
+     * Assembly writes count = y4 + 1, so scanlines 0..y4 get the beam rect;
+     * it is skipped when y4 is negative. */
     if ((uint16_t)screen_y < 0x8000) {
-        int hdr_end = screen_y + 4;
+        int hdr_end = screen_y;
         if (hdr_end >= EB_VIEWPORT_HEIGHT) hdr_end = EB_VIEWPORT_HEIGHT - 1;
         for (int s = 0; s <= hdr_end; s++) {
             wh_left_table[s]  = beam_l;
@@ -142,16 +144,17 @@ void render_entity_hdma_window(int16_t entity_offset,
         }
     }
 
-    /* Oval scanlines: up to 11 rows starting at scanline (screen_y+5).
-     * Assembly: visible_count = min(screen_y + 4 + 11, 10).
-     * table_start = 10 - visible_count (skip top rows if entity near top). */
-    int16_t check = screen_y + 4 + 11;
+    /* Oval scanlines: up to 11 one-line HDMA entries right after the header.
+     * Assembly: visible_count = min(y4 + 11, 10),
+     * table_start = 10 - visible_count (skip top rows if entity near top).
+     * With no header (y4 < 0) the rows start on scanline 0. */
+    int16_t check = screen_y + 11;
     if ((uint16_t)check >= 0x8000)
         return;
 
     int visible_count = check >= 10 ? 10 : (int)check;
     int table_start = 10 - visible_count;
-    int oval_start = screen_y + 5;
+    int oval_start = screen_y >= 0 ? screen_y + 1 : 0;
 
     for (int i = 0; i <= visible_count; i++) {
         int s = oval_start + i;
@@ -398,6 +401,10 @@ static void tick_apply_entity_rect_window(int16_t entity_offset) {
 static void tick_setup_entity_hdma_window_ch4(int16_t entity_offset) {
     render_entity_hdma_window(entity_offset, ppu.wh0_table, ppu.wh1_table);
     ppu.window_hdma_active = true;
+    /* The asm's double-buffer toggle: var0 bit 0 picks the BUFFER half
+     * (0 / $2FE), then var0 is incremented every frame. The C port renders
+     * straight into the PPU tables, so only the counter is kept. */
+    entities.var[0][entity_offset]++;
 }
 
 /* C47705: SETUP_ENTITY_HDMA_WINDOW_CH5 — per-frame tick callback.
@@ -405,6 +412,10 @@ static void tick_setup_entity_hdma_window_ch4(int16_t entity_offset) {
 static void tick_setup_entity_hdma_window_ch5(int16_t entity_offset) {
     render_entity_hdma_window(entity_offset, ppu.wh2_table, ppu.wh3_table);
     ppu.window2_hdma_active = true;
+    /* The asm's double-buffer toggle: var0 bit 0 picks the BUFFER half
+     * (0 / $2FE), then var0 is incremented every frame. The C port renders
+     * straight into the PPU tables, so only the counter is kept. */
+    entities.var[0][entity_offset]++;
 }
 
 /* C47A27: CENTER_CAMERA_WITH_RECT_WINDOW — per-frame tick callback.
