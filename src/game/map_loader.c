@@ -635,25 +635,25 @@ static void fill_collision_tiles(int16_t view_x_tile, int16_t view_y_tile) {
             uint8_t sub_col = (uint16_t)world_tx & 3;
 
             /* Look up collision flags for this tile.
-             * Tiles outside the loaded tileset area get wall collision (0x40)
-             * so the player cannot walk into out-of-bounds regions.
-             * The assembly's per-row/column streaming naturally keeps valid data
-             * in the grid, but the C port's full 64×64 refill needs explicit
-             * wall flags for tiles beyond the map boundary. */
+             * LOAD_MAP_ROW / LOAD_MAP_COLUMN store block 0 for tiles outside
+             * the map (block x >= 256 or y >= 320, which also catches negative
+             * coordinates as unsigned) or in another tileset combo, and
+             * LOAD_COLLISION_ROW then reads block 0's collision like any
+             * other block. */
             uint16_t cx = world_tx & 63;
             uint16_t cy = world_ty & 63;
-            if (world_tx < 0 || world_ty < 0 || !tilesetpalette_data) {
+            if (!tilesetpalette_data) {
                 ml.loaded_collision_tiles[cy * 64 + cx] = 0x40;
                 continue;
             }
+            uint16_t block_id;
             uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
-            if (tp_index >= tilesetpalette_size ||
+            if (bx >= 256 || by >= 320 || tp_index >= tilesetpalette_size ||
                 (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo) {
-                ml.loaded_collision_tiles[cy * 64 + cx] = 0x40;
-                continue;
+                block_id = 0;
+            } else {
+                block_id = get_block_id(bx, by);
             }
-
-            uint16_t block_id = get_block_id(bx, by);
             uint8_t flags = 0;
             if (block_id < 960) {
                 uint16_t coll_ptr = ml.tile_collision_buffer[block_id];
@@ -2331,14 +2331,12 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
             /* Extended bounds check (C0222B.asm lines 178-199):
              * Assembly: LDA #.LOWORD(-64); CLC; SBC screen_rel; JUMPGTS @SKIP_NPC
              * CLC;SBC gives -64 - screen_rel - 1 = -(screen_rel + 65).
-             * JUMPGTS = strictly signed > 0, so skips when -(screen_rel+65) > 0
-             * i.e., when screen_rel < -65 (= screen_rel <= -66).
-             * Value -65 gives result 0 which does NOT trigger JUMPGTS (not strictly > 0).
-             * Only spawn NPCs within (-65, 320) i.e., screen_rel must be >= -65. */
-            if (screen_rel_x < -65 || screen_rel_x >= (EB_VIEWPORT_WIDTH + 64)) {
+             * JUMPGTS includes zero (signed >= 0, include/macros.asm), so it
+             * skips when screen_rel <= -65: NPCs spawn only within (-65, 320). */
+            if (screen_rel_x <= -65 || screen_rel_x >= (EB_VIEWPORT_WIDTH + 64)) {
                 continue;
             }
-            if (screen_rel_y < -65 || screen_rel_y >= (EB_VIEWPORT_HEIGHT + 96)) {
+            if (screen_rel_y <= -65 || screen_rel_y >= (EB_VIEWPORT_HEIGHT + 96)) {
                 continue;
             }
         }
@@ -2371,6 +2369,14 @@ void spawn_npcs_at_sector(uint16_t sector_x, uint16_t sector_y) {
             if (!(((appearance - 2) ^ flag_value) & 1)) {
                 continue;
             }
+        }
+
+        /* --- @CHECK_SHOW_NPC_NORMAL (C0222B.asm lines 285-291) ---
+         * While SHOW_NPC_FLAG is set (the new-game prologue night, until
+         * EVENT_478 clears it) only OBJECT NPCs spawn; persons and item boxes
+         * are held back. */
+        if (ow.show_npc_flag && cfg->type != NPC_TYPE_OBJECT) {
+            continue;
         }
 
         uint16_t sprite_id = cfg->sprite;
