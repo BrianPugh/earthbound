@@ -60,6 +60,7 @@ bool dt_make_child_init(ModeState *init, uint32_t addr);
 
 /* ---- Window helpers (display_text.c) ---- */
 WindowInfo *get_focus_window_info(void);
+WindowInfo *get_active_window_address(void);
 /* party_selector_battle_prepare: BATTLE path (mode != 1) of the former
  * party_character_selector — fills the GAME_MODE_CHAR_SELECT init (CSP_INIT phase,
  * on_change = CS_ONCHANGE_PARTY_SELECT_SCRIPT) for a STEP_PUSH by cc_1a_dispatch. The

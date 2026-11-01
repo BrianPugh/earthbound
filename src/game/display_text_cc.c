@@ -2487,7 +2487,7 @@ void cc_1b_dispatch(ScriptReader *r) {
     case 0x00: {
         /* TRANSFER_ACTIVE_MEM_STORAGE: copy active → storage backup.
          * Port of TRANSFER_ACTIVE_MEM_STORAGE (asm/text/transfer_active_mem_storage.asm). */
-        WindowInfo *w = get_focus_window_info();
+        WindowInfo *w = get_active_window_address();
         if (w) {
             w->working_memory_storage = w->working_memory;
             w->argument_memory_storage = w->argument_memory;
@@ -2498,7 +2498,7 @@ void cc_1b_dispatch(ScriptReader *r) {
     case 0x01: {
         /* TRANSFER_STORAGE_MEM_ACTIVE: copy storage backup → active.
          * Port of TRANSFER_STORAGE_MEM_ACTIVE (asm/text/transfer_storage_mem_active.asm). */
-        WindowInfo *w = get_focus_window_info();
+        WindowInfo *w = get_active_window_address();
         if (w) {
             w->working_memory = w->working_memory_storage;
             w->argument_memory = w->argument_memory_storage;
@@ -2529,7 +2529,7 @@ void cc_1b_dispatch(ScriptReader *r) {
     case 0x04: {
         /* SWAP_WORKING_AND_ARG_MEMORY: 0 args.
          * Port of tree_1B.asm @UNKNOWN11. */
-        WindowInfo *w = get_focus_window_info();
+        WindowInfo *w = get_active_window_address();
         if (w) {
             uint32_t tmp = w->working_memory;
             w->working_memory = w->argument_memory;

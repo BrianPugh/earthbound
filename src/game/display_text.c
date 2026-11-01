@@ -200,48 +200,65 @@ WindowInfo *get_focus_window_info(void) {
     return get_window(win.current_focus_window);
 }
 
+/* GET_ACTIVE_WINDOW_ADDRESS (asm/text/get_active_window_address.asm), the
+ * window whose text memory registers the memory CCs use: DUMMY_WINDOW when no
+ * window is open (WINDOW_HEAD == -1), else
+ * WINDOW_STATS[OPEN_WINDOW_TABLE[CURRENT_FOCUS_WINDOW]]. With focus -1 that
+ * index is the word before OPEN_WINDOW_TABLE, i.e. WINDOW_TAIL, so the
+ * topmost window (focus is -1 after closing the focused window while another
+ * stays open). A closed window's table entry is -1, and MULT168 makes
+ * WINDOW_STATS - sizeof(window_stats) = DUMMY_WINDOW (the RAM just before;
+ * ram.asm). */
+WindowInfo *get_active_window_address(void) {
+    if (win.window_head < 0) return &dummy_window;
+    if (win.current_focus_window == WINDOW_ID_NONE)
+        return &win.windows[win.window_tail];
+    WindowInfo *w = get_window(win.current_focus_window);
+    return w ? w : &dummy_window;
+}
+
 uint32_t get_working_memory(void) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     return w ? w->working_memory : 0;
 }
 
 void set_working_memory(uint32_t val) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     if (w) w->working_memory = val;
 }
 
 void set_working_memory_storage(uint32_t val) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     if (w) w->working_memory_storage = val;
 }
 
 uint32_t get_working_memory_storage(void) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     return w ? w->working_memory_storage : 0;
 }
 
 uint32_t get_argument_memory(void) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     return w ? w->argument_memory : 0;
 }
 
 void set_argument_memory(uint32_t val) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     if (w) w->argument_memory = val;
 }
 
 uint16_t get_secondary_memory(void) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     return w ? w->secondary_memory : 0;
 }
 
 void set_secondary_memory(uint16_t val) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     if (w) w->secondary_memory = val;
 }
 
 void increment_secondary_memory(void) {
-    WindowInfo *w = get_focus_window_info();
+    WindowInfo *w = get_active_window_address();
     if (w) w->secondary_memory++;
 }
 
