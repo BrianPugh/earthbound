@@ -168,19 +168,22 @@ static const uint8_t opcode_arg_sizes[0x45] = {
  */
 typedef struct {
     void *ptr;
-    uint8_t width;  /* sizeof the C field element: 1 or 2 */
+    uint8_t width;      /* sizeof the C field element: 1 or 2 */
+    uint8_t is_signed;  /* 8-bit field holds a signed int8_t */
 } WramField;
 
-#define WRAM_FIELD_NULL ((WramField){NULL, 0})
+#define WRAM_FIELD_NULL ((WramField){NULL, 0, 0})
 
-/* Read a WRAM field as int16_t. 8-bit fields are zero-extended. */
+/* 1 when the expression's type is int8_t (a narrowed signed word). */
+#define WRAM_IS_S8(x) _Generic((x), int8_t: 1, default: 0)
+
+/* Read a WRAM field as int16_t. In WRAM every one of these is a word, so a
+ * narrowed signed field (e.g. collided_objects = -1) reads back as $FFFF:
+ * int8_t fields are sign-extended, unsigned 8-bit fields zero-extended. */
 static inline int16_t wram_read(WramField f) {
     if (f.width == 1) {
-        /* For signed int8_t fields, reading as uint8_t then widening to
-         * int16_t matches the SNES behavior: a 16-bit LDA from a byte
-         * field reads the next byte (adjacent slot) as the high byte,
-         * but scripts only care about the low byte. Zero-extending is
-         * the safest conservative choice. */
+        if (f.is_signed)
+            return (int16_t)*(int8_t *)f.ptr;
         return (int16_t)*(uint8_t *)f.ptr;
     }
     return *(int16_t *)f.ptr;
@@ -201,24 +204,29 @@ static inline void wram_write(WramField f, int16_t val) {
 #define WRAM_ENT_TABLE(base, field) \
     if (addr >= (base) && addr < (base) + MAX_ENTITIES * 2) \
         return (WramField){&entities.field[(addr - (base)) / 2], \
-                           sizeof(entities.field[0])}
+                           sizeof(entities.field[0]), \
+                           WRAM_IS_S8(entities.field[0])}
 
 #define WRAM_SCR_TABLE(base, field) \
     if (addr >= (base) && addr < (base) + MAX_SCRIPTS * 2) \
         return (WramField){&scripts.field[(addr - (base)) / 2], \
-                           sizeof(scripts.field[0])}
+                           sizeof(scripts.field[0]), \
+                           WRAM_IS_S8(scripts.field[0])}
 
 #define WRAM_BG_TABLE(base, arr) \
     if (addr >= (base) && addr < (base) + MAX_BG_LAYERS * 2) \
-        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0])}
+        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0]), \
+                           WRAM_IS_S8(arr[0])}
 
 #define WRAM_PATH_TABLE(base, arr) \
     if (addr >= (base) && addr < (base) + MAX_ENTITIES * 2) \
-        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0])}
+        return (WramField){&arr[(addr - (base)) / 2], sizeof(arr[0]), \
+                           WRAM_IS_S8(arr[0])}
 
-/* Shorthand for 16-bit scalar globals */
+/* Shorthand for scalar globals (16-bit words in WRAM; the C field may be 8-bit) */
 #define WRAM_GLOBAL(address, var) \
-    if (addr == (address)) return (WramField){&(var), 2}
+    if (addr == (address)) \
+        return (WramField){&(var), sizeof(var), WRAM_IS_S8(var)}
 
 static WramField resolve_wram(uint16_t addr) {
     /* Entity script/linkage tables (ram.asm order) */
@@ -244,7 +252,7 @@ static WramField resolve_wram(uint16_t addr) {
     for (int i = 0; i < 8; i++) {
         uint16_t base = 0x0E5E + i * 0x3C; /* each table is 60 bytes apart in WRAM */
         if (addr >= base && addr < base + MAX_ENTITIES * 2)
-            return (WramField){&entities.var[i][(addr - base) / 2], 2};
+            return (WramField){&entities.var[i][(addr - base) / 2], 2, 0};
     }
 
     /* Entity draw/callback tables */
@@ -930,6 +938,11 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
         } else if (addr == WRAM_WAIT_FOR_NAMING_SCREEN) {
             scripts.tempvar[script_offset] =
                 (int16_t)ert.wait_for_naming_screen_actionscript;
+        } else if (addr == WRAM_DMA_BYTES_COPIED) {
+            /* EVENT_800 (credits photographs) spins on DMA_BYTES_COPIED until
+             * the NMI has flushed the frame's queued DMA. C transfers happen
+             * immediately, so nothing is ever pending. */
+            scripts.tempvar[script_offset] = 0;
         } else {
             WramField f = resolve_wram(addr);
             if (f.ptr) {
@@ -1018,8 +1031,10 @@ uint16_t opcode_dispatch(uint8_t opcode, int16_t script_offset,
             entities.move_callback[entity_offset] = CB_MOVE_WITH_COLLISION;
         } else if (rom_addr == ROM_ADDR_MOVE_SIMPLE_COLLISION) {
             entities.move_callback[entity_offset] = CB_MOVE_SIMPLE_COLLISION;
-        } else if (rom_addr == ROM_ADDR_MOVE_DELTA_3D || rom_addr == ROM_ADDR_MOVE_Z_UPDATE) {
+        } else if (rom_addr == ROM_ADDR_MOVE_DELTA_3D) {
             entities.move_callback[entity_offset] = CB_MOVE_DELTA_3D;
+        } else if (rom_addr == ROM_ADDR_MOVE_Z_UPDATE) {
+            entities.move_callback[entity_offset] = CB_MOVE_Z_UPDATE;
         } else if (rom_addr == ROM_ADDR_MOVE_NOP) {
             entities.move_callback[entity_offset] = CB_MOVE_NOP;
         } else {

@@ -205,14 +205,15 @@ static void entity_screen_coords_bg3_with_z(int16_t ent) {
 }
 
 /*
- * APPLY_ENTITY_DELTA_POSITION_3D (C09FF1)
+ * UPDATE_ENTITY_Z_POSITION (C0A00C)
  *
- * Applies X/Y/Z delta position then updates surface flags.
- * Used by entities that move in 3D (flying objects, bouncing items).
+ * Applies X/Y/Z delta position only; the surface flags are left alone, so
+ * airborne entities keep the flags their script set (e.g. EVENT_158's
+ * EVENT_SET_SURFACE_FLAGS $00) instead of picking up water/roof flags.
  * Assembly: JSR APPLY_ENTITY_DELTA_POSITION_ENTRY2
- *           then adds Z fraction/integer delta, then JSL UPDATE_ENTITY_SURFACE_FLAGS.
+ *           then adds Z fraction/integer delta.
  */
-static void apply_entity_delta_position_3d(int16_t ent) {
+static void update_entity_z_position(int16_t ent) {
     /* Apply X/Y delta (same as APPLY_ENTITY_DELTA_POSITION_ENTRY2) */
     apply_entity_delta_position(ent);
 
@@ -223,6 +224,15 @@ static void apply_entity_delta_position_3d(int16_t ent) {
     entities.frac_z[ent] = (uint16_t)fz;
     entities.abs_z[ent] = (int16_t)((uint16_t)entities.abs_z[ent] +
                                      (uint16_t)entities.delta_z[ent] + carry);
+}
+
+/*
+ * APPLY_ENTITY_DELTA_POSITION_3D (C09FF1)
+ *
+ * UPDATE_ENTITY_Z_POSITION's body, then JSL UPDATE_ENTITY_SURFACE_FLAGS.
+ */
+static void apply_entity_delta_position_3d(int16_t ent) {
+    update_entity_z_position(ent);
 
     /* UPDATE_ENTITY_SURFACE_FLAGS */
     extern uint16_t lookup_surface_flags(int16_t x, int16_t y, uint16_t size_code);
@@ -287,6 +297,9 @@ void call_move_callback(int16_t entity_offset) {
         break;
     case CB_MOVE_DELTA_3D:
         apply_entity_delta_position_3d(entity_offset);
+        break;
+    case CB_MOVE_Z_UPDATE:
+        update_entity_z_position(entity_offset);
         break;
     case CB_MOVE_WITH_COLLISION:
         /* ENTITY_PHYSICS_WITH_COLLISION (C0A360):

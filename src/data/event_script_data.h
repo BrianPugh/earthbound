@@ -66,6 +66,7 @@
 #define CB_MOVE_SIMPLE_COLLISION 4  /* ENTITY_PHYSICS_SIMPLE_COLLISION (like WITH but no surface flags) */
 #define CB_MOVE_DELTA_3D        5  /* APPLY_ENTITY_DELTA_POSITION_3D (X/Y/Z delta + surface flags) */
 #define CB_MOVE_NOP             6  /* APPLY_ENTITY_DELTA_POSITION_ENTRY4 (no-op, bare RTS) */
+#define CB_MOVE_Z_UPDATE        7  /* UPDATE_ENTITY_Z_POSITION (X/Y/Z delta, no surface flags) */
 #define CB_POS_SCREEN_BG1       0  /* ENTITY_SCREEN_COORDS_BG1 (default) */
 #define CB_POS_COPY_ABS         1  /* COPY_ENTITY_ABS_TO_SCREEN */
 #define CB_POS_NOP              2  /* POSITION_CALLBACK_NOP (do nothing) */
@@ -100,6 +101,7 @@
 #define WRAM_FADE_STEP               0x0028  /* $7E0028 — FADE_PARAMETERS::step, non-zero while fading */
 #define WRAM_TITLE_SCREEN_QUICK_MODE 0x9F75  /* $7E9F75 */
 #define WRAM_WAIT_FOR_NAMING_SCREEN  0xB4B4  /* $7EB4B4 */
+#define WRAM_DMA_BYTES_COPIED        0x0099  /* $7E0099, zeroed by NMI */
 
 /* POST_TELEPORT_CALLBACK — 4-byte function pointer at $7E9D1B.
  * EVENT_WRITE_DWORD_WRAM emits two WRITE_WORD_WRAM opcodes (lo then hi). */
