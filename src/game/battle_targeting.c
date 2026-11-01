@@ -176,6 +176,10 @@ static void set_target_name_with_article(uint16_t index) {
  * enemy_index: index within the row, or -1 for row-level targeting.
  */
 static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
+    /* Asm line 30: the whole window prints instantly, so the status tile's
+     * PRINT_CHAR_WITH_SOUND plays no SFX::TEXT_PRINT (line 111 clears it). */
+    set_instant_printing();
+
     /* Create the target text window (WINDOW::BATTLE_TARGET_TEXT = 0x31) */
     create_window(WINDOW_BATTLE_TARGET_TEXT);
 
@@ -215,6 +219,12 @@ static void display_battle_target_text(uint16_t row, int16_t enemy_index) {
         else
             print_eb_string(ASSET_DATA(ASSET_US_DATA_BATTLE_BACK_ROW_TEXT_BIN), BATTLE_ROW_TEXT_LENGTH);
     }
+
+    /* Asm line 111. SELECT_BATTLE_ROW's CLEAR_INSTANT_PRINTING before this call
+     * and SELECT_BATTLE_TARGET's (US) CLEAR/SET pair around APPLY_SELECTION's
+     * WINDOW_TICK are subsumed: every path into the window text sets it here,
+     * and WINDOW_TICK's render doesn't read it. */
+    clear_instant_printing();
 }
 
 
@@ -392,31 +402,6 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
         uint16_t pressed = platform_input_get_pad_new();
         uint16_t sfx = 2;  /* SFX::CURSOR2 default (LEFT/RIGHT same-row move) */
 
-        /* A/L: confirm selection */
-        if (pressed & PAD_CONFIRM) {
-            enemy_flashing_off();
-            uint16_t result = s->current_row * bt.num_battlers_in_front_row +
-                              s->current_enemy + 1;
-            play_sfx(1);  /* SFX::CURSOR1 */
-            close_focus_window();
-            return STEP_RESULT_POP(result);
-        }
-
-        /* B/SELECT: cancel. CLOSE_FOCUS_WINDOW's tick takes a frame (the
-         * target window gone, the command menu not back yet) before the
-         * caller's menu loop resumes. */
-        if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
-            enemy_flashing_off();
-            play_sfx(2);  /* SFX::CURSOR2 */
-            (void)take_unpresented_ticks();
-            close_focus_window();
-            uint16_t ticks = take_unpresented_ticks();
-            s->phase = ET_CANCELLED;
-            if (ticks)
-                return battle_push_vblanks(&g_mode_push_init, ticks);
-            return STEP_RESULT_POP(0);
-        }
-
         /* Navigation — decide the outcome, mirroring the blocking gotos:
          *   change  -> apply_selection[_common] (recreate window + two renders)
          *   refresh -> update_target_display    (one render, no change/sfx)
@@ -493,6 +478,33 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
             }
             s->phase = ET_PRIME;
             return STEP_RESULT_CONTINUE();
+        }
+
+        /* A/L: confirm selection. Tested after the directions (asm lines
+         * 55-147): a direction that changed or refreshed the target already
+         * returned above, so a same-frame A is ignored, as in the original. */
+        if (pressed & PAD_CONFIRM) {
+            enemy_flashing_off();
+            uint16_t result = s->current_row * bt.num_battlers_in_front_row +
+                              s->current_enemy + 1;
+            play_sfx(1);  /* SFX::CURSOR1 */
+            close_focus_window();
+            return STEP_RESULT_POP(result);
+        }
+
+        /* B/SELECT: cancel. CLOSE_FOCUS_WINDOW's tick takes a frame (the
+         * target window gone, the command menu not back yet) before the
+         * caller's menu loop resumes. */
+        if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
+            enemy_flashing_off();
+            play_sfx(2);  /* SFX::CURSOR2 */
+            (void)take_unpresented_ticks();
+            close_focus_window();
+            uint16_t ticks = take_unpresented_ticks();
+            s->phase = ET_CANCELLED;
+            if (ticks)
+                return battle_push_vblanks(&g_mode_push_init, ticks);
+            return STEP_RESULT_POP(0);
         }
 
         /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */
@@ -593,12 +605,33 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
     default: {
         uint16_t pressed = platform_input_get_pad_new();
         uint16_t target_row = 0xFFFF;
-        uint16_t sfx = 3;  /* SFX::CURSOR3 */
 
+        /* Asm lines 33-48: UP is tested first and wins over DOWN. */
         if (pressed & PAD_UP)
             target_row = 1;  /* want back row */
-        if (pressed & PAD_DOWN)
+        else if (pressed & PAD_DOWN)
             target_row = 0;  /* want front row */
+
+        /* Asm lines 75-84 (VALIDATE_ROW_CHANGE): any UP/DOWN goes to
+         * DISPLAY_ROW, so it skips the confirm/cancel tests this frame. A row
+         * with battlers plays CURSOR3 and switches; an empty one redraws the
+         * current row silently (render frame + 1 RAND, then the hppp frame). */
+        if (target_row != 0xFFFF) {
+            bool valid = (target_row == 0) ? bt.num_battlers_in_front_row != 0
+                                           : bt.num_battlers_in_back_row != 0;
+            if (valid) {
+                play_sfx(3);  /* SFX::CURSOR3 */
+                s->current_row = target_row;
+            }
+            /* display_row: re-render in this frame (yield A), then BR_PRIME's
+             * update_hppp (yield B) before the next input. */
+            if (br_render_work(s->current_row)) {
+                s->flush = 1;
+                return actionscript_frame_take_push();
+            }
+            s->phase = BR_PRIME;
+            return STEP_RESULT_CONTINUE();
+        }
 
         /* A/L: confirm */
         if (pressed & PAD_CONFIRM) {
@@ -621,28 +654,6 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
             if (ticks)
                 return battle_push_vblanks(&g_mode_push_init, ticks);
             return STEP_RESULT_POP(0);
-        }
-
-        /* Validate and apply row change */
-        if (target_row != 0xFFFF) {
-            bool valid = false;
-            if (target_row == 0 && bt.num_battlers_in_front_row != 0)
-                valid = true;
-            if (target_row == 1 && bt.num_battlers_in_back_row != 0)
-                valid = true;
-
-            if (valid) {
-                /* goto display_row: play_sfx then re-render in this frame (yield A),
-                 * then BR_PRIME's update_hppp (yield B) before the next input. */
-                play_sfx(sfx);
-                s->current_row = target_row;
-                if (br_render_work(s->current_row)) {
-                    s->flush = 1;
-                    return actionscript_frame_take_push();
-                }
-                s->phase = BR_PRIME;
-                return STEP_RESULT_CONTINUE();
-            }
         }
 
         /* Idle: the blocking loop's per-iteration update_hppp_meter_and_render. */

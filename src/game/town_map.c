@@ -427,14 +427,32 @@ StepResult mode_step_town_map(ModeState *st) {
         if (fade_active())
             return STEP_RESULT_CONTINUE();
         load_town_map_finish(s->map_id);   /* palette/VRAM uploads + fade_in */
-        s->prev_map = s->map_id;
         s->phase = TM_MAIN;
+        if (s->menu_mode && s->map_id != s->prev_map) {
+            /* run_town_map_menu.asm:61-65: after a map switch's
+             * LOAD_TOWN_MAP_DATA the same frame renders the icons, tests A
+             * and runs UPDATE_SCREEN before the loop's next WAIT. */
+            s->prev_map = s->map_id;
+            render_town_map_icons(s);
+            if (core.pad1_pressed & PAD_A) {
+                undraw_flyover_text();
+                reload_map();
+                ppu.tm = 0x17;
+                return STEP_RESULT_POP(0);
+            }
+            update_screen();
+            return STEP_RESULT_CONTINUE();
+        }
+        s->prev_map = s->map_id;
         return STEP_RESULT_CONTINUE();
 
     case TM_MAIN:
         if (s->menu_mode) {
             /* run_town_map_menu(): up/down navigation across the 6 maps. Input
-             * was latched by the pump's prior yield (post-yield handling). */
+             * was latched by the pump's prior yield (post-yield handling).
+             * OAM_CLEAR comes first (asm line 21), so a map switch's
+             * LOAD_TOWN_MAP_DATA presents no icons. */
+            oam_clear();
             if (core.pad1_pressed & PAD_UP) {
                 if (s->map_id == 0)
                     s->map_id = TOWN_MAP_COUNT;
@@ -446,13 +464,14 @@ StepResult mode_step_town_map(ModeState *st) {
             if (s->map_id >= TOWN_MAP_COUNT)
                 s->map_id = 0;
 
-            /* Reload if the selection changed maps. */
+            /* Reload if the selection changed maps: LOAD_TOWN_MAP_DATA starts
+             * in this frame (fade-out + decompression), then TM_LOAD_WAIT. */
             if (s->map_id != s->prev_map) {
-                s->phase = TM_LOAD_BEGIN;
+                load_town_map_begin(s->map_id);
+                s->phase = TM_LOAD_WAIT;
                 return STEP_RESULT_CONTINUE();
             }
 
-            oam_clear();
             render_town_map_icons(s);
 
             if (core.pad1_pressed & PAD_A) {
@@ -482,14 +501,14 @@ StepResult mode_step_town_map(ModeState *st) {
         return STEP_RESULT_CONTINUE();
 
     case TM_FADEOUT:
-        /* Fade out while continuing to render for 16 frames. */
-        if (s->fadeout_count > 0) {
-            oam_clear();
-            render_town_map_icons(s);
-            update_screen();
-            s->fadeout_count--;
+        /* Fade out while continuing to render for 16 frames
+         * (display_town_map.asm:52-64); the reload follows the 16th render
+         * in the same frame. */
+        oam_clear();
+        render_town_map_icons(s);
+        update_screen();
+        if (--s->fadeout_count > 0)
             return STEP_RESULT_CONTINUE();
-        }
 
         /* Reload the normal map display. */
         ow.disable_music_changes = 1;
