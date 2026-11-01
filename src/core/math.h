@@ -22,6 +22,12 @@ uint32_t mul16(uint16_t a, uint16_t b);
 /* 32/16 -> 16 divide with remainder */
 uint16_t div32_16(uint32_t dividend, uint16_t divisor, uint16_t *remainder);
 
+/* SINE_LOOKUP_TABLE (asm/data/sine_table.asm): 256 signed bytes, peak +/-127,
+ * a full turn over the index. Loaded from the donor ROM (data/sine_lookup_table.bin);
+ * it is not round(127*sin) (60 entries differ by 1). Out of line so this header
+ * doesn't pull in the generated asset registry. */
+int8_t sine_lookup(uint8_t index);
+
 /* COSINE_SINE (asm/system/math/cosine_sine.asm)
  * Computes value * SINE_LOOKUP_TABLE[angle] using SNES Mode 7 signed multiply.
  * angle is 0-255 (256 = full circle), the table is signed 8-bit.

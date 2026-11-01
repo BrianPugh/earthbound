@@ -2,7 +2,7 @@
 #define GAME_BATTLE_BG_H
 
 #include "core/types.h"
-#include "data/assets.h"
+#include "core/math.h"
 
 /* Battle background layer IDs */
 #define BATTLEBG_FILE_SELECT   230
@@ -119,13 +119,6 @@ typedef struct {
     uint8_t scrolling_movements[4]; /* 9: indices into BG_SCROLLING_TABLE */
     uint8_t distortion_styles[4];   /* 13: indices into BG_DISTORTION_TABLE */
 } BGLayerConfigEntry;
-
-/* SINE_LOOKUP_TABLE (asm/data/sine_table.asm): 256 signed bytes, peak +/-127,
- * a full turn over the index. Loaded from the donor ROM (data/sine_lookup_table.bin);
- * it is not round(127*sin) (60 entries differ by 1). */
-static inline int8_t sine_lookup(uint8_t index) {
-    return (int8_t)ASSET_DATA_SINE_LOOKUP_TABLE_BIN_DATA[index];
-}
 
 /* Two global instances matching LOADED_BG_DATA_LAYER1/LAYER2 in BSS */
 extern LoadedBGData loaded_bg_data_layer1;
