@@ -810,8 +810,11 @@ static void layout_menu_options(WindowInfo *w, uint16_t columns, uint16_t propor
      * Selecting it cycles through pages. */
     MenuItem *oi = needs_pagination ? alloc_menu_item(w) : NULL;
     if (oi) {
-        strncpy(oi->label, "...", MENU_LABEL_SIZE - 1);
-        oi->label[MENU_LABEL_SIZE - 1] = '\0';
+        /* LOADPTR MENU_OVERFLOW_TEXT (earthbound.yml data/menu_overflow_text):
+         * EB "tx6", printed after the arrow in an untitled window. */
+        size_t n = ASSET_SIZE(ASSET_DATA_MENU_OVERFLOW_TEXT_BIN);
+        if (n > MENU_LABEL_SIZE - 1) n = MENU_LABEL_SIZE - 1;
+        eb_to_ascii_buf(ASSET_DATA(ASSET_DATA_MENU_OVERFLOW_TEXT_BIN), (int)n, oi->label);
         oi->userdata = 0;
         oi->type = 2;
         oi->text_x = 0;

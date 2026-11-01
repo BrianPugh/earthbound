@@ -14982,6 +14982,13 @@ dumpEntries:
   size: 4
   extension: bin
   compressed: false
+# MENU_OVERFLOW_TEXT — the page-flip option's label, EB-encoded 'tx6' + NUL (4 bytes; asm/data/text/menu_overflow_text.asm in bank 03)
+- subdir: data
+  name: 'menu_overflow_text'
+  offset: 0x03E44C
+  size: 4
+  extension: bin
+  compressed: false
 # SRAM_SIGNATURE — save block signature, ASCIIZ (21 bytes; asm/data/sram_signature.asm in bank 2F)
 - subdir: data
   name: 'sram_signature'
