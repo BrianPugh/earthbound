@@ -383,20 +383,20 @@ StepResult mode_step_number_select(ModeState *ms) {
         /* Input latched by the previous frame's yield. LEFT/RIGHT move the digit
          * cursor; UP/DOWN (autorepeat) change the selected digit, wrapping 0-9;
          * any of these re-render. A/L confirm, B/SELECT cancel (returns -1). */
-        if (core.pad1_pressed & PAD_LEFT) {
-            if (st->cursor_pos < st->max_digits) {
-                play_sfx(2);  /* SFX::CURSOR2 */
-                st->cursor_pos++;
-                st->place_value *= 10;
-            }
+        /* A LEFT at the top digit or a RIGHT at the units digit does nothing
+         * and falls through to the next check in the same frame
+         * (num_select_prompt.asm: CMP max; BCS @CHECK_RIGHT and
+         * CMP #1; BLTEQ @CHECK_UP), with no re-render. */
+        if ((core.pad1_pressed & PAD_LEFT) && st->cursor_pos < st->max_digits) {
+            play_sfx(2);  /* SFX::CURSOR2 */
+            st->cursor_pos++;
+            st->place_value *= 10;
             return ns_render_tick(st);
         }
-        if (core.pad1_pressed & PAD_RIGHT) {
-            if (st->cursor_pos > 1) {
-                play_sfx(2);  /* SFX::CURSOR2 */
-                st->cursor_pos--;
-                st->place_value /= 10;
-            }
+        if ((core.pad1_pressed & PAD_RIGHT) && st->cursor_pos > 1) {
+            play_sfx(2);  /* SFX::CURSOR2 */
+            st->cursor_pos--;
+            st->place_value /= 10;
             return ns_render_tick(st);
         }
         if (core.pad1_autorepeat & PAD_UP) {

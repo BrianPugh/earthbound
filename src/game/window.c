@@ -669,6 +669,19 @@ static bool print_overflow_option(WindowInfo *w) {
     return true;
 }
 
+/* SETUP_MENU_OPTION_VWF — Port of asm/text/vwf/setup_menu_option_vwf.asm.
+ * Moves the focus text cursor to (x, y); for a pixel-aligned option also shifts
+ * VWF_X by the alignment and blanks the current VWF tile (MEMSET16 of 32 bytes
+ * of $FF). Clears RESTORE_MENU_BACKUP (US retail only). */
+static void setup_menu_option_vwf(const MenuItem *item, uint16_t x, uint16_t y) {
+    set_focus_text_cursor(x, y);
+    if (item->pixel_align) {
+        vwf_x += item->pixel_align;
+        memset(vwf_buffer + vwf_tile * VWF_TILE_BYTES, 0xFF, VWF_TILE_BYTES);
+    }
+    win.restore_menu_backup = 0;
+}
+
 /* CLEAR_MENU_OPTION_TEXT — Port of asm/text/clear_menu_option_text.asm.
  * Prints the marker tile 47 at the option's position (PRINT_CHAR_WITH_SOUND
  * advances text_x past it), starts a fresh VWF tile, and only for a
@@ -678,15 +691,8 @@ static void clear_menu_option_text(const MenuItem *item) {
     set_focus_text_cursor(item->text_x, item->text_y);
     print_char_with_sound(47);
     advance_vwf_tile();
-    if (item->pixel_align) {
-        /* SETUP_MENU_OPTION_VWF (asm/text/vwf/setup_menu_option_vwf.asm):
-         * move the cursor, shift VWF_X by the alignment and blank the
-         * current VWF tile (MEMSET16 of 32 bytes of $FF). */
-        set_focus_text_cursor(item->text_x + 1, item->text_y);
-        vwf_x += item->pixel_align;
-        memset(vwf_buffer + vwf_tile * VWF_TILE_BYTES, 0xFF, VWF_TILE_BYTES);
-        win.restore_menu_backup = 0;
-    }
+    if (item->pixel_align)
+        setup_menu_option_vwf(item, item->text_x + 1, item->text_y);
 }
 
 void print_menu_items(void) {
@@ -1773,8 +1779,7 @@ static void sm_setup_pre(WindowInfo *w) {
          * (SET_FILE_SELECT_TEXT_HIGHLIGHT with X = 0, A = -1). */
         MenuItem *prev = window_menu_item(w, w->selected_option);
         set_instant_printing();
-        set_focus_text_cursor(prev->text_x + 1, prev->text_y);
-        win.restore_menu_backup = 0;  /* setup_menu_option_vwf.asm:42-45 */
+        setup_menu_option_vwf(prev, prev->text_x + 1, prev->text_y);
         set_file_select_text_highlight((uint16_t)-1, false, prev->label);
         w->current_option = w->selected_option;
     } else {
@@ -1795,6 +1800,24 @@ static void sm_setup_pre(WindowInfo *w) {
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
         w->cursor_move_callback(val);
     }
+}
+
+/* @SETUP_CURRENT_OPTION tail before its WINDOW_TICK (asm/text/selection_menu.asm
+ * lines 170-185): SETUP_MENU_OPTION_VWF at the current option, then the cursor
+ * marker tile 33 (entries $0441/$0451, the big cursor frame) in palette 1. This
+ * puts the cursor into the window tilemap, so every full BG2 upload (the
+ * WINDOW_TICK right after, an HP/PP popup, a redraw of all windows) shows it;
+ * the blink loop only pokes VRAM on top. It stays there after a B cancel and
+ * leaves the window text cursor at (text_x + 1, text_y). @OPTION_FOUND and the
+ * confirm path overwrite it with tile 47. */
+static void sm_write_cursor_marker(WindowInfo *w) {
+    if (w->current_option >= w->menu_count)
+        return;
+    const MenuItem *ci = window_menu_item(w, w->current_option);
+    setup_menu_option_vwf(ci, ci->text_x, ci->text_y);
+    set_window_palette_index(1);
+    set_tile_attribute_and_redraw(33);
+    set_window_palette_index(0);
 }
 
 /* SM_SETUP cursor/frame init tail (assembly line 188): runs after the setup
@@ -1822,6 +1845,7 @@ static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
      * to VRAM, run one full frame. On a parked actionscript callroutine, push it
      * and finish the cursor init at the SMF_SETUP flush. */
     clear_instant_printing();
+    sm_write_cursor_marker(w);
     if (window_tick_work_step()) {
         st->sm_flush = SMF_SETUP;
         return actionscript_frame_take_push();
@@ -1834,12 +1858,14 @@ static StepResult sm_setup_finish(WindowInfo *w, SelectionMenuState *st) {
  * window_tick (park-propagating), then arm the render-only next frame at SM_MAIN.
  * Runs inline from sm_setup_current_option(). On a parked window frame, the
  * redraw/primed/SM_MAIN tail runs at the SMF_MOVE flush. */
-static StepResult sm_move_tick(SelectionMenuState *st) {
+static StepResult sm_move_tick(WindowInfo *w, SelectionMenuState *st) {
     clear_instant_printing();
+    sm_write_cursor_marker(w);
     if (window_tick_work_step()) {
         st->sm_flush = SMF_MOVE;
         return actionscript_frame_take_push();
     }
+    st->cursor_frame = 1;   /* LDA #1; STA @VIRTUAL02: the blink restarts on frame 0 */
     st->redraw_cursor = 1;
     st->primed = 0;
     st->phase = SM_MAIN;
@@ -1860,7 +1886,7 @@ static StepResult sm_move_tick(SelectionMenuState *st) {
 static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st) {
     st->idle_ticks = 0;   /* STZ @LOCAL09 */
     if (w->current_option >= w->menu_count)
-        return sm_move_tick(st);
+        return sm_move_tick(w, st);
     MenuItem *ci = window_menu_item(w, w->current_option);
     if (ci->script != 0) {
         set_instant_printing();
@@ -1871,7 +1897,7 @@ static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st)
         w->cursor_move_callback(val);
         set_window_focus(w->id);
     }
-    return sm_move_tick(st);
+    return sm_move_tick(w, st);
 }
 
 /* SM_MAIN input handling (assembly @CURSOR_BLINK_LOOP body after the per-frame
@@ -1916,8 +1942,11 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
                                   /*sfx=*/2);  /* SFX::CURSOR2 */
     }
 
-    /* Held buttons: FIND_NEXT_MENU_OPTION directly (no wrap) */
-    if (move_result == -1 && !pressed) {
+    /* Held buttons: FIND_NEXT_MENU_OPTION directly (no wrap). The asm tests
+     * PAD_HELD whenever no direction is newly pressed (lines 350-427), before
+     * @CHECK_CONFIRM, so an A press on an autorepeat frame is dropped. */
+    bool dir_input = (pressed & PAD_DPAD) != 0;
+    if (!dir_input) {
         uint16_t held = core.pad1_autorepeat;
         uint16_t held_sfx = 0;
         if (held & PAD_UP) {
@@ -1933,6 +1962,8 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
             move_result = find_next_menu_option(w, text_x, text_y, 0, 1);
             held_sfx = 2;  /* SFX::CURSOR2 */
         }
+        if (held & PAD_DPAD)
+            dir_input = true;
         if (move_result != -1)
             play_sfx(held_sfx);
     }
@@ -1943,12 +1974,22 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
      * @SETUP_CURRENT_OPTION → WINDOW_TICK → @CURSOR_BLINK_LOOP to re-render. The
      * window_tick is a CONTINUE here; primed=0 makes the next frame render-only
      * (no input) so the move's extra yield is reproduced exactly. */
-    if (move_result != -1) {
-        int16_t new_option = resolve_cursor_move(w, move_result);
-        if (new_option >= 0) {
+    if (dir_input) {
+        int16_t new_option = (move_result != -1) ? resolve_cursor_move(w, move_result) : -1;
+        if (new_option >= 0 && w->current_option < w->menu_count) {
+            /* @OPTION_FOUND (lines 620-627): SETUP_MENU_OPTION_VWF at the old
+             * option, then tile 47 over its cursor marker. */
+            const MenuItem *old = window_menu_item(w, w->current_option);
+            setup_menu_option_vwf(old, old->text_x, old->text_y);
+            set_tile_attribute_and_redraw(47);
             w->current_option = (uint16_t)new_option;
-            return sm_setup_current_option(w, st);
         }
+        /* Lines 573-575: a direction that finds no option (-1) still jumps to
+         * @SETUP_CURRENT_OPTION for the same option: the idle count, hover
+         * script and callback rerun, the WINDOW_TICK costs a frame and the
+         * blink restarts on the big frame. Holding a direction against the
+         * end of a list therefore keeps the cursor solid. */
+        return sm_setup_current_option(w, st);
     }
 
     if (pressed & PAD_CONFIRM) {
@@ -2002,8 +2043,7 @@ static StepResult sm_handle_input(WindowInfo *w, SelectionMenuState *st, bool *h
          * window's text_y to redraw the chosen row, so without this they print
          * on whichever row was printed last. */
         set_instant_printing();
-        set_focus_text_cursor(sel->text_x, sel->text_y);
-        win.restore_menu_backup = 0;  /* setup_menu_option_vwf.asm:42-45 */
+        setup_menu_option_vwf(sel, sel->text_x, sel->text_y);
         set_tile_attribute_and_redraw(47);
         /* Assembly lines 444-485: highlight the confirmed option in palette 6,
          * from the text cursor SET_TILE_ATTRIBUTE_AND_REDRAW just advanced:
@@ -2095,6 +2135,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
             return sm_setup_finish_tail(st);
         case SMF_MOVE:
             window_tick_work_flush();
+            st->cursor_frame = 1;
             st->redraw_cursor = 1;
             st->primed = 0;
             st->phase = SM_MAIN;
@@ -2106,6 +2147,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
             return STEP_RESULT_CONTINUE();
         case SMF_PAGE2:
             window_tick_work_flush();
+            st->cursor_frame = 1;
             st->redraw_cursor = 1;
             st->primed = 0;
             st->phase = SM_MAIN;
