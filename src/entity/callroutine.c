@@ -1333,7 +1333,10 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         return is_psi_animation_active() ? 1 : 0;
 
     case ROM_ADDR_SETUP_FULLSCREEN_WINDOW_CLIPPING:
-        /* Port of C4240A: set windows 1+2 to fullscreen, enable BG1+BG2+OBJ masking */
+        /* Port of C4240A: set windows 1+2 to fullscreen, enable BG1+BG2+OBJ masking.
+         * The WH2/WH3 values only last until the next NMI, which empties
+         * window 2 again (host_process_frame), so script 583's colour
+         * window is the rect HDMA window alone. */
         *out_pc = pc;
         ppu.wh0 = 0x00;
         ppu.wh2 = 0x00;

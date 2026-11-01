@@ -260,7 +260,8 @@ static void parse_hdma_to_window_buffer(const uint8_t *data, size_t data_size) {
         /* Individual mode: one entry per scanline; repeat mode: one entry
          * held for `count` scanlines. */
         bool individual = (count_byte & 0x80) != 0;
-        int count = individual ? (count_byte & 0x7F) : count_byte;
+        /* A $80 count byte is 128 repeat-mode lines on hardware. */
+        int count = individual ? ((count_byte & 0x7F) ? (count_byte & 0x7F) : 128) : count_byte;
         uint16_t w1 = 0xFF00, w2 = 0xFF00;
         for (int i = 0; i < count && scanline < max_scanline; i++) {
             if (individual || i == 0) {
@@ -467,10 +468,10 @@ static void generate_oval_window_data(int16_t centre_x, int16_t centre_y,
 
 /* Copy HDMA buffers to PPU per-scanline window tables.
  * A mode-1 table (oval window, 2-register swirl frames) writes only WH0/WH1;
- * WH2/WH3 then keep whatever value the registers last held, which is the
- * static ppu.wh2/wh3. A mode-4 table also drives WH2/WH3 per scanline, and
- * the registers keep its last scanline's values after the frame, so latch
- * those into ppu.wh2/wh3 for a following mode-1 frame. */
+ * WH2/WH3 then hold the empty window ($FF/$00) that every NMI writes
+ * (irq_nmi.asm, reproduced in host_process_frame), so a mode-4 frame's last
+ * scanline does not carry over into a following mode-1 frame. A mode-4 table
+ * also drives WH2/WH3 per scanline. */
 static void apply_hdma_to_ppu(void) {
     for (int i = 0; i < EB_VIEWPORT_HEIGHT; i++) {
         uint16_t packed = swirl_window_hdma_buffer[i];
@@ -485,9 +486,6 @@ static void apply_hdma_to_ppu(void) {
             ppu.wh2_table[i] = (packed >> 8) & 0xFF;
             ppu.wh3_table[i] = packed & 0xFF;
         }
-        uint16_t last = swirl_window2_hdma_buffer[EB_VIEWPORT_PAD_TOP + SNES_HEIGHT - 1];
-        ppu.wh2 = (last >> 8) & 0xFF;
-        ppu.wh3 = last & 0xFF;
         ppu.window2_hdma_active = true;
     } else {
         ppu.window2_hdma_active = false;

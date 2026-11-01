@@ -374,6 +374,16 @@ void host_process_frame(void) {
      * and copies PALETTES → CGRAM when set. */
     sync_palettes_to_cgram();
 
+    /* NMI handler: WH2/WH3 = $FF/$00 (window 2 empty) every vblank
+     * (irq_nmi.asm:123-125; the WH2_MIRROR load there is overwritten by
+     * LDY #$00FF before the 16-bit STY WH2). Direct WH2/WH3 writes by game
+     * code (SETUP_FULLSCREEN_WINDOW_CLIPPING) and the last row of a mode-4
+     * HDMA frame therefore don't persist into the next frame; a window-2
+     * HDMA table (window2_hdma_active) overrides this per scanline.
+     * WH0/WH1 are not touched by the NMI. */
+    ppu.wh2 = 0xFF;
+    ppu.wh3 = 0x00;
+
     t1 = platform_timer_ticks();
 
     /* Initialize frame-skip deadline on first call */

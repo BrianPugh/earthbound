@@ -90,18 +90,30 @@ void ppu_cgram_write(uint8_t index, uint16_t color) {
 void ppu_vram_dma(const uint8_t *src, uint16_t vram_word_addr, uint16_t byte_count) {
     /* SNES DMA: size 0 means 65536 bytes (full 64KB transfer) */
     uint32_t count = byte_count ? byte_count : 0x10000;
-    uint32_t byte_addr = (uint32_t)vram_word_addr * 2;
-    if (byte_addr + count <= VRAM_SIZE) {
-        memcpy(&ppu.vram[byte_addr], src, count);
+    /* The VRAM word address is 15 bits, so a transfer past the end wraps to 0. */
+    uint32_t byte_addr = ((uint32_t)vram_word_addr * 2) % VRAM_SIZE;
+    while (count > 0) {
+        uint32_t chunk = VRAM_SIZE - byte_addr;
+        if (chunk > count) chunk = count;
+        memcpy(&ppu.vram[byte_addr], src, chunk);
+        src += chunk;
+        count -= chunk;
+        byte_addr = 0;
     }
 }
 
 void ppu_cgram_dma(const uint8_t *src, uint8_t start_color, uint16_t byte_count) {
     /* SNES DMA: size 0 means 65536 bytes */
     uint32_t count = byte_count ? byte_count : 0x10000;
-    uint16_t offset = (uint16_t)start_color * 2;
-    if (offset + count <= CGRAM_SIZE) {
-        memcpy((uint8_t *)ppu.cgram + offset, src, count);
+    /* The CGRAM byte address is 9 bits, so a transfer past the end wraps to 0. */
+    uint32_t offset = (uint32_t)start_color * 2;
+    while (count > 0) {
+        uint32_t chunk = CGRAM_SIZE - offset;
+        if (chunk > count) chunk = count;
+        memcpy((uint8_t *)ppu.cgram + offset, src, chunk);
+        src += chunk;
+        count -= chunk;
+        offset = 0;
     }
 }
 
