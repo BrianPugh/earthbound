@@ -316,7 +316,7 @@ int16_t cr_set_entity_movement_speed(int16_t entity_offset, int16_t script_offse
     uint16_t speed = sw(pc);
     *out_pc = pc + 2;
     entities.movement_speeds[entity_offset] = speed;
-    return 0;
+    return (int16_t)speed;  /* asm leaves A = speed */
 }
 
 int16_t cr_set_entity_movement_speed_entry2(int16_t entity_offset, int16_t script_offset,
@@ -324,7 +324,7 @@ int16_t cr_set_entity_movement_speed_entry2(int16_t entity_offset, int16_t scrip
     /* Entry2: uses tempvar (A register) as speed instead of reading from stream */
     *out_pc = pc;
     entities.movement_speeds[entity_offset] = (uint16_t)scripts.tempvar[script_offset];
-    return 0;
+    return scripts.tempvar[script_offset];  /* A is preserved */
 }
 
 int16_t cr_get_entity_movement_speed(int16_t entity_offset, int16_t script_offset,
@@ -343,7 +343,7 @@ int16_t cr_set_direction8(int16_t entity_offset, int16_t script_offset,
     if (entities.pathfinding_states[entity_offset] >= 0)
         entities.directions[entity_offset] = (int8_t)dir;
     entities.moving_directions[entity_offset] = (int8_t)dir;
-    return 0;
+    return dir;  /* SET_DIRECTION returns A = dir */
 }
 
 int16_t cr_set_direction(int16_t entity_offset, int16_t script_offset,
@@ -410,7 +410,7 @@ int16_t cr_set_surface_flags(int16_t entity_offset, int16_t script_offset,
     uint8_t flags = sb(pc);
     *out_pc = pc + 1;
     entities.surface_flags[entity_offset] = flags;
-    return 0;
+    return flags;  /* asm leaves A = flags */
 }
 
 int16_t cr_set_entity_velocity_from_dir(int16_t entity_offset, int16_t script_offset,

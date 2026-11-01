@@ -861,8 +861,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t x = entities.abs_x[offset];
         int16_t y = entities.abs_y[offset];
         uint16_t size = entities.sizes[offset];
-        entities.surface_flags[offset] = lookup_surface_flags(x, y, size);
-        return 0;
+        uint16_t flags = lookup_surface_flags(x, y, size);
+        entities.surface_flags[offset] = (uint8_t)flags;
+        return (int16_t)flags;  /* asm returns A = flags */
     }
     case ROM_ADDR_SET_NPC_DIR_FROM_FLAG: {
         /* C0C353/C0C30C: SET_NPC_DIRECTION_FROM_FLAG — reads the NPC config's
@@ -1198,9 +1199,10 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
     }
 
     case ROM_ADDR_NULL_CALLROUTINE:
-        /* Port of C4CC2C NULL_CALLROUTINE — pure no-op. */
+        /* Port of C4CC2C NULL_CALLROUTINE — pure no-op (REP; RTL), so A
+         * and with it tempvar are preserved. */
         *out_pc = pc;
-        return 0;
+        return scripts.tempvar[script_offset];
 
     case ROM_ADDR_FORCE_RENDER_ENTITY_SPRITE:
         /* Port of C0AAAC FORCE_RENDER_ENTITY_SPRITE.

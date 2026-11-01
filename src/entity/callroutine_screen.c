@@ -836,9 +836,11 @@ int16_t cr_movement_cmd_calc_travel_frames(int16_t entity_offset, int16_t script
 
 int16_t cr_movement_cmd_return_2(int16_t entity_offset, int16_t script_offset,
                                  uint16_t pc, uint16_t *out_pc) {
-    /* Assembly: LDX #$0002; RTL — always returns 2. */
+    /* Assembly: LDX #$0002; RTL. The 2 goes to X, so A (tempvar) is
+     * unchanged; the callroutine's result is the incoming tempvar. */
+    (void)entity_offset;
     *out_pc = pc;
-    return 2;
+    return scripts.tempvar[script_offset];
 }
 
 int16_t cr_is_entity_near_leader(int16_t entity_offset, int16_t script_offset,
