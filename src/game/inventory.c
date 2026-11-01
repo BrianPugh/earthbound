@@ -1372,7 +1372,8 @@ uint16_t try_fix_broken_item(uint16_t fix_probability) {
 
     for (int i = 0; i < ITEM_INVENTORY_SIZE; i++) {
         uint8_t item_id = jeff->items[i];
-        if (item_id == 0) continue;
+        /* @LOAD_NEXT_ITEM: the first empty slot ends the scan (BNEL). */
+        if (item_id == 0) break;
 
         const ItemConfig *entry = get_item_entry(item_id);
         if (!entry) continue;
@@ -1756,8 +1757,13 @@ void reset_char_level_one(uint16_t char_id, uint16_t target_level, uint16_t set_
     recalc_character_postmath_vitality(char_id);
     recalc_character_postmath_iq(char_id);
 
-    /* Assembly lines 81-92: level up (target_level - 1) times */
-    for (uint16_t i = 1; i < target_level; i++) {
+    /* Assembly lines 81-92: level up (target_level - 1) times. The asm
+     * pre-decrements a 16-bit counter and loops while it is nonzero, so a
+     * target of 0 wraps to $FFFF and runs 65535 level-ups (only the debug
+     * set-level reaches it). Modelled as-is: the silent level-up only does
+     * bounded table reads and the level byte wraps back to 0. */
+    uint16_t remaining = target_level;
+    while (--remaining != 0) {
         level_up_char_silent(char_id);  /* play_sound = 0 */
     }
 

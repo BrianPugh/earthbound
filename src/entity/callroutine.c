@@ -916,7 +916,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t dy = (int16_t)game_state.leader_y_coord - entities.abs_y[offset];
         uint16_t abs_dx = (uint16_t)(dx < 0 ? -dx : dx);
         uint16_t abs_dy = (uint16_t)(dy < 0 ? -dy : dy);
-        uint16_t dist = abs_dx + abs_dy;
+        /* The asm's CLC; SBC #k; BRANCHLTEQS tests are signed, so a sum
+         * >= $8000 would read as close (0). */
+        int16_t dist = (int16_t)(uint16_t)(abs_dx + abs_dy);
         if (dist > 256) return 3;
         if (dist > 160) return 2;
         if (dist > 128) return 1;
@@ -938,7 +940,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t dy = (int16_t)game_state.leader_y_coord - entities.abs_y[offset];
         uint16_t abs_dx = (uint16_t)(dx < 0 ? -dx : dx);
         uint16_t abs_dy = (uint16_t)(dy < 0 ? -dy : dy);
-        uint16_t dist = abs_dx + abs_dy;
+        /* The asm's CLC; SBC #k; BRANCHLTEQS tests are signed, so a sum
+         * >= $8000 would read as close (0). */
+        int16_t dist = (int16_t)(uint16_t)(abs_dx + abs_dy);
         if (dist > 128) return 3;
         if (dist > 80) return 2;
         if (dist > 64) return 1;
@@ -1527,7 +1531,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
          * Called before palette fades to update the backup with current state. */
         *out_pc = pc;
         memcpy(ml.map_palette_backup, ert.palettes, 256 * sizeof(uint16_t));
-        ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+        /* PALETTE_UPLOAD_MODE is left alone: ert.palettes didn't change. */
         return 0;
 
     case ROM_ADDR_STEER_ENTITY_TOWARD_DIRECTION: {
@@ -2007,7 +2011,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t dy = (int16_t)game_state.leader_y_coord - entities.abs_y[ent];
         uint16_t abs_dx = (uint16_t)(dx < 0 ? -dx : dx);
         uint16_t abs_dy = (uint16_t)(dy < 0 ? -dy : dy);
-        uint16_t dist = abs_dx + abs_dy;
+        /* The asm's CLC; SBC #k; BRANCHLTEQS tests are signed, so a sum
+         * >= $8000 would read as close (0). */
+        int16_t dist = (int16_t)(uint16_t)(abs_dx + abs_dy);
         int16_t classification;
         if (dist > 256)      classification = 3;
         else if (dist > 160) classification = 2;

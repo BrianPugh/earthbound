@@ -267,9 +267,17 @@ static void tick_entity_pathfinding_step(int16_t entity_offset) {
     int16_t diff_x = from_x - target_x;
     int16_t diff_y = from_y - target_y;
     if (abs(diff_x) < 3 && abs(diff_y) < 3) {
-        /* Reached waypoint — advance to next */
-        ert.entity_path_point_counts[ent]--;
-        if (ert.entity_path_point_counts[ent] > 0) {
+        /* Reached waypoint — advance to next. The asm's DEY / BEQ tests the
+         * 16-bit count for exactly 0, so a count of 0 wraps to $FFFF and the
+         * entity walks on through the stale slot data (only a 0-point
+         * delivery path reaches it). Modelled with a uint16_t wrap; the
+         * asm then reads WRAM past the path buffer, which the port can't
+         * model, so the path ends there instead of reading out of bounds. */
+        uint16_t count = (uint16_t)ert.entity_path_point_counts[ent] - 1;
+        ert.entity_path_point_counts[ent] = (int16_t)count;
+        if (count != 0 && (uint32_t)path_ptr + 8 > DELIVERY_PATHS_SIZE) {
+            ert.entity_path_point_counts[ent] = 0;
+        } else if (count != 0) {
             path_ptr += 4;
             ert.entity_path_points[ent] = path_ptr;
 
@@ -286,7 +294,7 @@ static void tick_entity_pathfinding_step(int16_t entity_offset) {
         }
     }
 
-    if (ert.entity_path_point_counts[ent] > 0) {
+    if (ert.entity_path_point_counts[ent] != 0) {
         /* Set direction and velocity toward target */
         uint16_t fine_dir = calculate_direction_fine(from_x, from_y, target_x, target_y);
         set_entity_velocity_from_direction(ent, fine_dir);

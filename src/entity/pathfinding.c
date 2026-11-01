@@ -13,6 +13,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Pixel -> tile coordinate for the pathfinder: the asm's LSR LSR LSR is a
+ * logical shift of the 16-bit (abs - collision offset [+ hitbox]) value. */
+static inline int16_t pf_tile(int v) {
+    return (int16_t)((uint16_t)v >> 3);
+}
+
 /* Read party entity slot from the packed byte array */
 #define READ_PARTY_SLOT(i) \
     read_u16_le(&game_state.party_entity_slots[(i)*2])
@@ -697,14 +703,14 @@ static void calculate_pathfinding_targets(PathfindingState *state,
         int16_t size = entities.sizes[ent];
 
         /* target_x = (abs_x - collision_x_offset[size]) / 8 - origin_x, wrapped to 0-63 */
-        int16_t tx = ((entities.abs_x[ent] - entity_collision_x_offset[size]) >> 3)
+        int16_t tx = pf_tile(entities.abs_x[ent] - entity_collision_x_offset[size])
                      - origin_x;
         tx &= 0x3F;
         state->targets[i].x = tx;
 
         /* target_y = (abs_y - collision_y_offset[size] + hitbox_enable[size]) / 8 - origin_y */
-        int16_t ty = ((entities.abs_y[ent] - entity_collision_y_offset[size]
-                       + sprite_hitbox_enable[size]) >> 3)
+        int16_t ty = pf_tile(entities.abs_y[ent] - entity_collision_y_offset[size]
+                             + sprite_hitbox_enable[size])
                      - origin_y;
         ty &= 0x3F;
         state->targets[i].y = ty;
@@ -774,13 +780,13 @@ static int16_t initialize_pathfinding_for_entities(
         pf->hitbox.y = entity_collision_height_table[size];
 
         /* Compute grid-relative position */
-        int16_t gx = ((entities.abs_x[ent] - entity_collision_x_offset[size]) >> 3)
+        int16_t gx = pf_tile(entities.abs_x[ent] - entity_collision_x_offset[size])
                       - origin_x;
         gx &= 0x3F;
         pf->origin.x = gx;
 
-        int16_t gy = ((entities.abs_y[ent] - entity_collision_y_offset[size]
-                        + sprite_hitbox_enable[size]) >> 3)
+        int16_t gy = pf_tile(entities.abs_y[ent] - entity_collision_y_offset[size]
+                              + sprite_hitbox_enable[size])
                       - origin_y;
         gy &= 0x3F;
         pf->origin.y = gy;
@@ -886,10 +892,10 @@ PathfindingState *find_path_to_party(int16_t party_count, int16_t radius_x,
 
     /* Compute pathfinding centre (tile coordinates of leader) */
     ert.pathfinding_target_centre_x =
-        (entities.abs_x[leader_ent] - entity_collision_x_offset[leader_size]) >> 3;
+        pf_tile(entities.abs_x[leader_ent] - entity_collision_x_offset[leader_size]);
     ert.pathfinding_target_centre_y =
-        (entities.abs_y[leader_ent] - entity_collision_y_offset[leader_size]
-         + sprite_hitbox_enable[leader_size]) >> 3;
+        pf_tile(entities.abs_y[leader_ent] - entity_collision_y_offset[leader_size]
+                + sprite_hitbox_enable[leader_size]);
 
     /* Compute grid origin (top-left corner in tile coords) */
     int16_t origin_x = ert.pathfinding_target_centre_x - half_w;
@@ -934,9 +940,9 @@ int16_t pathfind_to_current_entity(void) {
     int16_t cur_size = entities.sizes[cur_ent];
 
     /* Compute tile coordinates of the current entity */
-    int16_t tile_x = (entities.abs_x[cur_ent] - entity_collision_x_offset[cur_size]) >> 3;
-    int16_t tile_y = (entities.abs_y[cur_ent] - entity_collision_y_offset[cur_size]
-                      + sprite_hitbox_enable[cur_size]) >> 3;
+    int16_t tile_x = pf_tile(entities.abs_x[cur_ent] - entity_collision_x_offset[cur_size]);
+    int16_t tile_y = pf_tile(entities.abs_y[cur_ent] - entity_collision_y_offset[cur_size]
+                              + sprite_hitbox_enable[cur_size]);
     ert.pathfinding_target_centre_x = tile_x;
     ert.pathfinding_target_centre_y = tile_y;
 
@@ -984,9 +990,9 @@ int16_t pathfind_to_party_leader(void) {
     int16_t leader_size = entities.sizes[leader_ent];
 
     /* Compute tile coordinates of leader */
-    int16_t tile_x = (entities.abs_x[leader_ent] - entity_collision_x_offset[leader_size]) >> 3;
-    int16_t tile_y = (entities.abs_y[leader_ent] - entity_collision_y_offset[leader_size]
-                      + sprite_hitbox_enable[leader_size]) >> 3;
+    int16_t tile_x = pf_tile(entities.abs_x[leader_ent] - entity_collision_x_offset[leader_size]);
+    int16_t tile_y = pf_tile(entities.abs_y[leader_ent] - entity_collision_y_offset[leader_size]
+                              + sprite_hitbox_enable[leader_size]);
     ert.pathfinding_target_centre_x = tile_x;
     ert.pathfinding_target_centre_y = tile_y;
 
