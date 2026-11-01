@@ -718,9 +718,6 @@ void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t wi
         char_id = char_source;
     }
 
-    if (char_id == 0 || char_id > 6) return;
-    uint16_t char_idx = char_id - 1;
-
     /* Pre-processing: if main text window is focused, prepare for overlay.
      * Assembly lines 46-71: clears tilemap, resets cursor, saves attributes. */
     if (win.current_focus_window == 1) {
@@ -742,6 +739,12 @@ void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t wi
         save_window_text_attributes_to(state_attrs);
         dt.force_left_text_alignment = 0;
     }
+
+    /* The asm runs the pre-processing above for any id and then reads the
+     * char_struct before/after PARTY_CHARACTERS for 0 or > 6; the port stops
+     * there (no script passes such an id). */
+    if (char_id == 0 || char_id > 6) return;
+    uint16_t char_idx = char_id - 1;
 
     /* --- INVENTORY_GET_ITEM_NAME (asm/misc/inventory_get_item_name.asm) ---
      * Creates the window, sets title to character name, populates items. */

@@ -1859,6 +1859,10 @@ static void cc_19_load_string_to_memory(ScriptReader *r) {
     char label_buf[MENU_LABEL_SIZE];
     int pos = 0;
     uint8_t b;
+    /* CC_19_02 itself stores the first byte unconditionally (load_string.asm),
+     * so only CC_GATHER_MENU_OPTION_TEXT's later bytes can be 0x01/0x02. */
+    if (r->ptr_off < r->end_off)
+        label_buf[pos++] = eb_char_to_ascii(script_read_byte(r));
     while (r->ptr_off < r->end_off && pos < MENU_LABEL_SIZE - 1) {
         b = script_read_byte(r);
         if (b == 0x01) {
@@ -3477,7 +3481,7 @@ bool cc_1e_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          * Calls RESET_CHAR_LEVEL_ONE(A=char_id, X=level, Y=1). */
         uint8_t char_arg = script_read_byte(r);
         uint8_t level_arg = script_read_byte(r);
-        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFF);
+        uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
         uint16_t level = level_arg ? (uint16_t)level_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
         reset_char_level_one(char_id, level, 1);
         break;
