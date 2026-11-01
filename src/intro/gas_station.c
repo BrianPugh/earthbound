@@ -192,6 +192,44 @@ static void gas_station_load(void) {
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
 }
 
+/* GAS_STATION's 30-frame final wait: WAIT_FRAMES_OR_UNTIL_PRESSED(30) returns
+ * early on any PAD_PRESS; its result is discarded, so GAS_STATION still returns
+ * 0. Check-at-top so it yields exactly 30 frames before the terminal pop (which
+ * does not yield). */
+static StepResult gas_station_final_wait_step(GasStationState *s) {
+    if (s->remaining == 0 || platform_input_get_pad_new())
+        return STEP_RESULT_POP(0);
+    s->remaining--;
+    return STEP_RESULT_CONTINUE();
+}
+
+/* GAS_STATION's 330-frame fade to white (gas_station.asm:24-37): the loop
+ * checks its counter first, then PAD_PRESS, UPDATE_MAP_PALETTE_ANIMATION and the
+ * wait. Plain sync (not gas_station_sync_palettes) so the backdrop cgram[0]
+ * whitens along with the gutters. After the 330th wait the screen is cleared
+ * (TM 0, palettes) and the final wait starts in the same frame. */
+static StepResult gas_station_fade_step(GasStationState *s) {
+    if (s->remaining == 0) {
+        /* Clear the screen + palettes, restore BG2 centering (yield-free). */
+        ppu.tm = 0;
+        memset(ert.palettes, 0, sizeof(ert.palettes));
+        ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
+        sync_palettes_to_cgram();
+        ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
+        ppu.sprite_y_offset = 0;
+        ppu.ts = 0x00;
+        s->phase = GS_PH6;
+        s->remaining = 30;
+        return gas_station_final_wait_step(s);
+    }
+    if (platform_input_get_pad_new())
+        return STEP_RESULT_POP(1);
+    update_map_palette_animation();
+    sync_palettes_to_cgram();
+    s->remaining--;
+    return STEP_RESULT_CONTINUE();
+}
+
 /* ---- GAME_MODE_GAS_STATION ------------------------------------------------
  * Run-to-completion port of the blocking gas_station() below. See the
  * GasStationState comment in mode_stack.h. The single yield is owned by the
@@ -289,9 +327,12 @@ StepResult mode_step_gas_station(ModeState *st) {
             for (int i = 0; i < BUF_FADE_COLOR_COUNT; i++)
                 wfade->target[i] = 0x7FFF;
             prepare_palette_fade_slopes(330, 0xFFFF);
+            /* RUN_GAS_STATION_CREDITS returns at once and GAS_STATION's fade
+             * loop runs its first palette step before the next wait
+             * (run_gas_station_credits.asm:101-109, gas_station.asm:24-37). */
             s->phase = GS_PH5;
             s->remaining = 330;
-            return STEP_RESULT_CONTINUE();
+            return gas_station_fade_step(s);
         }
         /* A script callroutine (the gas-station cutscene has dialogue) may park
          * the frame: STEP_PUSH GAME_MODE_ACTIONSCRIPT_FRAME and run the palette
@@ -310,35 +351,10 @@ StepResult mode_step_gas_station(ModeState *st) {
         return STEP_RESULT_CONTINUE();
 
     case GS_PH5:
-        /* 330-frame fade to white. Plain sync (not gas_station_sync_palettes)
-         * so the backdrop cgram[0] whitens along with the gutters. */
-        if (platform_input_get_pad_new())
-            return STEP_RESULT_POP(1);
-        update_map_palette_animation();
-        sync_palettes_to_cgram();
-        if (--s->remaining == 0) {
-            /* Clear the screen + palettes, restore BG2 centering (yield-free). */
-            ppu.tm = 0;
-            memset(ert.palettes, 0, sizeof(ert.palettes));
-            ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
-            sync_palettes_to_cgram();
-            ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
-            ppu.sprite_y_offset = 0;
-            ppu.ts = 0x00;
-            s->phase = GS_PH6;
-            s->remaining = 30;
-        }
-        return STEP_RESULT_CONTINUE();
+        return gas_station_fade_step(s);
 
     case GS_PH6:
-        /* 30-frame final wait: WAIT_FRAMES_OR_UNTIL_PRESSED(30) returns early
-         * on any PAD_PRESS; its result is discarded, so GAS_STATION still
-         * returns 0. Check-at-top so it yields exactly 30 frames before the
-         * terminal pop (which does not yield). */
-        if (s->remaining == 0 || platform_input_get_pad_new())
-            return STEP_RESULT_POP(0);
-        s->remaining--;
-        return STEP_RESULT_CONTINUE();
+        return gas_station_final_wait_step(s);
     }
     return STEP_RESULT_POP(0);
 }

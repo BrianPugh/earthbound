@@ -2142,8 +2142,8 @@ typedef struct {
  * TEXT_INPUT (the on-screen keyboard) -> NAMING_EVENTS (walk-out animation wait).
  * The naming loop advances/retreats on the keyboard result; the confirmation
  * screen pushes SELECTION_MENU and, on Yep, counts a 180-frame settle before the
- * synchronous game-state initialisation. Nope restarts from NGN_ENTER (the
- * original recursion). All yield-free setup/finalize runs inline at the phase
+ * synchronous game-state initialisation. Nope clears the entities and restarts
+ * at NGN_LOOP_HEAD (the asm's @START_NAMING). All yield-free setup/finalize runs inline at the phase
  * boundaries.
  *
  * Pops 1 when the game is started (overworld follows), 0 when the player backs
@@ -2156,7 +2156,8 @@ typedef enum {
     NGN_EVENTS_DONE,    /* walk-out done: advance / retreat / back out */
     NGN_CONFIRM_BUILD,  /* fill defaults, build confirmation windows, push SELECTION_MENU */
     NGN_CONFIRM_DONE,   /* Nope -> restart; Yep -> change music + settle */
-    NGN_CONFIRM_WAIT,   /* 180-frame confirmation-animation settle */
+    NGN_CONFIRM_WAIT,   /* WINDOW_TICK + 180 RENDER_FRAME_TICKs (actionscripts run) */
+    NGN_CONFIRM_FLUSH,  /* resume after a parked actionscript frame in NGN_CONFIRM_WAIT */
     NGN_FINALIZE,       /* initialise character stats/position/prologue, POP 1 */
 } NewGameNamingPhase;
 

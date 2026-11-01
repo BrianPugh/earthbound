@@ -185,7 +185,8 @@ StepResult mode_step_init_intro(ModeState *ms) {
              * The yield-free file-menu setup runs inline (file_menu_setup); the
              * cascade runs as GAME_MODE_FILE_MENU. */
             init_intro_exit_cleanup();
-            change_music(3); /* MUSIC::SETUP_SCREEN */
+            /* No CHANGE_MUSIC here: FILE_SELECT_MENU starts MUSIC::SETUP_SCREEN
+             * once the fade-in is done (file_select_menu.asm:262-267, FM_SELECT). */
             file_menu_setup();
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             g_mode_push_init.file_menu.phase = FM_FADEIN_WAIT;

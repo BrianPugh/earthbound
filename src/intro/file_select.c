@@ -484,18 +484,12 @@ static int fm_textspeed_build(void) {
     return -1;
 }
 
-/* Apply a text-speed selection (result > 0). */
+/* Apply a text-speed selection (result > 0). FILE_SELECT_TEXT_SPEED_MENU
+ * (file_select_text_speed_menu.asm:80-88) only stores game_state.text_speed;
+ * TEXT_SPEED_BASED_WAIT is set from it at @FINALIZE_AND_START
+ * (fm_finalize_and_start). */
 static void fm_textspeed_apply(uint16_t result) {
     game_state.text_speed = (uint8_t)result;
-    /* Compute dt.text_speed_based_wait for TEXT_SPEED_DELAY.
-     * Assembly (file_select_menu_loop.asm:681-688):
-     * text_speed==3 (Slow) → 0 (instant text, halt at end of line).
-     * Otherwise → (text_speed - 1) * 30 frames per character. */
-    if (result == 3) {
-        dt.text_speed_based_wait = 0;
-    } else {
-        dt.text_speed_based_wait = result * 30;
-    }
 }
 
 /*
@@ -1380,12 +1374,9 @@ StepResult mode_step_naming_events(ModeState *st) {
      * AND before the render and breaks after); `done` reproduces that — the
      * final render's yield happens, then the next step cleans up and pops. */
     if (s->done) {
-        /* All entities are now deactivated.  The assembly achieves a clean VRAM
-         * and spritemap state via per-entity DEALLOCATE_ENTITY_SPRITE calls in
-         * the walk-out scripts.  As a safety net, do a bulk clear here so the
-         * next naming screen starts with a clean slate. */
-        memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
-        clear_overworld_spritemaps();
+        /* All entities are now deactivated. INIT_NAMING_SCREEN_EVENTS just
+         * returns (init_naming_screen_events.asm:63-85): the walk-out scripts
+         * free their sprite memory themselves (DEALLOCATE_ENTITY_SPRITE). */
         return STEP_RESULT_POP(0);
     }
 
@@ -1501,6 +1492,10 @@ static const struct {
  * See NewGameNamingState in mode_stack.h for the phase machine. Folds in the
  * former blocking helpers name_a_character() and init_naming_screen_events().
  */
+/* file_select_menu_loop.asm:492: the RENDER_FRAME_TICK loop after "Yep" runs
+ * while X <= 179 (LDA #180; CLC; SBC X; BRANCHGTS). */
+#define NGN_CONFIRM_FRAMES 180
+
 StepResult mode_step_new_game_naming(ModeState *ms) {
     NewGameNamingState *st = &ms->new_game_naming;
 
@@ -1718,34 +1713,49 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
         case NGN_CONFIRM_DONE: {
             uint16_t confirm = (uint16_t)mode_child_result();
             if (confirm == 0) {
-                /* Nope — clear entities and redo naming from the top (the
-                   original tail-recursion `return new_game_naming()`). */
+                /* Nope (file_select_menu_loop.asm:476-479, 131-136):
+                   CLEAR_MAP_ENTITIES, then @START_NAMING: CLOSE_ALL_WINDOWS and
+                   naming from the first character. The music and the one-shot
+                   setup of NGN_ENTER are not redone. */
                 entity_system_init();
                 close_all_windows();
-                *st = (NewGameNamingState){ .phase = NGN_ENTER };
+                *st = (NewGameNamingState){ .phase = NGN_LOOP_HEAD, .char_i = 0 };
                 continue;
             }
             /* Yep */
             change_music(158); /* MUSIC::NAME_CONFIRMATION */
-            /* file_select_menu_loop.asm:483: WINDOW_TICK (JSL RAND, then the
-               window render that shows SELECTION_MENU's Yep highlight), then
-               180 RENDER_FRAME_TICKs. The tick's frame is the 181st wait frame. */
-            window_tick_no_actionscript();
-            st->wait_frames = 181;
+            /* file_select_menu_loop.asm:483-497: WINDOW_TICK (JSL RAND, the
+               window render that shows SELECTION_MENU's Yep highlight, then a
+               RENDER_FRAME_TICK), then 180 RENDER_FRAME_TICKs. Every frame runs
+               the actionscripts, so the party sprites and King keep animating
+               through the jingle. */
+            st->wait_frames = NGN_CONFIRM_FRAMES + 1;
             st->phase = NGN_CONFIRM_WAIT;
             continue;
         }
 
-        case NGN_CONFIRM_WAIT:
-            /* Wait for the confirmation animation (assembly 487-497: 180-frame
-               loop; the C original was wait_frames_or_button(180, 0) — no game
-               work, just yields). */
-            if (st->wait_frames > 0) {
-                st->wait_frames--;
-                return STEP_RESULT_CONTINUE();
+        case NGN_CONFIRM_WAIT: {
+            if (st->wait_frames == 0) {
+                st->phase = NGN_FINALIZE;
+                continue;
             }
-            st->phase = NGN_FINALIZE;
-            continue;
+            bool window_frame = st->wait_frames == NGN_CONFIRM_FRAMES + 1;
+            st->wait_frames--;
+            bool parked = window_frame ? window_tick_work_step() : render_frame_tick_work_step();
+            if (parked) {
+                st->phase = NGN_CONFIRM_FLUSH;
+                return actionscript_frame_take_push();
+            }
+            text_input_bg_update();  /* EVENT_787's frame (see text_input_bg_update) */
+            return STEP_RESULT_CONTINUE();
+        }
+
+        case NGN_CONFIRM_FLUSH:
+            /* A parked actionscript frame finished: complete that frame. */
+            render_frame_tick_work_flush();
+            text_input_bg_update();
+            st->phase = NGN_CONFIRM_WAIT;
+            return STEP_RESULT_CONTINUE();
 
         case NGN_FINALIZE:
             break; /* fall out of the switch into the finalize body below */
@@ -1939,9 +1949,11 @@ StepResult mode_step_file_menu(ModeState *ms) {
     for (;;) {
         switch ((FileMenuPhase)st->phase) {
         case FM_FADEIN_WAIT:
-            /* while (fade_active()) { battle_bg_update; fade_update; yield } */
+            /* FILE_SELECT_MENU's @WAIT_FADE (file_select_menu.asm:262-265) is a
+             * bare busy loop on fade_parameters::step while NMI steps the fade:
+             * no RENDER_FRAME_TICK, so EVENT_787 (the battle BG, whose stand-in
+             * is battle_bg_update) doesn't advance during the fade-in. */
             if (fade_active()) {
-                battle_bg_update();
                 fade_update();
                 return STEP_RESULT_CONTINUE();
             }
@@ -1967,7 +1979,9 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 st->phase = FM_CORRUPTION_CHECK;
                 continue;
             }
-            /* file_select_menu.asm:268-269 */
+            /* file_select_menu.asm:266-269: CHANGE_MUSIC(SETUP_SCREEN) after
+             * CORRUPTION_CHECK and the fade-in wait (a no-op once it plays). */
+            change_music(3);  /* MUSIC::SETUP_SCREEN */
             set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
             return fm_push_selection(st, FM_SELECT_RESULT, 0);
         }
@@ -1989,7 +2003,9 @@ StepResult mode_step_file_menu(ModeState *ms) {
             close_focus_window();
             corruption_check_results = 0;
             restore_window_text_attributes();
-            /* file_select_menu.asm:268-269 */
+            /* file_select_menu.asm:266-269: CHANGE_MUSIC(SETUP_SCREEN) after
+             * CORRUPTION_CHECK and the fade-in wait (a no-op once it plays). */
+            change_music(3);  /* MUSIC::SETUP_SCREEN */
             set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
             return fm_push_selection(st, FM_SELECT_RESULT, 0);
 
