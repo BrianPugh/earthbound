@@ -1826,30 +1826,39 @@ static EB_NOINLINE void ko_ghost_respawn(Battler *target) {
     }
 }
 
-/* Possessed party member dying (ko_target.asm:27-62): kill the
- * TINY_LIL_GHOST and respawn it for any OTHER possessed member. */
+/* Possessed party member dying (ko_target.asm:27-114). Only the first
+ * conscious, non-NPC, POSSESSED party battler counts: if the target is a
+ * different one, the ghost is left alone. If it is the target, the ghost is
+ * killed and the respawn loop starts at the target's own slot, which is still
+ * conscious and POSSESSED here, so the ghost always comes back at full HP
+ * with its turn taken (once per possessed battler up to slot 5; no break). */
 static void ko_player_possession(Battler *target) {
     if (target->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] != STATUS_1_POSSESSED)
         return;
-    if (bt.battlers_table[TOTAL_PARTY_COUNT].npc_id != ENEMY_TINY_LIL_GHOST)
-        return;
-    bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 0;
-
-    /* Respawn ghost for another possessed party member (start from dying target's slot) */
-    uint16_t target_slot = (uint16_t)(target - bt.battlers_table);
-    for (int j = 0; j < TOTAL_PARTY_COUNT; j++) {
-        uint16_t idx = (target_slot + j) % TOTAL_PARTY_COUNT;
-        Battler *b2 = &bt.battlers_table[idx];
-        if (b2 == target) continue;
-        if (b2->consciousness == 0) continue;
-        if (b2->npc_id != 0) continue;
-        if (b2->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED) {
-            battle_init_enemy_stats(&bt.battlers_table[TOTAL_PARTY_COUNT],
-                                    ENEMY_TINY_LIL_GHOST);
-            bt.battlers_table[TOTAL_PARTY_COUNT].npc_id = ENEMY_TINY_LIL_GHOST;
-            bt.battlers_table[TOTAL_PARTY_COUNT].consciousness = 1;
+    uint16_t slot;
+    for (slot = 0; slot < TOTAL_PARTY_COUNT; slot++) {
+        const Battler *b = &bt.battlers_table[slot];
+        if (b->consciousness == 0) continue;
+        if (b->npc_id != 0) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] == STATUS_1_POSSESSED)
             break;
-        }
+    }
+    if (slot >= TOTAL_PARTY_COUNT || &bt.battlers_table[slot] != target)
+        return;
+    Battler *ghost = &bt.battlers_table[TOTAL_PARTY_COUNT];
+    if (ghost->npc_id != ENEMY_TINY_LIL_GHOST)
+        return;
+    ghost->consciousness = 0;
+
+    for (; slot < TOTAL_PARTY_COUNT; slot++) {
+        const Battler *b = &bt.battlers_table[slot];
+        if (b->consciousness == 0) continue;
+        if (b->npc_id != 0) continue;
+        if (b->afflictions[STATUS_GROUP_PERSISTENT_HARDHEAL] != STATUS_1_POSSESSED)
+            continue;
+        battle_init_enemy_stats(ghost, ENEMY_TINY_LIL_GHOST);
+        ghost->npc_id = ENEMY_TINY_LIL_GHOST;
+        ghost->has_taken_turn = 1;
     }
 }
 
