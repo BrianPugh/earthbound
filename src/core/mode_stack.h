@@ -1318,6 +1318,7 @@ typedef enum {
     SM_PAGE2,      /* second half of an overflow page-flip re-render */
     SM_SETUP_CB,   /* SM_SETUP after the cursor_move_callback's owed frames */
     SM_MOVE_CB,    /* @SETUP_CURRENT_OPTION after the callback's owed frames */
+    SM_PAGE2_CB,   /* SM_PAGE2's @SETUP_CURRENT_OPTION after the retitle's frame waits */
 } SelectionMenuPhase;
 
 /* Park-resume markers: which of the mode's window_tick_work / update_hppp_meter_work
@@ -1555,9 +1556,10 @@ typedef struct {
     uint8_t  primed;    /* BW_HPPP_STABLE: 0 skips the exit check; BW_SWIRL_UPDATE: 0 skips the
                          * update; BW_TICK_PRESENT: 1 = flush a parked actionscript frame */
     uint16_t remaining; /* BW_FRAMES: frames left to render */
-    uint16_t pre_vblanks; /* BW_TICK_PRESENT: how many of `remaining` come first as
-                           * bare waits (no entity advance): the helper's frame waits
-                           * (take_unpresented_vblank_share) */
+    uint16_t pre_vblanks; /* BW_TICK_PRESENT / BW_VBLANK: how many of `remaining` come
+                           * first as bare waits (no entity advance): the helper's frame
+                           * waits (take_unpresented_vblank_share), shown before the
+                           * window uploads it held back (window_layer_hold) */
 } BattleWaitState;
 
 /* GAME_MODE_LOAD_BATTLE_SCENE — run-to-completion port of load_battle_scene()

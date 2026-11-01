@@ -1597,6 +1597,8 @@ uint16_t take_unpresented_ticks(void) {
 uint16_t take_unpresented_vblank_share(void) {
     uint16_t n = taken_vblank_share;
     taken_vblank_share = 0;
+    if (n)
+        window_layer_claim();   /* the caller presents the waits first */
     return n;
 }
 

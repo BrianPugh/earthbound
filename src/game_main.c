@@ -374,6 +374,10 @@ void host_process_frame(void) {
      * and copies PALETTES → CGRAM when set. */
     sync_palettes_to_cgram();
 
+    /* SET_WINDOW_TITLE frame waits no mode-step presents take no frame: show the
+     * window uploads held behind them (window_layer_hold). */
+    window_layer_frame_boundary();
+
     /* NMI handler: WH2/WH3 = $FF/$00 (window 2 empty) every vblank
      * (irq_nmi.asm:123-125; the WH2_MIRROR load there is overwritten by
      * LDY #$00FF before the 16-bit STY WH2). Direct WH2/WH3 writes by game

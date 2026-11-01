@@ -6,6 +6,13 @@
 /* Sentinel value for "no window" / "no selection" (matches assembly's .LOWORD(-1)) */
 #define WINDOW_ID_NONE  0xFF
 
+/* WindowSystemState.bg2_upload_hold bits (window_layer_hold()). */
+#define WINDOW_LAYER_HOLD_ACTIVE   0x01  /* tilemap uploads held */
+#define WINDOW_LAYER_HOLD_PENDING  0x02  /* an upload was held: run it on release */
+#define WINDOW_LAYER_HOLD_CLAIMED  0x04  /* a mode-step presents the waits first */
+#define WINDOW_LAYER_HOLD_ARROWS   0x08  /* pagination arrows held: frame in bits 4-5 */
+#define WINDOW_LAYER_HOLD_ARROW_SHIFT 4
+
 /* Maximum number of open windows.
  * Reduced from 10 (original SNES BSS had 10 window slots).
  * Peak concurrent usage is 8 (file select confirmation screen:
@@ -219,6 +226,10 @@ typedef struct {
 
     /* When set, UPDATE_HPPP_METER_TILES skips individual VRAM writes. */
     uint8_t upload_hppp_meter_tiles;
+
+    /* WINDOW_LAYER_HOLD_* bits: window-layer tilemap uploads held back while
+     * SET_WINDOW_TITLE's frame waits are owed (see window_layer_hold()). */
+    uint8_t bg2_upload_hold;
 
     /* BG2 tile usage bitmask (32 x 16-bit). */
     uint16_t used_bg2_tile_map[USED_BG2_TILE_MAP_SIZE];
@@ -442,6 +453,26 @@ void copy_hppp_window_to_vram(void);
  * Copies the first 0x700 bytes of BG2_BUFFER (28 rows) to VRAM at TEXT_LAYER_TILEMAP,
  * then fills 0x40 bytes (1 row) with zeros (blank tiles). */
 void upload_battle_screen_to_vram(void);
+
+/* Window-layer upload hold. US SET_WINDOW_TITLE ends with 2 WAIT_UNTIL_NEXT_FRAMEs
+ * (RENDER_TINY_FONT_STRING), so the original shows those frames with the text
+ * layer tilemap as last uploaded; the window the caller goes on to build (and
+ * its WINDOW_TICK upload) appears only after them. The port runs the caller's
+ * work inline and presents the waits afterwards (note_unpresented_vblanks), so
+ * set_window_title holds the tilemap uploads (UPLOAD_BATTLE_SCREEN_TO_VRAM,
+ * COPY_HPPP_WINDOW_TO_VRAM, the pagination arrows) from then on:
+ *   - window_layer_hold(): set by set_window_title.
+ *   - window_layer_claim(): a mode-step that presents the waits first
+ *     (take_unpresented_vblank_share) keeps the hold through them;
+ *   - window_layer_release(): ends the hold and runs the held upload; called
+ *     once the waits are presented, and by window_layer_frame_boundary() before
+ *     a frame is rendered when no one claimed them (those waits take no frame). */
+void window_layer_hold(void);
+void window_layer_claim(void);
+void window_layer_release(void);
+void window_layer_frame_boundary(void);
+/* render_pagination_arrows' VRAM write (display_text.c), held like the uploads. */
+void pagination_arrows_draw(const WindowInfo *w, int frame);
 
 /* HPPP window dimensions from include/config.asm */
 #define HPPP_WINDOW_HEIGHT 8

@@ -298,6 +298,17 @@ void render_pagination_arrows(void) {
 
     int frame = dt.pagination_animation_frame;
     if (frame < 0 || frame > 3) return;
+    pagination_arrows_draw(w, frame);
+}
+
+/* The VRAM write of render_pagination_arrows (frame 0-3); held back, with the
+ * frame it would draw, behind SET_WINDOW_TITLE's waits (window_layer_hold). */
+void pagination_arrows_draw(const WindowInfo *w, int frame) {
+    if (win.bg2_upload_hold & WINDOW_LAYER_HOLD_ACTIVE) {
+        win.bg2_upload_hold = (uint8_t)((win.bg2_upload_hold & 0x0F) | WINDOW_LAYER_HOLD_ARROWS
+                                        | (frame << WINDOW_LAYER_HOLD_ARROW_SHIFT));
+        return;
+    }
 
     /* Calculate tilemap word offset (assembly lines 207-222):
      * window_y * 32 + window_x + width - 3 + VRAM::TEXT_LAYER_TILEMAP

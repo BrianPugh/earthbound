@@ -495,6 +495,7 @@ void set_window_title(uint16_t window_id, const char *title, int max_len) {
          * (render_tiny_font_string.asm:98-99), skipped only by RENDER_WINDOW_TITLE's
          * all-slots-full return. Owed as bare frames to the caller's mode-step. */
         note_unpresented_vblanks(2);
+        window_layer_hold();
     }
 }
 
@@ -2216,7 +2217,21 @@ StepResult mode_step_selection_menu(ModeState *ms) {
          * option's hover script and cursor_move_callback, then one WINDOW_TICK;
          * that is the same tail as a cursor move. The following SM_MAIN
          * render-only frame reproduces the trailing render before input. */
+        (void)take_unpresented_ticks();
         print_menu_items();
+        {
+            /* A titled menu's "Title(n)" retitle (print_overflow_option) waits 2
+             * frames in SET_WINDOW_TITLE: the cleared window with the new title,
+             * before @SETUP_CURRENT_OPTION's WINDOW_TICK shows the new page. */
+            uint16_t owed = take_unpresented_ticks();
+            if (owed) {
+                st->phase = SM_PAGE2_CB;
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            }
+        }
+        EB_FALLTHROUGH;
+
+    case SM_PAGE2_CB:
         set_instant_printing();
         return sm_setup_current_option(w, st);
 
@@ -2289,6 +2304,10 @@ void render_hppp_window_header(void) {
  * Transfer size: 0x240 bytes (18 rows × 32 entries? Actually 0x240 = 576 bytes = 288 words = 9 rows)
  */
 void copy_hppp_window_to_vram(void) {
+    if (win.bg2_upload_hold & WINDOW_LAYER_HOLD_ACTIVE) {
+        win.bg2_upload_hold |= WINDOW_LAYER_HOLD_PENDING;  /* the full upload covers these rows */
+        return;
+    }
     uint16_t bg2_offset = (ACTIVE_HPPP_WINDOW_Y_OFFSET * 32) * 2;
     uint32_t vram_byte_addr = (VRAM_TEXT_LAYER_TILEMAP + ACTIVE_HPPP_WINDOW_Y_OFFSET * 32) * 2;
     memcpy(&ppu.vram[vram_byte_addr], &win.bg2_buffer[bg2_offset], 0x240);
@@ -2305,6 +2324,10 @@ void copy_hppp_window_to_vram(void) {
  * TEXT_LAYER_TILEMAP, then writes 0x40 bytes of zeros at $7F80.
  */
 void upload_battle_screen_to_vram(void) {
+    if (win.bg2_upload_hold & WINDOW_LAYER_HOLD_ACTIVE) {
+        win.bg2_upload_hold |= WINDOW_LAYER_HOLD_PENDING;
+        return;
+    }
     /* Copy 0x700 bytes of BG2_BUFFER to VRAM at word address $7C00 */
     uint32_t vram_dest = VRAM_TEXT_LAYER_TILEMAP * 2;  /* $7C00 * 2 = $F800 */
     memcpy(&ppu.vram[vram_dest], win.bg2_buffer, 0x700);
@@ -2312,6 +2335,34 @@ void upload_battle_screen_to_vram(void) {
     /* Clear 0x40 bytes at VRAM word address $7F80 (blank tile) */
     uint32_t blank_dest = 0x7F80 * 2;  /* $FF00 */
     memset(&ppu.vram[blank_dest], 0, 0x40);
+}
+
+/* Window-layer upload hold (see window.h). */
+void window_layer_hold(void) {
+    win.bg2_upload_hold = (uint8_t)((win.bg2_upload_hold & WINDOW_LAYER_HOLD_PENDING)
+                                    | WINDOW_LAYER_HOLD_ACTIVE);
+}
+
+void window_layer_claim(void) {
+    if (win.bg2_upload_hold & WINDOW_LAYER_HOLD_ACTIVE)
+        win.bg2_upload_hold |= WINDOW_LAYER_HOLD_CLAIMED;
+}
+
+void window_layer_release(void) {
+    uint8_t hold = win.bg2_upload_hold;
+    win.bg2_upload_hold = 0;
+    if (hold & WINDOW_LAYER_HOLD_PENDING)
+        upload_battle_screen_to_vram();
+    if ((hold & WINDOW_LAYER_HOLD_ARROWS) && dt.pagination_window != WINDOW_ID_NONE) {
+        const WindowInfo *w = get_window(dt.pagination_window);
+        if (w)
+            pagination_arrows_draw(w, (hold >> WINDOW_LAYER_HOLD_ARROW_SHIFT) & 3);
+    }
+}
+
+void window_layer_frame_boundary(void) {
+    if (win.bg2_upload_hold && !(win.bg2_upload_hold & WINDOW_LAYER_HOLD_CLAIMED))
+        window_layer_release();
 }
 
 /*

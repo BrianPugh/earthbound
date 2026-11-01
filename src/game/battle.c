@@ -1213,9 +1213,17 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         return STEP_RESULT_CONTINUE();
 
     case BW_VBLANK:
-        /* for (i = frames; i != 0; i--) WAIT_UNTIL_NEXT_FRAME; */
-        if (s->remaining == 0)
+        /* for (i = frames; i != 0; i--) WAIT_UNTIL_NEXT_FRAME; the first
+         * pre_vblanks are SET_WINDOW_TITLE's waits, shown with the window layer
+         * as uploaded before the title (window_layer_hold). */
+        if (s->pre_vblanks)
+            s->pre_vblanks--;
+        else
+            window_layer_release();
+        if (s->remaining == 0) {
+            window_layer_release();
             return STEP_RESULT_POP(0);
+        }
         s->remaining--;
         return STEP_RESULT_CONTINUE();
 
@@ -1231,14 +1239,20 @@ StepResult mode_step_battle_wait(ModeState *ms) {
             s->remaining--;
             return STEP_RESULT_CONTINUE();
         }
-        if (s->remaining == 0)
+        if (s->remaining == 0) {
+            window_layer_release();
             return STEP_RESULT_POP(0);
+        }
         if (s->pre_vblanks) {
-            /* A bare WAIT_UNTIL_NEXT_FRAME the helper owed (e.g. SET_WINDOW_TITLE's). */
+            /* A bare WAIT_UNTIL_NEXT_FRAME the helper owed (e.g. SET_WINDOW_TITLE's),
+             * shown with the window layer as it was before the title. */
             s->pre_vblanks--;
             s->remaining--;
             return STEP_RESULT_CONTINUE();
         }
+        /* The waits are presented: the window uploads the helper ran after the
+         * title show from this frame on. */
+        window_layer_release();
         if (!bt.battle_mode_flag) {
             oam_clear();
             if (run_actionscript_frame_step()) {
@@ -1260,7 +1274,7 @@ static StepResult push_wait_frames(ModeState *child, uint8_t kind, uint16_t fram
     memset(child, 0, sizeof(*child));
     child->battle_wait.kind = kind;
     child->battle_wait.remaining = frames;
-    if (kind == BW_TICK_PRESENT) {
+    if (kind == BW_TICK_PRESENT || kind == BW_VBLANK) {
         uint16_t vb = take_unpresented_vblank_share();
         child->battle_wait.pre_vblanks = (vb < frames) ? vb : frames;
     }
