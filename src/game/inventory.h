@@ -308,7 +308,7 @@ uint32_t deposit_into_atm(uint32_t amount);
 
 /* WITHDRAW_FROM_ATM: Port of asm/misc/atm_withdraw.asm.
  * No-op if insufficient bank balance. */
-void withdraw_from_atm(uint32_t amount);
+uint32_t withdraw_from_atm(uint32_t amount);
 
 /* --- Item usability query --- */
 

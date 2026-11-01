@@ -82,14 +82,14 @@ void cc_set_event_flag(ScriptReader *r);
 void cc_clear_event_flag(ScriptReader *r);
 /* cc_18_dispatch: most sub-ops run inline and return false. Sub 0x08/0x09
  * (SELECTION_MENU_*) instead fill out_init/out_mode (GAME_MODE_SELECTION_MENU to
- * STEP_PUSH) and out_resume (DT_RESUME_CC18_SEL / DT_RESUME_CC18_SEL_RESTORE),
- * and 0x08 also returns its cancel-jump target via *out_cancel_target. Returns
+ * STEP_PUSH) and out_resume (DT_RESUME_CC18_SEL_RESTORE); 0x00/0x04/0x0D push
+ * their WINDOW_TICK frames as GAME_MODE_BATTLE_WAIT. Returns
  * true when a child push is requested. The caller (mode_step_display_text)
  * zeroes *out_init before the call. state_attrs is the calling DISPLAY_TEXT
  * level's display_text_state::saved_text_attributes (CC_18_02 saves there). */
 bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
                     ModeState *out_init, GameMode *out_mode,
-                    uint8_t *out_resume, uint32_t *out_cancel_target);
+                    uint8_t *out_resume);
 void cc_19_dispatch(ScriptReader *r);
 /* cc_1a_dispatch: most sub-ops run inline and return false. Sub 0x00/0x01
  * (PARTY_MEMBER_SELECTION_MENU) in OVERWORLD mode (mode byte == 1) instead fills

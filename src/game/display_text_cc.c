@@ -974,13 +974,16 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
     case 0x21: {                                          /* TELEPORT_TO: 1 arg */
         /* The whole teleport sequence (fade out → map load → fade in → buzz-buzz)
          * runs as GAME_MODE_TELEPORT_TO; STEP_PUSH it (no post-work). */
-        uint8_t dest_id = script_read_byte(r);
-        if (!get_teleport_dest(dest_id)) {
+        /* trigger_teleport.asm: CPX #0; BEQ → GET_ARGUMENT_MEMORY. */
+        uint8_t dest_arg = script_read_byte(r);
+        uint16_t dest_id = dest_arg ? (uint16_t)dest_arg
+                                    : (uint16_t)(get_argument_memory() & 0xFFFF);
+        if (dest_id > 0xFF || !get_teleport_dest(dest_id)) {
             LOG_WARN("display_text: bad teleport dest %d\n", dest_id);
             break;
         }
         out_init->teleport_to.phase   = TT_BEGIN;
-        out_init->teleport_to.dest_id = dest_id;
+        out_init->teleport_to.dest_id = (uint8_t)dest_id;
         *out_mode   = GAME_MODE_TELEPORT_TO;
         *out_resume = DT_RESUME_NONE;
         return true;
@@ -1616,7 +1619,7 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
  * Port from asm/text/ccs/cc_18_*.asm files. */
 bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
                     ModeState *out_init, GameMode *out_mode,
-                    uint8_t *out_resume, uint32_t *out_cancel_target) {
+                    uint8_t *out_resume) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
@@ -1754,31 +1757,25 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
         break;
     }
     case 0x08: {
-        /* SELECTION_MENU_NO_CANCEL (despite confusing label in tree_18.asm): 4 args (dword).
-         * Port of CC_18_08 (asm/text/ccs/selection_menu_allow_cancel.asm).
-         * Assembly: TXA (window_id byte from stream); LDX #0 (allow_cancel=0);
-         *   JSR SELECTION_MENU_WITH_FOCUS — so NO cancel allowed.
-         * Note: tree_18.asm labels it @SELECTION_MENU_ALLOW_CANCEL but code uses LDX #0.
-         * The dword arg per textmacro EBTEXT_SELECTION_MENU_NO_CANCEL; handler only uses 1 byte
-         * via gather mechanism but textmacro declares DWORD (4 bytes in stream).
-         * Stores result in working_memory. */
-        uint32_t cancel_target = script_read_dword(r);
-        /* selection_menu(0) → STEP_PUSH GAME_MODE_SELECTION_MENU; the result store
-         * + conditional cancel-jump run in DT_RESUME_CC18_SEL on POP. An empty/null
-         * menu returns 0 inline (and still takes the cancel jump). */
+        /* SELECTION_MENU_NO_CANCEL (tree_18.asm labels it @SELECTION_MENU_ALLOW_CANCEL):
+         * 1 arg byte. Port of CC_18_08 (asm/text/ccs/selection_menu_allow_cancel.asm):
+         * TXA (window id); LDX #0 (no cancel); JSR SELECTION_MENU_WITH_FOCUS,
+         * which saves/restores the text attributes around the menu like CC_18_09.
+         * (The textmacro emits a DWORD here, so the asm would run its last 3
+         * bytes as text; no script uses this CC.) */
+        uint8_t window_id = script_read_byte(r);
+        save_window_text_attributes();
+        set_window_focus((uint16_t)window_id);
         WindowInfo *w = get_window(win.current_focus_window);
         if (!w || w->menu_count == 0) {
+            restore_window_text_attributes();
             set_working_memory(0);
-            if (cancel_target != 0) {
-                resolve_text_jump(r, cancel_target);
-            }
             break;
         }
         out_init->selection_menu.phase        = SM_SETUP;
         out_init->selection_menu.allow_cancel = 0;
-        *out_cancel_target = cancel_target;
         *out_mode   = GAME_MODE_SELECTION_MENU;
-        *out_resume = DT_RESUME_CC18_SEL;
+        *out_resume = DT_RESUME_CC18_SEL_RESTORE;
         return true;
     }
     case 0x09: {
@@ -3055,12 +3052,12 @@ static void cc_1d_add_to_atm(ScriptReader *r) {
  * Port of CC_1D_07 (asm/text/ccs/atm_decrease.asm).
  * Builds 32-bit withdrawal amount. If zero, use argument_memory.
  * Calls WITHDRAW_FROM_ATM: subtracts from bank_balance if sufficient.
- * Stores withdrawal amount in working_memory. */
+ * Stores WITHDRAW_FROM_ATM's $06 in working_memory: the new balance, or the
+ * unchanged one when the funds were insufficient (atm_decrease.asm:57-59). */
 static void cc_1d_take_from_atm(ScriptReader *r) {
     uint32_t amount = script_read_dword(r);
     if (amount == 0) amount = (uint32_t)get_argument_memory();
-    withdraw_from_atm(amount);
-    set_working_memory(amount);
+    set_working_memory(withdraw_from_atm(amount));
 }
 
 /* ADD_TO_WALLET: 2 data bytes (.WORD).
@@ -3266,7 +3263,8 @@ static void cc_1d_have_enough_money(ScriptReader *r) {
 
 /* PUT_VAL_IN_ARGMEM: 2 data bytes (.WORD).
  * Port of CC_1D_15 (asm/text/ccs/set_argmem.asm).
- * Builds 16-bit value. If zero, use argument_memory.
+ * Builds 16-bit value. If zero the asm calls GET_ARGUMENT_MEMORY but then
+ * multiplies the raw value (@LOCAL01, still 0), so the result is 0.
  * Calls FIND_FIRST_UNCONSCIOUS_PARTY_SLOT (C226F0):
  *   Iterates party_order[0..party_count-1], finds first member
  *   whose afflictions == 1 (unconscious). Returns the index (0-based).
@@ -3274,10 +3272,9 @@ static void cc_1d_have_enough_money(ScriptReader *r) {
  * Multiplies value * unconscious_slot, stores in working_memory. */
 static void cc_1d_put_val_in_argmem(ScriptReader *r) {
     uint16_t amount = script_read_word(r);
-    uint32_t val = amount ? (uint32_t)amount : (uint32_t)get_argument_memory();
     /* FIND_FIRST_UNCONSCIOUS_PARTY_SLOT */
     uint16_t slot = find_first_unconscious_party_slot();
-    set_working_memory(val * (uint32_t)slot);
+    set_working_memory((uint32_t)amount * (uint32_t)slot);
 }
 
 /* HAVE_ENOUGH_MONEY_IN_ATM: 4 data bytes (.DWORD).

@@ -78,19 +78,12 @@ uint16_t check_character_in_party(uint16_t char_id) {
 }
 
 /* CHECK_STATUS_GROUP: Port of asm/misc/check_status_group.asm.
- * A=status_group (1-7=affliction index, 8=party_status).
- * X=char_id (1-indexed).
- * Returns affliction_value+1 (so 0 means "not in party", 1 means "affliction==0").
- *
- * NOTE: The original assembly (asm/misc/check_status_group.asm) has a bug:
- * it passes status_group (not char_id) to CHECK_CHARACTER_IN_PARTY, and computes
- * the affliction address as (status_group-1)*95 + (char_id-1) instead of the
- * correct (char_id-1)*95 + (status_group-1). The C port uses the correct formula,
- * which means it diverges from the original game's behavior. This is an intentional
- * fix of an original game bug. */
+ * asm A = char_id (1-indexed), X = status_group (1-7 = affliction index,
+ * 8 = party_status); the C takes them as (status_group, char_id).
+ * Returns affliction_value+1 (so 0 means "not in party", 1 means "affliction==0"). */
 uint16_t check_status_group(uint16_t status_group, uint16_t char_id) {
-    /* Assembly line 15: CPY #8 → if char_id==8, return party_status+1 */
-    if (char_id == 8) {
+    /* Assembly line 15: CPY #8 tests the group (TXY) → party_status+1 */
+    if (status_group == 8) {
         return (uint16_t)((game_state.party_status & 0xFF) + 1);
     }
     /* Assembly line 22-25: check if character is in party */

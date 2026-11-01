@@ -1814,10 +1814,10 @@ static void dt_resume_after_child(DisplayTextModeState *st) {
         save_photo_state(st->cc1f_aux);
     } else if (st->resume == DT_RESUME_CC1F_SPECIAL_EVENT) {
         /* CC_1F_41 special event: store the GAME_MODE_SPECIAL_EVENT result to
-         * working memory — the former set_working_memory(dispatch_special_event(...)).
-         * The original cast a uint16_t result, i.e. zero-extended. */
+         * working memory. trigger_special_event.asm sign-extends it
+         * (SIGN_EXTENDA1632), so -1 is 0xFFFFFFFF. */
         st->resume = DT_RESUME_NONE;
-        set_working_memory((uint32_t)(uint16_t)mode_child_result());
+        set_working_memory((uint32_t)(int32_t)(int16_t)mode_child_result());
     } else if (st->resume == DT_RESUME_CC1A_SEL) {
         /* CC_1A_08/09 selection menu: store the chosen userdata (0 on cancel)
          * to working memory — the former selection_menu() return value. */
@@ -1829,16 +1829,6 @@ static void dt_resume_after_child(DisplayTextModeState *st) {
         st->resume = DT_RESUME_NONE;
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
         clear_focus_window_menu_options();
-    } else if (st->resume == DT_RESUME_CC18_SEL) {
-        /* CC_18_08 selection menu: store the result; if it was cancelled (0)
-         * and a cancel target was supplied, jump there — the tail of the former
-         * CC_18_08. resolve_text_jump acts on st->reader (r is set up below). */
-        st->resume = DT_RESUME_NONE;
-        uint16_t result = (uint16_t)mode_child_result();
-        set_working_memory((uint32_t)result);
-        if (result == 0 && st->cc18_cancel_target != 0) {
-            resolve_text_jump(&st->reader, st->cc18_cancel_target);
-        }
     } else if (st->resume == DT_RESUME_CC18_SEL_RESTORE) {
         /* CC_18_09 selection menu: restore the saved text attributes, then store
          * the result — the tail of the former CC_18_09. */
@@ -2012,18 +2002,15 @@ static bool dt_cc_create_selection_menu(DisplayTextModeState *st, StepResult *ou
 }
 
 /* CC_18 tree. Most CC_18 sub-ops run inline; the focus-window selection menus
- * (sub 0x08/0x09) request a SELECTION_MENU child push, carrying the
- * 0x08 cancel-jump target to resolve in DT_RESUME_CC18_SEL on POP.
+ * (sub 0x08/0x09) request a SELECTION_MENU child push.
  * Returns true (with *out set) when it pushes. */
 static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
     memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     GameMode child_mode = GAME_MODE_NONE;
     uint8_t  child_resume = DT_RESUME_NONE;
-    uint32_t cancel_target = 0;
     if (cc_18_dispatch(r, &st->saved_text_attrs, &g_mode_push_init, &child_mode,
-                       &child_resume, &cancel_target)) {
+                       &child_resume)) {
         st->resume = child_resume;
-        st->cc18_cancel_target = cancel_target;
         *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }

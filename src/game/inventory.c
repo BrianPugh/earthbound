@@ -1994,12 +1994,14 @@ uint32_t deposit_into_atm(uint32_t amount) {
 /* WITHDRAW_FROM_ATM: Port of asm/misc/atm_withdraw.asm (21 lines).
  * Transfers from bank to wallet. No-op if insufficient bank balance.
  * Assembly: compares amount vs bank_balance, exits if amount > balance (BCS).
- * Otherwise subtracts amount from bank_balance. */
-void withdraw_from_atm(uint32_t amount) {
+ * Otherwise subtracts amount from bank_balance. Returns $06: the new balance,
+ * or the unchanged one when the funds were insufficient. */
+uint32_t withdraw_from_atm(uint32_t amount) {
     if (amount > game_state.bank_balance) {
-        return; /* insufficient funds */
+        return game_state.bank_balance; /* insufficient funds */
     }
     game_state.bank_balance -= amount;
+    return game_state.bank_balance;
 }
 
 /* --- Item usability query --- */

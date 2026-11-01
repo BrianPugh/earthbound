@@ -2263,7 +2263,7 @@ typedef enum {
     DT_RESUME_CC1F_SPECIAL_EVENT, /* CC_1F_41: store SPECIAL_EVENT result to working_memory */
     DT_RESUME_CC1A_SEL,         /* CC_1A_08/09 selection menu: store result to working_memory */
     DT_RESUME_CC1A_SEL_CLEAR,   /* CC_1A_04 selection menu: store result + clear focus menu */
-    DT_RESUME_CC18_SEL,         /* CC_18_08 selection menu: store result + cancel-jump on 0 */
+    DT_RESUME_CC18_SEL,         /* unused (kept so later values keep their numbers) */
     DT_RESUME_CC18_SEL_RESTORE, /* CC_18_09 selection menu: restore text attrs + store result */
     DT_RESUME_MENU_RESULT,      /* STORE/ESCARGO/TELEPHONE menu: store result to working_memory */
     DT_RESUME_CC18_CLOSE_HIDE,  /* CC_18_04 after CLOSE_ALL_WINDOWS' tick: HIDE_HPPP_WINDOWS (+ its wait) */
@@ -2278,7 +2278,7 @@ typedef struct {
     uint16_t     cc1f_aux;         /* small per-resume carry (DT_RESUME_CC1F_PHOTO: photo_id) */
     uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
     uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
-    uint32_t     cc18_cancel_target;/* DT_RESUME_CC18_SEL: CC_18_08 cancel jump target */
+    uint32_t     cc18_cancel_target;/* unused (kept for the savestate layout) */
     WindowTextAttributesCopy saved_text_attrs; /* display_text_state::saved_text_attributes:
                                                   CC_18_02 / CC_1A_05 save, END_BLOCK restores */
     ScriptReader reader;           /* offset-based script cursor (serializable) */
