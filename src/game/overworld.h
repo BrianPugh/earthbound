@@ -105,7 +105,7 @@ typedef struct {
      * prevents enemy collision detection. */
     uint8_t player_movement_flags;
     uint16_t player_intangibility_frames;
-    uint8_t player_has_moved_since_map_load;
+    uint16_t player_has_moved_since_map_load; /* asm word, INC'd per walking frame */
     uint8_t player_has_done_something_this_frame;
 
     /* Camera focus entity offset (-1 = none).

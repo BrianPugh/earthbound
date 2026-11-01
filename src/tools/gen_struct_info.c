@@ -263,7 +263,7 @@ int main(void) {
     FIELD(OverworldState, enemy_spawns_enabled, "u8"); SEP();
     FIELD(OverworldState, player_movement_flags, "u8"); SEP();
     FIELD(OverworldState, player_intangibility_frames, "u16"); SEP();
-    FIELD(OverworldState, player_has_moved_since_map_load, "u8"); SEP();
+    FIELD(OverworldState, player_has_moved_since_map_load, "u16"); SEP();
     FIELD(OverworldState, player_has_done_something_this_frame, "u8"); SEP();
     FIELD(OverworldState, camera_focus_entity, "i16"); SEP();
     FIELD(OverworldState, disable_music_changes, "u8"); SEP();

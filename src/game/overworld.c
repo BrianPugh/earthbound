@@ -2066,6 +2066,9 @@ void initialize_overworld_state(void) {
 static OverworldTask overworld_tasks[MAX_OVERWORLD_TASKS];
 
 int schedule_overworld_task(void (*callback)(void), uint16_t frames) {
+    /* With all 4 slots busy the asm falls out of its loop and writes a 5th
+     * slot past OVERWORLD_TASKS (corrupting the next RAM variable); the port
+     * drops the task and returns -1. */
     for (int i = 0; i < MAX_OVERWORLD_TASKS; i++) {
         if (overworld_tasks[i].frames_left == 0) {
             overworld_tasks[i].frames_left = frames;
@@ -2264,10 +2267,10 @@ static void start_demo_playback(void) {
 }
 
 void queue_auto_movement_step(void) {
-    /* Write terminator after last entry */
-    uint16_t next = auto_movement_index + 1;
-    if (next < AUTO_MOVEMENT_BUFFER_SIZE) {
-        auto_movement_buffer[next].count = 0;
+    /* asm: INC AUTO_MOVEMENT_DEMO_INDEX, then write the terminator there */
+    auto_movement_index++;
+    if (auto_movement_index < AUTO_MOVEMENT_BUFFER_SIZE) {
+        auto_movement_buffer[auto_movement_index].count = 0;
     }
 
     /* Kick off playback */
@@ -2312,7 +2315,9 @@ uint16_t calculate_movement_path_steps(int16_t src_x, int16_t src_y,
                                         int16_t dest_x, int16_t dest_y) {
     uint16_t steps = 0;
 
-    /* Fixed-point 16.16 positions */
+    /* Fixed-point 16.16 positions. The asm stores only the integer halves of
+     * @LOCAL01/@LOCAL02; the fraction words are stack leftovers, so its step
+     * count can differ by one. The port starts at fraction 0. */
     int32_t cur_x = (int32_t)src_x << 16;
     int32_t cur_y = (int32_t)src_y << 16;
 
@@ -2345,7 +2350,7 @@ uint16_t calculate_movement_path_steps(int16_t src_x, int16_t src_y,
 
         steps++;
 
-        /* Safety: prevent infinite loop */
+        /* Port-only guard (the asm has no cap) against an unreachable target. */
         if (steps > 500) break;
     }
 

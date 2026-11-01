@@ -1377,7 +1377,8 @@ static void update_overworld_player_input(void) {
     if (ow.battle_swirl_countdown) {
         ow.battle_swirl_countdown--;
         if (ow.battle_swirl_countdown == 0) {
-            ow.battle_mode = 0xFFFF; /* -1: trigger battle */
+            ow.battle_mode = 0xFFFF; /* -1: trigger battle; no NPC check */
+            return;
         }
         npc_collision_check(game_state.leader_x_coord,
                            game_state.leader_y_coord,
@@ -1422,8 +1423,8 @@ static void update_overworld_player_input(void) {
         game_state.leader_direction = (uint16_t)direction;
     }
 
-    /* Lines 99-104: Set leader_moved and PLAYER_HAS_MOVED_SINCE_MAP_LOAD */
-    ow.player_has_moved_since_map_load = 1;
+    /* Lines 99-104: INC PLAYER_HAS_MOVED_SINCE_MAP_LOAD, set leader_moved */
+    ow.player_has_moved_since_map_load++;
     game_state.leader_moved = 1;
 
     /* Lines 105-128: Load current position and apply speed adjustments.
