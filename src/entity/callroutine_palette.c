@@ -83,42 +83,52 @@ void prepare_palette_fade_slopes(int16_t frames, uint16_t mask) {
 void update_map_palette_animation(void) {
     PaletteFadeBuffer *fade = buf_palette_fade(ert.buffer);
 
+    /* Port of UPDATE_MAP_PALETTE_ANIMATION. Each channel stores the raw
+     * accumulator sum back first (STA before BPL); a negative sum outputs 0
+     * and a sum whose integer part is $1F outputs $1F, both zeroing a slope.
+     * The blue-negative case zeroes the *green* slope (STA BUFFER+$400, the
+     * asm's copy-paste slip), so blue keeps falling (still output as 0) and
+     * green freezes. Reproduced as-is: it only affects colours, and only when
+     * a caller runs more steps than the slopes were prepared for. */
     for (int i = 0; i < 256; i++) {
-        int16_t accum_r = fade->accum_r[i] + fade->slope_r[i];
+        int16_t accum_r = (int16_t)(fade->accum_r[i] + fade->slope_r[i]);
+        fade->accum_r[i] = accum_r;
+        uint16_t out_r;
         if (accum_r < 0) {
             fade->slope_r[i] = 0;
-            accum_r = 0;
-        } else if ((accum_r & 0x1F00) == 0x1F00) {
-            fade->slope_r[i] = 0;
-            accum_r = 0x1F00;
+            out_r = 0;
+        } else {
+            out_r = (uint16_t)accum_r & 0x1F00;
+            if (out_r == 0x1F00)
+                fade->slope_r[i] = 0;
         }
-        fade->accum_r[i] = accum_r;
-        uint8_t r = (uint8_t)((accum_r >> 8) & 0x1F);
+        uint8_t r = (uint8_t)(out_r >> 8);
 
-        int16_t accum_g = fade->accum_g[i] + fade->slope_g[i];
+        int16_t accum_g = (int16_t)(fade->accum_g[i] + fade->slope_g[i]);
+        fade->accum_g[i] = accum_g;
+        uint16_t out_g;
         if (accum_g < 0) {
             fade->slope_g[i] = 0;
-            accum_g = 0;
-        } else if ((accum_g & 0x1F00) == 0x1F00) {
-            fade->slope_g[i] = 0;
-            accum_g = 0x1F00;
+            out_g = 0;
+        } else {
+            out_g = (uint16_t)accum_g & 0x1F00;
+            if (out_g == 0x1F00)
+                fade->slope_g[i] = 0;
         }
-        fade->accum_g[i] = accum_g;
-        uint8_t g = (uint8_t)((accum_g >> 8) & 0x1F);
+        uint8_t g = (uint8_t)(out_g >> 8);
 
-        int16_t accum_b = fade->accum_b[i] + fade->slope_b[i];
-        if (accum_b < 0) {
-            /* ROM bug fix: original zeros slope_g (green) instead of
-             * slope_b (blue), freezing the green channel mid-fade and
-             * causing a green tint.  Fixed to zero the correct channel. */
-            fade->slope_b[i] = 0;
-            accum_b = 0;
-        } else if ((accum_b & 0x1F00) == 0x1F00) {
-            fade->slope_b[i] = 0;
-            accum_b = 0x1F00;
-        }
+        int16_t accum_b = (int16_t)(fade->accum_b[i] + fade->slope_b[i]);
         fade->accum_b[i] = accum_b;
-        uint8_t b = (uint8_t)((accum_b >> 8) & 0x1F);
+        uint16_t out_b;
+        if (accum_b < 0) {
+            fade->slope_g[i] = 0;  /* sic: the ROM zeroes green's slope */
+            out_b = 0;
+        } else {
+            out_b = (uint16_t)accum_b & 0x1F00;
+            if (out_b == 0x1F00)
+                fade->slope_b[i] = 0;
+        }
+        uint8_t b = (uint8_t)(out_b >> 8);
 
         ert.palettes[i] = (uint16_t)r | ((uint16_t)g << 5) | ((uint16_t)b << 10);
     }
