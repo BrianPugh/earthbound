@@ -1873,8 +1873,10 @@ void initialize_battle_ui_state(void) {
     bt.current_flashing_row = -1;
     bt.current_flashing_enemy = -1;
     win.battle_menu_current_character_id = -1;
+    dt.instant_printing = 0;  /* STZ INSTANT_PRINTING */
     ow.redraw_all_windows = 0;
     ert.actionscript_state = 0;
+    win.upload_hppp_meter_tiles = 0;  /* STZ UPLOAD_HPPP_METER_TILES */
 
     /* Reset window system (covers WINDOW_HEAD/TAIL, window_stats, open_window_table,
      * TITLED_WINDOWS) */
@@ -1900,8 +1902,29 @@ void initialize_battle_ui_state(void) {
     dt.last_text_pixel_offset_set = 0;  /* STZ LAST_TEXT_PIXEL_OFFSET_SET */
     win.current_focus_window = WINDOW_ID_NONE;
 
-    /* USA-only: reset BG2 tile usage map and VWF text alignment state */
+    /* USA-only block (asm lines 160-205): text layout state and the BG2 tile
+     * usage map. */
+    character_padding = 1;
     init_used_bg2_tile_map();
+    dt.enable_word_wrap = 0xFF;
+    vwf_indent_new_line = 0;
+    dt.force_left_text_alignment = 0;
+    dt.last_printed_character = 0;
+    dt.print_target_article = 0;
+    dt.print_attacker_article = 0;
+    /* Not ported, on purpose:
+     * - No port state behind these: UNREAD_7E9651 is never read,
+     *   FORCE_CENTRE_TEXT_ALIGNMENT is never set non-zero,
+     *   EXTRA_TICK_ON_WINDOW_CLOSE lives only inside CLOSE_ALL_WINDOWS (set,
+     *   then cleared), and NEW_TEXT_PIXEL_OFFSET is a local of
+     *   set_text_pixel_position().
+     * - `STZ __BSS_START__+44,X` indexes OPEN_WINDOW_TABLE[CURRENT_FOCUS_WINDOW]
+     *   with the focus just set to -1, i.e. reads WINDOW_TAIL (0xFFFF), and
+     *   clears a byte at an address derived from that: a stray write with no
+     *   menu_option behind it.
+     * - FORCE_NORMAL_FONT_FOR_LENGTH_CALCULATIONS and SKIP_ADDING_COMMAND_TEXT
+     *   are file statics (ending.c, text.c) that every user sets before reading
+     *   and clears afterwards, so this reset is a no-op in the port. */
 
     /* Battle text lives in the dialogue blob (loaded at startup). */
     display_text_load_battle_text();
@@ -2152,8 +2175,10 @@ void update_battle_screen_effects(void) {
     /* -- Background darkening (battle intro fade) -- */
     if (bt.enable_background_darkening) {
         bt.background_brightness -= 0x0555;
-        /* 16-bit value sign-extended to 32-bit for comparison */
-        if ((int32_t)(int16_t)bt.background_brightness < (int32_t)0x6000) {
+        /* STORE_INT1632 zero-extends (STA / STZ hi), so the clamp compares the
+         * unsigned brightness: 0xFFFF steps down by 0x555 to 0x6000 over ~30
+         * frames. A signed compare clamped on the first step (0xFAAA < 0). */
+        if (bt.background_brightness < 0x6000) {
             bt.background_brightness = 0x6000;
             bt.enable_background_darkening = 0;
         }

@@ -446,6 +446,7 @@ void display_psi_target_and_cost(uint16_t ability_id) {
     uint16_t battle_action_id = psi->battle_action;
     uint8_t pp_cost = battle_action_table[battle_action_id].pp_cost;
     print_number(pp_cost, 1);
+    clear_instant_printing();  /* asm line 121 */
 }
 
 
@@ -675,6 +676,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
         case BP_TARGET:
             if (bp_single_target(st)) {
                 create_window(WINDOW_BATTLE_ACTION_NAME);
+                set_instant_printing();  /* battle_psi_menu.asm:185, never cleared here */
                 set_window_palette_index(6);
                 print_psi_ability_name(st->psi_selection);
                 set_window_palette_index(0);
