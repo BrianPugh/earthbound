@@ -1020,10 +1020,32 @@ StepResult mode_step_teleport(ModeState *st) {
     }
 }
 
+/* ---- GET_DIRECTION_TO (port of asm/overworld/get_direction_to.asm) ----
+ *
+ * Classifies dx = x2 - x1 and dy = y2 - y1 only by sign (<0, 0, >0) and looks
+ * the pair up in DIRECTION_MATRIX (asm/data/map/direction_matrix.asm). Any
+ * nonzero dx and dy gives a diagonal, however close to an axis, and dx == dy
+ * == 0 gives UP. This is a different routine from the 45-degree-sector
+ * calculate_direction_8; checked against the ROM in emu (dx 10, dy 1 →
+ * DOWN_RIGHT). */
+static int16_t get_direction_to(int16_t x1, int16_t y1, int16_t x2, int16_t y2) {
+    static const int16_t direction_matrix[3][3] = {
+        { DIRECTION_UP_LEFT,   DIRECTION_UP,   DIRECTION_UP_RIGHT   },
+        { DIRECTION_LEFT,      DIRECTION_UP,   DIRECTION_RIGHT      },
+        { DIRECTION_DOWN_LEFT, DIRECTION_DOWN, DIRECTION_DOWN_RIGHT },
+    };
+    int16_t dx = (int16_t)(uint16_t)(x2 - x1);  /* 16-bit SBC wraps */
+    int16_t dy = (int16_t)(uint16_t)(y2 - y1);
+    int col = (dx < 0) ? 0 : (dx == 0) ? 1 : 2;
+    int row = (dy < 0) ? 0 : (dy == 0) ? 1 : 2;
+    return direction_matrix[row][col];
+}
+
 /* ---- GET_DIRECTION_FROM_PLAYER_TO_ENTITY ----
  * (port of asm/overworld/get_direction_from_player_to_entity.asm)
  *
- * Computes the 8-way direction from the current entity toward the leader.
+ * Computes the sign-only 8-way direction (GET_DIRECTION_TO) from the current
+ * entity toward the leader.
  * Despite the name, the assembly passes entity coords as "from" and leader
  * coords as "to" to GET_DIRECTION_TO.
  *
@@ -1039,7 +1061,7 @@ int16_t get_direction_from_player_to_entity(void) {
     int16_t leader_x = (int16_t)game_state.leader_x_coord;
     int16_t leader_y = (int16_t)game_state.leader_y_coord;
 
-    return calculate_direction_8(entity_x, entity_y, leader_x, leader_y);
+    return get_direction_to(entity_x, entity_y, leader_x, leader_y);
 }
 
 /* ---- GET_OPPOSITE_DIRECTION_FROM_PLAYER_TO_ENTITY ----

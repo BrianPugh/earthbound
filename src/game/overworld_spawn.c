@@ -299,7 +299,9 @@ void attempt_enemy_spawn(uint16_t x, uint16_t y, uint16_t encounter_id) {
          * sector_x = (x * 8) / 32 = x / 4
          * sector_y = (y * 8) / 16 = y / 2
          * Table index (bytes) = sector_y * 64 + sector_x * 2 */
-        uint16_t sector_x = (x * 8) >> 5;  /* (x_grid * 8) / 32 */
+        /* OPTIMIZED_MULT is 16-bit: truncate x*8 before the shift, so a
+         * column of -1 ($FFFF) gives $07FF as in the asm, not $3FFF. */
+        uint16_t sector_x = (uint16_t)(x * 8) >> 5;  /* (x_grid * 8) / 32 */
         uint16_t sector_y = (y * 8) >> 4;  /* (y_grid * 8) / 16 */
 
         /* Read MAP_DATA_PER_SECTOR_ATTRIBUTES_TABLE entry */
@@ -833,14 +835,18 @@ void initiate_enemy_encounter(void) {
             /* Read enemy_id from group data (lines 134-136) */
             enemy_id = (int16_t)read_u16_le(&grp_ptr[1]);
 
-            /* First check the touched enemy itself (lines 137-147) */
+            /* First check the touched enemy itself (lines 137-147). Only
+             * the scan-gate copy (@LOCAL06) is decremented; the count stored
+             * in PATHFINDING_ENEMY_COUNTS below stays the group's original
+             * count (@VIRTUAL02, lines 188-189). */
+            int16_t remaining = count;
             if (enemy_id == entities.enemy_ids[enemy_offset]) {
                 entities.pathfinding_states[enemy_offset] = -1;
-                count--;
+                remaining--;
             }
 
             /* Then scan all other entities for matching enemy_ids (lines 148-171) */
-            if (count > 0) {
+            if (remaining != 0) {
                 for (int slot = 0; slot < 23; slot++) {
                     if (entities.script_table[slot] == -1)
                         continue;  /* no script = inactive entity */
