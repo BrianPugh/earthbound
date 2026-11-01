@@ -5212,16 +5212,21 @@ static EB_NOINLINE bool btl_step_target(BattleRoutineState *st, StepResult *out)
      * GAME_MODE_BATTLE_ACTION STEP_PUSH (resume in BTL_TARGET_POST);
      * unconverted ones run inline-blocking through the same dispatch
      * (the battle_actions.c long tail, convertible incrementally). */
-    st->phase = BTL_TARGET_POST;
-    if (battle_action_table) {
-        uint32_t func_ptr =
-            battle_action_table[attacker->current_action].battle_function_pointer;
-        if (func_ptr != 0 && battle_action_dispatch(func_ptr, &g_mode_push_init)) {
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
-            return true;
-        }
+    uint32_t func_ptr = battle_action_table
+        ? battle_action_table[attacker->current_action].battle_function_pointer
+        : 0;
+    if (func_ptr == 0) {
+        /* asm: CMP32 fnptr, NULL / BEQ @NEXT_TARGET skips the dead check,
+         * REDRAW_ALL_WINDOWS, the special-defeat checks and the wait. */
+        st->target_i++;
+        return false;
     }
-    return false;  /* ran inline (or no function): post checks, no yield */
+    st->phase = BTL_TARGET_POST;
+    if (battle_action_dispatch(func_ptr, &g_mode_push_init)) {
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_ACTION, &g_mode_push_init);
+        return true;
+    }
+    return false;  /* ran inline: post checks, no yield */
 }
 
 /* Post-action checks for the current target (after the dead-check) */
