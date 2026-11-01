@@ -839,10 +839,12 @@ int16_t cr_movement_cmd_setup_spotlight(int16_t entity_offset, int16_t script_of
     int16_t right_x = (int16_t)sw(pc + 4);
     *out_pc = pc + 6;
 
-    /* Convert world coordinates to screen coordinates */
+    /* World -> screen (x - BG1_X_POS, y - BG1_Y_POS). The WH tables hold
+     * SNES-space x (the renderer offsets them by PAD_LEFT, as for every other
+     * window producer), so convert the viewport x back to SNES space. */
     ert.spotlight_screen_y     = (int16_t)((uint16_t)y_pos - ppu.bg_vofs[0]);
-    ert.spotlight_screen_left  = (int16_t)((uint16_t)left_x - ppu.bg_hofs[0]);
-    ert.spotlight_screen_right = (int16_t)((uint16_t)right_x - ppu.bg_hofs[0]);
+    ert.spotlight_screen_left  = (int16_t)((uint16_t)left_x - ppu.bg_hofs[0] - EB_VIEWPORT_PAD_LEFT);
+    ert.spotlight_screen_right = (int16_t)((uint16_t)right_x - ppu.bg_hofs[0] - EB_VIEWPORT_PAD_LEFT);
     ert.spotlight_active = 1;
     apply_spotlight_to_ppu();
 
