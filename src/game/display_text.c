@@ -567,19 +567,21 @@ static const uint8_t *resolve_text_addr(uint32_t addr, TextBlock **out_block) {
 /* Print a PSI name given a PSI name ID.
  * Port of GET_PSI_NAME (asm/text/get_psi_name.asm).
  * psi_name_id==1 (ROCKIN) → uses favourite_thing from game_state.
- * Otherwise indexes PSI_NAME_TABLE by (psi_name_id - 1). */
+ * Otherwise indexes PSI_NAME_TABLE by (psi_name_id - 1).
+ * US prints through PRINT_STRING_WITH_WORDWRAP: a name that doesn't fit on
+ * the rest of the line moves whole to the next (indented) line. */
 void print_psi_name(uint16_t psi_name_id) {
 
     if (psi_name_id == 1) {
         /* PSI Rockin — print favourite_thing (EB-encoded in game_state, null-terminated) */
         int len = 0;
         while (len < (int)sizeof(game_state.favourite_thing) && game_state.favourite_thing[len] != 0x00) len++;
-        print_eb_string(game_state.favourite_thing, len);
+        print_string_with_wordwrap(game_state.favourite_thing, (int16_t)len);
     } else if (psi_name_id > 1 && (psi_name_id - 1) < PSI_NAME_MAX_ENTRIES) {
         const uint8_t *entry = psi_name_data + (uint32_t)(psi_name_id - 1) * PSI_NAME_SIZE;
         int len = 0;
         while (len < PSI_NAME_SIZE && entry[len] != 0x00) len++;
-        print_eb_string(entry, len);
+        print_string_with_wordwrap(entry, (int16_t)len);
     }
 }
 
@@ -606,7 +608,9 @@ void print_psi_ability_name(uint16_t ability_id) {
         const uint8_t *suffix = psi_suffix_data + suffix_offset;
         int len = 0;
         while (len < PSI_SUFFIX_ENTRY_SIZE && suffix[len] != 0x00) len++;
-        print_eb_string(suffix, len);
+        /* US retail wraps the suffix too (the prototype and JP PRINT_LETTER it),
+         * so a lone "α" can move to the next line. */
+        print_string_with_wordwrap(suffix, (int16_t)len);
     }
 }
 
@@ -1608,27 +1612,26 @@ void dt_lq_push_op(uint8_t op, uint8_t a, uint8_t b) {
     dt.letter_queue[dt.lq_len++] = b;
 }
 
-/* PRINT_LETTER (asm/text/print_letter.asm) minus the delay loop: render the
- * letter and play its sound. Returns the WINDOW_TICK frames the asm then waits:
- * SELECTED_TEXT_SPEED+1, doubled for the direct-tile letters (0x20, 0x2F,
- * EQUIPPED), whose RENDER_VWF_CHARACTER goes through PRINT_CHAR_WITH_SOUND and
- * its own identical delay loop first. 0 when instant or no window is open. */
-static uint16_t dt_print_letter(uint8_t byte) {
-    /* PRINT_LETTER early-out: if no window is open (CURRENT_FOCUS_WINDOW ==
-     * -1), the routine RETURNs immediately — no VWF render and, crucially, no
-     * per-character WINDOW_TICK typewriter delay. Cutscene scripts use runs of
-     * space characters with no window open purely as control-stream padding;
-     * rendering them with the typewriter delay would step entity actionscripts
-     * (window_tick → render_frame_tick) once per space, desyncing scripted
-     * entities from the orchestrating dialogue. (Tessie-ride Lake Tess bug:
-     * Tessie froze her screen position ~243 frames early because the
-     * windowless space-runs advanced her past her SET_POSITION_CHANGE_CALLBACK
-     * freeze before DISABLE_SPRITE_MOVEMENT could park her.) */
-    if (win.current_focus_window == WINDOW_ID_NONE)
-        return 0;
+/* Push a letter-queue op in front of whatever is still queued, so it runs
+ * next (lq_run_next inserts while it is part-way through the queue). */
+static void lq_push_op_front(uint8_t op, uint8_t a, uint8_t b) {
+    lq_reserve(3);
+    if (dt.lq_pos >= 3) {
+        dt.lq_pos -= 3;
+    } else {
+        memmove(&dt.letter_queue[dt.lq_pos + 3], &dt.letter_queue[dt.lq_pos],
+                (size_t)(dt.lq_len - dt.lq_pos));
+        dt.lq_len += 3;
+    }
+    dt.letter_queue[dt.lq_pos] = op;
+    dt.letter_queue[dt.lq_pos + 1] = a;
+    dt.letter_queue[dt.lq_pos + 2] = b;
+}
 
-    print_eb_letter(byte);
-
+/* PRINT_LETTER's sound and its delay length (assembly lines 36-81), run after
+ * the letter is rendered. Returns the WINDOW_TICK frames the asm then waits:
+ * SELECTED_TEXT_SPEED+1, or 0 when instant printing. */
+static uint16_t dt_print_letter_sound(uint8_t byte) {
     /* Sound + delay only when not instant printing
      * (assembly lines 68-70: skip to @RETURN if instant) */
     if (dt.instant_printing)
@@ -1651,10 +1654,40 @@ static uint16_t dt_print_letter(uint8_t byte) {
     }
 
     /* Typewriter delay (assembly lines 71-81). */
-    uint16_t delay = (uint16_t)(dt.selected_text_speed + 1);
-    if (byte == 0x20 || byte == 0x2F || byte == EB_CHAR_EQUIPPED)
-        delay *= 2;  /* PRINT_CHAR_WITH_SOUND's delay loop, then this one */
-    return delay;
+    return (uint16_t)(dt.selected_text_speed + 1);
+}
+
+/* PRINT_LETTER (asm/text/print_letter.asm) minus the delay loop: render the
+ * letter and play its sound. Returns the WINDOW_TICK frames the asm then waits
+ * (SELECTED_TEXT_SPEED+1); 0 when instant or no window is open. The direct-tile
+ * letters (0x20, 0x2F, EQUIPPED) render through RENDER_VWF_CHARACTER's
+ * PRINT_CHAR_WITH_SOUND, which plays its click and runs its own delay loop
+ * first; PRINT_LETTER's click and delay come after it (LQ_OP_LETTER_TAIL), so
+ * the 2 clicks land speed+1 frames apart. */
+static uint16_t dt_print_letter(uint8_t byte) {
+    /* PRINT_LETTER early-out: if no window is open (CURRENT_FOCUS_WINDOW ==
+     * -1), the routine RETURNs immediately — no VWF render and, crucially, no
+     * per-character WINDOW_TICK typewriter delay. Cutscene scripts use runs of
+     * space characters with no window open purely as control-stream padding;
+     * rendering them with the typewriter delay would step entity actionscripts
+     * (window_tick → render_frame_tick) once per space, desyncing scripted
+     * entities from the orchestrating dialogue. (Tessie-ride Lake Tess bug:
+     * Tessie froze her screen position ~243 frames early because the
+     * windowless space-runs advanced her past her SET_POSITION_CHANGE_CALLBACK
+     * freeze before DISABLE_SPRITE_MOVEMENT could park her.) */
+    if (win.current_focus_window == WINDOW_ID_NONE)
+        return 0;
+
+    print_eb_letter(byte);
+
+    if (byte == 0x20 || byte == 0x2F || byte == EB_CHAR_EQUIPPED) {
+        if (dt.instant_printing)
+            return 0;
+        /* PRINT_CHAR_WITH_SOUND's delay loop now, PRINT_LETTER's tail next. */
+        lq_push_op_front(LQ_OP_LETTER_TAIL, byte, 0);
+        return (uint16_t)(dt.selected_text_speed + 1);
+    }
+    return dt_print_letter_sound(byte);
 }
 
 /* Run the next queued letter or op. Returns the delay frames it owes. */
@@ -1697,6 +1730,9 @@ static uint16_t lq_run_next(void) {
             break;
         case LQ_OP_INDENT:
             vwf_indent_new_line = a;
+            break;
+        case LQ_OP_LETTER_TAIL:
+            delay = dt_print_letter_sound(a);
             break;
         default:
             LOG_WARN("letter queue: bad op 0x%02X\n", b);

@@ -78,6 +78,7 @@ typedef enum {
     LQ_OP_CURSOR_RIGHT_EDGE,    /* set_focus_text_cursor(width - 1 (asm), text_y) */
     LQ_OP_FORCE_LEFT,           /* FORCE_LEFT_TEXT_ALIGNMENT = a */
     LQ_OP_INDENT,               /* VWF_INDENT_NEW_LINE = a */
+    LQ_OP_LETTER_TAIL,          /* a: PRINT_LETTER's own sound + delay for a direct-tile letter */
 } LetterQueueOp;
 
 /* True while a DISPLAY_TEXT control code runs and a printed letter must go
