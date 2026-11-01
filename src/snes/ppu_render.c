@@ -2622,7 +2622,16 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 #endif
 
     /* Frame-constant compositing values (hoisted out of scanline loop) */
-    uint16_t bm = brightness * 17; /* 0→0, 1→17, ... 14→238, 15→255 */
+    /* Master brightness (INIDISP 0-15) as a per-channel table: each 5-bit
+     * channel becomes round(c * N / 15), so 15 is the identity and 0 black.
+     * This is exactly snes9x's mul_brightness table (globals.cpp), which the
+     * fades were checked against; the old c * N*17 >> 8 truncated and came
+     * out one level low at many steps (N=8, c=31 gave 16, not 17). */
+    uint8_t bright_lut[32];
+    if (brightness < 0x0F) {
+        for (int c = 0; c < 32; c++)
+            bright_lut[c] = (uint8_t)((c * brightness * 2 + 15) / 30);
+    }
     bool bg3prio = (ppu.bgmode & BGMODE_BG3_PRIO) && mode == 1;
     uint16_t backdrop = cgram_render[0];
 
@@ -3392,9 +3401,9 @@ merge_done:
                 /* Brightness */
                 pixel_t px = color;
                 if (brightness < 0x0F) {
-                    uint16_t r = (color & 0x1F) * bm >> 8;
-                    uint16_t g = ((color >> 6) & 0x1F) * bm >> 8;
-                    uint16_t b = ((color >> 11) & 0x1F) * bm >> 8;
+                    uint16_t r = bright_lut[color & 0x1F];
+                    uint16_t g = bright_lut[(color >> 6) & 0x1F];
+                    uint16_t b = bright_lut[(color >> 11) & 0x1F];
                     px = r | (g << 6) | (b << 11);
                 }
 

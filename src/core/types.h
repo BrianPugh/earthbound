@@ -68,7 +68,7 @@
  * panel hardware expects RGB565 can compile with -DEB_PIXEL_RGB565=1 to
  * swap the red/blue channel positions everywhere a pixel is *constructed*
  * (palette conversion, PIXEL_RGB literals). The arithmetic operators on
- * pixel_t (blend_colors, pixel_apply_brightness) are bit-position symmetric
+ * pixel_t (blend_colors, the brightness table) are bit-position symmetric
  * and work for either layout unchanged — green stays at bits [10:5] in both.
  *
  * Cost of the toggle: a one-time tweak of bgr555_to_pixel() and PIXEL_RGB();
@@ -106,19 +106,6 @@ static inline pixel_t bgr555_to_pixel(uint16_t bgr) {
 #else
     return (pixel_t)(((bgr & 0x7FE0) << 1) | (bgr & 0x001F));
 #endif
-}
-
-/* Apply SNES brightness (0-15) to a pixel. Bit-position symmetric — works
- * for both BGR565 and RGB565 because green is at [10:5] in both and the
- * outer 5-bit fields are treated identically. */
-static inline pixel_t pixel_apply_brightness(pixel_t px, uint8_t brightness) {
-    uint16_t r = px & 0x1F;
-    uint16_t g = (px >> 6) & 0x1F;
-    uint16_t b = (px >> 11) & 0x1F;
-    r = (r * brightness) / 15;
-    g = (g * brightness) / 15;
-    b = (b * brightness) / 15;
-    return (pixel_t)(r | (g << 6) | (b << 11));
 }
 
 /* Construct a pixel_t from 8-bit R, G, B components. */
