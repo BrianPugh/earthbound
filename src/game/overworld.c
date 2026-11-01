@@ -497,11 +497,21 @@ uint16_t add_party_member(uint16_t char_id) {
             if (current >= 5) break;  /* NPC */
             if (current > char_id) break;  /* higher-ID PC */
 
-            /* Check if current member is unconscious */
-            uint16_t eslot_off = insert_pos * 2;
-            uint16_t eslot = read_u16_le(&game_state.party_entity_slots[eslot_off]);
-            uint16_t char_idx = (uint16_t)entities.var[1][eslot];
-            uint8_t affliction = party_characters[char_idx].afflictions[0];
+            /* Check if current member is unconscious. Original bug, kept:
+             * @FIND_SLOT_LOW indexes ENTITY_SCRIPT_VAR1_TABLE with the
+             * *character id* (ASL; TAX with A = party_order[pos]), so it
+             * reads var1 of entity slot char_id (1..4, an NPC/enemy slot),
+             * not of the party member's entity. MULT168 multiplies the full
+             * 16-bit var1 by sizeof(char_struct). A var1 outside the 6
+             * party slots makes the original read unrelated WRAM; that
+             * read isn't modelled here and counts as "not unconscious".
+             * UPDATE_PARTY re-sorts the order afterwards, so only the
+             * joiner's predecessor (position_index / spawn trail entry)
+             * differs from what the code meant. */
+            uint16_t char_idx = (uint16_t)entities.var[1][ENT(current)];
+            uint8_t affliction = 0;
+            if (char_idx < TOTAL_PARTY_COUNT)
+                affliction = party_characters[char_idx].afflictions[0];
             if (affliction == 1) break;  /* unconscious: insert before */
 
             insert_pos++;
@@ -2399,8 +2409,10 @@ uint16_t attempt_homesickness(void) {
 
         /* Inflict homesick: STATUS_GROUP::HOMESICKNESS = status_group 6 (arg+1=7),
          * STATUS_5::HOMESICK = value 1 (arg+1=2), PARTY_MEMBER::NESS = 1 */
-        inflict_status_nonbattle(1, 7, 2);
-        return 0;
+        /* JSL INFLICT_STATUS_NONBATTLE; BRA @RETURN: its result (Ness's id)
+         * is the return value, which DISPATCH_SPECIAL_EVENT hands to the text
+         * result register (EBATTLE8's jump_if_true after trigger_event 17). */
+        return inflict_status_nonbattle(1, 7, 2);
     }
 
     return 0;

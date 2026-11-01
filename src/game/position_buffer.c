@@ -529,8 +529,13 @@ void fill_party_position_buffer(uint16_t direction) {
         entities.abs_x[ent_off] = entry->x_coord;
         entities.abs_y[ent_off] = entry->y_coord;
 
-        entities.directions[ent_off] = entry->direction;
-        entities.surface_flags[ent_off] = entry->tile_flags;
+        /* Original bug, kept: the asm reloads X from @VIRTUAL02 (party
+         * index * 2) for these 2 stores, so they land on entity slot i
+         * (0..party_count-1, in bounds), not on the party entity. Only
+         * TELEPORT reaches this, for a destination direction with bit 7
+         * set, which no retail teleport_destination_table entry has. */
+        entities.directions[ENT(i)] = entry->direction;
+        entities.surface_flags[ENT(i)] = entry->tile_flags;
 
         pos_idx -= 16;
         buf_idx -= 16;

@@ -544,8 +544,11 @@ done:
  * Zeros all 6 delta motion components (X/Y/Z integer + fraction) for a slot. */
 void clear_entity_delta_motion(int16_t slot) {
     int16_t offset = slot;
+    entities.delta_frac_x[offset] = 0;
     entities.delta_x[offset] = 0;
+    entities.delta_frac_y[offset] = 0;
     entities.delta_y[offset] = 0;
+    entities.delta_frac_z[offset] = 0;
     entities.delta_z[offset] = 0;
 }
 
