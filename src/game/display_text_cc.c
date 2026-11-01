@@ -2588,8 +2588,10 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
          * Port of CC_1C_02 (asm/text/ccs/print_character_name.asm).
          * arg=0xFF → use working_memory_storage, arg=0 → use argument_memory,
          * else arg = character ID (1-based).
-         * Characters 1-4 = party members (name from char_struct).
-         * Characters 5-6 = King/Buzz Buzz (name from game_state.pet_name).
+         * PRINT_CHARACTER_NAME (asm/text/print_character_name.asm):
+         * id <= PLAYER_CHAR_COUNT = char_struct name, id == PARTY_MEMBER::KING
+         * = game_state.pet_name, any other id = the NPC's enemy-config name
+         * through NPC_AI_TABLE (25 bytes, always word-wrapped).
          * NOTE: $FF reads working_memory_STORAGE (asm: window_stats::
          * working_memory_storage), not working_memory — used by the Goods Give
          * messages to print the recipient (set via set_working_memory_storage). */
@@ -2605,12 +2607,24 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         /* Print EB-encoded name directly (no lossy ASCII round-trip) */
         const uint8_t *name_data = NULL;
         int name_max = 0;
-        if (char_id >= 1 && char_id <= 4) {
+        if (char_id >= 1 && char_id <= PLAYER_CHAR_COUNT) {
+            /* (id 0 also takes this branch in the asm and reads the word
+             * before PARTY_CHARACTERS: no script prints id 0.) */
             name_data = party_characters[char_id - 1].name;
-            name_max = 5;
-        } else if (char_id == PARTY_MEMBER_POKEY) {
+            name_max = (int)sizeof(party_characters[0].name);
+        } else if (char_id == PARTY_MEMBER_KING) {
             name_data = game_state.pet_name;
-            name_max = 6;
+            name_max = (int)sizeof(game_state.pet_name);
+        } else if (char_id > PLAYER_CHAR_COUNT &&
+                   (size_t)char_id * 2 + 1 < ASSET_SIZE(ASSET_DATA_NPC_AI_TABLE_BIN)) {
+            /* @NPC_NAME: ENEMY_CONFIGURATION_TABLE[NPC_AI_TABLE[id].enemy].name,
+             * PRINT_STRING_WITH_WORDWRAP whatever ALLOW_TEXT_OVERFLOW is. */
+            const uint8_t *npc_ai = ASSET_DATA(ASSET_DATA_NPC_AI_TABLE_BIN);
+            const EnemyData *enemies =
+                (const EnemyData *)ASSET_DATA(ASSET_DATA_ENEMY_CONFIGURATION_TABLE_BIN);
+            print_string_with_wordwrap(enemies[npc_ai[char_id * 2 + 1]].name,
+                                       ENEMY_NAME_SIZE);
+            break;
         }
         if (name_data) {
             if (dt.allow_text_overflow) {
