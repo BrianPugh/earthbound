@@ -3788,6 +3788,20 @@ bool battle_push_text(ModeState *child, uint32_t addr) {
     return battle_push_text_ex(child, addr, false, false, 0);
 }
 
+/* DISPLAY_TEXT_WITH_PROMPT (asm/text/display_text_with_prompt.asm):
+ * ENABLE_BLINKING_TRIANGLE(1), DISPLAY_TEXT, CLEAR_BLINKING_PROMPT. Unlike
+ * DISPLAY_IN_BATTLE_TEXT it has no Auto Fight B check and no
+ * BATTLE_MODE_FLAG -> 2 override, so the flag stays 1 in battle. Its only
+ * asm caller is the action description (@DISPLAY_ACTION_TEXT); the caller's
+ * resume phase runs the clear. */
+static bool battle_push_text_with_prompt(ModeState *child, uint32_t addr) {
+    dt.blinking_triangle_flag = 1;
+    if (dt_make_child_init(child, addr))
+        return true;
+    LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", addr);
+    return false;
+}
+
 /* One-time entry setup (assembly lines 26-133): normal-battle-mode party
  * defaults, the Giygas phase, and the BG/palette/letterbox lookups. */
 static void btl_begin(BattleRoutineState *st) {
@@ -4305,8 +4319,13 @@ static void btl_enemy_ai(BattleRoutineState *st) {
             }
 
             /* Determine which enemy config to use */
+            /* @CHECK_POO_MIRROR_ENEMY: an ally Poo always reads the mirror
+             * config (the skip checks above guarantee mirror_enemy != 0 on
+             * the first pass; an ENEMY_EXTENDER retry jumps back here past
+             * them, as the asm does). */
+        select_config:;
             const EnemyData *econfig;
-            if (b->ally_or_enemy == 0 && b->id == PARTY_MEMBER_POO && bt.mirror_enemy != 0) {
+            if (b->ally_or_enemy == 0 && b->id == PARTY_MEMBER_POO) {
                 econfig = &enemy_config_table[bt.mirror_enemy];
             } else {
                 econfig = &enemy_config_table[b->id];
@@ -4355,14 +4374,11 @@ static void btl_enemy_ai(BattleRoutineState *st) {
                 if (b->ally_or_enemy == 0 && b->id == PARTY_MEMBER_POO) {
                     /* Poo mirror: extender arg is new mirror enemy */
                     bt.mirror_enemy = b->current_action_argument;
-                    /* Re-select action with new mirror enemy config */
-                    bi--;  /* Retry this battler */
-                    continue;
+                    goto select_config;  /* JMP @CHECK_POO_MIRROR_ENEMY */
                 } else {
                     /* Regular enemy: extender changes enemy ID */
                     b->id = b->current_action_argument;
-                    bi--;  /* Retry with new ID */
-                    continue;
+                    goto select_config;  /* JMP @CHECK_POO_MIRROR_ENEMY */
                 }
             }
 
@@ -4664,12 +4680,18 @@ static void btl_victory_money_exp(void) {
 
     /* Calculate EXP per surviving party member */
     {
+        /* exp = (exp + (uint16_t)(n - 1)) / n via DIVISION32 (signed).
+         * The asm runs this even when the same action wiped out the party
+         * (main_battle_routine.asm 3036-3105): n - 1 = $FFFF is
+         * zero-extended, and a zero divisor sets every quotient bit, so the
+         * victory text prints 4294967295 (negated to 1 when the dividend is
+         * negative). No one is conscious to gain it. */
         uint16_t alive_count = battle_count_chars(0);
-        if (alive_count > 0) {
-            /* Add (alive_count - 1) bonus EXP to base, then divide */
-            bt.battle_exp_scratch += (alive_count - 1);
-            bt.battle_exp_scratch /= alive_count;
-        }
+        uint32_t dividend = bt.battle_exp_scratch + (uint16_t)(alive_count - 1);
+        if (alive_count == 0)
+            bt.battle_exp_scratch = (dividend & 0x80000000u) ? 1u : 0xFFFFFFFFu;
+        else
+            bt.battle_exp_scratch = dividend / alive_count;
     }
 }
 
@@ -5139,7 +5161,7 @@ static EB_NOINLINE bool btl_step_exec_pp(BattleRoutineState *st, StepResult *out
     return true;
 }
 
-/* Display action description text (display_text_with_prompt_addr) */
+/* Display action description text (DISPLAY_TEXT_WITH_PROMPT) */
 static EB_NOINLINE bool btl_step_exec_desc(BattleRoutineState *st, StepResult *out) {
     dt.blinking_triangle_flag = 0;
     Battler *attacker = &bt.battlers_table[st->attacker];
@@ -5148,7 +5170,7 @@ static EB_NOINLINE bool btl_step_exec_desc(BattleRoutineState *st, StepResult *o
         uint32_t desc_addr =
             battle_action_table[attacker->current_action].description_text_pointer;
         if (desc_addr != 0 &&
-            battle_push_text_ex(&g_mode_push_init, desc_addr, true, false, 0)) {
+            battle_push_text_with_prompt(&g_mode_push_init, desc_addr)) {
             *out = STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             return true;
         }

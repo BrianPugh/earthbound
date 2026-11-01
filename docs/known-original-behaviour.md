@@ -141,6 +141,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Behaviour | Where / repro | Evidence | Date |
 | Starman Junior (scripted battle): swirl, hold and fade match; "The Starman Junior blocked the way!" prints during the 24-frame battle fade-in on both; the original stays black ~60-75 frames longer before it (load lag; battle start → menu 253 vs 177 frames) | run-01, Starman Junior hotspot (leg pt105) | emu pt105o sheets 0125/0127 vs port pt105a sheets 0151/0153 | 2026-11-01 |
 | Victory darkening after the last enemy: the BG's bright colours fade over ~25 frames while "YOU WON!" prints, then the BG keeps darkening slowly through the exp text; same in both (confirms 1223f86a) | same battle, Auto Fight with `rng 100 200` | emu pt105o sheet 0129 vs port pt105a sheets 0155-0156 | 2026-11-01 |
+| "gained 4294967295 exp" after the party is wiped out by the same action that kills the last enemy (defeat text, then the victory text); nobody gains it | rare: the last enemy's final attack KOs the last standing member, or a member collapses in the target loop that kills the last enemy | asm only (not emu-checked: the setup needs a KO landing mid-action): `main_battle_routine.asm` 3036-3105, DIVISION32 by COUNT_CHARS(0) = 0 sets every quotient bit; `btl_victory_money_exp` models it explicitly | 2026-11-01 |
 
 ## Text and windows
 
