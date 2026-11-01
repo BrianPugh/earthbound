@@ -657,8 +657,8 @@ static void update_camera_mode_3(void) {
     int16_t input_dir = map_input_to_direction(game_state.walking_style);
     if (input_dir == -1) return;
 
-    /* Loop over party entities 24..28 (assembly lines 22-67) */
-    for (int ent_idx = 24; ent_idx <= 28; ent_idx++) {
+    /* Loop over party entities 24..29 (assembly lines 22-67: CMP #29 / BLTEQ) */
+    for (int ent_idx = 24; ent_idx <= 29; ent_idx++) {
         int16_t ent_off = (int16_t)ent_idx;
 
         /* Skip if entity has no active script (assembly lines 26-28) */
@@ -684,9 +684,9 @@ static void update_camera_mode_3(void) {
         /* Update entity direction to input direction (assembly lines 57-59) */
         entities.directions[ent_off] = input_dir;
 
-        /* Assembly calls JSL UPDATE_ENTITY_SPRITE to DMA new sprite tiles.
-         * In the C port, the software renderer reads direction at draw time
-         * from entities.directions[], so no explicit sprite update needed. */
+        /* JSL UPDATE_ENTITY_SPRITE: upload the new facing's tiles (the
+         * renderer draws whatever tiles are in VRAM). */
+        update_entity_sprite(ent_off);
     }
 
     /* Store input direction as leader direction (assembly lines 68-70) */
