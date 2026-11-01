@@ -2209,16 +2209,20 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         uint16_t src_ptr  = (uint16_t)(base_ptr + (count - 1) * 4);
 
         /* Compute delivery slot offset: slot * 80 bytes (20 waypoints × 4 bytes) */
-        uint16_t slot_offset = (uint16_t)((slot * 5) << 4);  /* slot*5*16 = slot*80 */
+        uint16_t slot_offset = (uint16_t)(slot * DELIVERY_PATH_SLOT_SIZE);  /* asm: slot*5*16 */
 
         /* Store delivery slot base as the new entity_path_points */
         ert.entity_path_points[ent] = slot_offset;
 
-        /* Copy up to 20 waypoints in REVERSE order from path into delivery slot */
+        /* Copy up to 20 waypoints in REVERSE order from path into delivery slot.
+         * The source is the pathfinding-output range of ert.delivery_paths,
+         * disjoint from the slots (entity.h), as PATHFINDING_BUFFER and
+         * DELIVERY_PATHS are in the asm; an in-place reverse would fold the
+         * path back on itself. */
         uint16_t dst_ptr = slot_offset;
         int16_t  n = count;  /* number of waypoints to copy */
         int16_t  copied = 0;
-        while (n > 0 && copied < 20) {
+        while (n > 0 && copied < DELIVERY_PATH_SLOT_POINTS) {
             /* Copy 4 bytes (y: 2 bytes LE, x: 2 bytes LE) */
             ert.delivery_paths[dst_ptr]     = ert.delivery_paths[src_ptr];
             ert.delivery_paths[dst_ptr + 1] = ert.delivery_paths[src_ptr + 1];
@@ -2269,7 +2273,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         uint16_t src_ptr = ert.entity_path_points[ent];
 
         /* Compute delivery slot offset: slot * 80 bytes (20 waypoints × 4 bytes) */
-        uint16_t slot_offset = (uint16_t)((slot * 5) << 4);  /* slot*5*16 = slot*80 */
+        uint16_t slot_offset = (uint16_t)(slot * DELIVERY_PATH_SLOT_SIZE);  /* asm: slot*5*16 */
 
         /* Store delivery slot base as the new entity_path_points */
         ert.entity_path_points[ent] = slot_offset;
@@ -2280,7 +2284,7 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         /* Copy up to 20 waypoints in FORWARD order into delivery slot */
         uint16_t dst_ptr = slot_offset;
         int16_t  copied = 0;
-        while (count > 0 && copied < 20) {
+        while (count > 0 && copied < DELIVERY_PATH_SLOT_POINTS) {
             /* Copy 4 bytes (y: 2 bytes LE, x: 2 bytes LE) */
             ert.delivery_paths[dst_ptr]     = ert.delivery_paths[src_ptr];
             ert.delivery_paths[dst_ptr + 1] = ert.delivery_paths[src_ptr + 1];

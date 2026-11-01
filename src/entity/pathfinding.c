@@ -821,19 +821,25 @@ static int16_t initialize_pathfinding_for_entities(
     /* Phase 5: Store path results for each pathfinder.
      * Assembly stores heap byte offsets directly into ENTITY_PATH_POINTS
      * (the consumer reads from PATHFINDING_BUFFER at that offset).
-     * C port copies waypoint data from pf_heap to ert.delivery_paths and stores
-     * the ert.delivery_paths byte offset in ert.entity_path_points. */
-    uint16_t dp_offset = 0;
+     * The C port's heap lives in transient ert.buffer space, so it copies the
+     * waypoints to the pathfinding-output range of ert.delivery_paths (after
+     * the DELIVERY_PATHS slots, see entity.h) and stores that byte offset in
+     * ert.entity_path_points. The range (2272 bytes) is smaller than the most
+     * the asm heap could hold (3072 minus the sort table, temp waypoints and
+     * queue); a path that doesn't fit gets the asm's own out-of-heap result
+     * (no points, pathfinding state 1). */
+    uint16_t dp_offset = PATHFINDING_OUTPUT_BASE;
     for (int16_t pi = 0; pi < pathfinder_count; pi++) {
         Pathfinder *pf = &state->pathfinders[pi];
         int16_t slot = pf->object_index;
         int16_t ent = ENT(slot);
+        uint16_t bytes = (uint16_t)(pf->path_point_count * 4);
 
-        if (pf->path_point_count == 0) {
-            /* No path found — set pathfinding state to 1 */
+        if (pf->path_point_count == 0 ||
+            dp_offset + bytes > DELIVERY_PATHS_SIZE) {
+            /* No path found (or no room) — set pathfinding state to 1 */
             entities.pathfinding_states[ent] = 1;
         } else {
-            /* Copy waypoints from pf_heap to ert.delivery_paths */
             uint16_t wp_heap_off = (uint16_t)pf->path_points_ptr;
 
             /* Write ert.delivery_paths offset to ert.entity_path_points (assembly writes
@@ -846,7 +852,7 @@ static int16_t initialize_pathfinding_for_entities(
                 write_u16_le(&ert.delivery_paths[dp_offset + w * 4], wy);
                 write_u16_le(&ert.delivery_paths[dp_offset + w * 4 + 2], wx);
             }
-            dp_offset += pf->path_point_count * 4;
+            dp_offset += bytes;
 
             ert.entity_path_point_counts[ent] = pf->path_point_count;
         }

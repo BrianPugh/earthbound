@@ -417,9 +417,26 @@ typedef struct {
 #define BUFFER_REGION_CHECK(off, len, base, size) ((void)0)
 #endif
 
-/* DELIVERY_PATHS — persistent path waypoint storage (C port substitute for
- * PATHFINDING_BUFFER in WRAM). Sized to match assembly ($C00 = 3072 bytes). */
+/* ert.delivery_paths: persistent path waypoint storage (4 bytes a point:
+ * y16, x16), indexed by the byte offsets in ert.entity_path_points. It holds
+ * the asm's 2 separate buffers in disjoint ranges:
+ *   [0, DELIVERY_PATH_SLOTS_SIZE): DELIVERY_PATHS (ram.asm), 10 slots × 20
+ *     points, written only by SETUP_DELIVERY_PATH_FROM_ENTITY / _REVERSE
+ *     (slot × DELIVERY_PATH_SLOT_SIZE).
+ *   [PATHFINDING_OUTPUT_BASE, DELIVERY_PATHS_SIZE): the pathfinder's output
+ *     points, which the asm leaves in PATHFINDING_BUFFER's heap; rewritten by
+ *     every initialize_pathfinding_for_entities() call.
+ * Keeping them apart lets the delivery copies read the pathfinder output
+ * without overwriting it (slot 0 used to fold the Mach Pizza exit path back
+ * on itself) and keeps a walking courier's path safe from later pathfinding
+ * runs. The total stays at the original 3072 bytes. */
 #define DELIVERY_PATHS_SIZE 0xC00
+#define DELIVERY_PATH_SLOT_POINTS 20
+#define DELIVERY_PATH_SLOT_COUNT 10
+#define DELIVERY_PATH_SLOT_SIZE (DELIVERY_PATH_SLOT_POINTS * 4)                      /* 80 */
+#define DELIVERY_PATH_SLOTS_SIZE (DELIVERY_PATH_SLOT_COUNT * DELIVERY_PATH_SLOT_SIZE) /* 800 */
+#define PATHFINDING_OUTPUT_BASE DELIVERY_PATH_SLOTS_SIZE
+#define PATHFINDING_OUTPUT_SIZE (DELIVERY_PATHS_SIZE - PATHFINDING_OUTPUT_BASE)       /* 2272 */
 
 /* Palette upload mode constants (from include/enums.asm PALETTE_UPLOAD) */
 #define PALETTE_UPLOAD_NONE     0   /* NONE = 0 * 8 */
