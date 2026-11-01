@@ -1133,7 +1133,8 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
         }
         printf("RNG %u %u\n", (unsigned)rng_state.a, (unsigned)rng_state.b);
     } else if (strcmp(cmd, "money") == 0) {
-        game_state.money_carried = (uint32_t)v1;
+        if (nv >= 1)   /* bare `money` only reports, like emu.py's */
+            game_state.money_carried = (uint32_t)v1;
         printf("MONEY %u\n", (unsigned)game_state.money_carried);
     } else if (strcmp(cmd, "hp") == 0 || strcmp(cmd, "pp") == 0) {
         CharStruct *c = nv >= 2 ? party_char(v1) : NULL;
