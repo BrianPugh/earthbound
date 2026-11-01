@@ -3824,11 +3824,14 @@ static void btl_begin(BattleRoutineState *st) {
         bt.enemies_in_battle = 1;
         bt.current_battle_group = 1;
 
-        /* Read enemy ID from btl_entry_ptr_table[1] */
-        /* battle_entry_ptr_entry is 8 bytes; pointer at offset 2; enemy ID at offset 3 */
-        if (btl_entry_ptr_table) {
-            uint16_t enemy_id = read_u16_le(&btl_entry_ptr_table[8 + 3]);
-            bt.enemies_in_battle_ids[0] = enemy_id;
+        /* Enemy id = the word at BTL_ENTRY_PTR_TABLE[1].pointer + 1: the
+         * first group entry's enemy id (entries are count8, enemy16). */
+        const uint8_t *groups_table = ASSET_DATA(ASSET_DATA_ENEMY_BATTLE_GROUPS_TABLE_BIN);
+        if (btl_entry_ptr_table && groups_table) {
+            const uint8_t *e = &btl_entry_ptr_table[8];
+            uint32_t rom_ptr = (uint32_t)e[0] | ((uint32_t)e[1] << 8) | ((uint32_t)e[2] << 16);
+            bt.enemies_in_battle_ids[0] =
+                read_u16_le(groups_table + (rom_ptr - ENEMY_BATTLE_GROUPS_ROM_BASE) + 1);
         }
     }
 
@@ -3946,7 +3949,9 @@ static void btl_reinit_party(BattleRoutineState *st) {
     /* Initialize battle party display */
     initialize_battle_party(st->debug_enemy_level);
 
-    /* Re-init party members from current game state */
+    /* Re-init party members from current game state. npc_row is the asm's
+     * @VIRTUAL02: 0, incremented per inited NPC (row and HP word index). */
+    uint16_t npc_row = 0;
     for (uint16_t slot = 0; slot < 6; slot++) {
         uint8_t member_id = game_state.party_members[slot];
         if (member_id == 0) continue;
@@ -3962,10 +3967,12 @@ static void btl_reinit_party(BattleRoutineState *st) {
                 uint8_t enemy_cfg = npc_ai_table[member_id * 2 + 1];
                 Battler *b = &bt.battlers_table[slot];
                 battle_init_enemy_stats(b, enemy_cfg);
-                b->row = 0; /* assembly stores @VIRTUAL02 which is 0 at this point */
+                b->row = (uint8_t)npc_row;
 
-                /* Load NPC HP from game state */
-                uint16_t npc_hp = game_state.party_npc_1_hp;
+                /* Load NPC HP from game state (party_npc_1_hp + row * 2) */
+                uint16_t npc_hp = npc_row == 0 ? game_state.party_npc_1_hp
+                                               : game_state.party_npc_2_hp;
+                npc_row++;
                 b->hp_target = npc_hp;
                 b->hp = npc_hp;
                 b->pp_target = 0;
