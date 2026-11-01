@@ -70,12 +70,12 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L8 HP 76/76 PP 26/26",
-   "state": "STATE zero-balance modes=[OVERWORLD>QUICK_CHECKTALK>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(7236,1094) dir=LEFT music=27 money=794 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "state": "STATE zero-balance modes=[OVERWORLD] idle=yes input=1 pos=(7236,1094) dir=LEFT music=27 money=794 battle=0 ow_enemies=0 surface=0x80(solid)",
    "text": "sha256:810edab5d1e607f9",
    "until": [
     "met"
    ],
-   "win": "sha256:1b87bc956f092b5c"
+   "win": "sha256:e3b0c44298fc1c14"
   }
  },
  "order": [

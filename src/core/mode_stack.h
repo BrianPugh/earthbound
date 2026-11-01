@@ -1220,10 +1220,9 @@ typedef struct {
 
 /* GAME_MODE_TEXT_DELAY — run update_hppp_meter_work() for a fixed number of
  * frames, optionally breaking early on a text-advance press. Frame-faithful port
- * of the CC 0x1F 0x60 TEXT_SPEED_DELAY loop: the blocking loop checks the input
- * break AFTER each update_hppp_meter_and_render() (i.e. post-yield), so the check
- * sits at the TOP of each step and `primed` suppresses it on the very first frame
- * (no yield has happened yet inside this mode).
+ * of the CC 0x1F 0x60 TEXT_SPEED_DELAY loop: text_speed_delay.asm tests the
+ * counter and the input break before every frame, the first one included, so
+ * the check sits at the TOP of each step. `primed` is no longer read.
  *
  * cc_pause (CC 0x10) reuses this mode with lead_window=1: it renders one leading
  * window_tick_work() frame (the caller has already cleared instant-printing)
@@ -1262,9 +1261,10 @@ typedef struct {
  * dt.text_prompt_waiting_for_input via render_frame_tick; (2) one window_tick
  * frame; then one of three mutually-exclusive waits — the text-speed shortcut
  * loop, the no-triangle button wait, or the blinking-triangle animation. Each
- * becomes a phase. `primed` reproduces the post-yield input check of the
- * for/do-while branches (suppress the check on their first frame); the triangle
- * branch checks input pre-work every frame, so it ignores `primed`. */
+ * becomes a phase. Every wait tests PAD_PRESS before its frame's work, the
+ * first frame after the WINDOW_TICK included (halt.asm BRA
+ * @WAIT_NO_TRIANGLE_CHECK, TEXT_SPEED_DELAY's BRA @DELAY_CHECK), so `primed`
+ * is no longer read. */
 typedef enum {
     TP_WAIT_PROMPT = 0, /* render_frame_tick_work until prompt-wait clears, then window+decide */
     TP_TEXTSPEED,       /* text-speed auto-advance shortcut (returns w/o teardown) */

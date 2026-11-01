@@ -438,11 +438,11 @@ StepResult mode_step_number_select(ModeState *ms) {
 /* ---------------------------------------------------------------------------
  * GAME_MODE_TEXT_DELAY — fixed frame-count typing pause (CC 0x1F 0x60).
  *
- * Run-to-completion port of the TEXT_SPEED_DELAY loop: render
- * dt.text_speed_based_wait frames via update_hppp_meter_work(), breaking early
- * on a text-advance press. The blocking loop checked the break AFTER each
- * update_hppp_meter_and_render() (post-yield), so the check sits at the top of
- * the step and `primed` suppresses it on the first frame.
+ * Run-to-completion port of the TEXT_SPEED_DELAY loop: render `remaining`
+ * frames via update_hppp_meter_work(), breaking early on a text-advance press.
+ * text_speed_delay.asm tests the counter and PAD_PRESS before every frame,
+ * the first one included (BRA @DELAY_CHECK), so the check sits at the top of
+ * each step. `primed` is no longer read (kept for the savestate layout).
  * ------------------------------------------------------------------------- */
 StepResult mode_step_text_delay(ModeState *ms) {
     TextDelayState *st = &ms->text_delay;
@@ -470,9 +470,9 @@ StepResult mode_step_text_delay(ModeState *ms) {
         }
         return STEP_RESULT_CONTINUE();
     }
-    if (st->primed && st->cancelable && (core.pad1_pressed & PAD_TEXT_ADVANCE))
-        return STEP_RESULT_POP(0);
     if (st->remaining == 0)
+        return STEP_RESULT_POP(0);
+    if (st->cancelable && (core.pad1_pressed & PAD_TEXT_ADVANCE))
         return STEP_RESULT_POP(0);
 
     if (update_hppp_meter_work_step()) {
@@ -555,7 +555,6 @@ static StepResult tp_decide(TextPromptState *st) {
      * resume-music teardown — it never set those flags. */
     if (!st->skip_text_speed && dt.blinking_triangle_flag && dt.text_speed_based_wait) {
         st->remaining = dt.text_speed_based_wait;
-        st->primed = 0;
         st->phase = TP_TEXTSPEED;
         return STEP_RESULT_CONTINUE();
     }
@@ -566,7 +565,6 @@ static StepResult tp_decide(TextPromptState *st) {
 
     WindowInfo *w = get_focus_window_info();
     if (!st->show_triangle || !w) {
-        st->primed = 0;
         st->phase = TP_WAIT_BUTTON;
     } else {
         st->tri_pos = text_prompt_triangle_pos(w);
@@ -615,12 +613,10 @@ StepResult mode_step_text_prompt(ModeState *ms) {
         st->flush = 0;
         update_hppp_meter_work_flush();
         st->remaining--;
-        st->primed = 1;
         return STEP_RESULT_CONTINUE();
     case 5:  /* TP_WAIT_BUTTON parked */
         st->flush = 0;
         update_hppp_meter_work_flush();
-        st->primed = 1;
         return STEP_RESULT_CONTINUE();
     case 6:  /* TP_TRIANGLE parked */
         st->flush = 0;
@@ -650,26 +646,31 @@ StepResult mode_step_text_prompt(ModeState *ms) {
         return tp_window_and_decide(st);
 
     case TP_TEXTSPEED:
-        if (st->primed && (core.pad1_pressed & PAD_TEXT_ADVANCE))
-            return STEP_RESULT_POP(0);   /* early return: no teardown */
+        /* TEXT_SPEED_DELAY (text_speed_delay.asm @DELAY_CHECK): the counter
+         * and PAD_PRESS are tested before each frame, the first one too, so
+         * a press on the frame after the WINDOW_TICK is taken (BRA
+         * @DELAY_CHECK). */
         if (st->remaining == 0)
             return STEP_RESULT_POP(0);
+        if (core.pad1_pressed & PAD_TEXT_ADVANCE)
+            return STEP_RESULT_POP(0);   /* early return: no teardown */
         if (update_hppp_meter_work_step()) {
             st->flush = 4;
             return actionscript_frame_take_push();
         }
         st->remaining--;
-        st->primed = 1;
         return STEP_RESULT_CONTINUE();
 
     case TP_WAIT_BUTTON:
-        if (st->primed && (core.pad1_pressed & PAD_TEXT_ADVANCE))
+        /* halt.asm @WAIT_NO_TRIANGLE_CHECK: BRA to the PAD_PRESS test, so it
+         * runs before the first UPDATE_HPPP_METER_AND_RENDER (checked in emu:
+         * a press on the frame after the WINDOW_TICK dismisses the prompt). */
+        if (core.pad1_pressed & PAD_TEXT_ADVANCE)
             return tp_pop_teardown();
         if (update_hppp_meter_work_step()) {
             st->flush = 5;
             return actionscript_frame_take_push();
         }
-        st->primed = 1;
         return STEP_RESULT_CONTINUE();
 
     case TP_TRIANGLE:
@@ -1112,16 +1113,17 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
 
     /* --- Map/movement commands --- */
     case 0x60: {
-        /* TEXT_SPEED_DELAY: 0 args.
-         * Port of CC_1F_60 (asm/text/ccs/unknown_1F_60.asm) → TEXT_SPEED_DELAY
-         * (asm/text/text_speed_delay.asm).
-         * Applies per-character typing delay based on dt.text_speed_based_wait.
-         * Loops calling render_frame_tick() for the delay count frames.
-         * Button press (B/SELECT/A/L) cancels the remaining delay.
-         * dt.text_speed_based_wait is set during file select from game_state.text_speed. */
+        /* TEXT_SPEED_DELAY: 1 arg (frames; 0 = dt.text_speed_based_wait).
+         * tree_1F.asm @TEXT_SPEED_DELAY returns the handler CC_1F_60, so the
+         * next byte is its argument (TXA; JSR TEXT_SPEED_DELAY).
+         * TEXT_SPEED_DELAY (asm/text/text_speed_delay.asm) waits up to that
+         * many UPDATE_HPPP_METER_AND_RENDER frames; a B/SELECT/A/L press
+         * cancels the rest. Not ported: its DEBUG (outside battle) branch,
+         * which waits for a press with no frame limit. */
+        uint8_t frames = script_read_byte(r);
         if (!dt.text_prompt_waiting_for_input) {
             /* STEP_PUSH a cancelable text-speed delay (no post-work). */
-            out_init->text_delay.remaining  = dt.text_speed_based_wait;
+            out_init->text_delay.remaining  = frames ? frames : dt.text_speed_based_wait;
             out_init->text_delay.cancelable = 1;
             out_init->text_delay.primed     = 0;
             *out_mode = GAME_MODE_TEXT_DELAY;
