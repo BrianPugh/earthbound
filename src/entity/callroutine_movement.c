@@ -557,12 +557,20 @@ int16_t cr_movement_cmd_copy_sprite_pos(int16_t entity_offset, int16_t script_of
 
 int16_t cr_movement_cmd_copy_leader_pos(int16_t entity_offset, int16_t script_offset,
                                          uint16_t pc, uint16_t *out_pc) {
-    /* 1 extra byte: param (unused in most contexts).
-     * Copy the party leader's position to this entity. */
-    (void)sb(pc);
+    /* Port of C0A864 MOVEMENT_CMD_COPY_LEADER_POS -> COPY_LEADER_POSITION_TO_ENTITY.
+     * Reads a character byte; FIND_ENTITY_FOR_CHARACTER maps $FF to the
+     * leader's slot and any other id to that party member's entity, whose
+     * abs_x/abs_y are copied to this entity. */
+    uint8_t char_id = sb(pc);
     *out_pc = pc + 1;
-    entities.abs_x[entity_offset] = (int16_t)game_state.leader_x_coord;
-    entities.abs_y[entity_offset] = (int16_t)game_state.leader_y_coord;
+    int16_t slot = find_entity_for_character(char_id);
+    /* Not found (-1): the asm indexes the tables at -2 bytes and copies
+     * whatever word precedes them. That's an out-of-bounds read here, so
+     * the position is left unchanged (UB guard). */
+    if (slot >= 0) {
+        entities.abs_x[entity_offset] = entities.abs_x[ENT(slot)];
+        entities.abs_y[entity_offset] = entities.abs_y[ENT(slot)];
+    }
     return 0;
 }
 
