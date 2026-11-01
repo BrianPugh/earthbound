@@ -165,9 +165,11 @@ static void update_psi_teleport_speed(uint16_t direction) {
     /* Compute X/Y components from direction.
      * Diagonal directions (odd) scale by 1/sqrt(2) ≈ 0xB505/0x10000. */
     if (direction & 1) {
-        /* Diagonal: multiply speed by 0xB505, shift right by 16 (two ASR8s) */
-        int64_t diag = (int64_t)speed * 0xB505;
-        int32_t component = (int32_t)(diag >> 16);
+        /* Diagonal: ASR8_INT speed; MULT32 by $B505 (low 32 bits); ASR8_INT.
+         * The first shift drops speed's low 8 fraction bits before the
+         * multiply, as in the asm. */
+        uint32_t prod = (uint32_t)(speed >> 8) * 0xB505u;
+        int32_t component = (int32_t)prod >> 8;
         ow.psi_teleport_speed_x = component;
         ow.psi_teleport_speed_y = component;
     } else {
@@ -413,8 +415,9 @@ void update_party_entity_from_buffer(int16_t entity_offset) {
     entities.directions[entity_offset] = entry->direction;
     entities.surface_flags[entity_offset] = entry->tile_flags;
 
-    /* Update visibility/spacing */
-    uint16_t new_pos = update_teleport_party_visibility(char_id, pos_idx,
+    /* Update visibility/spacing. The asm hands var0 (the character id, which
+     * differs from the var1 party slot for NPC followers) as A. */
+    uint16_t new_pos = update_teleport_party_visibility(var0, pos_idx,
                                                          entity_offset);
     cs->position_index = (uint8_t)(new_pos & 0xFF);
 }
