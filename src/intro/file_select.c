@@ -758,6 +758,16 @@ static void kb_build_name_display(uint8_t *display, const uint8_t *eb_name,
     display[max_len] = 0;
 }
 
+/* Length of a name already in its buffer: the characters before the first 0,
+   at most max_len (INITIALIZE_EXISTING_NAME_VWF's @CHECK_CHAR_LOOP, whose count
+   becomes NEXT_KEYBOARD_INPUT_INDEX). */
+static int kb_existing_name_len(const uint8_t *name, int max_len) {
+    int len = 0;
+    while (len < max_len && name[len] != 0)
+        len++;
+    return len;
+}
+
 /* Upload name display VWF tiles to the dedicated VRAM range.
    Only called when the name changes (matching assembly's
    RENDER_KEYBOARD_INPUT_CHARACTER which is called per-change, not per-frame).
@@ -1522,12 +1532,19 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 print_eb_string(naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE,
                                 NAMING_PROMPT_ENTRY_SIZE);
             }
+            /* name_a_character.asm:53-55: a name already entered (coming back
+               via B on the next keyboard, or Nope at "Are you sure?") is shown
+               by INITIALIZE_EXISTING_NAME_VWF (its characters, the bullet if
+               shorter than max_len, dashes for the rest) and TEXT_INPUT_DIALOG
+               then edits it; an empty one goes through
+               INITIALIZE_KEYBOARD_INPUT_VWF (bullet + dashes). */
             int name_tile_cols;
             {
-                uint8_t empty_name[16];
+                const uint8_t *name = name_target_buffer(ng_name_targets[i].target);
                 uint8_t display[16];
-                memset(empty_name, 0, sizeof(empty_name));
-                kb_build_name_display(display, empty_name, 0, ng_name_targets[i].max_len);
+                kb_build_name_display(display, name,
+                                      kb_existing_name_len(name, ng_name_targets[i].max_len),
+                                      ng_name_targets[i].max_len);
                 name_tile_cols = kb_render_name_tiles(display, ng_name_targets[i].max_len);
             }
             /* name_a_character.asm:33/121 run WINDOW_TICK_WITHOUT_INSTANT_PRINTING
@@ -1549,7 +1566,8 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             int i = st->char_i;
             text_input_prepare(&g_mode_push_init, ng_name_targets[i].target,
                                ng_name_targets[i].max_len, i,
-                               WINDOW_FILE_SELECT_NAMING_BOX, 0, NULL);
+                               WINDOW_FILE_SELECT_NAMING_BOX, 0,
+                               name_target_buffer(ng_name_targets[i].target));
             st->phase = NGN_INPUT_DONE;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_TEXT_INPUT, &g_mode_push_init);
         }
