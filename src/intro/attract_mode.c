@@ -137,7 +137,8 @@ StepResult mode_step_attract_mode(ModeState *st) {
       return STEP_RESULT_CONTINUE();
     }
     update_swirl_effect();
-    if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
+    /* @MAIN_LOOP tests A, B and START only (L doesn't skip). */
+    if (platform_input_get_pad_new() & (PAD_A | PAD_B | PAD_START)) {
       s->button_pressed = 1;
       close_oval_window();
       s->phase = AT_OVAL_CLOSE;

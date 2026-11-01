@@ -33,7 +33,6 @@
  */
 #define PAD_CONFIRM      (PAD_A | PAD_L)                       /* confirm selection, interact */
 #define PAD_CANCEL       (PAD_B | PAD_SELECT)                  /* cancel, back, HP/PP display */
-#define PAD_ANY_BUTTON   (PAD_A | PAD_B | PAD_L | PAD_START)   /* skip attract mode, title screen, etc. */
 #define PAD_TEXT_ADVANCE  (PAD_A | PAD_B | PAD_SELECT | PAD_L) /* advance/dismiss text */
 #define PAD_DPAD         (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT)
 

@@ -96,8 +96,10 @@ void load_title_screen_graphics(void) {
 
 /* The manual fade-out + exit cleanup, run as its own phase and also called
  * inline when TS_INPUT decides to exit (so there is no extra yield between the
- * decision and the first fade frame). Displays brightness 0x0F..1 for four
- * frames each, then force-blanks — matching the existing manual loop exactly. */
+ * decision and the first fade frame). Port of FADE_OUT_WITH_MOSAIC(1, 4, 0):
+ * the step is subtracted before the first wait, so starting from full
+ * brightness it shows 14, 13, ..., 0 for four frames each, then force-blanks.
+ * fade_b holds the brightness currently shown. */
 static StepResult title_fadeout_step(TitleScreenState *s) {
     if (s->fade_delay_left > 0) {
         s->fade_delay_left--;
@@ -113,10 +115,52 @@ static StepResult title_fadeout_step(TitleScreenState *s) {
         entity_system_init();
         return STEP_RESULT_POP(s->result);
     }
-    ppu.inidisp = s->fade_b;
     s->fade_b--;
+    ppu.inidisp = s->fade_b;
     s->fade_delay_left = 3; /* this step yields once; three more follow = 4/level */
     return STEP_RESULT_CONTINUE();
+}
+
+/* Start the exit fade from the current INIDISP brightness. FADE_OUT_WITH_MOSAIC
+ * (US) goes straight to force blank when the screen is already blanked. */
+static StepResult title_begin_fadeout(TitleScreenState *s, uint8_t result) {
+    s->result = result;
+    s->phase = TS_FADEOUT;
+    s->fade_b = (ppu.inidisp & 0x80) ? 0 : (ppu.inidisp & 0x0F);
+    s->fade_delay_left = 0;
+    return title_fadeout_step(s);
+}
+
+/* ROM: JSL OAM_CLEAR (parked below the viewport). */
+static void title_oam_clear(void) {
+    memset(ppu.oam, 0, sizeof(ppu.oam));
+    memset(ppu.oam_hi, 0, sizeof(ppu.oam_hi));
+    for (int i = 0; i < 128; i++) {
+        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
+        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
+    }
+}
+
+/* Port of RUN_TITLE_SEQUENCE's setup (asm/intro/run_title_sequence.asm),
+ * entered when a button is pressed during the non-quick reveal: reload the
+ * title graphics and restart the title script in quick mode. The rest of the
+ * routine (one RENDER_FRAME_TICK, FADE_IN(16,1), 60 warm-up frames, the A/B/
+ * START or actionscript wait and FADE_OUT_WITH_MOSAIC(1,4,0)) runs through
+ * TS_SEQ_FIRST and the quick-mode TS_WARMUP / TS_INPUT / TS_FADEOUT phases.
+ * SHOW_TITLE_SCREEN's own fade-out afterwards finds the screen force-blanked
+ * and returns at once. */
+static void title_run_sequence_setup(TitleScreenState *s) {
+    ppu.inidisp = 0x80;                 /* FORCE_BLANK_AND_WAIT_VBLANK */
+    entity_system_init();               /* INIT_ENTITY_SYSTEM */
+    load_title_screen_graphics();
+    ppu.tm = 0x11;
+    title_oam_clear();
+    ert.title_screen_quick_mode = 1;
+    entity_init_wipe(EVENT_SCRIPT_TITLE_SCREEN_1);
+    ert.actionscript_state = 0;
+    s->quick_mode = 1;
+    s->frame = 0;
+    s->phase = TS_SEQ_FIRST;
 }
 
 StepResult mode_step_title_screen(ModeState *st) {
@@ -134,6 +178,13 @@ StepResult mode_step_title_screen(ModeState *st) {
     if (s->flush == 2) {        /* TS_INPUT render parked */
         s->flush = 0;
         render_frame_tick_work_flush();
+        return STEP_RESULT_CONTINUE();
+    }
+    if (s->flush == 3) {        /* TS_SEQ_FIRST render parked */
+        s->flush = 0;
+        render_frame_tick_work_flush();
+        fade_in(16, 1);
+        s->phase = TS_WARMUP;
         return STEP_RESULT_CONTINUE();
     }
 
@@ -179,26 +230,35 @@ StepResult mode_step_title_screen(ModeState *st) {
     case TS_INPUT:
         /* @CHECK_ACTIONSCRIPT: state 1 -> exit to attract (result 0). State 0/2
          * keep looping. (Input + state are read post-yield, at the top.) */
-        if (ert.actionscript_state != 0 && ert.actionscript_state != 2) {
-            s->result = 0;
-            s->phase = TS_FADEOUT;
-            s->fade_b = 0x0F;
-            s->fade_delay_left = 0;
-            return title_fadeout_step(s);
-        }
-        /* @INPUT_LOOP: any button exits to file select (result 1). */
-        if (platform_input_get_pad_new() & PAD_ANY_BUTTON) {
-            s->result = 1;
-            s->phase = TS_FADEOUT;
-            s->fade_b = 0x0F;
-            s->fade_delay_left = 0;
-            return title_fadeout_step(s);
+        if (ert.actionscript_state != 0 && ert.actionscript_state != 2)
+            return title_begin_fadeout(s, 0);
+        /* @INPUT_LOOP: A, B or START (not L) exits. During the non-quick
+         * reveal (@POST_INPUT_LOOP: quick mode 0, actionscript state 0) the
+         * press runs RUN_TITLE_SEQUENCE, which snaps to the finished title and
+         * waits again; otherwise it goes to file select (result 1). */
+        if (platform_input_get_pad_new() & (PAD_A | PAD_B | PAD_START)) {
+            if (!s->quick_mode && ert.actionscript_state == 0) {
+                title_run_sequence_setup(s);
+                return STEP_RESULT_CONTINUE();
+            }
+            return title_begin_fadeout(s, 1);
         }
         /* @NO_BUTTON: run one frame. */
         if (render_frame_tick_work_step()) {
             s->flush = 2;
             return actionscript_frame_take_push();
         }
+        return STEP_RESULT_CONTINUE();
+
+    case TS_SEQ_FIRST:
+        /* RUN_TITLE_SEQUENCE: one RENDER_FRAME_TICK, then FADE_IN(16, 1)
+         * (one step to full brightness) and the 60-frame quick warm-up. */
+        if (render_frame_tick_work_step()) {
+            s->flush = 3;
+            return actionscript_frame_take_push();
+        }
+        fade_in(16, 1);
+        s->phase = TS_WARMUP;
         return STEP_RESULT_CONTINUE();
 
     case TS_FADEOUT:
@@ -281,12 +341,7 @@ void title_screen_setup(uint16_t quick_mode) {
     ppu.sprite_y_offset = EB_VIEWPORT_PAD_TOP;
 
     /* ROM: JSL OAM_CLEAR */
-    memset(ppu.oam, 0, sizeof(ppu.oam));
-    memset(ppu.oam_hi, 0, sizeof(ppu.oam_hi));
-    for (int i = 0; i < 128; i++) {
-        ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
-        ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
-    }
+    title_oam_clear();
 
     /* Store quick_mode flag for entity scripts to read */
     ert.title_screen_quick_mode = quick_mode;

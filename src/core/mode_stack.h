@@ -1996,16 +1996,18 @@ typedef struct {
  *                render_frame_tick_work(). `frame` counts to 60, then -> TS_INPUT.
  *   TS_INPUT   - the @CHECK_ACTIONSCRIPT / @INPUT_LOOP goto machine as one
  *                self-looping phase: each step checks actionscript_state
- *                (1 -> exit to attract, result 0), then any button (-> exit,
- *                result 1), else render_frame_tick_work(). Input/state are read
+ *                (1 -> exit to attract, result 0), then A/B/START (-> exit,
+ *                result 1; during the non-quick reveal it runs RUN_TITLE_SEQUENCE
+ *                instead), else render_frame_tick_work(). Input/state are read
  *                at the top (post-yield), matching the original's button-then-
  *                render-then-recheck order.
- *   TS_FADEOUT - the manual brightness ramp-down (0x0F..1, four frames each, then
- *                force-blank) + the exit cleanup (restore viewport/sprite offset,
- *                clear actionscript_state, setup_entity_color_math, entity reset).
- *                Inlined rather than pushed as MOSAIC_FADE: the existing C loop
- *                displays 0x0F first and ends at 1, one brightness level off from
- *                FADE_OUT_WITH_MOSAIC; inlining keeps this refactor behavior-exact.
+ *   TS_FADEOUT - FADE_OUT_WITH_MOSAIC(1,4,0) inlined (14..0, four frames each,
+ *                then force-blank) + the exit cleanup (restore viewport/sprite
+ *                offset, clear actionscript_state, setup_entity_color_math,
+ *                entity reset).
+ *   TS_SEQ_FIRST - RUN_TITLE_SEQUENCE after its setup (graphics reload, title
+ *                script restarted in quick mode): one render, FADE_IN(16,1), then
+ *                the quick TS_WARMUP / TS_INPUT / TS_FADEOUT phases.
  *
  * Pops 0 on idle time-out (-> attract mode), 1 on a button press (-> file select),
  * matching the blocking return. */
@@ -2013,16 +2015,18 @@ typedef enum {
     TS_WARMUP = 0,
     TS_INPUT,
     TS_FADEOUT,
+    TS_SEQ_FIRST,
 } TitleScreenPhase;
 
 typedef struct {
     uint8_t  phase;           /* TitleScreenPhase */
     uint8_t  quick_mode;      /* selects the TS_WARMUP body */
     uint8_t  result;          /* 0 = time-out (attract), 1 = button pressed */
-    uint8_t  fade_b;          /* TS_FADEOUT: current brightness (0x0F..1) */
+    uint8_t  fade_b;          /* TS_FADEOUT: brightness shown (0x0F..0) */
     uint8_t  fade_delay_left; /* TS_FADEOUT: frames left at the current brightness */
     uint8_t  flush;           /* D4b: resume code after a parked actionscript frame
-                               * (1 = TS_WARMUP render, 2 = TS_INPUT render) */
+                               * (1 = TS_WARMUP render, 2 = TS_INPUT render,
+                               * 3 = TS_SEQ_FIRST render) */
     uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
 } TitleScreenState;
 
