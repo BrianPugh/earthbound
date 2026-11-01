@@ -5033,20 +5033,21 @@ static EB_NOINLINE bool btl_step_exec_body(BattleRoutineState *st, StepResult *o
     return false;
 }
 
-/* Apply status damage */
+/* Apply status damage (asm @APPLY_STATUS_DAMAGE). LOSE_HP_STATUS and the
+ * hp == 0 check run on every turn, also with 0 damage: an attacker at 0 HP
+ * (e.g. Giygas after the prayers, whose KO_TARGET returns at once) gets an
+ * extra KO_TARGET and loses its turn. */
 static EB_NOINLINE bool btl_step_exec_dmg(BattleRoutineState *st, StepResult *out) {
     dt.blinking_triangle_flag = 0;
     Battler *attacker = &bt.battlers_table[st->attacker];
 
-    if (st->status_damage > 0) {
-        battle_lose_hp_status(attacker, st->status_damage);
+    battle_lose_hp_status(attacker, st->status_damage);
 
-        if (attacker->hp == 0) {
-            st->phase = BTL_EXEC_DMG_KO;
-            battle_ko_make_init(&g_mode_push_init, battler_to_offset(attacker));
-            *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
-            return true;
-        }
+    if (attacker->hp == 0) {
+        st->phase = BTL_EXEC_DMG_KO;
+        battle_ko_make_init(&g_mode_push_init, battler_to_offset(attacker));
+        *out = STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_KO, &g_mode_push_init);
+        return true;
     }
     st->phase = BTL_EXEC_SETUP;
     return false;
