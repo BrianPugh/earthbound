@@ -2502,6 +2502,21 @@ static uint16_t temp_sub_color_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PP
 static uint8_t  temp_sub_gp_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 static uint8_t  temp_tm_all_ctx[EB_PPU_NUM_RENDER_CONTEXTS][SNES_WIDTH] EB_PPU_LINEBUF_ATTR;
 
+/* Which layers need rendering: the union of main and sub screen. The
+ * letterbox HDMA writes TM/TS per line, and a layer enabled only by the table
+ * is still drawn on those lines. EB's tables are subsets of the static
+ * registers today, so the table scan only guards future tables. Once per
+ * frame, so it stays in flash: inlined into ppu_render_frame_ex it cost
+ * 112 B of the RP2040's RAM-resident code. */
+static __attribute__((noinline)) uint8_t frame_layers_needed(void) {
+    uint8_t layers = ppu.tm | ppu.ts;
+    if (ppu.tm_hdma_active) {
+        for (int y = 0; y < SNES_HEIGHT; y++)
+            layers |= ppu.tm_per_scanline[y] | ppu.ts_per_scanline[y];
+    }
+    return layers;
+}
+
 /* Wide-mode decision for one frame (see the call in ppu_render_frame_ex).
  * Runs once per frame, so it stays out of EB_PPU_RAM_SECTION; noinline keeps
  * GCC from folding it into the RAM-resident caller.
@@ -2620,15 +2635,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     uint16_t fixed_color = bgr555_to_pixel(
         (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
 
-    /* Which layers need rendering (union of main + sub screen) */
-    uint8_t layers_needed = ppu.tm | ppu.ts;
-    /* The letterbox HDMA writes TM/TS per line: a layer enabled only by the
-     * table is still drawn on those lines. EB's tables are subsets of the
-     * static registers today, so this only guards future tables. */
-    if (ppu.tm_hdma_active) {
-        for (int y = 0; y < SNES_HEIGHT; y++)
-            layers_needed |= ppu.tm_per_scanline[y] | ppu.ts_per_scanline[y];
-    }
+    uint8_t layers_needed = frame_layers_needed();
 
     /* Wide mode: a filling layer, or a backdrop-only frame (frame_wide_mode). */
     bool wide_mode = frame_wide_mode(bg_bpp, layers_needed,
