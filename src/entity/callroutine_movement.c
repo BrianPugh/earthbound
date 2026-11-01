@@ -693,7 +693,12 @@ int16_t cr_movement_cmd_face_toward_npc(int16_t entity_offset, int16_t script_of
         int16_t dir = calculate_direction_8(
             entities.abs_x[found], entities.abs_y[found],
             entities.abs_x[entity_offset], entities.abs_y[entity_offset]);
-        entities.directions[found] = dir;
+        /* Only a changed direction is written, and then the NPC is
+         * re-rendered (RENDER_ENTITY_SPRITE_ENTRY2). */
+        if (entities.directions[found] != dir) {
+            entities.directions[found] = dir;
+            render_entity_sprite(found);
+        }
     }
     return 0;
 }
@@ -711,7 +716,11 @@ int16_t cr_movement_cmd_face_toward_sprite(int16_t entity_offset, int16_t script
         int16_t dir = calculate_direction_8(
             entities.abs_x[found_off], entities.abs_y[found_off],
             entities.abs_x[entity_offset], entities.abs_y[entity_offset]);
-        entities.directions[found_off] = dir;
+        /* As FACE_TOWARD_NPC: write and re-render only on a change. */
+        if (entities.directions[found_off] != dir) {
+            entities.directions[found_off] = dir;
+            render_entity_sprite(found_off);
+        }
     }
     return 0;
 }
@@ -757,10 +766,17 @@ int16_t cr_movement_set_pos_from_screen(int16_t entity_offset, int16_t script_of
 
 int16_t cr_movement_cmd_set_npc_id(int16_t entity_offset, int16_t script_offset,
                                     uint16_t pc, uint16_t *out_pc) {
+    /* Port of MOVEMENT_CMD_SET_NPC_ID: the asm passes the id through
+     * SET_DIRECTION first, so ENTITY_DIRECTIONS gets the id too (unless
+     * pathfinding-locked) and A (the new tempvar) is the id. directions[] is
+     * 8-bit here, so only the low byte is kept; the only users (scripts
+     * 499/500, $051F) set a real direction before anything draws. */
     uint16_t npc_id = sw(pc);
     *out_pc = pc + 2;
+    if (entities.pathfinding_states[entity_offset] >= 0)
+        entities.directions[entity_offset] = (int8_t)npc_id;
     entities.npc_ids[entity_offset] = npc_id;
-    return 0;
+    return (int16_t)npc_id;
 }
 
 int16_t cr_movement_cmd_animate_pal_fade(int16_t entity_offset, int16_t script_offset,
