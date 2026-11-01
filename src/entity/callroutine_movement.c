@@ -462,11 +462,11 @@ int16_t cr_load_current_map_block_events(int16_t entity_offset, int16_t script_o
 
 int16_t cr_reverse_direction_8(int16_t entity_offset, int16_t script_offset,
                                 uint16_t pc, uint16_t *out_pc) {
+    /* Port of REVERSE_DIRECTION_8: takes A (= tempvar), returns
+     * (A + 4) & 7 and writes nothing. */
+    (void)entity_offset;
     *out_pc = pc;
-    /* Reverse 8-way direction: (dir + 4) % 8 */
-    entities.directions[entity_offset] =
-        (entities.directions[entity_offset] + 4) & 7;
-    return 0;
+    return (int16_t)(((uint16_t)scripts.tempvar[script_offset] + 4) & 7);
 }
 
 int16_t cr_quantize_entity_direction(int16_t entity_offset, int16_t script_offset,
