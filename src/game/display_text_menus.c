@@ -208,6 +208,8 @@ typedef struct {
     uint16_t timing[9];
 } SoundStoneAssets;
 
+SoundStonePlayback sound_stone_playback[8];
+
 static SoundStoneAssets ss_load_assets(void) {
     SoundStoneAssets a = {0};
     const uint8_t *config_data = ASSET_DATA(ASSET_DATA_SOUND_STONE_CONFIG_BIN);
@@ -296,15 +298,15 @@ StepResult mode_step_sound_stone(ModeState *st) {
 
         s->collected_count = 0;
         for (int i = 0; i < 8; i++) {
-            s->ps[i].state = event_flag_get(a.melody_flags[i]) ? 1 : 0;
-            if (s->ps[i].state == 1)
+            sound_stone_playback[i].state = event_flag_get(a.melody_flags[i]) ? 1 : 0;
+            if (sound_stone_playback[i].state == 1)
                 s->collected_count++;
-            s->ps[i].counter = 1;
-            s->ps[i].tile_toggle = 0;
-            s->ps[i].orbit_frame = 0;
-            s->ps[i].orbit_pos1 = 0;
-            s->ps[i].orbit_pos2 = 0;
-            s->ps[i].pad = 0;
+            /* Only state, counter (unknown2) and orbit_frame are reset; the
+             * tile toggle and orbit angle keep their values from the last use
+             * (use_sound_stone.asm:68-104). orbit_pos1 is reloaded on the
+             * first frame since counter starts at 1. */
+            sound_stone_playback[i].counter = 1;
+            sound_stone_playback[i].orbit_frame = 0;
         }
 
         s->resume_phase = SS_FADEIN;
@@ -384,14 +386,16 @@ StepResult mode_step_sound_stone(ModeState *st) {
             int16_t cm = s->current_melody;
 
             /* Deactivate previously-playing melody (assembly lines 158-168) */
-            if (cm < 8 && s->ps[cm].state == 2)
-                s->ps[cm].state = 1;
+            /* Unsigned like the asm's CMP #8; BCS: the -1 set at the end of the
+             * initial delay skips (use_sound_stone.asm:150-152). */
+            if ((uint16_t)cm < 8 && sound_stone_playback[cm].state == 2)
+                sound_stone_playback[cm].state = 1;
 
             /* Check if we need to find next melody (assembly lines 169-193) */
             if (cm == 8) {
                 /* Search from seq_index+1 for a melody with state > 0 */
                 int16_t search = s->seq_index + 1;
-                while (search < 8 && s->ps[search].state == 0)
+                while (search < 8 && sound_stone_playback[search].state == 0)
                     search++;
                 if (search >= 8) {
                     s->exit_countdown = 150;
@@ -408,8 +412,8 @@ StepResult mode_step_sound_stone(ModeState *st) {
 
             s->current_melody = s->seq_index;
 
-            if (s->ps[s->seq_index].state != 0) {
-                s->ps[s->seq_index].state = 2; /* playing */
+            if (sound_stone_playback[s->seq_index].state != 0) {
+                sound_stone_playback[s->seq_index].state = 2; /* playing */
             } else {
                 s->current_melody = 8; /* sentinel: no active melody */
             }
@@ -423,7 +427,7 @@ StepResult mode_step_sound_stone(ModeState *st) {
 update_timing:
         /* APU effect trigger (assembly lines 231-250):
          * When timing_counter equals (timing[melody] - 9), send APU command. */
-        if (s->current_melody < 8) {
+        if ((uint16_t)s->current_melody < 8) {
             int16_t threshold = (int16_t)(a.timing[s->current_melody] - 9);
             if (s->timing_counter == threshold)
                 write_apu_port1((uint8_t)(s->collected_count + 8));
@@ -434,7 +438,7 @@ render_sprites:
         oam_clear();
 
         for (int i = 0; i < 8; i++) {
-            if (s->ps[i].state == 1) {
+            if (sound_stone_playback[i].state == 1) {
                 /* DRAW_IDLE_SPRITE (assembly lines 268-286):
                  * Draw at fixed position from lookup tables. */
                 sm1[1] = a.idle_tiles[i];   /* tile */
@@ -442,44 +446,47 @@ render_sprites:
                 write_spritemap_to_oam(sm1, (int16_t)(uint8_t)a.idle_x[i],
                                             (int16_t)(uint8_t)a.idle_y[i]);
 
-            } else if (s->ps[i].state == 2) {
+            } else if (sound_stone_playback[i].state == 2) {
                 /* DRAW_ORBIT_SPRITE (assembly lines 287-466):
                  * Animated orbiting sprite pair + main sprite at fixed pos. */
 
                 /* Advance orbit angle (assembly lines 288-295) */
-                s->ps[i].orbit_pos2 += (int16_t)(65540 / 20);
+                sound_stone_playback[i].orbit_pos2 += (int16_t)(65540 / 20);
 
                 /* Advance animation frame counter (assembly lines 297-344) */
-                s->ps[i].counter--;
-                if (s->ps[i].counter == 0) {
-                    s->ps[i].counter = 2;
+                sound_stone_playback[i].counter--;
+                if (sound_stone_playback[i].counter == 0) {
+                    sound_stone_playback[i].counter = 2;
 
                     /* Read next position byte from melody data (assembly lines 315-330) */
-                    uint16_t mel_offset = a.melody_offsets[i] + (uint16_t)s->ps[i].orbit_frame;
-                    s->ps[i].orbit_pos1 = (int16_t)(a.melody_data[mel_offset] & 0xFF);
-                    s->ps[i].orbit_frame++;
+                    uint16_t mel_offset = a.melody_offsets[i] + (uint16_t)sound_stone_playback[i].orbit_frame;
+                    sound_stone_playback[i].orbit_pos1 = (int16_t)(a.melody_data[mel_offset] & 0xFF);
+                    sound_stone_playback[i].orbit_frame++;
 
                     /* Toggle tile_toggle between 0 and 2 (assembly lines 336-344) */
-                    s->ps[i].tile_toggle = 2 - s->ps[i].tile_toggle;
+                    sound_stone_playback[i].tile_toggle = 2 - sound_stone_playback[i].tile_toggle;
                 }
 
                 /* Draw orbit sprite pair (assembly lines 345-442) */
-                sm2[1] = (uint8_t)(a.orbit_tiles[i] + s->ps[i].tile_toggle);
+                sm2[1] = (uint8_t)(a.orbit_tiles[i] + sound_stone_playback[i].tile_toggle);
                 sm2[2] = (uint8_t)(a.orbit_pal[i] * 2 + 0x31);
 
-                int16_t pos1 = s->ps[i].orbit_pos1;
+                int16_t pos1 = sound_stone_playback[i].orbit_pos1;
                 if (pos1 != 0) {
-                    uint8_t angle = (uint8_t)((s->ps[i].orbit_pos2 >> 8) & 0xFF);
+                    uint8_t angle = (uint8_t)((sound_stone_playback[i].orbit_pos2 >> 8) & 0xFF);
 
                     /* First orbit sprite (assembly lines 388-410) */
-                    int16_t sx1 = (int16_t)(uint8_t)a.idle_x[i] + cosine_func(pos1, angle);
-                    int16_t sy1 = (int16_t)(uint8_t)a.idle_y[i] + cosine_sine(pos1, angle);
+                    /* X uses COSINE_SINE (sine) and Y uses COSINE: the asm passes
+                     * NOTE_X + LOCAL02 (sine) in X and NOTE_Y + VIRTUAL02 (cosine)
+                     * in Y to WRITE_SPRITEMAP_TO_OAM. */
+                    int16_t sx1 = (int16_t)(uint8_t)a.idle_x[i] + cosine_sine(pos1, angle);
+                    int16_t sy1 = (int16_t)(uint8_t)a.idle_y[i] + cosine_func(pos1, angle);
                     write_spritemap_to_oam(sm2, sx1, sy1);
 
                     /* Second orbit sprite at angle+128 (assembly lines 411-442) */
                     uint8_t angle2 = (angle + 128) & 0xFF;
-                    int16_t sx2 = (int16_t)(uint8_t)a.idle_x[i] + cosine_func(pos1, angle2);
-                    int16_t sy2 = (int16_t)(uint8_t)a.idle_y[i] + cosine_sine(pos1, angle2);
+                    int16_t sx2 = (int16_t)(uint8_t)a.idle_x[i] + cosine_sine(pos1, angle2);
+                    int16_t sy2 = (int16_t)(uint8_t)a.idle_y[i] + cosine_func(pos1, angle2);
                     write_spritemap_to_oam(sm2, sx2, sy2);
                 }
 
@@ -565,18 +572,15 @@ render_sprites:
  *
  * Inline cases (no yield, or blocking only via host_process_frame) compute and
  * POP in SE_ENTER. The five modal cases STEP_PUSH an existing child mode and POP
- * the result on resume: SE_RESULT for a precomputed return value, SE_RESULT_CHILD
- * for the child's own result (the name prompt). CC_1F_41 stores the popped value
+ * the precomputed result on resume (SE_RESULT). CC_1F_41 stores the popped value
  * to working memory in DT_RESUME_CC1F_SPECIAL_EVENT.
  */
 StepResult mode_step_special_event(ModeState *st) {
     SpecialEventState *s = &st->special_event;
 
-    /* Post-child resume: POP the carried result, or the child's own result. */
+    /* Post-child resume: POP the carried result. */
     if (s->phase == SE_RESULT)
         return STEP_RESULT_POP(s->result);
-    if (s->phase == SE_RESULT_CHILD)
-        return STEP_RESULT_POP((uint16_t)mode_child_result());
 
     /* SE_ENTER: dispatch on event_id.
      * static: outlives this dispatch (the pump copies it on the next step,
@@ -611,7 +615,10 @@ StepResult mode_step_special_event(ModeState *st) {
     case 4:  /* REGISTER_REAL_NAME_2: enter_your_name_please(1) */
         g_mode_push_init.enter_name.phase = EN_ENTER;
         g_mode_push_init.enter_name.param = (s->event_id == 4) ? 1 : 0;
-        s->phase = SE_RESULT_CHILD;
+        /* The asm drops ENTER_YOUR_NAME_PLEASE's result and returns 0
+         * (dispatch_special_event.asm:52-59, @RETURN_ZERO_RESET_ACCUM16). */
+        s->result = 0;
+        s->phase = SE_RESULT;
         return STEP_RESULT_PUSH_INIT(GAME_MODE_ENTER_NAME, &g_mode_push_init);
     case 5:  /* SET_OVERWORLD_STATUS_SUPPRESSION(1) */
         ow.overworld_status_suppression = 1;

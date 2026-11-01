@@ -1421,8 +1421,15 @@ typedef struct {
     int16_t  timing_counter; /* @VIRTUAL04 / @LOCAL0A */
     int16_t  current_melody; /* @VIRTUAL02 / @LOCAL09 */
     int16_t  collected_count;
-    SoundStonePlayback ps[8];
 } SoundStoneState;
+
+/* SOUND_STONE_PLAYBACK_STATE (ram.asm): the per-melody animation state is a BSS
+ * global in the original, not a USE_SOUND_STONE local. Each use rewrites only
+ * state, counter and orbit_frame (use_sound_stone.asm:68-104); tile_toggle and
+ * orbit_pos2 carry over from the previous use (zero after power-on), so a 2nd
+ * use starts each orbit where the last one stopped. Serialized as
+ * SECTION_SOUND_STONE (state_dump.c). Defined in display_text_menus.c. */
+extern SoundStonePlayback sound_stone_playback[8];
 
 /* GAME_MODE_DEBUG_YMENU — run-to-completion port of the two clean-leaf debug
  * Y-button menus (debug_y_button_flag, debug_y_button_guide in game_main.c). Both
@@ -2160,13 +2167,12 @@ typedef struct {
  * those compute their result and POP in SE_ENTER. The five modal cases STEP_PUSH
  * an existing child — coffeetea (FLYOVER), the M2/EB name prompt (ENTER_NAME),
  * the town map (TOWN_MAP), the sound stone (SOUND_STONE) and the title screen
- * (TITLE_SCREEN) — and resume in SE_RESULT (POP the precomputed return value) or
- * SE_RESULT_CHILD (POP the child's result, for the name prompt). The CC_1F_41
+ * (TITLE_SCREEN) — and resume in SE_RESULT (POP the precomputed return value;
+ * 0 for the name prompt, whose keyboard result the asm drops). The CC_1F_41
  * channel stores the popped value to working memory in DT_RESUME_CC1F_SPECIAL_EVENT. */
 typedef enum {
     SE_ENTER = 0,       /* dispatch on event_id: inline-POP or set up a child push */
     SE_RESULT,          /* child popped: POP the precomputed `result` */
-    SE_RESULT_CHILD,    /* child popped: POP mode_child_result() (ENTER_NAME) */
 } SpecialEventPhase;
 
 typedef struct {
