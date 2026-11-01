@@ -520,32 +520,34 @@ void check_sram_integrity(void) {
 }
 
 /* SAVE_GAME_SLOT (save_game_slot.asm) + SAVE_GAME_BLOCK (save_game_block.asm):
- * writes the game into both blocks of a 0-based slot. The signature is not
- * written by the asm (the block already carries it from the boot check or an
- * erase); it is stamped here too since the block is built from scratch, and the
- * checksums don't cover the header. */
+ * writes the game into both blocks of a 0-based slot. SAVE_GAME_BLOCK writes
+ * only game_state, the 6 char_structs and event_flags into SRAM; the header
+ * signature (from the boot check or an erase) and the trailing padding keep
+ * what the block held, and the ADD/XOR checksums are taken over the block as
+ * it then stands, padding included. So each copy is read back, patched and
+ * rewritten. */
 bool save_game(int slot) {
     if (slot < 0 || slot >= SAVE_COUNT) return false;
 
     SaveBlock *block = &ert.save_scratch;
-    make_erased_block(block);
 
     /* Port of save_game_block.asm lines 22-23: TIMER → game_state.timer */
     game_state.timer = core.play_timer;
 
-    /* Fill save block */
-    memcpy(&block->game_state, &game_state, sizeof(GameState));
-    memcpy(block->party_characters, party_characters, sizeof(party_characters));
-    memcpy(block->event_flags, event_flags, sizeof(block->event_flags));
-
-    /* Compute checksums — assembly uses ADD + XOR, NOT ADD + ~ADD.
-     * See validate_save_block_checksums.asm: checksum = ADD, checksum_complement = XOR. */
-    block->header.checksum = compute_add_checksum(block);
-    block->header.checksum_complement = compute_xor_checksum(block);
-
-    /* Write both copies */
     for (int copy = 0; copy < SAVE_COPY_COUNT; copy++) {
-        if (!sram_write_block(slot * SAVE_COPY_COUNT + copy, block))
+        int b = slot * SAVE_COPY_COUNT + copy;
+        sram_read_block(b, block);
+
+        memcpy(&block->game_state, &game_state, sizeof(GameState));
+        memcpy(block->party_characters, party_characters, sizeof(party_characters));
+        memcpy(block->event_flags, event_flags, sizeof(block->event_flags));
+
+        /* Checksums — assembly uses ADD + XOR, NOT ADD + ~ADD.
+         * See validate_save_block_checksums.asm: checksum = ADD, checksum_complement = XOR. */
+        block->header.checksum = compute_add_checksum(block);
+        block->header.checksum_complement = compute_xor_checksum(block);
+
+        if (!sram_write_block(b, block))
             return false;
     }
     return true;

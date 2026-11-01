@@ -214,6 +214,7 @@ static void file_select_init(void) {
 static void fs_add_slot_menu_items(void) {
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
         uint8_t buf[32];
+        uint16_t flavour_hi;
         memset(buf, 0, sizeof(buf));
         buf[0] = (uint8_t)(EB_CHAR_ONE + slot);
         bool occupied = load_game(slot) && game_state.favourite_thing[1] != 0;
@@ -224,11 +225,15 @@ static void fs_add_slot_menu_items(void) {
                                party_characters[0].name[i]; i++)
                 buf[3 + i] = party_characters[0].name[i];
             save_files_present[slot] = 1;
+            /* file_select_menu.asm:65-70: the high byte carries the slot's
+             * text_flavour for PREVIEW_WINDOW_FLAVOUR_HIBYTE. */
+            flavour_hi = (uint16_t)(game_state.text_flavour << 8);
         } else {
             memcpy(&buf[1], ASSET_DATA(FS_TEXT(START_NEW_GAME)), ASSET_SIZE(FS_TEXT(START_NEW_GAME)));
             save_files_present[slot] = 0;
+            flavour_hi = 0x100;   /* file_select_menu.asm:91-92: Plain */
         }
-        add_menu_item_eb(buf, sizeof(buf), (uint16_t)(slot + 1), 0, (uint16_t)slot);
+        add_menu_item_eb(buf, sizeof(buf), (uint16_t)(flavour_hi | (slot + 1)), 0, (uint16_t)slot);
     }
 }
 
@@ -389,6 +394,12 @@ static void file_select_menu_display_only(void) {
         apply_window_text_attributes();
         set_window_palette_index(0);
     }
+
+    /* @AFTER_SELECTION (file_select_menu.asm:275-280): LOAD_GAME_SLOT of the
+     * chosen slot, on this path too. The slot passes above left the last
+     * slot they loaded in game_state; this reloads the new-game slot that the
+     * text-speed/sound/flavour menus saved. */
+    load_game(current_save_slot - 1);
 }
 
 /* The display-only highlight of FILE_SELECT_TEXT_SPEED_MENU(1) /
@@ -534,10 +545,17 @@ static void preview_flavour_callback(uint16_t value) {
     game_state.text_flavour = orig;
 }
 
+/* PREVIEW_WINDOW_FLAVOUR_HIBYTE (asm/text/window/preview_window_flavour_hibyte.asm):
+ * the slot list's cursor callback; the item userdata's high byte is the flavour. */
+static void preview_flavour_hibyte_callback(uint16_t value) {
+    preview_flavour_callback((uint16_t)((value >> 8) & 0xFF));
+}
+
 /* file_select.c-owned half of the cursor-callback id resolver (savestate pointer
  * purge, build item #3). See window_resolve_cursor_callback(). */
 void (*file_select_cursor_callback_from_id(uint8_t id))(uint16_t) {
     if (id == CURSOR_CB_FLAVOUR_PREVIEW) return preview_flavour_callback;
+    if (id == CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE) return preview_flavour_hibyte_callback;
     return NULL;
 }
 
@@ -1949,6 +1967,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 st->phase = FM_CORRUPTION_CHECK;
                 continue;
             }
+            /* file_select_menu.asm:268-269 */
+            set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
             return fm_push_selection(st, FM_SELECT_RESULT, 0);
         }
 
@@ -1969,23 +1989,27 @@ StepResult mode_step_file_menu(ModeState *ms) {
             close_focus_window();
             corruption_check_results = 0;
             restore_window_text_attributes();
+            /* file_select_menu.asm:268-269 */
+            set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
             return fm_push_selection(st, FM_SELECT_RESULT, 0);
 
         case FM_SELECT_RESULT: {
-            uint16_t selected = fm_take_result(st);
+            /* SELECTION_MENU's result is the userdata (slot + 1 | flavour << 8);
+             * the asm keeps its low byte (SEP #ACCUM8; STA CURRENT_SAVE_SLOT),
+             * then CLEAR_CURSOR_MOVE_CALLBACK (file_select_menu.asm:272-274). */
+            uint16_t selected = fm_take_result(st) & 0xFF;
+            clear_cursor_move_callback();
             st->selected = selected;
             current_save_slot = (uint8_t)selected;   /* file_select_menu() did this */
             if (selected == 0) { st->phase = FM_SELECT; continue; }
             int slot = selected - 1;
-            if (save_files_present[slot]) {
-                /* FILE_SELECT_MENU @AFTER_SELECTION: LOAD_GAME_SLOT(CURRENT_SAVE_SLOT-1),
-                 * so the submenu / delete confirmation show this slot's data. */
-                load_game(slot);
-                st->phase = FM_SUBMENU;              /* @VALID_FILE_SELECTED */
-            } else {
-                game_state_init();
-                st->phase = FM_NG_TS;
-            }
+            /* FILE_SELECT_MENU @AFTER_SELECTION: LOAD_GAME_SLOT(CURRENT_SAVE_SLOT-1)
+             * for an empty slot too (it also sets TIMER from the slot). The
+             * submenu, Continue and Set Up run on this load; FILE_MENU_LOOP
+             * doesn't reload, so TIMER keeps counting through them. */
+            load_game(slot);
+            st->phase = save_files_present[slot] ? FM_SUBMENU   /* @VALID_FILE_SELECTED */
+                                                 : FM_NG_TS;    /* @EMPTY_FILE_SELECTED */
             continue;
         }
 
@@ -2002,7 +2026,6 @@ StepResult mode_step_file_menu(ModeState *ms) {
 
         case FM_SUBMENU_RESULT: {
             uint16_t action = fm_take_result(st);
-            int slot = st->selected - 1;
             switch (action) {
             case 0: /* B pressed — @MENU_B_PRESSED */
                 close_focus_window();
@@ -2010,7 +2033,6 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 continue;
 
             case 1: /* Continue — @MENU_STARTGAME_SELECTED */
-                load_game(slot);
                 reset_queued_interactions();
                 reload_hotspots();
                 ow.respawn_x = game_state.leader_x_coord;
@@ -2059,7 +2081,6 @@ StepResult mode_step_file_menu(ModeState *ms) {
             }
 
             case 4: /* Set Up */
-                load_game(slot);
                 st->phase = FM_SETUP_TS;
                 continue;
 
@@ -2238,14 +2259,12 @@ StepResult mode_step_file_menu(ModeState *ms) {
             if (mode_child_result() == 0) {
                 /* Back out of naming: re-display all setup windows as backdrops,
                  * change music, re-enter flavour selection (file_select_menu_loop
-                 * .asm:141-150). Save choices before the display_only load_game()s
-                 * clobber game_state. */
-                uint8_t saved_text_speed = game_state.text_speed;
-                uint8_t saved_sound_setting = game_state.sound_setting;
+                 * .asm:141-150). FILE_SELECT_MENU(1) ends by reloading this slot,
+                 * so the menus below show its saved settings. */
                 close_all_windows();
                 file_select_menu_display_only();
-                text_speed_menu_display_only(saved_text_speed);
-                sound_mode_menu_display_only(saved_sound_setting);
+                text_speed_menu_display_only(game_state.text_speed);
+                sound_mode_menu_display_only(game_state.sound_setting);
                 change_music(3);  /* MUSIC::SETUP_SCREEN */
                 st->phase = FM_NG_FLV;
                 continue;

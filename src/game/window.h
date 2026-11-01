@@ -119,6 +119,7 @@ typedef enum {
     CURSOR_CB_EQUIP_PREVIEW_ARMS,   /* equip_preview_callbacks[2] */
     CURSOR_CB_EQUIP_PREVIEW_OTHER,  /* equip_preview_callbacks[3] */
     CURSOR_CB_FLAVOUR_PREVIEW,      /* preview_flavour_callback           (file_select.c) */
+    CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE, /* preview_flavour_hibyte_callback  (file_select.c) */
 } CursorCallbackId;
 
 /* Window info - matches window_stats from structs.asm (82 bytes in asm) */
