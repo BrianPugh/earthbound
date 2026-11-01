@@ -19,24 +19,6 @@ void ppu_init(void) {
     ppu.oam_hi[0] = 0x80;
 }
 
-void ppu_reset(void) {
-    /* Zero all registers but keep memory */
-    ppu.inidisp = 0x80;
-    ppu.obsel = 0;
-    ppu.bgmode = 0;
-    ppu.mosaic = 0;
-    memset(ppu.bg_sc, 0, sizeof(ppu.bg_sc));
-    memset(ppu.bg_nba, 0, sizeof(ppu.bg_nba));
-    memset(ppu.bg_hofs, 0, sizeof(ppu.bg_hofs));
-    memset(ppu.bg_vofs, 0, sizeof(ppu.bg_vofs));
-    ppu.tm = 0;
-    ppu.ts = 0;
-    ppu.tmw = 0;
-    ppu.tsw = 0;
-    ppu.cgwsel = 0;
-    ppu.cgadsub = 0;
-}
-
 void ppu_clear_effects(void) {
     ppu.cgwsel = 0;
     ppu.cgadsub = 0;
@@ -63,24 +45,6 @@ void ppu_clear_effects(void) {
      * stale per-scanline TM values cause visible stripe artifacts
      * (e.g. on the game-over screen after a battle). */
     ppu.tm_hdma_active = false;
-}
-
-void ppu_set_vram_addr(uint16_t addr) {
-    ppu.vram_addr = addr;
-}
-
-void ppu_vram_write(uint16_t data) {
-    uint16_t addr = ppu.vram_addr;
-    if (addr < VRAM_SIZE / 2) {
-        write_u16_le(&ppu.vram[addr * 2], data);
-    }
-    /* Increment based on vmain setting */
-    uint8_t inc = ppu.vmain & 0x03;
-    switch (inc) {
-    case 0: ppu.vram_addr += 1; break;
-    case 1: ppu.vram_addr += 32; break;
-    case 2: case 3: ppu.vram_addr += 128; break;
-    }
 }
 
 void ppu_cgram_write(uint8_t index, uint16_t color) {

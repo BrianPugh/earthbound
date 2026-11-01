@@ -94,6 +94,20 @@ static inline uint32_t bgr555_to_rgb888(uint16_t bgr) {
     return (r << 16) | (g << 8) | b;
 }
 
+/* Green's 6th (lowest) bit. The SNES DAC has 5 bits per channel on one
+ * scale, so a 5-bit green has to fill its 6-bit field the way snes9x's
+ * BUILD_PIXEL_RGB565 does, g6 = (g5 << 1) | (g5 >> 4), or full green comes
+ * out as 62/63 (251 of 255: white with a faint magenta cast). Ports that
+ * expand pixel_t to 8 bits per channel (the SDL desktop port: window,
+ * screenshots, recordings, smooth camera) build with EB_PIXEL_GREEN_LSB=1;
+ * the embedded RGB565 panels leave it off and keep the plain shift.
+ * PIXEL_GREEN_LSB(g5) is the bit to OR into a pixel built from a 5-bit g5. */
+#if defined(EB_PIXEL_GREEN_LSB) && EB_PIXEL_GREEN_LSB
+#define PIXEL_GREEN_LSB(g5) ((uint16_t)(((g5) & 0x10) << 1))
+#else
+#define PIXEL_GREEN_LSB(g5) ((uint16_t)0)
+#endif
+
 /* Convert BGR555 to pixel_t.
  * BGR565 path: same channel order, shift the upper 10 bits (B+G) left by 1
  *   to make room for the 6th green bit: 0BBBBBGGGGGRRRRR → BBBBBGGGGGGRRRRR.
@@ -102,9 +116,11 @@ static inline pixel_t bgr555_to_pixel(uint16_t bgr) {
 #ifdef EB_PIXEL_RGB565
     return (pixel_t)(((bgr & 0x001F) << 11) |     /* R: [4:0]   → [15:11] */
                      ((bgr & 0x03E0) << 1)  |     /* G: [9:5]   → [10:6]  */
-                     ((bgr >> 10) & 0x001F));     /* B: [14:10] → [4:0]   */
+                     ((bgr >> 10) & 0x001F) |     /* B: [14:10] → [4:0]   */
+                     PIXEL_GREEN_LSB(BGR555_G(bgr)));
 #else
-    return (pixel_t)(((bgr & 0x7FE0) << 1) | (bgr & 0x001F));
+    return (pixel_t)(((bgr & 0x7FE0) << 1) | (bgr & 0x001F) |
+                     PIXEL_GREEN_LSB(BGR555_G(bgr)));
 #endif
 }
 
@@ -128,10 +144,12 @@ static inline uint32_t pixel_to_rgb888(pixel_t px) {
     uint8_t g6 = (px >> 5)  & 0x3F;
     uint8_t b5 = (px >> 11) & 0x1F;
 #endif
-    uint8_t r = (r5 * 255 + 15) / 31;
-    uint8_t g = (g6 * 255 + 31) / 63;
-    uint8_t b = (b5 * 255 + 15) / 31;
-    return (r << 16) | (g << 8) | b;
+    /* Bit replication, as the playtest emu expands snes9x's RGB565 frames
+     * (with EB_PIXEL_GREEN_LSB the result matches emu shots exactly). */
+    uint8_t r = (uint8_t)((r5 << 3) | (r5 >> 2));
+    uint8_t g = (uint8_t)((g6 << 2) | (g6 >> 4));
+    uint8_t b = (uint8_t)((b5 << 3) | (b5 >> 2));
+    return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
 /* Packed struct helper */

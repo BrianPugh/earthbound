@@ -53,6 +53,14 @@ if(EB_SMOOTH_CAMERA)
     target_compile_definitions(earthbound_game PUBLIC EB_SMOOTH_CAMERA=1)
 endif()
 
+# Fill green's 6th bit from its top bit (core/types.h PIXEL_GREEN_LSB) so
+# ports that expand pixels to 8 bits per channel reach 255 green like the
+# SNES. Desktop turns it on; embedded RGB565 panels keep the plain shift.
+option(EB_PIXEL_GREEN_LSB "Replicate green's top bit into its 6th bit" OFF)
+if(EB_PIXEL_GREEN_LSB)
+    target_compile_definitions(earthbound_game PUBLIC EB_PIXEL_GREEN_LSB=1)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/../cmake/EbWarnings.cmake)
 eb_target_warnings(earthbound_game)
 if(NOT MSVC)

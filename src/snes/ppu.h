@@ -153,22 +153,10 @@ extern PPUState ppu __attribute__((aligned(4)));
 /* Initialize PPU to power-on state */
 void ppu_init(void);
 
-/* Reset PPU registers (like a soft reset) */
-void ppu_reset(void);
-
 /* Clear color math, window masking, mosaic, fixed color, and per-scanline
  * HDMA override flags.  Call on screen transitions to prevent stale battle
  * effects from bleeding into the next scene. */
 void ppu_clear_effects(void);
-
-/* Write to PPU register (address is $21xx offset) */
-void ppu_write(uint16_t addr, uint8_t value);
-
-/* Write a word to VRAM at the current address */
-void ppu_vram_write(uint16_t data);
-
-/* Set VRAM address */
-void ppu_set_vram_addr(uint16_t addr);
 
 /* Write to CGRAM */
 void ppu_cgram_write(uint8_t index, uint16_t color);

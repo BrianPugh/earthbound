@@ -15,6 +15,9 @@ option(EB_WERROR "Treat compiler warnings as errors" ON)
 # Smooth camera hooks (runtime option --smooth-camera / EB_SMOOTH_CAMERA=1)
 set(EB_SMOOTH_CAMERA ON CACHE BOOL "Build the smooth-camera presentation hooks")
 
+# 8-bit-per-channel output: full green is 255 (core/types.h PIXEL_GREEN_LSB)
+set(EB_PIXEL_GREEN_LSB ON CACHE BOOL "Replicate green's top bit into its 6th bit")
+
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src
                  ${CMAKE_CURRENT_BINARY_DIR}/game_lib)

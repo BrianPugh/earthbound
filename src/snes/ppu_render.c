@@ -193,8 +193,7 @@ uint16_t ppu_display_gamma(void)
     return display_gamma;
 }
 
-/* bgr555_to_pixel() through the gamma curve (green keeps the 5-bit value in
- * the top of its 6-bit field, as bgr555_to_pixel does). */
+/* bgr555_to_pixel() through the gamma curve. */
 static pixel_t bgr555_to_display(uint16_t c)
 {
     uint16_t r = display_gamma_lut[BGR555_R(c)];
@@ -963,7 +962,7 @@ uint16_t blend_colors(uint16_t main_c, uint16_t sub_c,
     r = out_lut[r];
     g = out_lut[g];
     b = out_lut[b];
-    return (uint16_t)(r | (g << 6) | (b << 11));
+    return (uint16_t)(r | (g << 6) | (b << 11) | PIXEL_GREEN_LSB(g));
 }
 
 /* Object sizes based on OBSEL: {small_w, small_h}, {large_w, large_h}. */
@@ -2209,7 +2208,8 @@ static inline void bg_clip_to_window_span(BGRenderCtx *ctx, const WindowSpan *vi
  * occasional XIP refill in window scenes. */
 static __attribute__((noinline))
 void precompute_window_masks(
-    int scanline, int render_width, bool wide_mode,
+    int scanline /* viewport row (out_y): indexes the HDMA window tables */,
+    int render_width, bool wide_mode,
     uint8_t base_tm, uint8_t base_ts,
     uint8_t *eff_tm_line, uint8_t *eff_ts_line,
     uint8_t *cm_prevented_line,
@@ -2622,6 +2622,13 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 
     /* Which layers need rendering (union of main + sub screen) */
     uint8_t layers_needed = ppu.tm | ppu.ts;
+    /* The letterbox HDMA writes TM/TS per line: a layer enabled only by the
+     * table is still drawn on those lines. EB's tables are subsets of the
+     * static registers today, so this only guards future tables. */
+    if (ppu.tm_hdma_active) {
+        for (int y = 0; y < SNES_HEIGHT; y++)
+            layers_needed |= ppu.tm_per_scanline[y] | ppu.ts_per_scanline[y];
+    }
 
     /* Wide mode: a filling layer, or a backdrop-only frame (frame_wide_mode). */
     bool wide_mode = frame_wide_mode(bg_bpp, layers_needed,
@@ -2923,10 +2930,14 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
         if (!has_layer_windows && !has_cm_windows) {
             /* No layer windows and no color math windows — skip entirely */
         } else {
-            uint8_t w1l = ppu.window_hdma_active ? ppu.wh0_table[scanline] : ppu.wh0;
-            uint8_t w1r = ppu.window_hdma_active ? ppu.wh1_table[scanline] : ppu.wh1;
-            uint8_t w2l = ppu.window2_hdma_active ? ppu.wh2_table[scanline] : ppu.wh2;
-            uint8_t w2r = ppu.window2_hdma_active ? ppu.wh3_table[scanline] : ppu.wh3;
+            /* The HDMA window tables are filled by viewport row (the swirl
+             * starts at EB_VIEWPORT_PAD_TOP, the oval/rect windows use
+             * viewport y), so index them by out_y: in a wide frame that is
+             * the scanline, in a non-wide one the SNES row + PAD_TOP. */
+            uint8_t w1l = ppu.window_hdma_active ? ppu.wh0_table[out_y] : ppu.wh0;
+            uint8_t w1r = ppu.window_hdma_active ? ppu.wh1_table[out_y] : ppu.wh1;
+            uint8_t w2l = ppu.window2_hdma_active ? ppu.wh2_table[out_y] : ppu.wh2;
+            uint8_t w2r = ppu.window2_hdma_active ? ppu.wh3_table[out_y] : ppu.wh3;
             uint8_t key[6] = {w1l, w1r, w2l, w2r, base_tm, base_ts};
             /* In wide mode with per-scanline windows, gutter pixels sample
              * other scanlines' windows (window_membership), so equal window
@@ -2935,7 +2946,7 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
                 (ppu.window_hdma_active || ppu.window2_hdma_active);
             if (gutter_samples_tables || memcmp(key, win_cache_key, 6) != 0) {
                 memcpy(win_cache_key, key, 6);
-                precompute_window_masks(scanline, render_width, wide_mode,
+                precompute_window_masks(out_y, render_width, wide_mode,
                                         base_tm, base_ts,
                                         eff_tm_line, eff_ts_line,
                                         cm_prevented_line,
@@ -3456,7 +3467,7 @@ merge_done:
                     uint16_t r = out_lut[color & 0x1F];
                     uint16_t g = out_lut[(color >> 6) & 0x1F];
                     uint16_t b = out_lut[(color >> 11) & 0x1F];
-                    px = r | (g << 6) | (b << 11);
+                    px = r | (g << 6) | (b << 11) | PIXEL_GREEN_LSB(g);
                 }
 
                 line_out[x + fb_x_offset] = px;
