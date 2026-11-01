@@ -2078,7 +2078,7 @@ uint16_t find_condiment(uint16_t item_id) {
     /* Assembly lines 26-62: loop through character's inventory for a condiment */
     for (int slot = 0; slot < ITEM_INVENTORY_SIZE; slot++) {
         uint8_t inv_item = party_characters[char_idx].items[slot];
-        if (inv_item == 0) continue;
+        if (inv_item == 0) break;  /* asm: an empty slot ends the scan (@NOT_FOUND) */
         const ItemConfig *inv_entry = get_item_entry(inv_item);
         if (!inv_entry) continue;
         /* Check if inventory item is condiment-type */

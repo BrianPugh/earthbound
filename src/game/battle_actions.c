@@ -2177,12 +2177,12 @@ void btlact_heal_poison(void);
  * Called by the overworld task scheduler to reset party walk animations after
  * eating a speed/agility-boosting food item.
  * Sets game_state.party_status = 0 and sets entities.var[3] to 8
- * for party entity slots 24-28.
+ * for party entity slots 24-29 (asm: CMP #29 / BLTEQ).
  */
 static void initialize_party_member_animations(void) {
     game_state.party_status = 0;
-    /* Assembly lines 10-23: loop slots 24..28, set var3 = 8 */
-    for (int slot = 24; slot <= 28; slot++) {
+    /* Assembly lines 10-23: loop slots 24..29 (CMP #29 / BLTEQ), set var3 = 8 */
+    for (int slot = 24; slot <= 29; slot++) {
         entities.var[3][ENT(slot)] = 8;
     }
 }
@@ -2205,7 +2205,7 @@ void (*battle_actions_overworld_task_fn(uint8_t id))(void) {
  *
  * Called by eat_food when a food item has a nonzero "special" value.
  * Sets game_state.party_status = 3, sets entities.var[3] to 5
- * for party entity slots 24-28, then schedules
+ * for party entity slots 24-29, then schedules
  * initialize_party_member_animations as an overworld task with
  * `frames` frames of delay (= special * 6).
  */
@@ -2215,8 +2215,8 @@ static void battle_schedule_party_animation_reset(uint16_t frames) {
         return;
     /* Assembly lines 15-17: set party_status = 3 */
     game_state.party_status = 3;
-    /* Assembly lines 19-30: loop slots 24..28, set var3 = 5 */
-    for (int slot = 24; slot <= 28; slot++) {
+    /* Assembly lines 19-30: loop slots 24..29 (CMP #29 / BLTEQ), set var3 = 5 */
+    for (int slot = 24; slot <= 29; slot++) {
         entities.var[3][ENT(slot)] = 5;
     }
     /* Assembly lines 33-35: schedule the animation reset callback */
@@ -4241,13 +4241,17 @@ static StepResult btlact_switch_weapons_step(BattleActionState *st) {
             CharStruct *ch2 = &party_characters[st->scratch16[0] - 1];
             uint16_t action = 4;  /* normal weapon — bash */
             uint8_t weapon_slot = ch2->equipment[EQUIP_WEAPON];
-            if (weapon_slot != 0) {
-                uint8_t weapon_item_id = ch2->items[weapon_slot - 1];
-                if (weapon_item_id != 0) {
-                    const ItemConfig *entry = get_item_entry(weapon_item_id);
-                    if (entry && (entry->type & 0x03) == 1)
-                        action = 5;  /* projectile weapon — shoot */
-                }
+            /* asm (switch_weapon.asm @SKIPTEXT) indexes items[slot - 1] with no
+             * zero check: with no weapon equipped (slot 0) it reads the byte
+             * before items[], char_struct::base_iq, as the item id. So a
+             * weaponless member whose failed equip leaves slot 0 can Shoot when
+             * base IQ is a gun/yo-yo id. Modelled explicitly (no items[-1]). */
+            uint8_t weapon_item_id = (weapon_slot != 0) ? ch2->items[weapon_slot - 1]
+                                                        : ch2->base_iq;
+            if (weapon_item_id != 0) {
+                const ItemConfig *entry = get_item_entry(weapon_item_id);
+                if (entry && (entry->type & 0x03) == 1)
+                    action = 5;  /* projectile weapon — shoot */
             }
             st->scratch16[1] = action;
 
