@@ -985,7 +985,11 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             int32_t cs_frames = cs_param32 / cs_dominant;
             scripts.sleep_frames[script_offset] = (int16_t)cs_frames;
         } else {
-            scripts.sleep_frames[script_offset] = 0;
+            /* DIVISION32 by zero sets every quotient bit: the script
+             * sleeps $FFFF frames (asm/overworld/calculate_travel_frames.asm,
+             * same as CALCULATE_TRAVEL_TIME_TO_TARGET). Every caller sets a
+             * non-zero SET_ENTITY_MOVEMENT_SPEED first. */
+            scripts.sleep_frames[script_offset] = (int16_t)0xFFFF;
         }
         return 0;
     }
@@ -1024,6 +1028,10 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
             entities.directions[ent_off] = new_dir;
             render_entity_sprite(ent_off);
         }
+        /* The asm leaves A = the direction (unchanged) or
+         * RENDER_ENTITY_SPRITE_ENTRY2's result. No script reads tempvar
+         * after it (C36E41 and script 481 follow it with EVENT_PAUSE, then
+         * overwrite tempvar), so 0 is safe. */
         return 0;
     }
     case ROM_ADDR_INIT_PARTY_POSITION_BUFFER:

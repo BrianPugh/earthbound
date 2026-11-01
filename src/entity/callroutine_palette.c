@@ -407,7 +407,11 @@ int16_t cr_load_file_select_palettes(int16_t ent, int16_t scr,
 int16_t cr_fill_palettes_white(int16_t ent, int16_t scr,
                                       uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
-    for (int i = 0; i < 256; i++) {
+    /* MEMSET16 of BPP4PALETTE_SIZE * 8 bytes: only the 8 BG palettes
+     * (colours 0-127). The OBJ palettes keep their colours, so the title
+     * letters stay visible against the white/black flash. The asm fills
+     * $FFFF; bit 15 is unused by CGRAM, so 0x7FFF is the same colour. */
+    for (int i = 0; i < (BPP4PALETTE_SIZE * 8) / COLOUR_SIZE; i++) {
         ert.palettes[i] = 0x7FFF;
     }
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
@@ -417,7 +421,8 @@ int16_t cr_fill_palettes_white(int16_t ent, int16_t scr,
 int16_t cr_fill_palettes_black(int16_t ent, int16_t scr,
                                       uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
-    for (int i = 0; i < 256; i++) {
+    /* Same range as FILL_PALETTES_WHITE: BG palettes 0-7 only. */
+    for (int i = 0; i < (BPP4PALETTE_SIZE * 8) / COLOUR_SIZE; i++) {
         ert.palettes[i] = 0x0000;
     }
     ert.palette_upload_mode = PALETTE_UPLOAD_FULL;

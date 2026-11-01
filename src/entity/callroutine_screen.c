@@ -840,7 +840,9 @@ int16_t cr_movement_cmd_calc_travel_frames(int16_t entity_offset, int16_t script
         int32_t frames = param32 / dominant;
         scripts.sleep_frames[script_offset] = (int16_t)frames;
     } else {
-        scripts.sleep_frames[script_offset] = 0;
+        /* Division by zero: every quotient bit set, sleep $FFFF frames
+         * (as C0CA4E above; callers always set a non-zero speed). */
+        scripts.sleep_frames[script_offset] = (int16_t)0xFFFF;
     }
     return 0;
 }
