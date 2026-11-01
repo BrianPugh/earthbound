@@ -2858,23 +2858,23 @@ static EB_NOINLINE bool pm_goods_inv_result(PauseMenuState *st, StepResult *out)
 static void pm_build_item_action_menu(PauseMenuState *st) {
     create_window(WINDOW_INVENTORY_MENU);
 
-    /* Check if character is unconscious/diamondized (lines 140-156).
-     * If affliction is UNCONSCIOUS(1) or DIAMONDIZED(2), skip "Use". */
+    /* Check the persistent affliction (lines 140-156): UNCONSCIOUS(1),
+     * DIAMONDIZED(2) and PARALYZED(3) skip "Use". */
     uint16_t char_idx = st->goods_char - 1;
     uint8_t affliction = party_characters[char_idx].afflictions[0];
     int start_action = 0;  /* 0 = include Use, 1 = skip Use */
     if (affliction != 0) {
-        /* Assembly: LDA #4; CLC; SBC affliction; BRANCHLTEQS
-         * Tests 4 - affliction - 1 <= 0 → affliction >= 4.
-         * So affliction 1,2,3 → start_action=1 (skip Use). */
-        if (4 - (int)affliction - 1 > 0)
+        /* Assembly: LDA #4; CLC; SBC affliction; BRANCHLTEQS @ALIVE (16-bit).
+         * Keeps Use when 4 - affliction - 1 < 0, i.e. affliction >= 4. */
+        if (affliction < 4)
             start_action = 1;
     }
 
     /* Build Use/Give/Drop/Help menu (assembly lines 159-192).
      * ITEM_USE_MENU_STRINGS (earthbound.yml US/data): Use, Give, Drop, Help!,
      * 6 bytes each. Userdata: Use=1, Give=2, Drop=3, Help!=4 */
-    set_focus_text_cursor(0, 0);
+    /* Assembly: SET_FOCUS_TEXT_CURSOR(0, X = start_action). */
+    set_focus_text_cursor(0, (uint16_t)start_action);
     for (int i = start_action; i < ITEM_USE_MENU_COUNT; i++) {
         add_menu_item_no_position_eb(
             ASSET_DATA(ASSET_US_DATA_ITEM_USE_MENU_STRINGS_BIN) + i * ITEM_USE_MENU_STRING_SIZE,
