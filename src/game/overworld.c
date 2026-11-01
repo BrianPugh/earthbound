@@ -1573,19 +1573,45 @@ void render_frame_tick_work_flush(void) {
  * the current frame (stamped with core.frame_counter), so ticks a caller never
  * claims are dropped at the next yield instead of piling up. */
 static uint16_t unpresented_ticks;
+static uint16_t unpresented_vblanks; /* the part of unpresented_ticks that is bare waits */
 static uint16_t unpresented_stamp;
+static uint16_t taken_vblank_share;
 
-uint16_t take_unpresented_ticks(void) {
-    uint16_t n = (unpresented_stamp == core.frame_counter) ? unpresented_ticks : 0;
-    unpresented_ticks = 0;
-    return n;
-}
-
-void render_frame_tick_no_actionscript(void) {
+static void unpresented_restamp(void) {
     if (unpresented_stamp != core.frame_counter) {
         unpresented_stamp = core.frame_counter;
         unpresented_ticks = 0;
+        unpresented_vblanks = 0;
     }
+}
+
+uint16_t take_unpresented_ticks(void) {
+    bool fresh = (unpresented_stamp == core.frame_counter);
+    uint16_t n = fresh ? unpresented_ticks : 0;
+    taken_vblank_share = fresh ? unpresented_vblanks : 0;
+    unpresented_ticks = 0;
+    unpresented_vblanks = 0;
+    return n;
+}
+
+uint16_t take_unpresented_vblank_share(void) {
+    uint16_t n = taken_vblank_share;
+    taken_vblank_share = 0;
+    return n;
+}
+
+/* A bare WAIT_UNTIL_NEXT_FRAME a synchronous helper owes (no actionscript step,
+ * no window render): counted with the ticks, so the claim sites that present
+ * them pick it up, and remembered as a present-only share (BW_TICK_PRESENT runs
+ * those frames first, without the entity advance). */
+void note_unpresented_vblanks(uint16_t n) {
+    unpresented_restamp();
+    unpresented_ticks += n;
+    unpresented_vblanks += n;
+}
+
+void render_frame_tick_no_actionscript(void) {
+    unpresented_restamp();
     unpresented_ticks++;
 
     if (ow.render_hppp_windows & 0xFF)

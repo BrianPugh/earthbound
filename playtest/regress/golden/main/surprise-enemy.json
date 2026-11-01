@@ -4,7 +4,7 @@
   "after": {
    "enemies": "",
    "err": [],
-   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 78/125 PP 114/114 | 3:Jeff L29 HP 137/165 PP 0/0",
+   "party": "PARTY 1:Ness L34 HP 276/276 PP 95/95 | 2:Paula L31 HP 78/125 PP 114/114 | 3:Jeff L29 HP 136/165 PP 0/0",
    "state": "STATE after modes=[OVERWORLD] idle=yes input=1 pos=(3424,9312) dir=RIGHT music=51 money=8865 battle=0 ow_enemies=3 blink=88 surface=0x04(sunstroke) debug=1",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [

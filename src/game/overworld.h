@@ -337,6 +337,10 @@ void render_frame_tick_no_actionscript(void);
 /* How many render_frame_tick_no_actionscript() beats ran this frame without a
  * present; returns the count and clears it. See overworld.c. */
 uint16_t take_unpresented_ticks(void);
+/* How many of the last take_unpresented_ticks() count were bare frame waits
+ * (note_unpresented_vblanks); clears it. BW_TICK_PRESENT presents those first. */
+uint16_t take_unpresented_vblank_share(void);
+void note_unpresented_vblanks(uint16_t n);
 
 /* Allocate/clear sprite VRAM table.
  * Port of ALLOC_SPRITE_MEM (asm/system/alloc_sprite_mem.asm).

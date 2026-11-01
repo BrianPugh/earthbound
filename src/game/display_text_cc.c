@@ -1639,6 +1639,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
             if (ticks) {
                 out_init->battle_wait.kind = BW_TICK_PRESENT;
                 out_init->battle_wait.remaining = ticks;
+                out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
                 *out_mode = GAME_MODE_BATTLE_WAIT;
                 return true;
             }
@@ -1687,6 +1688,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
             close_all_windows();
             out_init->battle_wait.kind = BW_TICK_PRESENT;
             out_init->battle_wait.remaining = take_unpresented_ticks();
+            out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
             *out_mode = GAME_MODE_BATTLE_WAIT;
             *out_resume = DT_RESUME_CC18_CLOSE_HIDE;
             return true;
@@ -1829,6 +1831,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
             if (ticks) {
                 out_init->battle_wait.kind = BW_TICK_PRESENT;
                 out_init->battle_wait.remaining = ticks;
+                out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
                 *out_mode = GAME_MODE_BATTLE_WAIT;
                 return true;
             }
@@ -1935,6 +1938,7 @@ static bool cc_19_inflict_status(ScriptReader *r, ModeState *out_init, GameMode 
         if (ticks) {
             out_init->battle_wait.kind = BW_TICK_PRESENT;
             out_init->battle_wait.remaining = ticks;
+            out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
             *out_mode = GAME_MODE_BATTLE_WAIT;
             *out_resume = DT_RESUME_CC19_INFLICT;
             *out_aux = result;
@@ -2409,6 +2413,7 @@ bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
             if (ticks) {
                 out_init->battle_wait.kind = BW_TICK_PRESENT;
                 out_init->battle_wait.remaining = ticks;
+                out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
                 *out_mode = GAME_MODE_BATTLE_WAIT;
                 *out_resume = DT_RESUME_CC1A_INV_PRINT;
                 return true;

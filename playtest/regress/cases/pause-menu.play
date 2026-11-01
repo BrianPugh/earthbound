@@ -33,7 +33,7 @@ check equip-closed
 press A; until input 60; wait 10
 press DOWN 2; press RIGHT; press A; until input 300; wait 10
 check status-who
-press RIGHT 2; press A; until input 300; wait 10
+press RIGHT; wait 10; press RIGHT; wait 10; press A; until input 300; wait 10
 check status-jeff
 press B; wait 20; press B; wait 20
 until idle 300

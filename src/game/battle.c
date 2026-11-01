@@ -1233,6 +1233,12 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         }
         if (s->remaining == 0)
             return STEP_RESULT_POP(0);
+        if (s->pre_vblanks) {
+            /* A bare WAIT_UNTIL_NEXT_FRAME the helper owed (e.g. SET_WINDOW_TITLE's). */
+            s->pre_vblanks--;
+            s->remaining--;
+            return STEP_RESULT_CONTINUE();
+        }
         if (!bt.battle_mode_flag) {
             oam_clear();
             if (run_actionscript_frame_step()) {
@@ -1254,6 +1260,10 @@ static StepResult push_wait_frames(ModeState *child, uint8_t kind, uint16_t fram
     memset(child, 0, sizeof(*child));
     child->battle_wait.kind = kind;
     child->battle_wait.remaining = frames;
+    if (kind == BW_TICK_PRESENT) {
+        uint16_t vb = take_unpresented_vblank_share();
+        child->battle_wait.pre_vblanks = (vb < frames) ? vb : frames;
+    }
     return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, child);
 }
 
@@ -2887,8 +2897,16 @@ static EB_NOINLINE bool bm_enter(BattleMenuState *st, StepResult *out) {
         return true;
     }
 
+    /* bm_build_menu's SET_WINDOW_TITLE (menu_handler.asm:481) waits 2 frames
+     * (RENDER_TINY_FONT_STRING); present them before the menu loop. */
+    (void)take_unpresented_ticks();
     bm_build_menu(st, ch);
     st->phase = BM_MAIN;
+    uint16_t owed = take_unpresented_ticks();
+    if (owed) {
+        *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, owed);
+        return true;
+    }
     return false;
 }
 

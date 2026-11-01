@@ -489,8 +489,13 @@ void set_window_title(uint16_t window_id, const char *title, int max_len) {
 
     /* Render title glyphs to dedicated VRAM tiles once (matches assembly
      * RENDER_WINDOW_TITLE → RENDER_TINY_FONT_STRING). */
-    if (w->title_slot > 0)
+    if (w->title_slot > 0) {
         w->title_tile_count = (uint8_t)render_title_to_vram(w->title, w->title_slot);
+        /* US RENDER_TINY_FONT_STRING ends with 2 WAIT_UNTIL_NEXT_FRAMEs
+         * (render_tiny_font_string.asm:98-99), skipped only by RENDER_WINDOW_TITLE's
+         * all-slots-full return. Owed as bare frames to the caller's mode-step. */
+        note_unpresented_vblanks(2);
+    }
 }
 
 /* ADD_MENU_OPTION's allocation (asm/text/menu/add_menu_option.asm): take the
@@ -1794,12 +1799,30 @@ static void sm_setup_pre(WindowInfo *w) {
         display_text_from_addr_inline(window_menu_item(w, w->current_option)->script);
     }
 
-    /* Assembly lines 123-158: invoke cursor_move_callback for initial option */
+    /* Assembly lines 123-158: invoke cursor_move_callback for initial option.
+     * Its window ticks (WINDOW_TICK_WITHOUT_INSTANT_PRINTING in the PSI
+     * callbacks) and title waits are counted from here and presented by
+     * sm_push_callback_frames before the setup WINDOW_TICK. */
+    (void)take_unpresented_ticks();
     if (w->cursor_move_callback && w->current_option < w->menu_count) {
         MenuItem *ci = window_menu_item(w, w->current_option);
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
         w->cursor_move_callback(val);
     }
+}
+
+/* Present the frames the cursor_move_callback just ran inline (each US
+ * WINDOW_TICK_WITHOUT_INSTANT_PRINTING is a full WINDOW_TICK: window render +
+ * RENDER_FRAME_TICK, so an entity / battle-BG step and a present), then resume at
+ * `resume_phase`. False when the callback owed nothing. */
+static bool sm_push_callback_frames(SelectionMenuState *st, uint8_t resume_phase,
+                                    StepResult *out) {
+    uint16_t owed = take_unpresented_ticks();
+    if (!owed)
+        return false;
+    st->phase = resume_phase;
+    *out = battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+    return true;
 }
 
 /* @SETUP_CURRENT_OPTION tail before its WINDOW_TICK (asm/text/selection_menu.asm
@@ -1894,8 +1917,12 @@ static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st)
     }
     if (w->cursor_move_callback) {
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
+        (void)take_unpresented_ticks();
         w->cursor_move_callback(val);
         set_window_focus(w->id);
+        StepResult r;
+        if (sm_push_callback_frames(st, SM_MOVE_CB, &r))
+            return r;
     }
     return sm_move_tick(w, st);
 }
@@ -2163,7 +2190,20 @@ StepResult mode_step_selection_menu(ModeState *ms) {
     case SM_SETUP:
         st->menu_window = (uint8_t)win.current_focus_window;  /* for the sm_flush resume */
         sm_setup_pre(w);
+        {
+            StepResult r;
+            if (sm_push_callback_frames(st, SM_SETUP_CB, &r)) {
+                set_window_focus(w->id);   /* lines 157-158, before the frames */
+                return r;
+            }
+        }
         return sm_setup_finish(w, st);
+
+    case SM_SETUP_CB:
+        return sm_setup_finish(w, st);
+
+    case SM_MOVE_CB:
+        return sm_move_tick(w, st);
 
     case SM_PAGE2:
         /* Second half of an overflow page-flip. Assembly @HANDLE_PAGINATION

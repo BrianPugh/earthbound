@@ -2201,6 +2201,7 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
         memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
         g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
         g_mode_push_init.battle_wait.remaining = take_unpresented_ticks();
+        g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
         return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
     }
     dt_resume_after_child(st);
