@@ -425,7 +425,9 @@ static int16_t trace_path_route(int16_t start_y, int16_t start_x,
             int dcell = dy * path_matrix_columns + dx;
             uint8_t dval = path_matrix[dcell];
 
-            if (dval != (uint8_t)(cost - 1)) {
+            /* asm: LDA cost; AND #$00FF; DEC is a 16-bit compare, so at cost 0
+             * the target is $FFFF and never matches an 8-bit cell. */
+            if ((int)dval != (int)cost - 1) {
                 dir = next_dir;
                 last_dir++;
                 continue;
@@ -607,11 +609,18 @@ static int16_t initialize_pathfinder(PathfindingState *state,
 
         /* Populate the matrix and run BFS for this group.
          * BFS params: max_iterations=-1 (unlimited), max_cost=max_steps (64),
-         * target-finding limit=group_count. */
-        populate_path_matrix(state, sorted_indices + i, group_count);
-        path_bfs_search(state, i, state->target_count, sorted_indices,
-                        state->targets, bfs_max_iterations, max_steps,
-                        group_count);
+         * target-finding limit=group_count.
+         * asm lines 146-161: the previous-group key (@LOCAL06/@LOCAL05) starts
+         * at (0,0) and a matching key goes straight to TRACE_PATH_ROUTE, so a
+         * first group with hitbox (0,0) (entity sizes 1, 10, 15) traces on the
+         * unsearched grid (cost 0: a 1-point path). No enemy or delivery
+         * sprite has those sizes. */
+        if (i != 0 || cur->hitbox.y != 0 || cur->hitbox.x != 0) {
+            populate_path_matrix(state, sorted_indices + i, group_count);
+            path_bfs_search(state, i, state->target_count, sorted_indices,
+                            state->targets, bfs_max_iterations, max_steps,
+                            group_count);
+        }
 
         /* Trace route for current pathfinder */
         Pathfinder *pf = &state->pathfinders[sorted_indices[i]];
@@ -751,6 +760,8 @@ static int16_t initialize_pathfinding_for_entities(
         if (entities.pathfinding_states[ent] != -1)
             continue;
 
+        /* The asm has no cap; a 20th entry would run past the 512-byte
+         * PATHFINDING_STATE into the path heap. */
         if (pathfinder_count >= MAX_PATHFINDERS)
             break;
 
@@ -844,15 +855,18 @@ static int16_t initialize_pathfinding_for_entities(
     return 0;
 }
 
+/* PATHFINDING_STATE (asm/bankconfig/common/ram.asm): one 512-byte state shared
+ * by FIND_PATH_TO_PARTY, PATHFIND_TO_CURRENT_ENTITY and PATHFIND_TO_PARTY_LEADER. */
+static PathfindingState pathfinding_state;
+
 /* ---- FIND_PATH_TO_PARTY (asm/misc/find_path_to_party.asm) ---- */
 
 PathfindingState *find_path_to_party(int16_t party_count, int16_t radius_x,
                                      int16_t radius_y) {
-    static PathfindingState state;
-    memset(&state, 0, sizeof(state));
+    memset(&pathfinding_state, 0, sizeof(pathfinding_state));
 
-    state.radius_x = (uint16_t)radius_x;
-    state.radius_y = (uint16_t)radius_y;
+    pathfinding_state.radius_x = (uint16_t)radius_x;
+    pathfinding_state.radius_y = (uint16_t)radius_y;
 
     int16_t half_w = radius_x / 2;
     int16_t half_h = radius_y / 2;
@@ -876,17 +890,17 @@ PathfindingState *find_path_to_party(int16_t party_count, int16_t radius_x,
     int16_t origin_y = ert.pathfinding_target_centre_y - half_h;
 
     /* Calculate target positions for party members */
-    calculate_pathfinding_targets(&state, party_count, origin_x, origin_y);
+    calculate_pathfinding_targets(&pathfinding_state, party_count, origin_x, origin_y);
 
     /* Run pathfinding for all entities */
     initialize_pathfinding_for_entities(
-        &state, party_count, origin_x, origin_y,
+        &pathfinding_state, party_count, origin_x, origin_y,
         0,   /* from_offscreen = 0 */
         64,  /* max_cost = 64 */
         50   /* max_iterations = 50 */
     );
 
-    return &state;
+    return &pathfinding_state;
 }
 
 /* ---- PATHFIND_TO_CURRENT_ENTITY (asm/overworld/pathfinding/pathfind_to_current_entity.asm) ---- */
@@ -897,15 +911,14 @@ PathfindingState *find_path_to_party(int16_t party_count, int16_t radius_x,
  * from_offscreen=1: the delivery entity starts from the grid border.
  * Returns 0 on success, -1 on failure. */
 int16_t pathfind_to_current_entity(void) {
-    static PathfindingState state;
-    memset(&state, 0, sizeof(state));
+    memset(&pathfinding_state, 0, sizeof(pathfinding_state));
 
     const int16_t radius = 56;
     const int16_t half_w = radius / 2;  /* 28 */
     const int16_t half_h = radius / 2;  /* 28 */
 
-    state.radius_x = (uint16_t)radius;
-    state.radius_y = (uint16_t)radius;
+    pathfinding_state.radius_x = (uint16_t)radius;
+    pathfinding_state.radius_y = (uint16_t)radius;
     ert.pathfinding_target_width  = half_w;
     ert.pathfinding_target_height = half_h;
 
@@ -927,12 +940,12 @@ int16_t pathfind_to_current_entity(void) {
 
     /* The target is the current entity — grid centre (half_w, half_h).
      * Assembly stores: targets[0].x = half_w & 0x3F, targets[0].y = half_h & 0x3F */
-    state.targets[0].x = half_w & 0x3F;
-    state.targets[0].y = half_h & 0x3F;
+    pathfinding_state.targets[0].x = half_w & 0x3F;
+    pathfinding_state.targets[0].y = half_h & 0x3F;
 
     /* Run pathfinding: 1 target, from_offscreen=1, max_steps=252, queue_alloc=50 */
     return initialize_pathfinding_for_entities(
-        &state, 1, origin_x, origin_y,
+        &pathfinding_state, 1, origin_x, origin_y,
         1,    /* from_offscreen = 1 */
         252,  /* max_steps */
         50    /* queue_alloc_size */
@@ -948,15 +961,14 @@ int16_t pathfind_to_current_entity(void) {
  * and advances path_points/path_point_count past that waypoint.
  * Returns 0 on success, -1 on failure. */
 int16_t pathfind_to_party_leader(void) {
-    static PathfindingState state;
-    memset(&state, 0, sizeof(state));
+    memset(&pathfinding_state, 0, sizeof(pathfinding_state));
 
     const int16_t radius = 56;
     const int16_t half_w = radius / 2;  /* 28 */
     const int16_t half_h = radius / 2;  /* 28 */
 
-    state.radius_x = (uint16_t)radius;
-    state.radius_y = (uint16_t)radius;
+    pathfinding_state.radius_x = (uint16_t)radius;
+    pathfinding_state.radius_y = (uint16_t)radius;
     ert.pathfinding_target_width  = half_w;
     ert.pathfinding_target_height = half_h;
 
@@ -978,11 +990,11 @@ int16_t pathfind_to_party_leader(void) {
 
     /* Calculate grid-relative positions for all party members as targets.
      * party_count = 1 (only the leader — index 0 in party_entity_slots). */
-    calculate_pathfinding_targets(&state, 1, origin_x, origin_y);
+    calculate_pathfinding_targets(&pathfinding_state, 1, origin_x, origin_y);
 
     /* Run pathfinding: 1 target, from_offscreen=1, max_steps=252, queue_alloc=50 */
     int16_t result = initialize_pathfinding_for_entities(
-        &state, 1, origin_x, origin_y,
+        &pathfinding_state, 1, origin_x, origin_y,
         1,    /* from_offscreen = 1 */
         252,  /* max_steps */
         50    /* queue_alloc_size */
@@ -997,7 +1009,7 @@ int16_t pathfind_to_party_leader(void) {
      * (grid coords of the delivery entity's path start position),
      * converts back to pixel coords and stores into entity abs_x/abs_y.
      * Then increments entity_path_points[ent] by 4 and decrements count by 1. */
-    Pathfinder *pf = &state.pathfinders[0];
+    Pathfinder *pf = &pathfinding_state.pathfinders[0];
     int16_t obj_slot = pf->object_index;
     int16_t obj_ent  = ENT(obj_slot);
     int16_t obj_size = entities.sizes[obj_ent];

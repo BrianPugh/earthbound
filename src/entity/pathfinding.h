@@ -39,9 +39,12 @@ typedef struct {
     int16_t object_index;       /* offset 16: entity slot number */
 } Pathfinder;
 
-#define MAX_PATHFINDERS 8
+/* The asm struct declares 8 pathfinders, but INITIALIZE_PATHFINDING_FOR_ENTITIES
+ * adds every entity with pathfinding_state -1 with no cap, and PATHFINDING_STATE
+ * is 512 bytes: (512 - 160) / 18 = 19 entries fit. */
+#define MAX_PATHFINDERS 19
 
-/* pathfinding state: matches assembly's pathfinding struct (304 bytes used of 512) */
+/* pathfinding state: matches assembly's pathfinding struct (502 bytes used of 512) */
 typedef struct {
     uint16_t radius_x;          /* offset 120 (radius low word) = grid columns */
     uint16_t radius_y;          /* offset 122 (radius high word) = grid rows */
