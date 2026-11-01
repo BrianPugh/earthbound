@@ -256,6 +256,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 
 | What you see | Where | Verified | Date |
 |---|---|---|---|
+| Paula rejoining at Monotoli while Ness is unconscious ends with the same party order as the original (FOLLOW Jeff, then Ness), although ADD_PARTY_MEMBER's unconscious test reads ENTITY_SCRIPT_VAR1 of entity *slot* = scanned char id (asm `add_party_member.asm` @FIND_SLOT_LOW) and the port reads the member's real entity. The port keeps the correct read; no scene was found where the 2 differ | 21-Monotoli, `status 1 1 1`, the confession scene (`teleport 5632 6040 0`, `teleport 5620 6010 2`, L) | emu apo vs port app, PARTY/FOLLOW lines identical | 2026-11-01 |
 | Hospital "Who do you want to see?" on a conscious (poisoned) member answers "We don't have a person like that in our hospital." and cures nothing | Summers hospital nurse npc1047, run-53 | port run54a; ROM script ESHOP2 nurse branch: no matching ailment → `_NURSE_NOPLAYER` | 2026-10-24 |
 | Star Master taking Poo outside the pyramid exit (1728,5514) also fully revives and heals the party | run-54 pyramid exit, walk DOWN from 1728,5472 | port run54a (Paula 1 HP, Jeff unconscious → all full); ROM script `MSG_SKRB_ELDER_WELCOME_POO` calls `MSG_SHOP2_SUB_ALLHEAL_SANCTUARY` | 2026-10-24 |
 | Pay phones take $1 when you pick up the receiver | any pay phone | script `MSG_GLOBAL_TELEPHONE_2` (`take_from_wallet: 1`) | 2026-10-24 |

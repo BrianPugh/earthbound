@@ -60,9 +60,14 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y);
  * and RELOAD_MAP_AT_POSITION (line 28). */
 void invalidate_loaded_tileset_combo(void);
 
-/* Refill the full tilemap and collision grids from current camera position.
+/* Reload the collision grid from the current scroll position (the tilemaps are
+ * left as they are, like the asm's block-cache-only reload).
  * Port of LOAD_INITIAL_MAP_DATA (asm/overworld/map/load_initial_map_data.asm). */
 void load_initial_map_data(void);
+
+/* Redraw one world tile row of the BG1/BG2 tilemaps from BG1_X_POS >> 3.
+ * Port of LOAD_MAP_ROW_AT_SCROLL_POS (asm/overworld/map/load_map_row_at_scroll_pos.asm). */
+void map_load_row_at_scroll_pos(uint16_t y_tile);
 
 /* Spawn NPCs in the given NPC sector (256×256 pixel sectors).
  * Port of SPAWN_NPCS_AT_SECTOR (asm/overworld/npc/spawn_npcs_at_sector.asm). */

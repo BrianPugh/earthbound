@@ -548,21 +548,17 @@ void load_overlay_sprites(void) {
     }
 
     /* Phase 2: Initialize overlay animation pointers for all entities.
-     * Each entity gets the starting offset of each animation script. */
+     * Each entity gets the starting offset of each animation script. Like the
+     * asm, only the script pointers are reset: the countdowns and spritemaps
+     * are written only by DRAW_ENTITY_OVERLAYS, so a member that keeps its
+     * entity across a map load shows its last overlay frame until the
+     * leftover delay runs out, then restarts the script. */
     for (int slot = 0; slot < MAX_ENTITIES; slot++) {
         int16_t x = (int16_t)slot;
         entities.mushroomized_overlay_ptrs[x] = OVERLAY_SCRIPT_MUSHROOMIZED;
         entities.sweating_overlay_ptrs[x]     = OVERLAY_SCRIPT_SWEATING;
         entities.ripple_overlay_ptrs[x]       = OVERLAY_SCRIPT_RIPPLE;
         entities.big_ripple_overlay_ptrs[x]   = OVERLAY_SCRIPT_BIG_RIPPLE;
-        entities.mushroomized_next_update[x]  = 0;
-        entities.sweating_next_update[x]      = 0;
-        entities.ripple_next_update[x]        = 0;
-        entities.big_ripple_next_update[x]    = 0;
-        entities.mushroomized_spritemaps[x]   = 0;
-        entities.sweating_spritemaps[x]       = 0;
-        entities.ripple_spritemaps[x]         = 0;
-        entities.big_ripple_spritemaps[x]     = 0;
     }
 }
 

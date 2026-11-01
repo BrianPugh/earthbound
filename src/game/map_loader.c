@@ -562,8 +562,10 @@ static void load_map_block_event_changes(uint16_t tileset_id) {
  * Reads the currently loaded tileset and re-applies event tile changes.
  * Called from event scripts after flag changes (e.g., pencil statue removal). */
 void load_current_map_block_events(void) {
-    if (ml.loaded_tileset_combo < 0) return;
-    uint16_t tileset_id = get_tileset_id((uint16_t)ml.loaded_tileset_combo);
+    /* Asm line 5 keys on LOADED_MAP_TILE_COMBO (ow.loaded_map_tile_combo),
+     * which a Your Sanctuary montage leaves at the last sanctuary's combo. */
+    if (ow.loaded_map_tile_combo < 0) return;
+    uint16_t tileset_id = get_tileset_id((uint16_t)ow.loaded_map_tile_combo);
     load_map_block_event_changes(tileset_id);
 }
 
@@ -1274,8 +1276,11 @@ static bool band_is_void(int32_t x0, int32_t x1, int32_t y0, int32_t y1) {
     return true;
 }
 
-static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
-                          uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
+/* Fill tilemap rows [ty_first, ty_end) of the 64x32 window whose top-left
+ * world tile is (view_x_tile, view_y_tile). fill_tilemaps() fills all 32. */
+static void fill_tilemap_rows(int16_t view_x_tile, int16_t view_y_tile,
+                              uint16_t cam_x_pixels, uint16_t cam_y_pixels,
+                              int ty_first, int ty_end) {
     if (!arrangement_loaded || !chunks_loaded) return;
 
     LOG_TRACE("map_loader: fill_tilemaps view=(%d,%d) arr_size=%zu\n",
@@ -1323,7 +1328,7 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
      * BG2 tilemap at VRAM byte $B000 (word $5800), 64×32 entries.
      * Each tilemap is split into two 32-wide nametables (HORIZONTAL mode). */
 
-    for (int ty = 0; ty < 32; ty++) {
+    for (int ty = ty_first; ty < ty_end; ty++) {
         int16_t world_ty = view_y_tile + ty;
         uint8_t sub_row = (uint16_t)world_ty & 3;   /* row within block (0-3) */
 
@@ -1392,6 +1397,26 @@ static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
             }
         }
     }
+}
+
+static void fill_tilemaps(int16_t view_x_tile, int16_t view_y_tile,
+                          uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
+    fill_tilemap_rows(view_x_tile, view_y_tile, cam_x_pixels, cam_y_pixels, 0, 32);
+}
+
+/* --- LOAD_MAP_ROW_AT_SCROLL_POS ---
+ * Port of asm/overworld/map/load_map_row_at_scroll_pos.asm: LOAD_MAP_ROW_TO_VRAM
+ * for world tile row y_tile, starting at BG1_X_POS >> 3 (LOAD_MAP_ROW_TO_VRAM
+ * draws MAP_RESOLUTION_WIDTH = 64 tiles from x - 1, one full tilemap row).
+ * Only that row is redrawn: script 263 (Bubble Monkey's rope) swaps blocks with
+ * LOAD_CURRENT_MAP_BLOCK_EVENTS and then reveals them 1 row every 4 frames,
+ * while the rest of the tilemap keeps the old tiles. */
+void map_load_row_at_scroll_pos(uint16_t y_tile) {
+    int16_t view_x_tile = (int16_t)(ppu.bg_hofs[0] >> 3) - 1;
+    int16_t view_y_tile = (int16_t)y_tile;
+    fill_tilemap_rows(view_x_tile, view_y_tile,
+                      (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X),
+                      (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y), 0, 1);
 }
 
 /* ---- LOAD_BG_PALETTE (port of C0A1F2) ----
@@ -1839,10 +1864,8 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
 
     /* Load tileset GFX if changed.
      * Assembly decompresses into BUFFER then DMA's the first 0x7000 bytes
-     * to VRAM $0000. We decompress directly to ppu.vram — the first 0x7000
-     * bytes land at the correct position, and any overflow into higher VRAM
-     * is harmless (overwritten by tilemaps). Intentional divergence from
-     * assembly to avoid ert.buffer dependency.
+     * to VRAM $0000. We copy the decompressed asset straight to ppu.vram,
+     * capped at the same 0x7000 bytes, with no ert.buffer staging.
      *
      * The gate is LOADED_MAP_TILE_COMBO (asm line 83), which RELOAD_MAP,
      * LOAD_TELEPORT_DESTINATION, LOAD_MAP_AT_POSITION and the game-over
@@ -1855,8 +1878,10 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
         /* Photograph mode (credits photos) uploads only the first $4000 bytes
          * (COPY_TO_VRAM3 BUFFER, $0000, $4000 at @PHOTOGRAPH_TILESET): the
          * credits put the photo frame's BG2 tiles at word $2000 (byte $4000),
-         * which a full tileset upload would overwrite. */
-        size_t gfx_max = photograph_map_loading_mode ? 0x4000 : sizeof(ppu.vram);
+         * which a full tileset upload would overwrite. Otherwise
+         * COPY_TO_VRAM3 BUFFER, $0000, $7000 (@WAIT_FADE_TILESET): the
+         * N.gfx.raw assets are $7001 bytes, and the last one is not uploaded. */
+        size_t gfx_max = photograph_map_loading_mode ? 0x4000 : 0x7000;
         copy_raw_asset(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
         /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
          * so any cell not overwritten by fill_collision_tiles() blocks movement.
@@ -2562,18 +2587,20 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 /* --- LOAD_INITIAL_MAP_DATA ---
  * Port of asm/overworld/map/load_initial_map_data.asm.
  *
- * Invalidates column/row streaming state and refills the full 64×64
- * tilemap and collision grids from the current camera position.
+ * Invalidates column/row streaming state and reloads the collision grid from
+ * the current scroll position (view start (BG_SCROLL - 128) / 8).
  *
- * Assembly calculates view start as (BG_SCROLL - 128) / 8, which
- * centers the 64-tile grid on the player. */
+ * The asm's LOAD_MAP_ROW only refills the LOADED_MAP_BLOCKS cache; it doesn't
+ * touch the VRAM tilemaps (LOAD_MAP_ROW_TO_VRAM does that, as rows and
+ * columns scroll into view). The C port has no block cache, so there is
+ * nothing to do for the tilemaps: they keep what is already in VRAM until the
+ * camera next moves. (Refilling them here drew a 64x32 window starting 15 rows
+ * above the screen, so the bottom of the screen showed the map 256 px higher
+ * up, in script 263, its only caller.) */
 void load_initial_map_data(void) {
     /* BG1_X_POS = ppu.bg_hofs[0], BG1_Y_POS = ppu.bg_vofs[0] */
     uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - EB_VIEWPORT_CENTER_X) >> 3;
     uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - EB_VIEWPORT_CENTER_Y) >> 3;
-    fill_tilemaps(view_x_tile, view_y_tile,
-                  (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X),
-                  (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y));
     fill_collision_tiles(view_x_tile, view_y_tile);
 }
 

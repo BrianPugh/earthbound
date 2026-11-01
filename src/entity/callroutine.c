@@ -2129,17 +2129,12 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
     case ROM_ADDR_LOAD_MAP_ROW_AT_SCROLL_POS: {
         /* Port of LOAD_MAP_ROW_AT_SCROLL_POS (asm/overworld/map/load_map_row_at_scroll_pos.asm).
-         * Assembly loads a single map row at the given y-tile coordinate (from tempvar)
-         * with x derived from BG1_X_POS >> 3. The C port refills the entire tilemap
-         * instead of streaming individual rows, so we call fill via map_refresh_tilemaps.
+         * Draws only map row tempvar (x from BG1_X_POS >> 3); script 263
+         * reveals Bubble Monkey's rope this way, 1 row every 4 frames.
          * Returns tempvar unchanged (assembly does TYA at end). */
         *out_pc = pc;
         uint16_t y_param = scripts.tempvar[script_offset];
-        /* Reconstruct camera center from scroll position for map_refresh_tilemaps.
-         * BG1 scroll = camera - viewport_center, so camera = scroll + viewport_center. */
-        uint16_t cam_x = ppu.bg_hofs[0] + EB_VIEWPORT_CENTER_X;
-        uint16_t cam_y = ppu.bg_vofs[0] + EB_VIEWPORT_CENTER_Y;
-        map_refresh_tilemaps(cam_x, cam_y);
+        map_load_row_at_scroll_pos(y_param);
         return y_param;
     }
 
