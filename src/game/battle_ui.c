@@ -546,8 +546,10 @@ void enemy_flashing_on(uint16_t row, uint16_t enemy) {
  */
 void force_blank_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
+    /* STZ HDMAEN_MIRROR: every HDMA channel, the letterbox TM table too. */
     ppu.window_hdma_active = false;
     ppu.window2_hdma_active = false;
+    ppu.tm_hdma_active = false;
     bg_distortion_off();
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
@@ -566,8 +568,10 @@ void force_blank_and_wait_vblank(void) {
  * but nothing renders here, so it never parks and always returns false. */
 bool force_blank_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
+    /* STZ HDMAEN_MIRROR: every HDMA channel, the letterbox TM table too. */
     ppu.window_hdma_active = false;
     ppu.window2_hdma_active = false;
+    ppu.tm_hdma_active = false;
     bg_distortion_off();
     fade_out(0, 0);
     return false;

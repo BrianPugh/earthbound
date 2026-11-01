@@ -116,11 +116,11 @@ void overworld_setup_vram(void) {
     /* SET_OAM_SIZE($62): 32x32 / 64x64 sprite sizes */
     ppu.obsel = 0x62;
 
-    /* Clear rendering state that may be stale from battle, callroutines,
-     * or other scenes.  On the real SNES these registers are harmless
-     * when unused, but the C port's software renderer evaluates them
-     * every frame. */
-    ppu_clear_effects();
+    /* OVERWORLD_SETUP_VRAM leaves TS/CGWSEL/CGADSUB/COLDATA and MOSAIC alone:
+     * colour math an event set up survives a map load, and the sites that set
+     * it clear it (battle exit's CLEAR_BATTLE_VISUAL_EFFECTS, the swirl's
+     * auto-restore). The letterbox TM HDMA dies with HDMAEN_MIRROR in
+     * force_blank_and_wait_vblank(). */
     ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[1] = BG_VIEWPORT_CENTER;
     ppu.bg_viewport_fill[3] = BG_VIEWPORT_CENTER; /* Mode 0 battles fill BG4 */

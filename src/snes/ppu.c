@@ -34,8 +34,7 @@ void ppu_clear_effects(void) {
      * when the screen comes back.  Systems that use windowing (oval window,
      * battle swirl) manage their own lifecycle via stop_oval_window(),
      * stop_battle_swirl(), and update_swirl_effect() auto-restore.
-     * Clearing them here would destroy active oval window masking during
-     * attract mode teleports (overworld_setup_vram → ppu_clear_effects). */
+     * Clearing them here would destroy active oval window masking. */
 
     /* Clear per-scanline HDMA overrides for TM (layer enable per scanline).
      * Window HDMA flags are preserved — the oval window / battle swirl
