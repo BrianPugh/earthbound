@@ -520,7 +520,7 @@ static void start_timed_item_transformation(uint8_t item_id) {
 
 /* UPDATE_TEDDY_BEAR_PARTY: Port of asm/battle/update_teddy_bear_party.asm.
  * Scans all party members' inventories for teddy-bear-type items (type==4).
- * Finds the one with the highest EP value. Uses the item's "strength" parameter
+ * Finds the one with the lowest EP value. Uses the item's "strength" parameter
  * (sign-extended: value - 0x80 XOR 0xFF80) to determine which character to add.
  * Removes existing teddy bear / plush teddy bear from party, then adds the
  * matching character if found. */
@@ -548,16 +548,15 @@ static void update_teddy_bear_party(void) {
             if (best_item == 0) {
                 best_item = inv_item;
             } else {
-                /* Compare EP values: branch if current best has higher EP */
                 const ItemConfig *best_entry = get_item_entry(best_item);
                 if (!best_entry) continue;
                 int8_t cur_ep = (int8_t)entry->params[ITEM_PARAM_EP];
                 int8_t best_ep = (int8_t)best_entry->params[ITEM_PARAM_EP];
                 /* Assembly: LDA best_ep; CLC; SBC cur_ep; BRANCHLTEQS @NEXT_ITEM
-                 * CLC+SBC = best_ep - cur_ep - 1.
-                 * BRANCHLTEQS: skip update if best_ep - cur_ep - 1 <= 0 → best_ep <= cur_ep.
-                 * So update only if cur_ep > best_ep (strictly greater). */
-                if (cur_ep > best_ep) {
+                 * (8-bit). BRANCHLTEQS branches when best_ep - cur_ep - 1 < 0,
+                 * i.e. best_ep <= cur_ep, so the bear with the LOWEST EP wins
+                 * (Super plush bear ep 1 over Teddy bear ep 2). */
+                if (best_ep > cur_ep) {
                     best_item = inv_item;
                 }
             }
