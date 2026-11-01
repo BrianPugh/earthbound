@@ -41,6 +41,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Moonside invisible man (npc1378): while he overlaps the leader, the leader's body is drawn as floor (his sprite wins OBJ-vs-OBJ priority and sits behind BG), until he wanders off | 19-Moonside / run-41, after "Can you see me?" No at 5502,4462 | emu pt82ob sheet-0008 (frame 0005) vs port pt82b sheet-0008/0009 | 2026-10-31 |
 | Boot logos and attract mode run longer in the original (Nintendo logo held ~200 frames more, each attract scene a little longer); the scene order, oval spotlight and credit text placement match, and two full attract loops end on the title in both | 01-Start.srm `--no-boot`, idle from boot (`wait 50; shot` ×30, then `wait 100; shot` ×72) | emu pt83oa vs port pt83a, sheets 0002-0004 | 2026-11-01 |
 | A flat blue-violet column fills the right edge of the view on the Grapefruit Falls slope near the cave door (x 304-319 at leader 6768,680; world x ≥ ~6912): map data, the original shows the same column inside its band when the camera is moved left | run-25, `flag 11 1; teleport 6816 700 4` | emu pt84oc vs port pt84c shot 0007 (`playtest/out/pt84-cmp/falls-strip-check.png` in ../ebsrc-pt84) | 2026-11-01 |
+| Black strip at the screen's left edge at the Lost Underworld PSI Teleport β spot: the map ends there | 33-FireSpring, Poo's Teleport β start | emu pt99ob vs port pt99b | 2026-11-01 |
 
 ## Battle
 
@@ -337,6 +338,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | A hotel stay doesn't revive an unconscious member (Paula stays at 0 HP, unconscious) and leaves poison; conscious members get full HP/PP | 24-Museum, Summers hotel, `status 2 1 1; hp 2 0; status 3 1 5`, stay | emu pt90oa vs port pt90a (same PARTY, money 46630 → 46480), `pt90-cmp/hotel-wake.png` | 2026-11-01 |
 | The Escargo pick-up courier doesn't come while the party stays inside a building (1500 frames in the Onett drug store), and calling again says "We can't take any delivery orders right now. Please call back a little later."; he arrives once the party is outdoors | Onett drug store phone, Pick-up | emu pt94oa vs port pt94a, `pt94-cmp/pk2`, `pk3` | 2026-11-01 |
 | Bubble Monkey joining in the Winters drugstore (gum from Nancy, then npc609 by the door): same text, the bubble float and the merge into Jeff frame for frame; afterwards the monkey isn't drawn while Jeff walks the drugstore | run-20, `flag 11 1; 40 LEFT; 4 UP`, Nancy Yes; `14 DOWN; 90 RIGHT`, talk to npc609 | emu pt95oc vs port pt95c, `pt95c/shots/sheet-0007.png` vs `pt95oc/shots/sheet-0007.png` | 2026-11-01 |
+| PSI Teleport β takes ~800 frames from the A press to idle at the arrival in the original vs ~350 in the port; spiral, fade, arrival spot (3044,4040 vs 3043) and music 47 match (emu lag, as in other scenes) | 33-FireSpring, Lost Underworld → Fourside | emu pt99ob vs port pt99b, `playtest/out/pt99-cmp/tp-list.png` | 2026-11-01 |
 
 ## Audio
 
