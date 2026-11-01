@@ -117,6 +117,11 @@ static const uint8_t credits_blank_tile[2] = {0, 0};
  * this to credits_scroll_frame, then restore it back. */
 frame_callback_fn frame_callback = NULL;  /* set to process_overworld_tasks by init_overworld */
 
+/* DEFAULT_IRQ_CALLBACK (asm/system/default_irq_callback.asm): a bare RTS,
+ * installed by RESET_IRQ_CALLBACK. */
+void default_irq_callback(void) {
+}
+
 /* ---- Savestate snapshot (see FrameCallbackSaveState in ending.h) ----
  * id 0 restores process_overworld_tasks (the normal-play default; functionally
  * identical to the NULL early-boot value, which game_main also treats as
@@ -124,13 +129,17 @@ frame_callback_fn frame_callback = NULL;  /* set to process_overworld_tasks by i
 void frame_callback_savestate_pack(void *out) {
     FrameCallbackSaveState *s = (FrameCallbackSaveState *)out;
     s->frame_callback_id = (frame_callback == credits_scroll_frame)
-        ? FRAME_CALLBACK_CREDITS_SCROLL : FRAME_CALLBACK_OVERWORLD_TASKS;
+        ? FRAME_CALLBACK_CREDITS_SCROLL
+        : (frame_callback == default_irq_callback)
+        ? FRAME_CALLBACK_DEFAULT : FRAME_CALLBACK_OVERWORLD_TASKS;
 }
 
 void frame_callback_savestate_unpack(const void *in) {
     const FrameCallbackSaveState *s = (const FrameCallbackSaveState *)in;
     frame_callback = (s->frame_callback_id == FRAME_CALLBACK_CREDITS_SCROLL)
-        ? credits_scroll_frame : process_overworld_tasks;
+        ? credits_scroll_frame
+        : (s->frame_callback_id == FRAME_CALLBACK_DEFAULT)
+        ? default_irq_callback : process_overworld_tasks;
 }
 
 /* ---- Savestate snapshot (see EndingCreditsSaveState in ending.h) ---- */
@@ -279,6 +288,10 @@ static void center_vwf_for_string(const uint8_t *str, uint16_t width_tiles,
     /* Center within width_tiles * 8 pixels */
     uint16_t area_width = width_tiles * 8;
     uint16_t pixel_x = 0;
+    /* The asm's 16-bit (width*8 - pixel_width) LSR wraps for a string wider
+     * than its area (VWF_X ~0x7FFx, a garbage tile index). No stock cast
+     * caption is that wide; clamp to 0 so a modded one can't index past the
+     * VWF buffer. */
     if (area_width > total_width) {
         pixel_x = (area_width - total_width) / 2;
     }
@@ -606,7 +619,8 @@ uint16_t is_entity_still_on_cast_screen(uint16_t current_entity_slot) {
     int16_t ent_off = current_entity_slot;
     uint16_t bg3y = ppu.bg_vofs[2];
     uint16_t entity_y = (uint16_t)entities.abs_y[ent_off];
-    if (entity_y > (bg3y - 8)) {
+    /* 16-bit SBC/CMP: BG3_Y < 8 wraps to 0xFFF8+, so the entity is "off". */
+    if (entity_y > (uint16_t)(bg3y - 8)) {
         return 1;
     }
     return 0;
@@ -946,8 +960,10 @@ void credits_scroll_frame(void) {
                 if (eb == 0xAC) { out = 124; }        /* pipe */
                 else if (eb == 0xAE) { out = 126; }   /* tilde */
                 else if (eb == 0xAF) { out = 127; }   /* special */
-                else if (eb > 0x91) { out = eb - 80; } /* eb >= 0x92: assembly uses eb - 80 */
-                else { out = eb - 48; }                /* eb <= 0x91: assembly uses eb - 48 */
+                /* CLC; SBC #144; BRANCHLTEQS: eb <= 144 -> eb - 48, else eb - 80
+                 * (so lowercase 'a' = 0x91 folds onto 'A' like the rest). */
+                else if (eb > 144) { out = eb - 80; }
+                else { out = eb - 48; }
                 name_converted[name_len++] = out;
             }
 
@@ -1502,7 +1518,9 @@ StepResult mode_step_ending(ModeState *st) {
                 s->phase = EN_CR_SCROLLFINAL;
                 return STEP_RESULT_CONTINUE();
             }
-            frame_callback = process_overworld_tasks;
+            /* RESET_IRQ_CALLBACK: DEFAULT_IRQ_CALLBACK (a bare RTS) for the
+             * hold; PROCESS_OVERWORLD_TASKS is reinstalled after the teardown. */
+            frame_callback = default_irq_callback;
             s->hold_counter = 2000;
             s->phase = EN_CR_HOLD;
             continue;

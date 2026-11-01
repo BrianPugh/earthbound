@@ -48,6 +48,9 @@ extern uint16_t cast_tile_offset;
 /* CREDITS_SCROLL_FRAME — per-frame IRQ callback during credits. */
 void credits_scroll_frame(void);
 
+/* DEFAULT_IRQ_CALLBACK — no-op IRQ callback (RESET_IRQ_CALLBACK). */
+void default_irq_callback(void);
+
 /* ---- Savestate snapshot ----
  * frame_callback is a host function pointer (process_overworld_tasks during normal
  * play, credits_scroll_frame during the credits). Serialize it as a stable id rather
@@ -55,6 +58,7 @@ void credits_scroll_frame(void);
 typedef enum {
     FRAME_CALLBACK_OVERWORLD_TASKS = 0,  /* NULL or process_overworld_tasks */
     FRAME_CALLBACK_CREDITS_SCROLL  = 1,
+    FRAME_CALLBACK_DEFAULT         = 2,  /* default_irq_callback (credits hold) */
 } FrameCallbackId;
 typedef struct {
     uint8_t frame_callback_id;
