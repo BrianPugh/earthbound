@@ -544,9 +544,9 @@ static void handle_stairs_enter_callback(void) {
 
     if (ow.stairs_direction == 0 || ow.stairs_direction == 256) {
         /* Vertical stairs (variant 0/1, UP_LEFT/UP_RIGHT):
-         * Assembly: STAIRS_NEW_Y - 1 compared to leader_y (BLTEQ = signed <=).
-         * Reached when (stairs_new_y - 1) > leader_y_coord (signed). */
-        if ((int16_t)(stairs_new_y - 1) > (int16_t)game_state.leader_y_coord)
+         * Assembly: STAIRS_NEW_Y - 1 compared to leader_y (BLTEQ = BCC+BEQ,
+         * unsigned <=). Reached when (stairs_new_y - 1) > leader_y_coord. */
+        if ((uint16_t)(stairs_new_y - 1) > (uint16_t)game_state.leader_y_coord)
             reached = true;
     } else {
         /* Horizontal stairs (variant 2/3, DOWN_LEFT/DOWN_RIGHT):
@@ -583,9 +583,9 @@ static void handle_stairs_leave_callback(void) {
             reached = true;
     } else {
         /* Descending (variant 2/3):
-         * Assembly: leader_y_coord compared to STAIRS_NEW_Y (BLTEQ = signed <=).
-         * Reached when leader_y_coord > stairs_new_y (signed). */
-        if ((int16_t)game_state.leader_y_coord > (int16_t)stairs_new_y)
+         * Assembly: leader_y_coord compared to STAIRS_NEW_Y (BLTEQ = BCC+BEQ,
+         * unsigned <=). Reached when leader_y_coord > stairs_new_y. */
+        if ((uint16_t)game_state.leader_y_coord > (uint16_t)stairs_new_y)
             reached = true;
     }
 
@@ -641,7 +641,10 @@ uint16_t process_door_at_tile(uint16_t x_tile, uint16_t y_tile) {
         result = 0;
         break;
     default:
-        /* No door found (0xFF) */
+        /* No door found (0xFF). The asm BRAs to @DONE and returns its
+         * uninitialized @LOCAL00 (stack leftovers; the caller uses it as
+         * can_move). Only reachable on a ladder/stairs tile with no door
+         * entry; the port returns 0 (blocked) instead of garbage. */
         break;
     }
 
@@ -821,24 +824,25 @@ StepResult mode_step_screen_transition(ModeState *st) {
             return STEP_RESULT_CONTINUE();   /* the iteration's main yield */
 
         case ST_EXIT_FINALIZE:
-            /* asm lines 117-141: fade-to-white (fade_style >= 49) or force-blank.
+            /* asm lines 117-141: fade-to-white (LDA #50; CLC; SBC fade_style;
+             * BRANCHLTEQS: fade_style >= 50) or FORCE_BLANK_AND_WAIT_VBLANK.
              * The post-yield bits (wipe flag, re-enable entities) run in
              * ST_EXIT_POST to preserve the original before/after-yield ordering. */
-            if (s->fade_style >= 49) {
+            if (s->fade_style >= 50) {
                 for (int i = 0; i < 256; i++) {
                     ert.palettes[i] = 0x7FFF;
                 }
                 ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
             } else {
-                set_force_blank(true);
-                ppu.window_hdma_active = false;
-                ppu.window2_hdma_active = false;
+                /* INIDISP=$80, HDMAEN=0 (windows + BG distortion), and the US
+                 * fade cancel; this phase's yield is the asm's vblank wait. */
+                force_blank_and_wait_vblank_work_step();
             }
             s->phase = ST_EXIT_POST;
             return STEP_RESULT_CONTINUE();   /* the single finalize yield */
 
         case ST_EXIT_POST:
-            if (s->fade_style >= 49) {
+            if (s->fade_style >= 50) {
                 dr.wipe_palettes_on_map_load = 1;
             }
             enable_all_entities();   /* asm line 143 */
@@ -965,13 +969,11 @@ static bool screen_transition_prepare(uint8_t transition_type, uint8_t mode,
         /* ====== ENTER TRANSITION (fade in) ====== */
 
         /* Assembly lines 146-158: determine enter mode.
-         * Assembly: LDA #50; CLC; SBC fade_style → 49 - fade_style
-         * BRANCHLTEQS @ENTER_FADE_MODE_SET when fade_style >= 49 → keep X=0 (palette)
-         * LDX #1 when fade_style < 49 → brightness mode
-         * fade_style >= 49 → use palette fade (mode 0)
-         * fade_style < 49 → use brightness fade_in (mode 1) */
+         * Assembly: LDA #50; CLC; SBC fade_style; BRANCHLTEQS branches when
+         * 50 - fade_style - 1 < 0, i.e. fade_style >= 50 → keep X=0 (palette
+         * fade, mode 0); fade_style <= 49 → LDX #1 (brightness fade_in, mode 1). */
         uint8_t enter_mode = 0;
-        if (fade_style < 49) {
+        if (fade_style < 50) {
             enter_mode = 1;
         }
 
@@ -1210,12 +1212,11 @@ StepResult mode_step_door_transition(ModeState *ms) {
             apply_next_map_music();
             flush_entity_creation_queue();
 
-            /* Assembly lines 172-181: play transition-in sound effect.
-             * SFX 0 means "no ending SFX" — skip play_sfx(0) to avoid stopping the
-             * start SFX prematurely. */
+            /* Assembly lines 172-181: play the transition-in sound effect. The asm
+             * calls PLAY_SOUND unconditionally; an ending SFX of 0 goes to
+             * STOP_SOUND_EFFECT, which cuts the door/stairs start SFX here. */
             uint16_t sfx_out = get_screen_transition_sound_effect(st->transition_type, 0);
-            if (sfx_out != 0)
-                play_sfx(sfx_out);
+            play_sfx(sfx_out);
 
             /* Assembly lines 182-193: transition in */
             st->phase = DTR_FINALIZE;
