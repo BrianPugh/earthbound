@@ -203,6 +203,11 @@ uint16_t check_status_group(uint16_t status_group, uint16_t char_id);
  * If status_group==8, sets party_status = value-1.
  * Returns char_id on success, 0 if not in party. */
 uint16_t inflict_status_nonbattle(uint16_t char_id, uint16_t status_group, uint16_t value);
+/* The status write of INFLICT_STATUS_NONBATTLE without its RENDER_AND_DISABLE_ENTITIES
+ * tail: *needs_render is set when the asm would run that tail (group 1-7, member in
+ * the party). For a caller that presents the tail's frame itself (CC_19_05). */
+uint16_t inflict_status_nonbattle_apply(uint16_t char_id, uint16_t status_group, uint16_t value,
+                                        bool *needs_render);
 
 /* LEARN_SPECIAL_PSI: Port of asm/misc/learn_special_psi.asm.
  * psi_type: 1=TELEPORT_ALPHA, 2=STARSTORM_ALPHA, 3=STARSTORM_OMEGA, 4=TELEPORT_BETA.

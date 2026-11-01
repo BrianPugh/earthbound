@@ -713,7 +713,7 @@ StepResult mode_step_special_event(ModeState *st) {
  *   3. Loops over 14 inventory slots, prefixing equipped items with '*'
  *   4. Calls OPEN_WINDOW_AND_PRINT_MENU(2, 0) for 2-column layout
  */
-void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t window_id,
+bool show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t window_id,
                               uint16_t char_source) {
     /* Determine character ID.
      * Assembly lines 73-84: if char_source == 0, get from argument_memory;
@@ -750,7 +750,7 @@ void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t wi
     /* The asm runs the pre-processing above for any id and then reads the
      * char_struct before/after PARTY_CHARACTERS for 0 or > 6; the port stops
      * there (no script passes such an id). */
-    if (char_id == 0 || char_id > 6) return;
+    if (char_id == 0 || char_id > 6) return false;
     uint16_t char_idx = char_id - 1;
 
     /* --- INVENTORY_GET_ITEM_NAME (asm/misc/inventory_get_item_name.asm) ---
@@ -801,9 +801,15 @@ void show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t wi
         add_menu_item_no_position(label, (uint16_t)(i + 1));
     }
 
-    /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING,
-     * then OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0). */
+    /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING (its window
+     * render runs here, counted as an unpresented tick), then
+     * OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0), which the caller runs after
+     * presenting that frame (show_character_inventory_print). */
     window_tick_without_instant_printing();
+    return true;
+}
+
+void show_character_inventory_print(void) {
     open_window_and_print_menu(2, 0);
 }
 

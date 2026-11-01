@@ -973,6 +973,10 @@ void sort_battlers_into_rows(void);
  * Updates party, refreshes entities, renders one frame, then disables all entities
  * (except the entity_fade_entity, which keeps its tick/move callbacks active). */
 void render_and_disable_entities(void);
+/* RENDER_AND_DISABLE_ENTITIES up to its RENDER_FRAME_TICK: UPDATE_PARTY,
+ * REFRESH_PARTY_ENTITIES and the frame's window render (counted as an unpresented
+ * tick). The caller presents the frame (BW_TICK_PRESENT), then runs _finish(). */
+void render_and_disable_entities_prepare(void);
 
 /* Park-propagating split of render_and_disable_entities() (savestate cutover).
  * _work_step() = update_party + refresh + render work; returns true iff an

@@ -102,7 +102,9 @@ uint16_t check_status_group(uint16_t status_group, uint16_t char_id) {
  * If group==8, sets party_status = value-1 and returns char_id.
  * Otherwise sets afflictions[group-1] = value-1 for char_id.
  * Returns char_id on success, 0 if character not in party. */
-uint16_t inflict_status_nonbattle(uint16_t char_id, uint16_t status_group, uint16_t value) {
+uint16_t inflict_status_nonbattle_apply(uint16_t char_id, uint16_t status_group, uint16_t value,
+                                        bool *needs_render) {
+    *needs_render = false;
     /* Assembly lines 22-30: party status special case */
     if (status_group == 8) {
         game_state.party_status = (uint8_t)(value - 1);
@@ -115,8 +117,16 @@ uint16_t inflict_status_nonbattle(uint16_t char_id, uint16_t status_group, uint1
     if (char_id >= 1 && char_id <= TOTAL_PARTY_COUNT && status_group >= 1 && status_group <= 7) {
         party_characters[char_id - 1].afflictions[status_group - 1] = (uint8_t)(value - 1);
     }
-    render_and_disable_entities();
+    *needs_render = true;   /* RENDER_AND_DISABLE_ENTITIES follows */
     return char_id;
+}
+
+uint16_t inflict_status_nonbattle(uint16_t char_id, uint16_t status_group, uint16_t value) {
+    bool needs_render;
+    uint16_t result = inflict_status_nonbattle_apply(char_id, status_group, value, &needs_render);
+    if (needs_render)
+        render_and_disable_entities();
+    return result;
 }
 
 /* LEARN_SPECIAL_PSI: Port of asm/misc/learn_special_psi.asm.

@@ -2278,6 +2278,8 @@ typedef enum {
     DT_RESUME_MENU_RESULT,      /* STORE/ESCARGO/TELEPHONE menu: store result to working_memory */
     DT_RESUME_CC18_CLOSE_HIDE,  /* CC_18_04 after CLOSE_ALL_WINDOWS' tick: HIDE_HPPP_WINDOWS (+ its wait) */
     DT_RESUME_CC18_CLOSE_TICK,  /* CC_18_04 after the hide: the trailing WINDOW_TICK frame */
+    DT_RESUME_CC19_INFLICT,     /* CC_19_05 after RENDER_FRAME_TICK: disable entities, store cc1f_aux */
+    DT_RESUME_CC1A_INV_PRINT,   /* CC_1A_05 after INVENTORY_GET_ITEM_NAME's tick: OPEN_WINDOW_AND_PRINT_MENU */
 } DisplayTextResume;
 
 typedef struct {
@@ -2285,7 +2287,8 @@ typedef struct {
     uint8_t      saved_cc18_attrs; /* this call level's saved g_cc18_attrs_saved */
     uint8_t      resume;           /* DisplayTextResume: post-child work pending on POP */
     uint16_t     delay_remaining;  /* DT_DELAY: window_tick_work frames left */
-    uint16_t     cc1f_aux;         /* small per-resume carry (DT_RESUME_CC1F_PHOTO: photo_id) */
+    uint16_t     cc1f_aux;         /* small per-resume carry (DT_RESUME_CC1F_PHOTO: photo_id,
+                                      DT_RESUME_CC19_INFLICT: the result) */
     uint16_t     cc1a_window_id;   /* DT_RESUME_CC1A_PARTY_SEL: window to close on POP */
     uint32_t     cc1a_saved_argmem;/* DT_RESUME_CC1A_PARTY_SEL: argument_memory to restore */
     uint32_t     cc18_cancel_target;/* unused (kept for the savestate layout) */

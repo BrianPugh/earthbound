@@ -1894,6 +1894,18 @@ static void dt_resume_after_child(DisplayTextModeState *st) {
         st->resume = DT_RESUME_NONE;
         restore_window_text_attributes();
         set_working_memory((uint32_t)(uint16_t)mode_child_result());
+    } else if (st->resume == DT_RESUME_CC19_INFLICT) {
+        /* CC_19_05: the rest of RENDER_AND_DISABLE_ENTITIES after its frame
+         * (DISABLE_ALL_ENTITIES), then INFLICT_STATUS_NONBATTLE's result to
+         * working memory. */
+        st->resume = DT_RESUME_NONE;
+        render_and_disable_entities_finish();
+        set_working_memory((uint32_t)st->cc1f_aux);
+    } else if (st->resume == DT_RESUME_CC1A_INV_PRINT) {
+        /* CC_1A_05: INVENTORY_GET_ITEM_NAME's OPEN_WINDOW_AND_PRINT_MENU, after
+         * its WINDOW_TICK frame was presented. */
+        st->resume = DT_RESUME_NONE;
+        show_character_inventory_print();
     } else if (st->resume == DT_RESUME_MENU_RESULT) {
         /* STORE / ESCARGO / TELEPHONE menu: store the popped result to working
          * memory — the former open_store_menu / select_escargo_express_item /
@@ -2070,6 +2082,23 @@ static bool dt_cc_18(DisplayTextModeState *st, ScriptReader *r, StepResult *out)
     if (cc_18_dispatch(r, &st->saved_text_attrs, &g_mode_push_init, &child_mode,
                        &child_resume)) {
         st->resume = child_resume;
+        *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
+        return true;
+    }
+    return false;
+}
+
+/* CC_19 tree. All inline except INFLICT_STATUS (sub 0x05), which pushes the
+ * frame of its RENDER_AND_DISABLE_ENTITIES. Returns true (with *out set) when it
+ * pushes. */
+static bool dt_cc_19(DisplayTextModeState *st, ScriptReader *r, StepResult *out) {
+    memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+    GameMode child_mode = GAME_MODE_NONE;
+    uint8_t  child_resume = DT_RESUME_NONE;
+    uint16_t aux = 0;
+    if (cc_19_dispatch(r, &g_mode_push_init, &child_mode, &child_resume, &aux)) {
+        st->resume = child_resume;
+        st->cc1f_aux = aux;
         *out = STEP_RESULT_PUSH_INIT(child_mode, &g_mode_push_init);
         return true;
     }
@@ -2283,7 +2312,7 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
 
         /* Tree dispatchers */
         case 0x18: if (dt_cc_18(st, r, &res)) return res; break;
-        case 0x19: cc_19_dispatch(r); break;
+        case 0x19: if (dt_cc_19(st, r, &res)) return res; break;
         case 0x1A: if (dt_cc_1a(st, r, &res)) return res; break;
         case 0x1B: cc_1b_dispatch(r); break;
         case 0x1C: if (dt_cc_1c(r, &res)) return res; break;

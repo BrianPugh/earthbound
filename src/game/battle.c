@@ -6027,21 +6027,20 @@ void reload_map(void) {
     blank_screen_and_wait_vblank();
 }
 
-void render_and_disable_entities(void) {
+void render_and_disable_entities_prepare(void) {
     update_party();
     refresh_party_entities();
-    /* No-actionscript present: the sole blocking caller is inflict_status_nonbattle
-     * (reached from the CC interpreter / overworld homesickness check, where a
-     * nested run_actionscript_frame could park). Entities are disabled on the very
-     * next line, so not advancing them one final frame is imperceptible; the
-     * enclosing context owns the yield. Mode-step callers use the
-     * render_and_disable_entities_work_step()/_finish() split. */
     render_frame_tick_no_actionscript();
-    disable_all_entities();
-    if (ow.entity_fade_entity != -1) {
-        entities.tick_callback_hi[ow.entity_fade_entity] &=
-            (uint16_t)~(uint16_t)(OBJECT_TICK_DISABLED | OBJECT_MOVE_DISABLED);
-    }
+}
+
+void render_and_disable_entities(void) {
+    /* No-actionscript, unpresented frame: the remaining blocking caller is
+     * inflict_status_nonbattle from the overworld homesickness check, where a
+     * nested run_actionscript_frame could park. CC_19_05 presents the frame itself
+     * (render_and_disable_entities_prepare + BW_TICK_PRESENT + _finish). Mode-step
+     * callers use the render_and_disable_entities_work_step()/_finish() split. */
+    render_and_disable_entities_prepare();
+    render_and_disable_entities_finish();
 }
 
 /* ---- render_and_disable_entities, park-propagating split (savestate cutover) ----

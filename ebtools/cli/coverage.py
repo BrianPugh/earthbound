@@ -527,10 +527,11 @@ def _parse_display_text_cases(port_root):
             sub_cases[prefix] = cases
             sub_ranges.append((i, end_line))
 
-    # Find the main dispatch: look for the "cc_19_dispatch(r)" call (not the
-    # function def) and walk backwards to find "switch (byte)" or similar
+    # Find the main dispatch: look for the CC_19 tree's call in the main loop
+    # ("dt_cc_19(st, r, ...)", formerly "cc_19_dispatch(r);"), not a function
+    # def, and walk backwards to find "switch (byte)" or similar
     main_cases: set[int] = set()
-    main_dispatch_re = re.compile(r"\bcc_19_dispatch\s*\(\s*r\s*\)\s*;")
+    main_dispatch_re = re.compile(r"\b(?:cc_19_dispatch\s*\(\s*r\s*\)\s*;|dt_cc_19\s*\(\s*st\s*,\s*r\s*,)")
     for i, line in enumerate(lines):
         if main_dispatch_re.search(line):
             # Check this isn't inside a sub-dispatch function

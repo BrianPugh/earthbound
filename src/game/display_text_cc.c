@@ -1364,14 +1364,16 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          * recursively with the selected target, then returns to continue
          * execution past the jump table.
          * working_memory is a 1-based selector into the address table.
-         * If 0 (NULL) or out of range, skips all entries. */
+         * If 0 (NULL) or out of range, skips all entries. The asm tests all 32
+         * bits (CMP32 against NULL, then a 32-bit SBC borrow against the
+         * zero-extended count), so a non-zero high word is out of range. */
         uint8_t count = script_read_byte(r);
         uint32_t wm = get_working_memory();
         uint32_t target = 0;
         /* Read all entries, remembering the one we want */
         for (int i = 0; i < count; i++) {
             uint32_t addr = script_read_dword(r);
-            if ((uint16_t)wm == (uint16_t)(i + 1)) {
+            if (wm == (uint32_t)(i + 1)) {
                 target = addr;
             }
         }
@@ -1379,7 +1381,7 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
          * child for the gosub (the same mechanism as CC_08 CALL_TEXT) instead of
          * recursing via display_text_from_addr() on the C stack. The parent resumes
          * DT_RUN past the jump table on POP; no post-work. */
-        if (target != 0 && wm != 0 && (uint16_t)wm <= count) {
+        if (target != 0 && wm != 0 && wm <= (uint32_t)count) {
             if (dt_make_child_init(out_init, target)) {
                 *out_mode = GAME_MODE_DISPLAY_TEXT;
                 return true;
@@ -1911,14 +1913,37 @@ static void cc_19_clear_loaded_strings(void) {
  * if status_group==8, sets party_status=value-1.
  * Otherwise sets afflictions[status_group-1]=value-1 for char_id.
  * Stores char_id (or 0 if not in party) in working_memory. */
-static void cc_19_inflict_status(ScriptReader *r) {
+static bool cc_19_inflict_status(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                                 uint8_t *out_resume, uint16_t *out_aux) {
     uint8_t char_arg = script_read_byte(r);
     uint8_t group_arg = script_read_byte(r);
     uint8_t value = script_read_byte(r);
     uint16_t char_id = char_arg ? (uint16_t)char_arg : (uint16_t)(get_working_memory() & 0xFFFF);
     uint16_t status_group = group_arg ? (uint16_t)group_arg : (uint16_t)(get_argument_memory() & 0xFFFF);
-    uint16_t result = inflict_status_nonbattle(char_id, status_group, (uint16_t)value);
+    bool needs_render;
+    uint16_t result = inflict_status_nonbattle_apply(char_id, status_group, (uint16_t)value,
+                                                     &needs_render);
+    if (needs_render) {
+        /* RENDER_AND_DISABLE_ENTITIES: UPDATE_PARTY, REFRESH_PARTY_ENTITIES, then
+         * RENDER_FRAME_TICK (one frame with the entities advanced) before
+         * DISABLE_ALL_ENTITIES. The window render runs inline (counted);
+         * BW_TICK_PRESENT runs that frame's actionscripts and presents it, and
+         * DT_RESUME_CC19_INFLICT does the disable tail and stores the result. */
+        (void)take_unpresented_ticks();
+        render_and_disable_entities_prepare();
+        uint16_t ticks = take_unpresented_ticks();
+        if (ticks) {
+            out_init->battle_wait.kind = BW_TICK_PRESENT;
+            out_init->battle_wait.remaining = ticks;
+            *out_mode = GAME_MODE_BATTLE_WAIT;
+            *out_resume = DT_RESUME_CC19_INFLICT;
+            *out_aux = result;
+            return true;
+        }
+        render_and_disable_entities_finish();
+    }
     set_working_memory((uint32_t)result);
+    return false;
 }
 
 /* GET_CHARACTER_NUMBER: 1 arg (party position).
@@ -2262,13 +2287,14 @@ static void cc_19_get_letter_from_stat(ScriptReader *r) {
 
 /* CC 0x19 tree: inventory/character state queries.
  * Port from asm/text/ccs/cc_19_*.asm files. */
-void cc_19_dispatch(ScriptReader *r) {
+bool cc_19_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
+                    uint8_t *out_resume, uint16_t *out_aux) {
     uint8_t sub = script_read_byte(r);
 
     switch (sub) {
     case 0x02: cc_19_load_string_to_memory(r); break;
     case 0x04: cc_19_clear_loaded_strings(); break;
-    case 0x05: cc_19_inflict_status(r); break;
+    case 0x05: return cc_19_inflict_status(r, out_init, out_mode, out_resume, out_aux);
     case 0x10: cc_19_get_character_number(r); break;
     case 0x11: cc_19_get_character_name_letter(r); break;
     case 0x14: cc_19_get_escargo_express_item(); break;
@@ -2294,6 +2320,7 @@ void cc_19_dispatch(ScriptReader *r) {
         FATAL("display_text: unknown CC 19 %02X\n", sub);
         break;
     }
+    return false;
 }
 
 bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
@@ -2371,7 +2398,23 @@ bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
          * char_source: 0 = read char_id from argument_memory, else = char_id directly. */
         uint8_t window_id_arg = script_read_byte(r);
         uint8_t char_source = script_read_byte(r);
-        show_character_inventory(state_attrs, window_id_arg, char_source);
+        /* INVENTORY_GET_ITEM_NAME's US WINDOW_TICK_WITHOUT_INSTANT_PRINTING is a
+         * full WINDOW_TICK before OPEN_WINDOW_AND_PRINT_MENU: the titled, empty
+         * window is presented for a frame (entities advanced) before the items
+         * print. Its render runs inline (counted); BW_TICK_PRESENT presents it
+         * and DT_RESUME_CC1A_INV_PRINT prints the menu. */
+        (void)take_unpresented_ticks();
+        if (show_character_inventory(state_attrs, window_id_arg, char_source)) {
+            uint16_t ticks = take_unpresented_ticks();
+            if (ticks) {
+                out_init->battle_wait.kind = BW_TICK_PRESENT;
+                out_init->battle_wait.remaining = ticks;
+                *out_mode = GAME_MODE_BATTLE_WAIT;
+                *out_resume = DT_RESUME_CC1A_INV_PRINT;
+                return true;
+            }
+            show_character_inventory_print();
+        }
         break;
     }
     case 0x06: {
