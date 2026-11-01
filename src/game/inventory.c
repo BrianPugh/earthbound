@@ -76,22 +76,20 @@ static int16_t get_equipment_ep_modifier(uint16_t char_idx, int equipment_slot) 
     return get_item_param_signed(item_id, ITEM_PARAM_EP);
 }
 
-/* Clamp with dual bounds (lower and upper), matching offense/defense assembly.
- * Assembly uses CLC;SBC (A-M-1) with BRANCHLTEQS.
- * Edge cases faithfully preserved: total=-1 → 255, total=256 → 0. */
+/* Clamp with dual bounds, matching offense/defense assembly:
+ * LDA #0; CLC; SBC total; BRANCHLTEQS → in range when 0 - total - 1 < 0
+ * (total >= 0), else 0; then TYA; CLC; SBC #$FF; BRANCHLTEQS → in range
+ * when total - 255 - 1 < 0 (total <= 255), else 255. A plain [0, 255] clamp. */
 static uint8_t clamp_stat_dual(int16_t total) {
-    /* Assembly check 1: 0 - total - 1 > 0 (signed), i.e. total <= -2 → clamp to 0 */
-    if (total <= -2) return 0;
-    /* Assembly check 2: total - 255 - 1 > 0 (signed), i.e. total >= 257 → clamp to 255 */
-    if (total >= 257) return 255;
-    /* In range -1 to 256: return low byte (assembly AND #$00FF) */
-    return (uint8_t)(total & 0xFF);
+    if (total < 0) return 0;
+    if (total > 255) return 255;
+    return (uint8_t)total;
 }
 
-/* Clamp with lower bound only (no upper clamp), matching guts/speed/luck assembly.
- * total <= -2 → 0, otherwise total & 0xFF. */
+/* Lower bound only, matching guts/speed/luck assembly: total < 0 → 0,
+ * otherwise the low byte (AND #$00FF; no upper clamp, 256 wraps to 0). */
 static uint8_t clamp_stat_lower(int16_t total) {
-    if (total <= -2) return 0;
+    if (total < 0) return 0;
     return (uint8_t)(total & 0xFF);
 }
 
