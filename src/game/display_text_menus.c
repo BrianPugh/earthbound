@@ -1148,8 +1148,10 @@ StepResult mode_step_escargo_menu(ModeState *ms) {
         break;
     }
 
-    /* Assembly: CLEAR_WINDOW_TILEMAP(ESCARGO_EXPRESS_ITEM) */
-    close_window(WINDOW_ESCARGO_EXPRESS_ITEM);
+    /* Assembly: CLEAR_WINDOW_TILEMAP(ESCARGO_EXPRESS_ITEM). The window stays
+     * open; the caller's script (ESHOP3 _UNSOU_TEL_SEND_1) closes it next with
+     * switch_to_window 13 + close_window. */
+    clear_window_tilemap(WINDOW_ESCARGO_EXPRESS_ITEM);
     dt.force_left_text_alignment = 0;
     restore_window_text_attributes();
 
