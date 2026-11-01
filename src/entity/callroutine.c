@@ -1053,25 +1053,27 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         int16_t target_y = entities.var[7][csv_off];
         int16_t dx = target_x - entities.abs_x[csv_off];
         int16_t dy = target_y - entities.abs_y[csv_off];
-        int16_t abs_dx = dx < 0 ? -dx : dx;
-        int16_t abs_dy = dy < 0 ? -dy : dy;
+        /* asm abs: negates only when 0 - d - 1 > 0 (signed), i.e. d < -1,
+         * so d = -1 stays $FFFF. The axes compare unsigned, Y on a tie. */
+        uint16_t abs_dx = (uint16_t)(dx < -1 ? -dx : dx);
+        uint16_t abs_dy = (uint16_t)(dy < -1 ? -dy : dy);
 
         int32_t vel;
-        if (abs_dx >= abs_dy) {
+        if (abs_dx > abs_dy) {
             vel = (int32_t)(((uint32_t)(int32_t)entities.delta_x[csv_off] << 16) |
                    (uint16_t)entities.delta_frac_x[csv_off]);
         } else {
             vel = (int32_t)(((uint32_t)(int32_t)entities.delta_y[csv_off] << 16) |
                    (uint16_t)entities.delta_frac_y[csv_off]);
         }
-        int32_t abs_vel = vel < 0 ? -vel : vel;
-        int16_t max_dist = abs_dx >= abs_dy ? abs_dx : abs_dy;
-
-        int16_t frames = 1;
-        if (abs_vel > 0) {
-            frames = (int16_t)(((uint32_t)(int32_t)max_dist << 16) / abs_vel);
-            if (frames < 1) frames = 1;
-        }
+        /* The asm shifts the 16-bit distance left 16 times with ASL16_ENTRY2
+         * (8-bit LDY #16 on a 16-bit accumulator), which leaves 0, then
+         * zero-extends it (STORE_INT1632) and divides by the velocity. So the
+         * quotient is 0 and the routine sleeps 1 frame, unless the velocity
+         * is 0: DIVISION32S then sets every quotient bit, and the low word
+         * $FFFF is the sleep. The original's "walk to target" step therefore
+         * lasts 1 frame (EVENT_22). */
+        uint16_t frames = vel == 0 ? 0xFFFF : 1;
         scripts.sleep_frames[script_offset] = frames;
         return 0;
     }
