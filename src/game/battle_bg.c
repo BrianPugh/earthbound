@@ -519,8 +519,15 @@ static void palette_cycle_pingpong(LoadedBGData *data, uint8_t first,
 void generate_battlebg_frame(LoadedBGData *data, int layer_index) {
     uint16_t target_layer = data->target_layer & 0xFF;
 
-    /* ===== Palette shifting (assembly lines 23-341) ===== */
-    if (!data->freeze_palette_scrolling) {
+    /* A frozen layer (LOAD_BATTLE_BG's @LAYER2_SIMPLE) branches straight to
+     * @TARGET_BG_LAYER_SELECTION_COMPLETE (assembly lines 23-26): no palette
+     * cycling, Giygas-defeated return, scrolling, position update or BG
+     * scroll write; only the distortion part runs. */
+    if (data->freeze_palette_scrolling)
+        goto distortion;
+
+    /* ===== Palette shifting (assembly lines 27-341) ===== */
+    {
         if (data->palette_change_duration_left != 0) {
             data->palette_change_duration_left--;
             if (data->palette_change_duration_left == 0) {
@@ -629,6 +636,7 @@ void generate_battlebg_frame(LoadedBGData *data, int layer_index) {
             bt.screen_effect_vertical_offset);
     }
 
+distortion:
     /* ===== Distortion state machine (assembly lines 557-714) ===== */
     if (data->distortion_duration_left != 0) {
         data->distortion_duration_left--;

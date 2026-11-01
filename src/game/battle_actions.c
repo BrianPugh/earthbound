@@ -5164,7 +5164,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
             /* Final swirl and scene transition */
             play_sfx(SFX_PSI_THUNDER_DAMAGE);
             stop_music();
-            start_battle_swirl(5, 0, 0);
+            start_battle_swirl(5, 0, 5);  /* LDY #5 / LDX #0 / TYA: type 5, padding 5 */
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             g_mode_push_init.battle_wait.kind = BW_SWIRL_WINDOW;
             st->pc = 23;

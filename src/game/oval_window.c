@@ -661,14 +661,16 @@ bool is_psi_animation_active(void) {
  *
  * Returns true if the battle swirl animation is still playing.
  * Checks both the swirl update timer and the length padding counter.
- * CLC+SBC #4 computes A - 5. BRANCHLTEQS branches when result <= 0,
- * i.e. swirl_length_padding <= 5 → returns false (not active).
- * Active when frames_until_next_swirl_update != 0 AND swirl_length_padding > 5.
+ * CLC+SBC #4 computes A - 5. BRANCHLTEQS branches when that result is
+ * negative, i.e. swirl_length_padding <= 4 → returns false (not active).
+ * Active when frames_until_next_swirl_update != 0 AND swirl_length_padding >= 5,
+ * so a padding-5 swirl (LOAD_BATTLE_SCENE's swirl-out, the final prayer's
+ * swirl) is waited for through the whole table plus 1 padding frame.
  */
 bool is_battle_swirl_active(void) {
     if (frames_until_next_swirl_update == 0)
         return false;
-    if (swirl_length_padding <= 5)
+    if (swirl_length_padding <= 4)
         return false;
     return true;
 }
