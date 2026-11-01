@@ -60,6 +60,7 @@
  *   money N          set money on hand
  *   rng [A B]        print / set the game RNG state (rng_state.a/.b, the
  *                    asm's RAND_A/RAND_B), for seeding port vs emu runs
+ *   ehp ENEMY N      in a battle, set enemy [ENEMY]'s HP and HP target
  *   hpt              print each party member's HP/PP rolling targets, exp,
  *                    and the bank balance
  *   hp CHAR N | pp CHAR N   set current (and rolling target) HP/PP; in a
@@ -1140,6 +1141,16 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             poke_hp(c, (uint16_t)v2);
         else if (c)
             poke_pp(c, (uint16_t)v2);
+    } else if (strcmp(cmd, "ehp") == 0) {
+        /* ENEMIES index (battler slot - FIRST_ENEMY_INDEX): set hp and hp_target */
+        int slot = FIRST_ENEMY_INDEX + v1;
+        if (nv < 2 || !mode_on_stack(GAME_MODE_BATTLE) || v1 < 0 || slot >= BATTLER_COUNT || v2 < 0) {
+            script_error("usage: ehp ENEMY N (in a battle)%s", "");
+        } else {
+            Battler *b = &bt.battlers_table[slot];
+            b->hp = b->hp_target = (uint16_t)v2;
+            printf("EHP [%d] hp=%u\n", v1, (unsigned)b->hp);
+        }
     } else if (strcmp(cmd, "heal") == 0) {
         for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
             CharStruct *c = &party_characters[i];

@@ -1261,6 +1261,15 @@ class Player:
                 self.err(f"usage: {cmd} CHAR N")
                 return
             self.set_hp_pp(cmd, ints[0], ints[1])
+        elif cmd == "ehp":
+            # ENEMIES index (battler slot - FIRST_ENEMY_INDEX): set hp and hp_target
+            if len(ints) < 2 or not g.in_battle() or not 0 <= ints[0] < BATTLER_COUNT - FIRST_ENEMY_INDEX:
+                self.err("usage: ehp ENEMY N (in a battle)")
+                return
+            b = g.sym("BATTLERS_TABLE") + (FIRST_ENEMY_INDEX + ints[0]) * BATTLER_SIZE
+            g.put16(b + BT_HP, ints[1])
+            g.put16(b + BT_HP_TARGET, ints[1])
+            log(f"EHP [{ints[0]}] hp={g.w16(b + BT_HP)}")
         elif cmd == "heal":
             for cid in g.party():
                 c = g.char(cid)
