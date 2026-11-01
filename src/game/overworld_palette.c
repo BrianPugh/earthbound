@@ -324,9 +324,10 @@ after_damage:
         if (cs->current_hp == 0 || cs->current_hp > 0x8000) {
             /* Already unconscious? Skip (no HP accumulation). */
             if (affliction != 1) {
-                /* Clear affliction bytes 0-4 only (assembly loop: counter < 5).
-                 * afflictions[5] (SHIELDS/PSI status) and [6] are NOT cleared. */
-                memset(cs->afflictions, 0, 5);
+                /* Clear affliction bytes 0-5 (asm: LDA #6; CLC; SBC i;
+                 * BRANCHGTS loops while 6-i-1 >= 0). [5] is homesickness;
+                 * [6] (shields) is left alone. */
+                memset(cs->afflictions, 0, 6);
                 cs->afflictions[0] = 1;  /* Unconscious */
                 cs->current_hp_target = 0;
                 cs->current_hp = 0;
