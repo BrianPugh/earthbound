@@ -23,7 +23,7 @@ Port of the EarthBound C reimplementation to the [Waveshare Pico-LCD-1.3](https:
 
 SNES A, Y, Select, Start and R have no button.
 
-The panel shows the SNES palette washed out, so the build darkens the midtones with a display gamma: each 5-bit channel becomes `31 * (c / 31)^(gamma / 100)`, applied when the palette is converted (no per-pixel cost). The boot value is `EB_DISPLAY_GAMMA` (default 120, configure with `-DEB_DISPLAY_GAMMA=...`); 100 is the direct colour mapping.
+The panel shows the SNES palette washed out, so the build darkens the midtones with a display gamma: each 5-bit channel becomes `31 * (c / 31)^(gamma / 100)`, applied after colour math and master brightness, as a display would. Frames with neither (all of the overworld) bake it into the palette conversion at no per-pixel cost; frames with colour math or a fade keep the palette linear and map each pixel through a 32-entry brightness+gamma table at the end (3 byte loads, inside the blend for math pixels). The boot value is `EB_DISPLAY_GAMMA` (default 120, configure with `-DEB_DISPLAY_GAMMA=...`); 100 is the direct colour mapping.
 
 Nothing sends SNES A, which opens the command window on the overworld. The original game has a second route to it: X (B) opens the HP/PP display, and Y (L) there opens the command window, so it takes 2 presses. Y talks/checks on the overworld; in menus X cancels and Y confirms. The Game & Watch port uses the same layout.
 

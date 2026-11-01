@@ -167,10 +167,14 @@ typedef struct {
 static uint16_t cgram_render[256];
 
 #ifdef EB_DISPLAY_GAMMA
-/* Display gamma (ppu_set_display_gamma): per-channel 5-bit curves applied
- * where SNES colours become pixels, i.e. the palette shadow above and the
- * colour-math fixed colour, so it costs nothing per pixel. Colour math and
- * brightness then act on the corrected values. */
+/* Display gamma (ppu_set_display_gamma): a per-channel 5-bit curve, applied
+ * after colour math and master brightness (they work on linear CGRAM values;
+ * gamma is the display's job). A frame with neither (all of the overworld)
+ * bakes it into the palette shadow above, so it costs nothing per pixel; a
+ * frame with math or a fade keeps the shadow linear (palette_is_linear) and
+ * the compositor maps each pixel through gamma(brightness(c)) at the end
+ * (out_lut): the step fades already paid for, and 3 byte loads inside the
+ * blend for a math pixel. */
 static uint16_t display_gamma = EB_DISPLAY_GAMMA;
 static uint8_t display_gamma_lut[32];
 static bool display_gamma_ready;
@@ -197,6 +201,16 @@ static pixel_t bgr555_to_display(uint16_t c)
     uint16_t g = display_gamma_lut[BGR555_G(c)];
     uint16_t b = display_gamma_lut[BGR555_B(c)];
     return bgr555_to_pixel((uint16_t)BGR555(r, g, b));
+}
+
+/* The palette shadow stays linear (gamma moves to the compositor's out_lut)
+ * when the frame has colour math or a brightness below 15: the same
+ * conditions ppu_render_frame_ex derives color_math_active and the
+ * brightness step from. */
+static bool palette_is_linear(void)
+{
+    bool math = (ppu.cgadsub & 0x3F) != 0 && ((ppu.cgwsel >> 4) & 3) != 3;
+    return math || (ppu.inidisp & 0x0F) < 0x0F;
 }
 #endif
 
@@ -911,10 +925,13 @@ static void PPU_HOT_FUNC(render_bg_scanline)(int bg_index, int scanline, int bpp
 
 /* Blend two BGR565 colors for color math (add/subtract, optionally halved).
  * All channels are 5-bit precision (green stored as g5<<6 in BGR565).
- * BGR565 layout: BBBBBGGGGGGRRRRR — R[4:0], G[10:6]@5bit, B[15:11]. */
+ * BGR565 layout: BBBBBGGGGGGRRRRR — R[4:0], G[10:6]@5bit, B[15:11].
+ * out_lut maps each result channel through the compositor's brightness and
+ * gamma table (build_out_lut) before packing, which saves an unpack and
+ * repack per math pixel. */
 static inline __attribute__((always_inline))
 uint16_t blend_colors(uint16_t main_c, uint16_t sub_c,
-                      bool subtract, bool half) {
+                      bool subtract, bool half, const uint8_t *out_lut) {
     int r = main_c & 0x1F;
     int g = (main_c >> 6) & 0x1F;
     int b = (main_c >> 11) & 0x1F;
@@ -943,6 +960,9 @@ uint16_t blend_colors(uint16_t main_c, uint16_t sub_c,
     if (g > 31) g = 31;
     if (b > 31) b = 31;
 
+    r = out_lut[r];
+    g = out_lut[g];
+    b = out_lut[b];
     return (uint16_t)(r | (g << 6) | (b << 11));
 }
 
@@ -1076,6 +1096,26 @@ static void PPU_HOT_FUNC(build_obj_buckets)(void) {
 }
 #endif /* EB_PPU_OBJ_BUCKET */
 
+/* The compositor's per-frame output table: master brightness, then (with
+ * out_gamma) the display gamma. Each 5-bit channel becomes round(c * N / 15),
+ * so N = 15 is the identity and 0 black: exactly snes9x's mul_brightness
+ * table (globals.cpp), which fades were checked against. Kept out of
+ * ppu_render_frame_ex (noinline, not PPU_HOT_FUNC) so the RAM-resident
+ * render code doesn't grow on embedded ports. */
+static __attribute__((noinline)) void build_out_lut(uint8_t *lut,
+                                                    uint8_t brightness,
+                                                    bool out_gamma) {
+    (void)out_gamma;
+    for (int c = 0; c < 32; c++) {
+        uint8_t v = (uint8_t)((c * brightness * 2 + 15) / 30);
+#ifdef EB_DISPLAY_GAMMA
+        if (out_gamma)
+            v = display_gamma_lut[v];
+#endif
+        lut[c] = v;
+    }
+}
+
 /* Per-frame state every render context reads: the shadow palette from CGRAM
  * and the OBJ buckets. Call before signaling core 1 in dual-core mode to
  * avoid a data race on cgram_render[] and the bucket arrays. */
@@ -1083,8 +1123,13 @@ void ppu_prepare_frame(void) {
 #ifdef EB_DISPLAY_GAMMA
     if (!display_gamma_ready)
         ppu_set_display_gamma(display_gamma);
-    for (int i = 0; i < 256; i++)
-        cgram_render[i] = bgr555_to_display(ppu.cgram[i]);
+    if (palette_is_linear()) {
+        for (int i = 0; i < 256; i++)
+            cgram_render[i] = bgr555_to_pixel(ppu.cgram[i]);
+    } else {
+        for (int i = 0; i < 256; i++)
+            cgram_render[i] = bgr555_to_display(ppu.cgram[i]);
+    }
 #else
     for (int i = 0; i < 256; i++) {
         uint16_t c = ppu.cgram[i];
@@ -2570,13 +2615,10 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
     /* Fixed color for color math, in the framebuffer's pixel layout (an
      * EB_PIXEL_RGB565 build swaps R and B; hand-building BGR565 here turned
      * the red enemies-first swirl blue on the Game & Watch). */
-#ifdef EB_DISPLAY_GAMMA
-    uint16_t fixed_color = bgr555_to_display(
-        (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
-#else
+    /* Linear like the palette shadow in every frame that uses it (a math
+     * frame); display gamma comes after the math (out_lut). */
     uint16_t fixed_color = bgr555_to_pixel(
         (uint16_t)BGR555(ppu.coldata_r, ppu.coldata_g, ppu.coldata_b));
-#endif
 
     /* Which layers need rendering (union of main + sub screen) */
     uint8_t layers_needed = ppu.tm | ppu.ts;
@@ -2622,16 +2664,21 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
 #endif
 
     /* Frame-constant compositing values (hoisted out of scanline loop) */
-    /* Master brightness (INIDISP 0-15) as a per-channel table: each 5-bit
-     * channel becomes round(c * N / 15), so 15 is the identity and 0 black.
-     * This is exactly snes9x's mul_brightness table (globals.cpp), which the
-     * fades were checked against; the old c * N*17 >> 8 truncated and came
-     * out one level low at many steps (N=8, c=31 gave 16, not 17). */
-    uint8_t bright_lut[32];
-    if (brightness < 0x0F) {
-        for (int c = 0; c < 32; c++)
-            bright_lut[c] = (uint8_t)((c * brightness * 2 + 15) / 30);
-    }
+    /* Master brightness (INIDISP 0-15) as a per-channel table (build_out_lut;
+     * the old c * N*17 >> 8 truncated and came out one level low at many
+     * steps, N=8 c=31 gave 16, not 17). With EB_DISPLAY_GAMMA and a linear
+     * palette shadow (palette_is_linear) the same table also applies the
+     * display gamma after the brightness, so math and fades see linear
+     * values and the display curve comes last. */
+#ifdef EB_DISPLAY_GAMMA
+    const bool out_gamma = palette_is_linear();
+#else
+    const bool out_gamma = false;
+#endif
+    const bool apply_out_lut = brightness < 0x0F || out_gamma;
+    uint8_t out_lut[32];
+    if (apply_out_lut || color_math_active)
+        build_out_lut(out_lut, brightness, out_gamma);
     bool bg3prio = (ppu.bgmode & BGMODE_BG3_PRIO) && mode == 1;
     uint16_t backdrop = cgram_render[0];
 
@@ -3395,15 +3442,20 @@ merge_done:
                     } else {
                         sub_color = fixed_color;
                     }
-                    color = blend_colors(color, sub_color, subtract_mode, halve);
+                    /* out_lut is filled in every math frame (the identity
+                     * at full brightness without gamma), so the blend maps
+                     * the result itself and skips the step below. */
+                    line_out[x + fb_x_offset] = blend_colors(
+                        color, sub_color, subtract_mode, halve, out_lut);
+                    continue;
                 }
 
-                /* Brightness */
+                /* Brightness, then display gamma (out_lut) */
                 pixel_t px = color;
-                if (brightness < 0x0F) {
-                    uint16_t r = bright_lut[color & 0x1F];
-                    uint16_t g = bright_lut[(color >> 6) & 0x1F];
-                    uint16_t b = bright_lut[(color >> 11) & 0x1F];
+                if (apply_out_lut) {
+                    uint16_t r = out_lut[color & 0x1F];
+                    uint16_t g = out_lut[(color >> 6) & 0x1F];
+                    uint16_t b = out_lut[(color >> 11) & 0x1F];
                     px = r | (g << 6) | (b << 11);
                 }
 
