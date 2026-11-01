@@ -115,6 +115,10 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Carbon Dog "gave off a rainbow of colors!" → Diamond Dog (3344 HP) with the power shield deflecting the next bash | 33-FireSpring, `teleport 3344 6410 0; 30 UP`, talk npc1276, bash ×5 | port pt80g vs emu pt80og, same text, HP and RNG | 2026-10-31 |
 | Rockin Ω on the 9999-HP Giygas sometimes prints "It did not work on Giygas!" instead of a redirected hit: PSI_ROCKIN_COMMON's DETERMINE_DODGE roll (RNG), so the same turn can redirect in one game and miss in the other | 36-CavePast, Giygas + Heavily Armed Pokey, Ness PSI Rockin Ω | `asm/battle/actions/psi_rockin_common.asm`; emu pt81oa sheet-1419 vs port pt81a sheet-1039 | 2026-10-31 |
 | Debug SELECT+START at Giygas's first battle menu wins the whole fight at once (no Pokey stage 2, no prayers) and goes straight to "The war against Giygas is over..." | run-70, lair via `teleport 4224 1000 0; 60 UP` | emu pt86oa vs port pt86a | 2026-11-01 |
+| PSI Flash β: dots, lavender full-band flash, white circles, white enemy silhouettes, then "It did not work on ..." | 36-CavePast `teleport 623 6229 0; rng 100 200; until battle 1500 DOWN\|UP\|DOWN\|UP`, Ness Flash β, others Defend, `rng 11 22` before the last confirm | emu pt96o sheet-0004 vs port pt96a sheet-0006 | 2026-11-01 |
+| Rockin β's closing flashes cycle red, blue, yellow over the battle band, 2 frames each; the original runs a frame behind after one lag frame | same battle, `ehp 0 1; ehp 1 1`, Rockin β | emu pt96o sheet-0006 vs port pt96a sheet-0008 (every frame) | 2026-11-01 |
+| Enemy death: white silhouette, grey, gone; then "YOU" printed on the lower line, scrolled up to "YOU WON !", then the exp line | same battle | emu pt96o sheet-0007 vs port pt96a sheet-0009/0010, playtest/out/pt96-youwon.png | 2026-11-01 |
+| `hp N 0` at the command menu turns every battle window to the death palette at once (the member's window magenta) | same battle | emu pt96o sheet-0008 vs port pt96a sheet-0012 | 2026-11-01 |
 
 ## Text and windows
 
