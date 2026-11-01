@@ -2438,18 +2438,15 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
         entities.var[6][entity_offset] = entities.abs_x[entity_offset];
         entities.var[7][entity_offset] = entities.abs_y[entity_offset] + 16;
 
-        /* Calculate angular velocity: $64800 / (speed >> 4)
-         * Result: XBA + AND #$FF00 → swap bytes, keep high byte. */
+        /* Angular velocity: DIVISION32 divides V06 (dividend) by V0A
+         * (divisor), so this is fixed_point(speed >> 4, 0) / $64800;
+         * XBA + AND #$FF00 keeps the quotient's low byte as the high byte.
+         * Speed $0100 gives quotient 2, var5 = $0200. */
         {
             uint16_t speed = entities.movement_speeds[entity_offset];
-            uint16_t speed_int = speed >> 4;
-            uint16_t angular_vel = 0;
-            if (speed_int > 0) {
-                uint32_t result = 0x64800 / (uint32_t)speed_int;
-                /* XBA: swap low and high bytes; AND #$FF00: keep only high byte */
-                angular_vel = (uint16_t)((result & 0xFF) << 8);
-            }
-            entities.var[5][entity_offset] = (int16_t)angular_vel;
+            uint32_t dividend = (uint32_t)(speed >> 4) << 16;
+            uint32_t quotient = dividend / 0x64800u;
+            entities.var[5][entity_offset] = (int16_t)(uint16_t)((quotient & 0xFF) << 8);
         }
 
         /* Random initial direction: 0 (UP) or 4 (DOWN) */
