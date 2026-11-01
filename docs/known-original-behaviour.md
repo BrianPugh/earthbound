@@ -114,6 +114,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Bash turns replay exactly against the original once `rng` is seeded before the talk (Guardian General 3 turns, Master Barf turn 1, Carbon Dog 5 turns through the Diamond Dog transformation); Auto Fight and PSI turns drift (Guardian General Auto Fight 19510 vs 10753 frames, the port's party wiped) and Electro Specter's shock attack picks other targets | run-52 pyramid npc1180 (`teleport 4270 8944 2; 6 RIGHT; rng 300 400; press L`), 30-DeepDark npc1229, 33-FireSpring npc1276, 32-LumineHall npc1246 | port pt80a/d/f/g vs emu pt80oa/od/of/og, RNG compared each turn | 2026-10-31 |
 | Carbon Dog "gave off a rainbow of colors!" → Diamond Dog (3344 HP) with the power shield deflecting the next bash | 33-FireSpring, `teleport 3344 6410 0; 30 UP`, talk npc1276, bash ×5 | port pt80g vs emu pt80og, same text, HP and RNG | 2026-10-31 |
 | Rockin Ω on the 9999-HP Giygas sometimes prints "It did not work on Giygas!" instead of a redirected hit: PSI_ROCKIN_COMMON's DETERMINE_DODGE roll (RNG), so the same turn can redirect in one game and miss in the other | 36-CavePast, Giygas + Heavily Armed Pokey, Ness PSI Rockin Ω | `asm/battle/actions/psi_rockin_common.asm`; emu pt81oa sheet-1419 vs port pt81a sheet-1039 | 2026-10-31 |
+| Debug SELECT+START at Giygas's first battle menu wins the whole fight at once (no Pokey stage 2, no prayers) and goes straight to "The war against Giygas is over..." | run-70, lair via `teleport 4224 1000 0; 60 UP` | emu pt86oa vs port pt86a | 2026-11-01 |
 
 ## Text and windows
 
@@ -159,6 +160,7 @@ Columns: what you see; where (save `playtest/saves/NN-*.srm` or relay `run-NN.sr
 | Prologue after Yep: Onett night flyover, "The year is 199X", "Onett, a small town in Eagleland", "<name>'s house", bedroom wake-up; same text placement, end 8120,1106 facing LEFT, music 156, $20 | new game on an empty slot, all names entered, Yep, `until idle 200 advance` | emu pt83ob sheet-0034 vs port pt83b sheet-0030 | 2026-11-01 |
 | Saturn Valley coffee break narration: same text and blue background over the whole 320 px view; HP/PP unchanged | run-26, `teleport 448 7360 4; 40 RIGHT; 40 DOWN; 50 RIGHT`, talk npc723, Yes | emu pt83od vs port pt83d sheet-0004 | 2026-11-01 |
 | Scaraba bazaar food vendor: list, "Who is going to carry this?", "For heaven's sake! … Can anyone else carry it?" for full members, price taken once ($54) | run-54, hotel exit → bazaar rug ~1590,4256 | emu pt83oc vs port pt83c, `pt83-cmp/bazaar-shop.png`, `bazaar-buy.png` | 2026-11-01 |
+| Coming back to a naming screen with the name already set (B on the next character's empty keyboard, or Nope at "Are you sure?") shows the name with the bullet and dashes, the keyboard edits it (backspace, new letters), Don't Care replaces it with the default, and a full-length name shows no bullet | blank SRAM, new game, "AC" for Ness, B on Paula's keyboard, Nope at "Are you sure?" | emu pt86on vs port pt86n (shots 0004-0012), after e6617392 | 2026-11-01 |
 
 ## Overworld and collision
 
