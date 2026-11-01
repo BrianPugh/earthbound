@@ -669,6 +669,26 @@ static bool print_overflow_option(WindowInfo *w) {
     return true;
 }
 
+/* CLEAR_MENU_OPTION_TEXT — Port of asm/text/clear_menu_option_text.asm.
+ * Prints the marker tile 47 at the option's position (PRINT_CHAR_WITH_SOUND
+ * advances text_x past it), starts a fresh VWF tile, and only for a
+ * pixel-aligned option re-positions through SETUP_MENU_OPTION_VWF at
+ * text_x + 1. */
+static void clear_menu_option_text(const MenuItem *item) {
+    set_focus_text_cursor(item->text_x, item->text_y);
+    print_char_with_sound(47);
+    advance_vwf_tile();
+    if (item->pixel_align) {
+        /* SETUP_MENU_OPTION_VWF (asm/text/vwf/setup_menu_option_vwf.asm):
+         * move the cursor, shift VWF_X by the alignment and blank the
+         * current VWF tile (MEMSET16 of 32 bytes of $FF). */
+        set_focus_text_cursor(item->text_x + 1, item->text_y);
+        vwf_x += item->pixel_align;
+        memset(vwf_buffer + vwf_tile * VWF_TILE_BYTES, 0xFF, VWF_TILE_BYTES);
+        win.restore_menu_backup = 0;
+    }
+}
+
 void print_menu_items(void) {
     WindowInfo *w = get_window(win.current_focus_window);
     if (!w || w->menu_count == 0) {
@@ -688,11 +708,7 @@ void print_menu_items(void) {
         next_item = menu_item_next(item);
         if (item->page != w->menu_page_number && item->page != 0)
             continue;
-        /* CLEAR_MENU_OPTION_TEXT: write marker tile at column 0 to clear stale VWF */
-        set_focus_text_cursor(item->text_x, item->text_y);
-        print_char_with_sound(47);
-        advance_vwf_tile();
-        set_focus_text_cursor(item->text_x + 1, item->text_y);
+        clear_menu_option_text(item);
         w = get_window(win.current_focus_window);  /* re-fetch after cursor set */
         if (!w) return;
         if (item->page == 0 && print_overflow_option(w))
@@ -1345,9 +1361,13 @@ void print_char_with_sound(uint16_t tile_code) {
     if (lower_pos < w->content_tilemap_size)
         free_tile_safe(w->content_tilemap[lower_pos]);
 
-    /* Tile 47: clear VWF indent flag (assembly line 57-60).
-     * vwf_indent_new_line is in text.c as static; for tile-level rendering
-     * this is mainly relevant to VWF mixed mode. Skip for now. */
+    /* Tile 47 clears VWF_INDENT_NEW_LINE (assembly lines 57-60). The menu
+     * marker CLEAR_MENU_OPTION_TEXT prints before each option label relies
+     * on it: a word-wrap indent left armed by earlier dialogue would
+     * otherwise send the first label to text_x 0 at pixel 6 (under the
+     * cursor tile) in RENDER_VWF_CHARACTER. */
+    if (tile_code == 47)
+        clear_vwf_indent_new_line();
 
     /* Write tile via SET_WINDOW_TILE_ATTRIBUTE (assembly line 64) */
     set_window_tile_attribute(tile_code);
