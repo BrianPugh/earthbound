@@ -98,6 +98,8 @@ void add_menu_item_no_position_eb(const uint8_t *eb, size_t len, uint16_t userda
 void print_eb_letter(uint8_t eb);
 
 /* Print an integer value at the current cursor position */
+/* PRINT_NUMBER's cap (an unsigned 32-bit compare in the asm). */
+#define PRINT_NUMBER_MAX 9999999
 void print_number(int value, int min_digits);
 
 /* Clear the text area of a window */

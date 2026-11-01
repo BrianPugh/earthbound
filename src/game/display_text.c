@@ -943,7 +943,13 @@ void display_status_window(uint16_t char_id) {
         print_number((int)exp, 6);
     }
     set_text_pixel_position(6, 10);
-    print_number((int)get_required_exp(char_id), 6);
+    {
+        /* PRINT_NUMBER's clamp is an unsigned 32-bit compare against
+         * PRINT_NUMBER_MAX; apply it before the int cast so a wrapped value caps. */
+        uint32_t need = get_required_exp(char_id);
+        if (need > PRINT_NUMBER_MAX) need = PRINT_NUMBER_MAX;
+        print_number((int)need, 6);
+    }
 
     dt.force_left_text_alignment = 0;
 

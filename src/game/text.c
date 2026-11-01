@@ -3722,7 +3722,7 @@ void print_number(int value, int min_digits) {
     /* Port of PRINT_NUMBER (asm/text/print_number.asm).
      * Clamps to [0, 9999999], reads window number_padding for
      * right-alignment, then prints digits via print_string. */
-    if (value > 9999999) value = 9999999;
+    if (value > PRINT_NUMBER_MAX) value = PRINT_NUMBER_MAX;
     if (value < 0) value = 0;
 
     char buf[12];

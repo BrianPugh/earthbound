@@ -1399,7 +1399,7 @@ uint16_t try_fix_broken_item(uint16_t fix_probability) {
 }
 
 /* GET_REQUIRED_EXP: Port of asm/misc/get_required_exp.asm.
- * Returns EXP needed for next level, or 0 if at max level.
+ * Returns EXP needed for next level (wrapping if exp is already past it), or 0 at max level.
  * char_id: 1-indexed (1=Ness, 2=Paula, 3=Jeff, 4=Poo). */
 uint32_t get_required_exp(uint16_t char_id) {
     if (!ensure_exp_table()) return 0;
@@ -1424,7 +1424,8 @@ uint32_t get_required_exp(uint16_t char_id) {
 
     uint32_t current_exp = party_characters[char_index].exp;
 
-    if (next_level_exp <= current_exp) return 0;
+    /* Assembly: SUB_INT_ASSIGN with no check, so exp past the next
+     * threshold wraps (PRINT_NUMBER then shows the 9999999 cap). */
     return next_level_exp - current_exp;
 }
 
