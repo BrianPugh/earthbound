@@ -148,12 +148,16 @@ uint16_t load_sprite_tiles_to_vram(uint16_t sprite_id, uint16_t sub_palette_idx,
                                     uint16_t vram_base);
 
 /* Render entity sprite — upload current frame's tile data to ppu.vram[].
- * Called per-frame for entities that need their VRAM tiles updated. */
+ * render_entity_sprite: RENDER_ENTITY_SPRITE_ENTRY2 (4-direction table,
+ * second frame when ENTITY_ANIMATION_FRAME != 0).
+ * render_entity_sprite_frame: RENDER_ENTITY_SPRITE_ENTRY4 (4-direction table).
+ * render_entity_sprite_8dir: RENDER_ENTITY_SPRITE_8DIR (8-direction table,
+ * ENTITY_ANIMATION_FRAME as a raw byte offset). */
 void render_entity_sprite(int16_t entity_offset);
 uint16_t render_entity_sprite_frame(int16_t entity_offset, bool use_second_frame);
+uint16_t render_entity_sprite_8dir(int16_t entity_offset);
 
-/* Update entity sprite (8-dir) — sets use_8dir_sprites and renders.
- * Used for party member sprites with 8-directional walking animations.
+/* Update entity sprite (8-dir).
  * Port of UPDATE_ENTITY_SPRITE (asm/overworld/update_entity_sprite.asm). */
 void update_entity_sprite(int16_t entity_offset);
 

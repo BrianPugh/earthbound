@@ -205,19 +205,14 @@ int16_t cr_update_entity_animation(int16_t ent, int16_t scr,
                                            uint16_t pc, uint16_t *out_pc) {
     *out_pc = pc;
 
-    /* Mark entity as using 8-directional sprite mapping.
-     * In the assembly, UPDATE_ENTITY_ANIMATION always calls
-     * RENDER_ENTITY_SPRITE_8DIR (C0A794) which uses the 8-direction
-     * mapping table. The draw callback reads this flag. */
-    entities.use_8dir_sprites[ent] = 1;
-
+    /* Every render here is RENDER_ENTITY_SPRITE_8DIR (8-direction table). */
     /* Fingerprint check: if direction or walking_style changed, re-render.
      * Assembly lines 2-12: early return (RTL), no intangibility check. */
     uint16_t fingerprint = (entities.walking_styles[ent] << 8) |
                            (entities.directions[ent] & 0xFF);
     if (fingerprint != entities.animation_fingerprints[ent]) {
         entities.animation_fingerprints[ent] = fingerprint;
-        render_entity_sprite(ent);
+        render_entity_sprite_8dir(ent);
         return 0;
     }
 
@@ -225,7 +220,7 @@ int16_t cr_update_entity_animation(int16_t ent, int16_t scr,
      * Assembly lines 14-18. Falls through to intangibility check. */
     if (entities.var[7][ent] & 0x8000) {
         entities.var[7][ent] &= ~0x8000;
-        render_entity_sprite(ent);
+        render_entity_sprite_8dir(ent);
         goto check_intangibility;
     }
 
@@ -234,7 +229,7 @@ int16_t cr_update_entity_animation(int16_t ent, int16_t scr,
     if (entities.var[7][ent] & 0x2000) {
         if (entities.animation_frame[ent] != 0) {
             entities.animation_frame[ent] = 0;
-            render_entity_sprite(ent);
+            render_entity_sprite_8dir(ent);
         }
         goto check_intangibility;
     }
@@ -252,7 +247,7 @@ int16_t cr_update_entity_animation(int16_t ent, int16_t scr,
 
         /* Render unconditionally after frame toggle (assembly calls RENDER_ENTITY_SPRITE_8DIR
          * regardless of whether new frame is 0 or 2; BNE only skips the footstep sound). */
-        render_entity_sprite(ent);
+        render_entity_sprite_8dir(ent);
 
         /* Footstep sound: play when frame toggles to 0 and entity is the leader.
          * Assembly lines 38-49. */

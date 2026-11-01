@@ -216,7 +216,6 @@ void entity_system_init(void) {
     /* Clear script table (all entities unassigned) */
     for (int i = 0; i < MAX_ENTITIES; i++) {
         entities.script_table[i] = ENTITY_NONE;
-        entities.use_8dir_sprites[i] = 0;
     }
 
     /* Clear spritemap and tick callback high words (hidden / disabled) */
@@ -566,7 +565,8 @@ int16_t create_entity(uint16_t sprite, uint16_t script, int16_t index,
     if (config_entry) {
         uint8_t cfg_width = config_entry[1];  /* width field from config */
         uint8_t cfg_height = config_entry[0]; /* height field from config */
-        uint16_t divide = (uint16_t)(cfg_width << 8) | (uint16_t)(cfg_height - cfg_width);
+        /* asm: 8-bit SBC, then AND #$00FF */
+        uint16_t divide = (uint16_t)(cfg_width << 8) | (uint8_t)(cfg_height - cfg_width);
         entities.upper_lower_body_divides[ent] = divide;
     } else {
         entities.upper_lower_body_divides[ent] = 0;

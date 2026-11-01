@@ -119,7 +119,6 @@ typedef struct {
     uint8_t walking_styles[MAX_ENTITIES];          /* ENTITY_WALKING_STYLES — small enum */
     uint16_t animation_fingerprints[MAX_ENTITIES]; /* ENTITY_ANIMATION_FINGERPRINTS */
     uint8_t overlay_flags[MAX_ENTITIES];           /* ENTITY_OVERLAY_FLAGS — bit 1: nausea, bit 0: mushroom */
-    uint8_t use_8dir_sprites[MAX_ENTITIES];        /* C port flag: 0 or 1 */
     int8_t butterfly_orbit_direction[MAX_ENTITIES]; /* ENTITY_BUTTERFLY_ORBIT_DIRECTION — 0 or 1 */
 
     /* Overlay animation state (4 types x 3 arrays each) */

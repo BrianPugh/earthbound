@@ -190,7 +190,7 @@ _Static_assert(offsetof(PPUState, wh0_table) + 6 * EB_VIEWPORT_HEIGHT == sizeof(
 _Static_assert(sizeof(pb)                   == 2952,  "ABI: pb");
 _Static_assert(sizeof(dr)                   == 44,    "ABI: dr");
 _Static_assert(sizeof(ert)                  == 24400, "ABI: ert");
-_Static_assert(sizeof(entities)             == 3818,  "ABI: entities");
+_Static_assert(sizeof(entities)             == 3788,  "ABI: entities");
 _Static_assert(sizeof(scripts)              == 1750,  "ABI: scripts");
 _Static_assert(sizeof(SpritePriorityQueue)  == 258,   "ABI: SpritePriorityQueue");
 _Static_assert(sizeof(fade_state)           == 6,     "ABI: fade_state");

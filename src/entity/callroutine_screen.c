@@ -318,7 +318,7 @@ static void tick_make_party_look_at_entity(int16_t entity_offset) {
             entities.abs_x[ent_off], entities.abs_y[ent_off]);
         if (entities.directions[pm_off] != dir) {
             entities.directions[pm_off] = dir;
-            render_entity_sprite(pm_off);
+            update_entity_sprite(pm_off);  /* asm: JSL UPDATE_ENTITY_SPRITE */
         }
     }
 }
@@ -805,7 +805,7 @@ int16_t cr_make_party_look_at_entity(int16_t entity_offset, int16_t script_offse
             entities.abs_x[ent_off], entities.abs_y[ent_off]);
         if (entities.directions[pm_off] != dir) {
             entities.directions[pm_off] = dir;
-            render_entity_sprite(pm_off);
+            update_entity_sprite(pm_off);  /* asm: JSL UPDATE_ENTITY_SPRITE */
         }
     }
     return 0;

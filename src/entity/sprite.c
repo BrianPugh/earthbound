@@ -202,10 +202,12 @@ uint16_t upload_sprite_to_vram(uint16_t width, uint16_t height, uint16_t hint) {
     if (slot >= 0x7FFF)
         return 0x7FFF;
 
-    /* Clear the VRAM region for this sprite.
+    /* Clear the VRAM region for this sprite, only when a dimension was
+     * rounded up (asm @ALLOC_SUCCESS: both even skips the blank DMA; the
+     * first RENDER_ENTITY_SPRITE then writes every tile).
      * Each slot covers 0x20 VRAM words (256 bytes).
      * The VRAM address = SPRITE_VRAM_SLOT_TABLE[slot] + VRAM_OBJ_BASE. */
-    if (spritemap_config && spritemap_config_size > SMCFG_VRAM_SLOT_TABLE_OFF + (slot + num_tiles) * 2) {
+    if ((adj_w != width || adj_h != height) && spritemap_config && spritemap_config_size > SMCFG_VRAM_SLOT_TABLE_OFF + (slot + num_tiles) * 2) {
         const uint8_t *vram_table = spritemap_config + SMCFG_VRAM_SLOT_TABLE_OFF;
         for (uint16_t i = slot; i < slot + num_tiles; i++) {
             uint16_t vram_word_off = read_u16_le(vram_table + i * 2);
@@ -521,54 +523,68 @@ static const uint8_t blank_tile_row[512] = {0};
  *   6. Copy tile data from bank data to ppu.vram[] via vram_copy_row_safe
  */
 void render_entity_sprite(int16_t ent) {
-    render_entity_sprite_frame(ent, entities.animation_frame[ent] > 0);
+    /* ENTRY2: USE_SECOND_SPRITE_FRAME = the raw ENTITY_ANIMATION_FRAME word,
+     * so a hidden entity's $FFFF selects the second frame. */
+    render_entity_sprite_frame(ent, entities.animation_frame[ent] != 0);
 }
+
+static uint16_t render_entity_sprite_common(int16_t ent, uint32_t frame_ptr_off,
+                                            uint16_t data_mask);
 
 /*
  * RENDER_ENTITY_SPRITE_ENTRY4 with an explicit USE_SECOND_SPRITE_FRAME.
  * The asm's entry points set that transient global themselves (ME1: 1,
  * ME2/ENTRY3: 0, ENTRY2/ME3: ENTITY_ANIMATION_FRAME) and never write
  * ENTITY_ANIMATION_FRAME, which DRAW_ENTITY uses as the hide flag (BMI).
+ * Always SPRITE_DIRECTION_MAPPING_4_DIRECTION (diagonals collapse to the
+ * cardinal frames), tile pointer masked with $FFF0.
  * Returns the advanced VRAM destination (the asm's A on RTL), 0 if nothing
  * was uploaded.
  */
 uint16_t render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
+    uint16_t direction = (uint16_t)entities.directions[ent];
+    uint16_t dir_offset = direction < 12 ? sprite_direction_mapping_4dir[direction] : 0;
+
+    /* The spritepointerarray: each direction occupies 4 bytes (2 frame ptrs × 2 bytes).
+     * gfx_ptr_lo already points to the first word (no bank byte to skip). */
+    uint32_t frame_ptr_off = (uint32_t)entities.graphics_ptr_lo[ent] + (uint32_t)dir_offset * 4;
+
+    /* ASM: LDA USE_SECOND_SPRITE_FRAME / BEQ / INC $02 x2 */
+    if (use_second_frame)
+        frame_ptr_off += 2;  /* Frame 1 */
+
+    return render_entity_sprite_common(ent, frame_ptr_off, 0xFFF0);
+}
+
+/*
+ * RENDER_ENTITY_SPRITE_8DIR (asm/overworld/entity/render_entity_sprite_8dir.asm),
+ * reached by UPDATE_ENTITY_SPRITE, UPDATE_ENTITY_ANIMATION,
+ * FORCE_RENDER_ENTITY_SPRITE and SET_ENTITY_DIRECTION_AND_FRAME's var0 != 0
+ * branch. SPRITE_DIRECTION_MAPPING_8_DIRECTION * 4 + ENTITY_ANIMATION_FRAME
+ * as a raw byte offset (frames are 0/2; a hidden party member's -1 reads the
+ * misaligned word before the entry, like the asm), tile pointer masked $FFFE.
+ */
+uint16_t render_entity_sprite_8dir(int16_t ent) {
+    uint16_t direction = (uint16_t)entities.directions[ent];
+    uint16_t dir_offset = direction < 8 ? sprite_direction_mapping_8dir[direction] : 0;
+    int32_t off = (int32_t)entities.graphics_ptr_lo[ent] + (int32_t)dir_offset * 4
+                  + (int32_t)entities.animation_frame[ent];
+    if (off < 0)
+        return 0;
+    return render_entity_sprite_common(ent, (uint32_t)off, 0xFFFE);
+}
+
+/* Shared tail of RENDER_ENTITY_SPRITE_ENTRY4 and RENDER_ENTITY_SPRITE_8DIR:
+ * read the frame's tile pointer, blank the water rows, upload the rows. */
+static uint16_t render_entity_sprite_common(int16_t ent, uint32_t frame_ptr_off,
+                                            uint16_t data_mask) {
     uint16_t tile_height = entities.tile_heights[ent];
     uint16_t byte_width = entities.byte_widths[ent];
     uint16_t vram_addr = entities.vram_address[ent];
-    uint16_t gfx_ptr_lo = entities.graphics_ptr_lo[ent];
     uint16_t bank_num = entities.graphics_sprite_bank[ent];
 
     if (tile_height == 0 || byte_width == 0)
         return 0;
-
-    /* gfx_ptr_lo is a ert.buffer offset into sprite_grouping_data_buf, pointing
-     * to the start of the spritepointerarray (offset 9 in sprite_grouping).
-     * The bank byte is at offset 8 (read separately into graphics_sprite_bank).
-     * The array is: [word0][word1][word2]... where each word is a within-bank
-     * offset into the sprite graphics bank. */
-
-    /* Determine the direction mapping.
-     * Entities with use_8dir_sprites flag use SPRITE_DIRECTION_MAPPING_8_DIRECTION
-     * (preserves diagonal directions → separate diagonal sprite frames).
-     * Other entities use SPRITE_DIRECTION_MAPPING_4_DIRECTION
-     * (diagonals collapse to cardinal directions). */
-    uint16_t direction = (uint16_t)entities.directions[ent];
-    uint16_t dir_offset = 0;
-    if (entities.use_8dir_sprites[ent] && direction < 8) {
-        dir_offset = sprite_direction_mapping_8dir[direction];
-    } else if (direction < 12) {
-        dir_offset = sprite_direction_mapping_4dir[direction];
-    }
-
-    /* The spritepointerarray: each direction occupies 4 bytes (2 frame ptrs × 2 bytes).
-     * gfx_ptr_lo already points to the first word (no bank byte to skip). */
-    uint32_t frame_ptr_off = (uint32_t)gfx_ptr_lo + (uint32_t)dir_offset * 4;
-
-    /* ASM: LDA USE_SECOND_SPRITE_FRAME / BEQ / INC $02 x2 */
-    if (use_second_frame) {
-        frame_ptr_off += 2;  /* Frame 1 */
-    }
 
     if (frame_ptr_off + 2 > sprite_grouping_data_size)
         return 0;
@@ -622,12 +638,9 @@ uint16_t render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
     const uint8_t *bank_data = sprite_banks[bank_idx];
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
-    /* Mask flag bits from tile_data_offset to get the data address.
-     * 4-dir sprites (render_entity_sprite.asm): AND #$FFF0 (low 4 bits are flags)
-     * 8-dir sprites (C0A794.asm): AND #$FFFE (only bit 0 is a flag) */
-    uint16_t data_off = entities.use_8dir_sprites[ent]
-        ? (tile_data_offset & 0xFFFE)
-        : (tile_data_offset & 0xFFF0);
+    /* Mask flag bits from tile_data_offset to get the data address:
+     * ENTRY4 AND #$FFF0, RENDER_ENTITY_SPRITE_8DIR AND #$FFFE. */
+    uint16_t data_off = tile_data_offset & data_mask;
 
     if (data_off >= bank_size)
         return 0;
@@ -652,9 +665,7 @@ uint16_t render_entity_sprite_frame(int16_t ent, bool use_second_frame) {
 }
 
 /* UPDATE_ENTITY_SPRITE (asm/overworld/update_entity_sprite.asm)
- * Far wrapper that sets use_8dir_sprites and calls the 8-direction render path.
- * Used for party member sprites which have 8-directional walking animations. */
+ * Far wrapper around the 8-direction render path. */
 void update_entity_sprite(int16_t ent) {
-    entities.use_8dir_sprites[ent] = 1;
-    render_entity_sprite(ent);
+    render_entity_sprite_8dir(ent);
 }

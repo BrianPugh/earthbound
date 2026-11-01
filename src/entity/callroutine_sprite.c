@@ -39,14 +39,17 @@ int16_t cr_set_entity_direction_and_frame(int16_t ent, int16_t scr,
 
     /* Assembly: checks ENTITY_SCRIPT_VAR0_TABLE,X for 4-dir vs 8-dir.
      * 8-dir path does ASL on frame (0→0, 1→2) before storing.
-     * Both paths call RENDER_ENTITY_SPRITE to update visuals immediately. */
+     * var0 == 0: RENDER_ENTITY_SPRITE_ENTRY4 (4-dir table) with the raw frame;
+     * var0 != 0: RENDER_ENTITY_SPRITE_8DIR (8-dir table, diagonal poses).
+     * The naming-screen idle scripts set var0 = 1 (INIT_ENTITY_SCREEN_MOVEMENT). */
     if (entities.var[0][ent] != 0) {
         /* 8-dir: ASL frame before storing */
         entities.animation_frame[ent] = (int16_t)(frame << 1);
+        render_entity_sprite_8dir(ent);
     } else {
         entities.animation_frame[ent] = (int16_t)frame;
+        render_entity_sprite_frame(ent, frame != 0);
     }
-    render_entity_sprite(ent);
     return 0;
 }
 
@@ -308,8 +311,7 @@ int16_t cr_initialize_party_member_entity(int16_t entity_offset, int16_t script_
     entities.var[2][offset] = (int16_t)(rng_next_byte() & 0x0F);
 
     /* In ROM, calls UPDATE_ENTITY_SPRITE (JSL C0A780) which renders
-     * the sprite for the current direction, sets use_8dir_sprites = 1,
-     * and uploads initial sprite tiles to VRAM. This does NOT modify
+     * the sprite for the current direction (8-dir table) and uploads initial sprite tiles to VRAM. This does NOT modify
      * ENTITY_ANIMATION_FRAME — the entity stays hidden (animation_frame=-1)
      * until a SET_ANIMATION opcode in the event script makes it visible. */
     update_entity_sprite(offset);
@@ -435,5 +437,5 @@ int16_t cr_render_entity_sprite_me3(int16_t entity_offset, int16_t script_offset
      * then renders the entity sprite (uploads tiles to VRAM).
      * A on return (the advanced VRAM dest) becomes the script tempvar. */
     *out_pc = pc;
-    return (int16_t)render_entity_sprite_frame(entity_offset, entities.animation_frame[entity_offset] > 0);
+    return (int16_t)render_entity_sprite_frame(entity_offset, entities.animation_frame[entity_offset] != 0);
 }

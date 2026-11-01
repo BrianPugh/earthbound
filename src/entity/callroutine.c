@@ -1206,10 +1206,9 @@ int16_t callroutine_dispatch(uint32_t rom_addr, int16_t entity_offset,
 
     case ROM_ADDR_FORCE_RENDER_ENTITY_SPRITE:
         /* Port of C0AAAC FORCE_RENDER_ENTITY_SPRITE.
-         * Sets sprite update offset and calls RENDER_ENTITY_SPRITE_8DIR.
-         * In C port, render_entity_sprite handles both 4/8 dir. */
+         * Sets sprite update offset and calls RENDER_ENTITY_SPRITE_8DIR. */
         *out_pc = pc;
-        render_entity_sprite(entity_offset);
+        render_entity_sprite_8dir(entity_offset);
         return 0;
 
     case ROM_ADDR_MOVE_TOWARD_TARGET_CB:

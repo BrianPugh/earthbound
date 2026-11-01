@@ -782,7 +782,6 @@ int main(void) {
     AFIELD(EntitySystem, walking_styles, "u16[60]", "array:walking_style"); SEP();
     FIELD(EntitySystem, animation_fingerprints, "u16[60]"); SEP();
     FIELD(EntitySystem, overlay_flags, "u8[60]"); SEP();
-    FIELD(EntitySystem, use_8dir_sprites, "u16[60]"); SEP();
     FIELD(EntitySystem, butterfly_orbit_direction, "i16[60]"); SEP();
     FIELD(EntitySystem, ripple_overlay_ptrs, "u16[60]"); SEP();
     FIELD(EntitySystem, ripple_next_update, "u16[60]"); SEP();

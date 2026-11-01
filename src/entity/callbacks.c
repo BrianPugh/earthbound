@@ -1128,6 +1128,26 @@ static uint16_t double_entity_fade_state(uint16_t alloc_size) {
     return old;
 }
 
+/* Shared copy loop of COPY_4DIR/8DIR_ENTITY_SPRITE: `LDA [$00],Y / STA [$04],Y
+ * / DEY / DEY / BPL` starting at Y = copy_size copies the words at
+ * copy_size, copy_size - 2, ..., 0, i.e. copy_size + 2 bytes. For a wipe the
+ * extra word lands on the first word of the second (empty) copy, which the
+ * dissolve converges to; for a reveal it lands past the allocation. The copy
+ * is clipped to the sprite bank and to BUF_ENTITY_FADE_SPRITES. */
+static void copy_entity_sprite_words(uint16_t dest_offset, const uint8_t *bank_data,
+                                     uint32_t bank_size, uint16_t tile_data_offset,
+                                     uint16_t copy_size) {
+    if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
+    if ((uint32_t)dest_offset + copy_size > BUF_ENTITY_FADE_SPRITES_SIZE) return;
+    uint32_t len = (uint32_t)copy_size + 2;
+    if ((uint32_t)tile_data_offset + len > bank_size)
+        len = bank_size - tile_data_offset;
+    if ((uint32_t)dest_offset + len > BUF_ENTITY_FADE_SPRITES_SIZE)
+        len = BUF_ENTITY_FADE_SPRITES_SIZE - dest_offset;
+    memcpy(BUF_REGION(BUF_ENTITY_FADE_SPRITES, dest_offset, len),
+           bank_data + tile_data_offset, len);
+}
+
 /*
  * COPY_8DIR_ENTITY_SPRITE (C4283F)
  * Copies the current sprite tile data for an 8-directional entity into ert.buffer[].
@@ -1147,9 +1167,11 @@ static void copy_8dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     /* Compute pointer into spritepointerarray:
      * gfx_ptr_lo + (dir_mapped * 4) + animation_frame → frame table entry */
     uint16_t gfx_ptr_lo = entities.graphics_ptr_lo[ent];
-    int16_t anim_frame = entities.animation_frame[ent];
-    uint32_t frame_ptr_off = (uint32_t)gfx_ptr_lo + (uint32_t)dir_mapped * 4
-                             + (uint32_t)(anim_frame > 0 ? 2 : 0);
+    /* ADC ENTITY_ANIMATION_FRAME: the frame is a raw byte offset. */
+    int32_t ptr_off = (int32_t)gfx_ptr_lo + (int32_t)dir_mapped * 4
+                      + (int32_t)entities.animation_frame[ent];
+    if (ptr_off < 0) return;
+    uint32_t frame_ptr_off = (uint32_t)ptr_off;
 
     if (frame_ptr_off + 2 > sprite_grouping_data_size) return;
 
@@ -1166,11 +1188,7 @@ static void copy_8dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     const uint8_t *bank_data = sprite_banks[bank_idx];
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
-    if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
-    if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
-
-    memcpy(BUF_REGION(BUF_ENTITY_FADE_SPRITES, dest_offset, copy_size),
-           bank_data + tile_data_offset, copy_size);
+    copy_entity_sprite_words(dest_offset, bank_data, bank_size, tile_data_offset, copy_size);
 }
 
 /*
@@ -1208,11 +1226,7 @@ static void copy_4dir_entity_sprite(uint16_t entity_slot, uint16_t dest_offset,
     const uint8_t *bank_data = sprite_banks[bank_idx];
     uint32_t bank_size = sprite_bank_sizes[bank_idx];
 
-    if ((uint32_t)tile_data_offset + copy_size > bank_size) return;
-    if ((uint32_t)dest_offset + copy_size > BUFFER_SIZE) return;
-
-    memcpy(BUF_REGION(BUF_ENTITY_FADE_SPRITES, dest_offset, copy_size),
-           bank_data + tile_data_offset, copy_size);
+    copy_entity_sprite_words(dest_offset, bank_data, bank_size, tile_data_offset, copy_size);
 }
 
 /*
