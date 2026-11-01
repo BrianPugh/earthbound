@@ -2656,15 +2656,18 @@ void PPU_HOT_FUNC(ppu_render_frame_ex)(int ctx_id, int y_start, int y_end,
             obj_thresh[4] = bg3prio ? 8 : 8;  /* OBJ prio 3: beats all (except BG3PRIO high) */
             break;
         case 0:
-            bg_gp[0][0] = 7; bg_gp[0][1] = 11; /* BG1 */
-            bg_gp[1][0] = 5; bg_gp[1][1] = 9;  /* BG2 */
-            bg_gp[2][0] = 3; bg_gp[2][1] = 6;  /* BG3 */
-            bg_gp[3][0] = 1; bg_gp[3][1] = 2;  /* BG4 */
+            /* Front to back (fullsnes; snes9x gfx.cpp): OBJ3, BG1p1, BG2p1,
+             * OBJ2, BG1p0, BG2p0, OBJ1, BG3p1, BG4p1, OBJ0, BG3p0, BG4p0.
+             * LOAD_BATTLEBG runs every 2bpp battle BG in mode 0. */
+            bg_gp[0][0] = 6; bg_gp[0][1] = 8;  /* BG1 */
+            bg_gp[1][0] = 5; bg_gp[1][1] = 7;  /* BG2 */
+            bg_gp[2][0] = 2; bg_gp[2][1] = 4;  /* BG3 */
+            bg_gp[3][0] = 1; bg_gp[3][1] = 3;  /* BG4 */
             obj_thresh[0] = 0;
-            obj_thresh[1] = 2;  /* OBJ prio 0 */
-            obj_thresh[2] = 5;  /* OBJ prio 1 */
-            obj_thresh[3] = 7;  /* OBJ prio 2 */
-            obj_thresh[4] = 11; /* OBJ prio 3 */
+            obj_thresh[1] = 3;  /* OBJ prio 0: beats BG3p0, BG4p0 */
+            obj_thresh[2] = 5;  /* OBJ prio 1: beats up to BG3p1 */
+            obj_thresh[3] = 7;  /* OBJ prio 2: beats up to BG1p0 */
+            obj_thresh[4] = 9;  /* OBJ prio 3: beats all */
             break;
         default:
             /* Modes 2-7: use BG1/BG2 only priority ordering */
