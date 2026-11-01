@@ -1619,8 +1619,23 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
 
     switch (sub) {
     case 0x00:
-        /* CLOSE_WINDOW: 0 args. Port of tree_18.asm @UNKNOWN0 → CLOSE_FOCUS_WINDOW. */
+        /* CLOSE_WINDOW: 0 args. Port of tree_18.asm @CLOSE_WINDOW →
+         * CLOSE_FOCUS_WINDOW → CLOSE_WINDOW. A window that was open ends with
+         * WINDOW_TICK_WITHOUT_INSTANT_PRINTING (US, EXTRA_TICK_ON_WINDOW_CLOSE
+         * is 0 outside CLOSE_ALL_WINDOWS): a full WINDOW_TICK, one frame with
+         * the entities advanced. close_window renders it inline (counted);
+         * BW_TICK_PRESENT runs that frame's actionscripts and presents it. */
+        (void)take_unpresented_ticks();
         close_focus_window();
+        {
+            uint16_t ticks = take_unpresented_ticks();
+            if (ticks) {
+                out_init->battle_wait.kind = BW_TICK_PRESENT;
+                out_init->battle_wait.remaining = ticks;
+                *out_mode = GAME_MODE_BATTLE_WAIT;
+                return true;
+            }
+        }
         break;
     case 0x01: {
         /* OPEN_WINDOW: 1 arg (window ID).
@@ -1804,8 +1819,19 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
         uint8_t mode = script_read_byte(r);
         uint16_t char_id = char_arg ? (uint16_t)char_arg
                                     : (uint16_t)(get_working_memory() & 0xFFFF);
-        if (mode == 1)
+        if (mode == 1) {
+            /* DISPLAY_STATUS_WINDOW's WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+             * (display_status_window.asm:15) is a full WINDOW_TICK frame. */
+            (void)take_unpresented_ticks();
             display_status_window(char_id);
+            uint16_t ticks = take_unpresented_ticks();
+            if (ticks) {
+                out_init->battle_wait.kind = BW_TICK_PRESENT;
+                out_init->battle_wait.remaining = ticks;
+                *out_mode = GAME_MODE_BATTLE_WAIT;
+                return true;
+            }
+        }
         /* mode == 2 is NULL_C3EF23 (no-op) */
         break;
     }
