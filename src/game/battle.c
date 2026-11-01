@@ -4527,13 +4527,16 @@ static void btl_status_overrides(Battler *attacker) {
         }
     }
 
-    /* Self-target check: if action direction is PARTY (0) and target is NONE (0) */
+    /* Self-target check (asm @LOOKUP_ACTION): direction byte == 1 and
+     * target NONE. The asm compares against 1 (ACTION_DIRECTION_ENEMY by the
+     * enum's name), which is the direction of the own-side actions: NO_EFFECT,
+     * PRAY, GUARD, the status replacements 251-256, CALL_FOR_HELP, ... */
     if (battle_action_table) {
         uint16_t action_id = attacker->current_action;
         uint8_t direction = battle_action_table[action_id].direction;
         uint8_t target_type = battle_action_table[action_id].target;
 
-        if (direction == ACTION_DIRECTION_PARTY && target_type == ACTION_TARGET_NONE) {
+        if (direction == ACTION_DIRECTION_ENEMY && target_type == ACTION_TARGET_NONE) {
             if (attacker->ally_or_enemy == 0) {
                 /* Ally self-targeting */
                 attacker->action_targetting = 1;
