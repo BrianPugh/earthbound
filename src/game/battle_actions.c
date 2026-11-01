@@ -1819,9 +1819,15 @@ static uint32_t call_for_help_decide(uint16_t param) {
             goto help_failed;
     }
 
-    /* Count existing alive enemies of the same type (slots 8-31) */
+    /* Count existing alive battlers of the same type. The asm starts X at
+     * slot 0 with the counter Y = 8..31, so it walks slots 0-23: party-side
+     * battlers inited as enemies (NPC allies, the ghost) count, enemies in
+     * slots 24-31 don't. The port's table ends at BATTLER_COUNT (20), below
+     * slot 24, so that bound covers every slot the asm reads. */
+    _Static_assert(BATTLER_COUNT <= 32 - FIRST_ENEMY_INDEX,
+                   "call for help count range");
     uint16_t existing_count = 0;
-    for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
+    for (int i = 0; i < BATTLER_COUNT; i++) {
         Battler *b = &bt.battlers_table[i];
         if ((b->consciousness & 0xFF) != 1)
             continue;

@@ -247,8 +247,7 @@ static void generate_psi_list_items(uint16_t char_id,
         }
         if (game_state.party_psi & PARTY_PSI_STARSTORM_OMEGA) {
             const PsiAbility *ss = &battle_psi_table[PSI_STARSTORM_OMEGA];
-            set_focus_text_cursor(0, ss->menu_y);
-            print_psi_name(ss->name);
+            /* asm: only ADD_MENU_ITEM; the name is printed for the alpha entry */
             get_psi_suffix_label(PSI_STARSTORM_OMEGA, suffix_label, sizeof(suffix_label));
             add_menu_item(suffix_label, PSI_STARSTORM_OMEGA, ss->menu_x, ss->menu_y);
         }
@@ -301,8 +300,7 @@ static void generate_psi_list_items(uint16_t char_id,
         }
         if (game_state.party_psi & PARTY_PSI_TELEPORT_BETA) {
             const PsiAbility *tp = &battle_psi_table[PSI_TELEPORT_BETA];
-            set_focus_text_cursor(0, tp->menu_y);
-            print_psi_name(tp->name);
+            /* asm: only ADD_MENU_ITEM; the name is printed for the alpha entry */
             get_psi_suffix_label(PSI_TELEPORT_BETA, suffix_label, sizeof(suffix_label));
             add_menu_item(suffix_label, PSI_TELEPORT_BETA, tp->menu_x, tp->menu_y);
         }
