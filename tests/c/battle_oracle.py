@@ -641,6 +641,25 @@ def record_all(o, r):
         kw = duel(attacker_ally=i % 2 == 0, target_ally=i % 2 == 1, atk_type=ACTION_TYPE_PHYSICAL, tgt_status=status)
         dmg = r.randrange(1, 300)
         rec.case("CALC_RESIST_DAMAGE", "CALC_RESIST_DAMAGE", a=dmg, x=0xFF, rng=seed(), **kw)
+    # Enemy SMAAAASH with low guts (the guts floor is for party members only). Crested
+    # Booka (enemy 104, guts 24, miss_rate 4); fixed RAND states whose next byte is 0
+    # (hit), 12 (hit: 12*500>>8 = 23 < 24), 13 (miss: 25) and high, plus guts 10 at a
+    # byte of 6 (11: an enemy misses, a party member's floor of 25 would hit).
+    booka = {B_ID: (104, 2), B_GUTS: (24, 2)}
+    states = [(0x4A8C, 0x1800), (0xABCD, 0xEF01), (0x438C, 0xF33C), (0x1234, 0x5678), (0x5555, 0x6666)]
+    for st in states:
+        kw = duel(attacker_ally=False, target_ally=True)
+        kw["battlers"][kw["atk"]] = set_fields(kw["battlers"][kw["atk"]], booka)
+        rec.case("SMAAAASH", "SMAAAASH", rng=st, **kw)
+    for ally in (False, True):
+        kw = duel(attacker_ally=ally, target_ally=not ally)
+        kw["battlers"][kw["atk"]] = set_fields(kw["battlers"][kw["atk"]], {B_GUTS: (10, 2)})
+        rec.case("SMAAAASH", "SMAAAASH", rng=(0x0A0A, 0x0B0B), **kw)
+    # Whole Booka bashes (miss roll, then the SMAAAASH roll) at random RAND states
+    for _ in range(12):
+        kw = duel(attacker_ally=False, target_ally=True)
+        kw["battlers"][kw["atk"]] = set_fields(kw["battlers"][kw["atk"]], booka)
+        rec.case("BTLACT_BASH", "BTLACT_BASH", func=o.g.sym("BTLACT_BASH"), rng=seed(), **kw)
     return rec
 
 
