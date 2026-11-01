@@ -321,6 +321,8 @@ void attempt_enemy_spawn(uint16_t x, uint16_t y, uint16_t encounter_id) {
             case 3: spawn_rate = 0; break;
             case 4: spawn_rate = 5; break;
             case 5: spawn_rate = 1; break;
+            /* 6/7: the asm leaves @LOCAL0A unwritten (stack garbage); no
+             * retail sector uses them (per_sector_attributes.bin). */
             default: spawn_rate = rate_category; break;
         }
 

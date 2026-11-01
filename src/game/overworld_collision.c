@@ -91,15 +91,14 @@ int16_t check_entity_enemy_collision(void) {
     return -1;
 }
 
-/* ---- CHECK_CURRENT_ENTITY_OBSTACLES (asm/overworld/collision/check_current_entity_obstacles.asm) ----
- * Wraps CHECK_ENTITY_OBSTACLE_FLAGS for the current entity slot.
- * Assembly: LDA CURRENT_ENTITY_SLOT; JSR CHECK_ENTITY_OBSTACLE_FLAGS; AND #$00FF */
-int16_t check_current_entity_obstacles(void) {
-    /* check_entity_obstacle_flags is static in map_loader.c;
-     * replicate the thin wrapper here. */
+/* CHECK_ENTITY_OBSTACLE_FLAGS for the current entity slot, raw: $FF00 when
+ * the entity has no prospective move, else the obstacle flags (& $D0), which
+ * it also stores. check_entity_obstacle_flags is static in map_loader.c;
+ * this replicates it. */
+static uint16_t current_entity_obstacle_flags(void) {
     int result = calculate_prospective_position(ert.current_entity_slot);
     if (result == 0) {
-        return (int16_t)0xFF00;
+        return 0xFF00;
     }
 
     int16_t offset = ENT(ert.current_entity_slot);
@@ -112,8 +111,15 @@ int16_t check_current_entity_obstacles(void) {
 
     flags &= 0x00D0;
     entities.obstacle_flags[offset] = flags;
+    return flags;
+}
 
-    return (int16_t)(flags & 0x00FF);
+/* ---- CHECK_CURRENT_ENTITY_OBSTACLES (asm/overworld/collision/check_current_entity_obstacles.asm) ----
+ * Wraps CHECK_ENTITY_OBSTACLE_FLAGS for the current entity slot.
+ * Assembly: LDA CURRENT_ENTITY_SLOT; JSR CHECK_ENTITY_OBSTACLE_FLAGS; AND #$00FF */
+int16_t check_current_entity_obstacles(void) {
+    /* AND #$00FF turns "no prospective move" ($FF00) into 0. */
+    return (int16_t)(current_entity_obstacle_flags() & 0x00FF);
 }
 
 /*
@@ -179,9 +185,9 @@ int16_t check_entity_collision_at_position(int16_t x, int16_t y,
         /* If other_top - self_height >= self_top (unsigned): no overlap */
         if ((uint16_t)(other_top - (int16_t)self_height) >= (uint16_t)self_top)
             continue;
-        /* If other_top + other_height <= self_top: no overlap */
-        int16_t other_bottom_ish = other_top + (int16_t)other_height;
-        if (other_bottom_ish <= self_top)
+        /* If other_top + other_height <= self_top (BLTEQ, unsigned): no overlap */
+        uint16_t other_bottom_ish = (uint16_t)(other_top + (int16_t)other_height);
+        if (other_bottom_ish <= (uint16_t)self_top)
             continue;
 
         /* X-axis overlap test */
@@ -189,9 +195,9 @@ int16_t check_entity_collision_at_position(int16_t x, int16_t y,
         /* If other_left - self_box_width >= self_left (unsigned): no overlap */
         if ((uint16_t)(other_left - self_box_width) >= (uint16_t)self_left)
             continue;
-        /* If other_left + other_width*2 <= self_left: no overlap */
-        int16_t other_right_edge = other_left + (int16_t)(other_width * 2);
-        if (other_right_edge <= self_left)
+        /* If other_left + other_width*2 <= self_left (BLTEQ, unsigned): no overlap */
+        uint16_t other_right_edge = (uint16_t)(other_left + (int16_t)(other_width * 2));
+        if (other_right_edge <= (uint16_t)self_left)
             continue;
 
         /* Collision detected */
@@ -365,8 +371,8 @@ void check_prospective_npc_collision(void) {
 int16_t check_enemy_movement_obstacles(void) {
     int16_t entity_slot = ert.current_entity_slot;
 
-    int16_t result = check_current_entity_obstacles();
-    if (result == (int16_t)0xFF00)
+    uint16_t result = current_entity_obstacle_flags();
+    if (result == 0xFF00)
         return 0;  /* invalid position */
     if (result != 0)
         return 0;  /* has map obstacle (already stored in obstacle_flags) */
