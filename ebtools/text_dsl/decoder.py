@@ -50,13 +50,18 @@ def _read_arg(reader: ByteReader, arg_type: ArgType) -> object:
 
 
 def _read_string_arg(reader: ByteReader) -> dict:
-    """Read a STRING argument: bytes until terminator 0x00, 0x01, or 0x02."""
+    """Read a STRING argument (CC_19_02): text bytes up to a 0x01 or 0x02 terminator.
+
+    CC_19_02 (asm/text/ccs/load_string.asm) stores the first byte unconditionally;
+    only the later bytes, gathered by CC_GATHER_MENU_OPTION_TEXT, are tested for the
+    0x01 (callback dword follows) and 0x02 terminators. 0x00 is an ordinary byte.
+    """
     text_bytes: list[int] = []
+    if reader:
+        text_bytes.append(reader.read_byte())
     while reader:
         b = reader.read_byte()
-        if b == 0x00:
-            return {"text": text_bytes, "terminator": "end"}
-        elif b == 0x01:
+        if b == 0x01:
             label = reader.read_le32()
             return {"text": text_bytes, "terminator": "select_script", "label": label}
         elif b == 0x02:
@@ -64,7 +69,7 @@ def _read_string_arg(reader: ByteReader) -> dict:
         else:
             text_bytes.append(b)
     # Ran out of data without a terminator.
-    return {"text": text_bytes, "terminator": "end"}
+    return {"text": text_bytes, "terminator": "none"}
 
 
 def decode_text_block(

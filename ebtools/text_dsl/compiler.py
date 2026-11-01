@@ -120,12 +120,18 @@ def _resolve_label(value: object, label_offsets: dict[str, int] | None) -> int:
 
 
 def _write_string_arg(buf: bytearray, value: dict, label_offsets: dict[str, int] | None) -> None:
-    """Write a STRING argument: text bytes + terminator."""
+    """Write a STRING argument: text bytes + terminator.
+
+    CC_19_02 takes its first byte as text unconditionally, so an empty string
+    would make the terminator a text byte; reject it.
+    """
+    if not value["text"]:
+        raise ValueError("STRING argument needs at least one text byte (CC_19_02 stores its first byte as text)")
     for b in value["text"]:
         buf.append(b & 0xFF)
     terminator = value["terminator"]
-    if terminator == "end":
-        buf.append(0x00)
+    if terminator == "none":
+        pass  # unterminated string at the end of the data
     elif terminator == "select_script":
         buf.append(0x01)
         resolved = _resolve_label(value["label"], label_offsets)

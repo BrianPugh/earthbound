@@ -1,5 +1,6 @@
 """Tests for the text DSL opcode registry, decoder, and compiler."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -236,14 +237,16 @@ class TestDecoder:
             {"op": "end_block"},
         ]
 
-    def test_string_arg_end_terminator(self):
-        # load_string_to_memory (0x19, 0x02) with end terminator (0x00)
-        bytecode = bytes([0x19, 0x02, 0x41, 0x42, 0x00, 0x02])
+    def test_string_arg_zero_and_leading_terminator_are_text(self):
+        # CC_19_02 stores its first byte unconditionally, and 0x00 is never a
+        # terminator: only a later 0x01/0x02 ends the string.
+        bytecode = bytes([0x19, 0x02, 0x02, 0x41, 0x00, 0x42, 0x02, 0x02])
         result = decode_text_block(bytecode, {})
         assert result[0] == {
             "op": "load_string_to_memory",
-            "payload": {"text": [0x41, 0x42], "terminator": "end"},
+            "payload": {"text": [0x02, 0x41, 0x00, 0x42], "terminator": "store"},
         }
+        assert result[1] == {"op": "end_block"}
 
     def test_string_arg_select_script_terminator(self):
         # load_string_to_memory with select_script terminator (0x01) + label
@@ -300,9 +303,9 @@ class TestDecoder:
             {"op": "end_block"},
         ]
 
-    def test_u24_arg(self):
-        # give_experience (0x1E, 0x09) with U8 character + U24 amount
-        bytecode = bytes([0x1E, 0x09, 0x01, 0x00, 0x01, 0x00, 0x02])
+    def test_give_experience_u32_arg(self):
+        # give_experience (0x1E, 0x09): U8 character + U32 amount (CC_1E_09 gathers 5 bytes)
+        bytecode = bytes([0x1E, 0x09, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02])
         result = decode_text_block(bytecode, {})
         assert result == [
             {"op": "give_experience", "character": 1, "amount": 256},
@@ -1178,3 +1181,249 @@ class TestVerifyRoundTrip:
             compressed_text=compressed_text,
         )
         assert errors == [], "Round-trip verification failed:\n" + "\n".join(errors[:10])
+
+
+# ---------------------------------------------------------------------------
+# Argument counts derived from the asm CC handlers
+# ---------------------------------------------------------------------------
+
+_REPO = Path(__file__).resolve().parent.parent
+_ASM_TEXT = _REPO / "asm" / "text"
+
+# CCs whose argument length depends on the data: CC_09 / CC_1F_C0 (a count byte
+# then that many dwords) and CC_19_02 (text bytes up to a 0x01/0x02 terminator).
+_VARIABLE_LENGTH_CCS = {(0x09,): ArgType.JUMP_TABLE, (0x1F, 0xC0): ArgType.JUMP_TABLE, (0x19, 0x02): ArgType.STRING}
+
+_ARG_TYPE_SIZE = {
+    ArgType.U8: 1,
+    ArgType.ITEM: 1,
+    ArgType.WINDOW: 1,
+    ArgType.PARTY: 1,
+    ArgType.MUSIC: 1,
+    ArgType.SFX: 1,
+    ArgType.STATUS_GROUP: 1,
+    ArgType.U16: 2,
+    ArgType.FLAG: 2,
+    ArgType.SPRITE: 2,
+    ArgType.MOVEMENT: 2,
+    ArgType.ENEMY_GROUP: 2,
+    ArgType.U24: 3,
+    ArgType.U32: 4,
+    ArgType.LABEL: 4,
+}
+
+
+def _asm_dispatch_labels(text: str) -> dict[int, str]:
+    """Map each code a dispatcher compares against (CMP #$xx; BEQ[L] @LABEL) to its branch label.
+
+    A BEQ before any CMP tests the value against 0 (TXA; BEQ). The disassembly
+    spells one compare ``CMP #@VIRTUAL06`` (the direct-page alias that is 6).
+    """
+    out: dict[int, str] = {}
+    pending = 0
+    for m in re.finditer(r"^\s*(?:CMP #(?:\$|@VIRTUAL)([0-9A-Fa-f]+)|BEQL? (@\w+))", text, re.M):
+        if m.group(1):
+            pending = int(m.group(1), 16)
+        else:
+            out.setdefault(pending, m.group(2))
+    return out
+
+
+def _asm_local_body(text: str, label: str) -> str:
+    m = re.search(r"^" + re.escape(label) + r":\n(.*?)(?=^@?\w+:)", text, re.M | re.S)
+    assert m, label
+    return m.group(1)
+
+
+def _asm_cc_handlers() -> dict[str, str]:
+    handlers: dict[str, str] = {}
+    for f in sorted(_ASM_TEXT.rglob("*.asm")):
+        if "-jp" in f.name:
+            continue
+        for m in re.finditer(r"^(CC_\w+):\n(.*?)(?=^[A-Za-z_]\w*:|\Z)", f.read_text(), re.M | re.S):
+            handlers.setdefault(m.group(1), m.group(2))
+    return handlers
+
+
+def _asm_handler_size(name: str, handlers: dict[str, str]) -> int | None:
+    """Bytes a CC handler gathers (via CC_ARGUMENT_GATHERING_LOOP_COUNTER), plus any handler it chains to.
+
+    The display loop calls the handler once per following byte. Gather patterns:
+    ``LDA #n; CLC; SBC counter; BRANCHLTEQS done`` and ``LDA counter; CMP #n``
+    store n bytes and finish on byte n+1; ``LDA counter; BNE done`` takes 2; a
+    handler that never reads the counter takes 1. Returns None for a
+    data-dependent length.
+    """
+    body = handlers[name]
+    if m := re.search(r"LDA #(\$?)([0-9A-Fa-f]+)\n\s*CLC\n\s*SBC CC_ARGUMENT_GATHERING_LOOP_COUNTER", body):
+        size = int(m.group(2), 16 if m.group(1) else 10) + 1
+    elif m := re.search(r"LDA CC_ARGUMENT_GATHERING_LOOP_COUNTER\n\s*CMP #(\d+)\n", body):
+        size = int(m.group(1)) + 1
+    elif re.search(r"LDA CC_ARGUMENT_GATHERING_LOOP_COUNTER\n\s*BNE ", body):
+        size = 2
+    elif "CC_ARGUMENT_GATHERING_LOOP_COUNTER" in body:
+        return None
+    else:
+        size = 1
+    # e.g. CC_06 hands its last 4 bytes to CC_0A (JUMP) once the flag is read.
+    chained = {c for c in re.findall(r"\.LOWORD\((CC_\w+)\)", body) if "STORAGE" not in c} - {name}
+    for c in sorted(chained):
+        sub = _asm_handler_size(c, handlers)
+        if sub is None:
+            return None
+        size += sub
+    return size
+
+
+def _asm_cc_arg_sizes() -> dict[tuple[int, ...], int | None]:
+    """Argument byte count of every CC the asm text interpreter dispatches, read from the asm."""
+    handlers = _asm_cc_handlers()
+
+    def sizes_for(text: str, prefix: tuple[int, ...]) -> dict[tuple[int, ...], int | None]:
+        res: dict[tuple[int, ...], int | None] = {}
+        for code, label in _asm_dispatch_labels(text).items():
+            names = set(re.findall(r"LD[AY] #\.LOWORD\((CC_\w+)\)", _asm_local_body(text, label)))
+            assert len(names) <= 1, (prefix, code, names)
+            res[prefix + (code,)] = _asm_handler_size(names.pop(), handlers) if names else 0
+        return res
+
+    display_text = (_ASM_TEXT / "display_text.asm").read_text()
+    display_text = display_text[display_text.index("@CC_DISPATCH:") :]
+    sizes = {k: v for k, v in sizes_for(display_text, ()).items() if k[0] < 0x18}
+    for prefix in range(0x18, 0x20):
+        sizes.update(sizes_for((_ASM_TEXT / "ccs" / f"tree_{prefix:02X}.asm").read_text(), (prefix,)))
+    return sizes
+
+
+_needs_asm = pytest.mark.skipif(not (_ASM_TEXT / "display_text.asm").is_file(), reason="asm sources not present")
+
+
+@_needs_asm
+class TestAsmArgumentCounts:
+    def test_every_asm_cc_has_an_opcode(self):
+        asm = set(_asm_cc_arg_sizes())
+        table = set(OPCODE_BY_BYTES)
+        assert sorted(asm - table) == []
+        assert sorted(table - asm) == []
+
+    def test_argument_bytes_match_asm_handlers(self):
+        mismatches = []
+        for key, asm_size in _asm_cc_arg_sizes().items():
+            spec = OPCODE_BY_BYTES[key]
+            if key in _VARIABLE_LENGTH_CCS:
+                assert asm_size is None, key
+                assert [a.type for a in spec.args][-1] == _VARIABLE_LENGTH_CCS[key], spec.yaml_name
+                continue
+            size = sum(_ARG_TYPE_SIZE[a.type] for a in spec.args)
+            if size != asm_size:
+                mismatches.append(f"{spec.yaml_name} {bytes(key).hex(' ')}: table {size}, asm {asm_size}")
+        assert mismatches == []
+
+
+# ---------------------------------------------------------------------------
+# Real script banks: byte-exact decode -> encode, and CC boundaries vs the asm
+# ---------------------------------------------------------------------------
+
+# Byte-preserving tables: every text byte and compressed-text index decodes to
+# its own private-use character, so a decoded block can be re-encoded exactly.
+_RAW_TEXT_TABLE = {b: chr(0xE000 + b) for b in range(0x20, 0x100)}
+_RAW_COMPRESSED = {i: chr(0xF000 + i) for i in range(3 * 256)}
+
+
+def _raw_text_bytes(value: str) -> list[int]:
+    out: list[int] = []
+    for ch in value:
+        cp = ord(ch)
+        if cp >= 0xF000:
+            out += [0x15 + (cp - 0xF000) // 256, (cp - 0xF000) % 256]
+        else:
+            out.append(cp - 0xE000)
+    return out
+
+
+def _encode_raw_op(op: dict) -> bytes:
+    if op["op"] == "text":
+        return bytes(_raw_text_bytes(op["value"]))
+    return compile_text_block([op], {})
+
+
+def _script_banks() -> dict[str, bytes]:
+    from ebtools.config import load_dump_doc
+
+    doc = load_dump_doc(_REPO / "earthbound.yml")
+    names = {e.name for e in doc.dumpEntries if e.extension == "ebtxt"}
+    banks: dict[str, bytes] = {}
+    for e in doc.dumpEntries:
+        if e.extension == "bin" and e.name in names:
+            path = _REPO / "asm" / "bin" / e.subdir / f"{e.name}.bin"
+            if path.is_file():
+                banks[e.name] = path.read_bytes()
+    return banks
+
+
+def _asm_cc_starts(data: bytes, sizes: dict[tuple[int, ...], int | None]) -> set[int]:
+    """Offsets where the asm display loop starts a control code, walking with the asm's argument counts."""
+    starts: set[int] = set()
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b >= 0x20:
+            i += 1
+            continue
+        if b in (0x15, 0x16, 0x17):
+            i += 2
+            continue
+        key = (b, data[i + 1]) if 0x18 <= b <= 0x1F and i + 1 < len(data) else (b,)
+        start = i
+        i += len(key)
+        if key not in sizes:  # an undispatched code: the asm ignores it
+            continue
+        starts.add(start)
+        size = sizes[key]
+        if size is not None:
+            i += size
+        elif key == (0x19, 0x02):  # first byte unconditional, then up to 0x01 (+dword) / 0x02
+            i += 1
+            while i < len(data) and data[i] not in (0x01, 0x02):
+                i += 1
+            i += 5 if i < len(data) and data[i] == 0x01 else 1
+        else:  # JUMP_MULTI: count byte + count dwords
+            i += 1 + 4 * data[i]
+    return starts
+
+
+_needs_banks = pytest.mark.skipif(
+    not (_REPO / "asm" / "bin").is_dir() or not (_REPO / "earthbound.yml").is_file(),
+    reason="script banks not extracted (run ebtools extract)",
+)
+
+
+@_needs_banks
+class TestScriptBanks:
+    def test_every_script_bank_round_trips_byte_exact(self):
+        banks = _script_banks()
+        if not banks:
+            pytest.skip("script banks not extracted (run ebtools extract)")
+        for name, data in banks.items():
+            ops = decode_text_block(data, _RAW_TEXT_TABLE, compressed_text=_RAW_COMPRESSED)
+            assert b"".join(_encode_raw_op(op) for op in ops) == data, name
+
+    @_needs_asm
+    def test_no_argument_swallows_a_control_code(self):
+        """The decoder's CC boundaries are exactly the asm display loop's, so no argument spans a CC."""
+        banks = _script_banks()
+        if not banks:
+            pytest.skip("script banks not extracted (run ebtools extract)")
+        sizes = _asm_cc_arg_sizes()
+        for name, data in banks.items():
+            ops = decode_text_block(data, _RAW_TEXT_TABLE, compressed_text=_RAW_COMPRESSED)
+            decoded: set[int] = set()
+            offset = 0
+            for op in ops:
+                encoded = _encode_raw_op(op)
+                if op["op"] not in ("text", "unknown"):
+                    decoded.add(offset)
+                offset += len(encoded)
+            asm = _asm_cc_starts(data, sizes)
+            assert sorted(asm - decoded)[:5] == [], f"{name}: asm CC starts inside a decoded argument"
+            assert sorted(decoded - asm)[:5] == [], f"{name}: decoded CC the asm treats as an argument"
