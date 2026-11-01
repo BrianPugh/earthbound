@@ -331,10 +331,11 @@ StepResult mode_step_gas_station(ModeState *st) {
         return STEP_RESULT_CONTINUE();
 
     case GS_PH6:
-        /* 30-frame final wait — NOT button-skippable (WAIT_FRAMES_OR_UNTIL_
-         * PRESSED(30) with mask 0). Check-at-top so it yields exactly 30 frames
-         * before the terminal pop (which does not yield). */
-        if (s->remaining == 0)
+        /* 30-frame final wait: WAIT_FRAMES_OR_UNTIL_PRESSED(30) returns early
+         * on any PAD_PRESS; its result is discarded, so GAS_STATION still
+         * returns 0. Check-at-top so it yields exactly 30 frames before the
+         * terminal pop (which does not yield). */
+        if (s->remaining == 0 || platform_input_get_pad_new())
             return STEP_RESULT_POP(0);
         s->remaining--;
         return STEP_RESULT_CONTINUE();
