@@ -1408,8 +1408,10 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
         /* GET_DISTANCE_TO_MAGIC_TRUFFLE: 0 args.
          * Port of GET_DISTANCE_TO_MAGIC_TRUFFLE (asm/overworld/get_distance_to_magic_truffle.asm).
          * Finds the Magic Truffle entity, computes Manhattan distance to leader.
-         * Returns: 0=not found, 1=out of range, 10=far (>=16px),
-         * or direction+2 (2-9) if close.
+         * Returns: 0=not found, 1=out of range (more than 64 px on an
+         * axis), 10=close (Manhattan distance < 16: "right here"), or
+         * direction+2 (2-9) toward the truffle otherwise (asm: LDA #16;
+         * CLC; SBC dist; BRANCHLTEQS @CALC_DIRECTION, i.e. dist >= 16).
          * Stores result in working_memory. */
         {
             #define MAGIC_TRUFFLE_SPRITE_ID 376
@@ -1435,11 +1437,12 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
             int16_t dx = truffle_x - leader_x;
             int16_t abs_dy = (dy < 0) ? -dy : dy;
             int16_t abs_dx = (dx < 0) ? -dx : dx;
-            if (abs_dy + abs_dx >= 16) {
+            if (abs_dy + abs_dx < 16) {
                 set_working_memory(10);
                 break;
             }
-            /* Close enough — compute direction from leader to truffle */
+            /* (fine + $1000) / $2000 through DIVISION16S_DIVISOR_POSITIVE,
+             * an unsigned divide, so always 0-7: calculate_direction_8. */
             int16_t dir = calculate_direction_8(leader_x, leader_y,
                                                  truffle_x, truffle_y);
             set_working_memory((uint32_t)(dir + 2));
