@@ -607,11 +607,15 @@ typedef struct {
  * Pops the 1-based destination index, or 0 if cancelled/empty. */
 typedef enum {
     TPM_ENTER = 0,  /* build the destination menu; push SELECTION_MENU */
-    TPM_RESULT,     /* close windows, restore text attrs, POP the selection */
+    TPM_RESULT,     /* close the menu window (its tick presented next) */
+    TPM_MENU,       /* push SELECTION_MENU after the title waits */
+    TPM_CLOSE_HEADER, /* close the header window after the menu close's tick */
+    TPM_POP,        /* restore text attrs, POP `result` after the header close's tick */
 } TeleportMenuPhase;
 
 typedef struct {
-    uint8_t phase;  /* TeleportMenuPhase */
+    uint8_t  phase;  /* TeleportMenuPhase */
+    uint16_t result; /* the selection, carried across the close ticks */
 } TeleportMenuState;
 
 /* GAME_MODE_STORE_MENU phases. Port of open_store_menu()

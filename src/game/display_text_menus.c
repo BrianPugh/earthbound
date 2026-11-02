@@ -1010,11 +1010,11 @@ static void load_menu_title_assets(void) {
  */
 StepResult mode_step_teleport_menu(ModeState *ms) {
     TeleportMenuState *st = &ms->teleport_menu;
-    uint16_t result = 0;
 
     switch ((TeleportMenuPhase)st->phase) {
 
     case TPM_ENTER: {
+        (void)take_unpresented_ticks();
         display_menu_header_text(2);  /* "Where?" */
         save_window_text_attributes();
         create_window(WINDOW_PHONE_MENU);
@@ -1055,30 +1055,64 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
 
         if (menu_item_count > 0) {
             open_window_and_print_menu(1, 0);
-            /* SELECTION_MENU(1) — the window cleanup runs in TPM_RESULT
-             * after it pops. Outlives this dispatch (the pump copies it). */
-            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.selection_menu.phase        = SM_SETUP;
-            g_mode_push_init.selection_menu.allow_cancel = 1;
+            st->phase = TPM_MENU;
+        } else {
+            /* No unlocked destinations: same cleanup, result 0, no push. */
+            st->result = 0;
             st->phase = TPM_RESULT;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
         }
-
-        /* No unlocked destinations: same cleanup, result 0, no push. */
-        break;
+        /* SET_WINDOW_TITLE's 2 waits ("To:"), and PRINT_MENU_ITEMS' 2 more
+         * when it retitles a multi-page list "To:(1)", come before
+         * SELECTION_MENU's first WINDOW_TICK (emu, 24-Museum PSI Teleport). */
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        return mode_step_teleport_menu(ms);   /* nothing owed: next phase now */
     }
+
+    case TPM_MENU:
+        /* SELECTION_MENU(1) — the window cleanup runs in TPM_RESULT after it
+         * pops. Outlives this dispatch (the pump copies it). */
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.selection_menu.phase        = SM_SETUP;
+        g_mode_push_init.selection_menu.allow_cancel = 1;
+        st->phase = TPM_RESULT;
+        st->result = 0xFFFF;   /* read from the child on TPM_RESULT */
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 
     case TPM_RESULT:
+        if (st->result == 0xFFFF)
+            st->result = (uint16_t)mode_child_result();
+        /* CLOSE_FOCUS_WINDOW and CLOSE_MENU_HEADER_WINDOW: a WINDOW_TICK (and
+         * RAND) each, each on its own frame. */
+        (void)take_unpresented_ticks();
+        close_focus_window();
+        st->phase = TPM_CLOSE_HEADER;
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        EB_FALLTHROUGH;
+
+    case TPM_CLOSE_HEADER:
+        (void)take_unpresented_ticks();
+        close_menu_header_window();
+        st->phase = TPM_POP;
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        EB_FALLTHROUGH;
+
+    case TPM_POP:
     default:
-        result = (uint16_t)mode_child_result();
-        break;
+        restore_window_text_attributes();
+        return STEP_RESULT_POP(st->result);
     }
-
-    close_focus_window();
-    close_menu_header_window();
-    restore_window_text_attributes();
-
-    return STEP_RESULT_POP(result);
 }
 
 
