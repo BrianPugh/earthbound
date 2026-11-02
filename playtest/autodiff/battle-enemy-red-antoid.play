@@ -1,0 +1,14 @@
+# save: 24-Museum
+# 2 Red Antoids + Black Antoid (egroup 78): Defense down α, call for help.
+# Paula, Jeff and Poo are poisoned (INSTANT_WIN_CHECK needs more active members than enemies);
+# everyone Defends 8 rounds so the enemies act
+egroup 78; status 2 1 5; status 3 1 5; status 4 1 5; teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900; egroup off
+---
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
