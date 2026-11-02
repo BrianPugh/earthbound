@@ -2427,7 +2427,8 @@ uint16_t calculate_movement_path_steps(int16_t src_x, int16_t src_y,
  * Returns 0 always (non-homesick or failed). */
 static const uint8_t homesickness_probability[] = { 0, 100, 150, 200, 250, 0 };
 
-uint16_t attempt_homesickness(void) {
+uint16_t attempt_homesickness(bool *needs_render) {
+    *needs_render = false;
     /* Assembly line 8-11: check if Ness is alive */
     uint8_t status = party_characters[0].afflictions[0];  /* STATUS_GROUP::PERSISTENT_EASYHEAL */
     if (status == 1)  /* UNCONSCIOUS */
@@ -2461,8 +2462,11 @@ uint16_t attempt_homesickness(void) {
          * writes afflictions[X - 1]), Y = STATUS_5::HOMESICK + 1, A = NESS.
          * JSL INFLICT_STATUS_NONBATTLE; BRA @RETURN: its result (Ness's id)
          * is the return value, which DISPATCH_SPECIAL_EVENT hands to the text
-         * result register (EBATTLE8's jump_if_true after trigger_event 17). */
-        return inflict_status_nonbattle(PARTY_MEMBER_NESS, STATUS_GROUP_HOMESICKNESS + 1, STATUS_5_HOMESICK + 1);
+         * result register (EBATTLE8's jump_if_true after trigger_event 17).
+         * The callee's RENDER_AND_DISABLE_ENTITIES (a frame of its own) is left
+         * to the caller (*needs_render): GAME_MODE_SPECIAL_EVENT presents it. */
+        return inflict_status_nonbattle_apply(PARTY_MEMBER_NESS, STATUS_GROUP_HOMESICKNESS + 1,
+                                              STATUS_5_HOMESICK + 1, needs_render);
     }
 
     return 0;

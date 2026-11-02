@@ -750,8 +750,10 @@ void demo_playback_tick(void);
 
 /* ATTEMPT_HOMESICKNESS: Port of asm/overworld/attempt_homesickness.asm.
  * Checks if Ness should become homesick based on level and probability table.
- * Returns 0 always. */
-uint16_t attempt_homesickness(void);
+ * Returns Ness's id when he became homesick, else 0. *needs_render is set when
+ * INFLICT_STATUS_NONBATTLE's RENDER_AND_DISABLE_ENTITIES is owed: the caller runs
+ * render_and_disable_entities_prepare(), presents that frame, then _finish(). */
+uint16_t attempt_homesickness(bool *needs_render);
 
 /* ADJUST_SINGLE_COLOUR: Port of asm/overworld/adjust_single_colour.asm.
  * Adjusts a single colour channel toward a target, clamped to +/-6 step.

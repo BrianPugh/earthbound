@@ -2243,6 +2243,8 @@ typedef struct {
 typedef enum {
     SE_ENTER = 0,       /* dispatch on event_id: inline-POP or set up a child push */
     SE_RESULT,          /* child popped: POP the precomputed `result` */
+    SE_RESULT_DISABLE,  /* RENDER_AND_DISABLE_ENTITIES' frame presented (homesickness):
+                         * DISABLE_ALL_ENTITIES, then POP `result` */
 } SpecialEventPhase;
 
 typedef struct {

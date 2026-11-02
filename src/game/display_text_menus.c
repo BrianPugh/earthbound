@@ -593,6 +593,10 @@ StepResult mode_step_special_event(ModeState *st) {
     /* Post-child resume: POP the carried result. */
     if (s->phase == SE_RESULT)
         return STEP_RESULT_POP(s->result);
+    if (s->phase == SE_RESULT_DISABLE) {
+        render_and_disable_entities_finish();
+        return STEP_RESULT_POP(s->result);
+    }
 
     /* SE_ENTER: dispatch on event_id.
      * static: outlives this dispatch (the pump copies it on the next step,
@@ -687,8 +691,28 @@ StepResult mode_step_special_event(ModeState *st) {
     case 15:  /* CLEAR_ALL_EVENT_FLAGS: memset event_flags to 0 */
         memset(event_flags, 0, EVENT_FLAG_COUNT / 8);
         return STEP_RESULT_POP(0);
-    case 17:  /* ATTEMPT_HOMESICKNESS */
-        return STEP_RESULT_POP(attempt_homesickness());
+    case 17: { /* ATTEMPT_HOMESICKNESS */
+        /* INFLICT_STATUS_NONBATTLE ends in RENDER_AND_DISABLE_ENTITIES, whose
+         * RENDER_FRAME_TICK is a frame of its own (as CC_19_05's, which the
+         * battle-end script runs next): present it, then the disable tail. */
+        bool needs_render;
+        uint16_t result = attempt_homesickness(&needs_render);
+        if (needs_render) {
+            clear_unpresented_ticks();
+            render_and_disable_entities_prepare();
+            uint16_t ticks = take_unpresented_ticks();
+            if (ticks) {
+                g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
+                g_mode_push_init.battle_wait.remaining = ticks;
+                g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
+                s->result = result;
+                s->phase = SE_RESULT_DISABLE;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+            }
+            render_and_disable_entities_finish();
+        }
+        return STEP_RESULT_POP(result);
+    }
     case 18:  /* CHECK_BICYCLE_AND_DISMOUNT: if walking_style==BICYCLE, dismount, return 1 */
         if (game_state.walking_style == WALKING_STYLE_BICYCLE) {
             dismount_bicycle();
