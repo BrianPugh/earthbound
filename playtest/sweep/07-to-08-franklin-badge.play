@@ -1,0 +1,55 @@
+# save: 07-InHappy
+# Sweep segment 07 -> 08: the Happy Happy drug store phone out the front door, the village door
+# 4024,7608 into the cave, west through it (Insane Cultist battle) to the top of Peaceful Rest
+# Valley, the path down to the mountain cabin, Paula in her cell (talk from 7000,9817: the
+# Franklin badge), out of the cabin (Pokey's ambush: Insane Cultist x2 + Spiteful Crow, PSI
+# Rockin alpha; Ness is homesick and misses one turn), back up to the cave, east through it to
+# the village, the drug store phone: Dad, Record, Continue (08-Carpainter starts there; it was
+# levelled to L20 afterwards). Recorded in chunks with playtest/sweep/rec.py
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag K+20 / ignore: idle K+30; idle 7075 is a post-battle fade-in
+# late-pads
+# skip: 154
+# lag: 174
+# skip: 316
+# lag: 336
+# ignore: idle 346
+# ignore: idle 7075
+# skip: 7412
+# lag: 7432
+# skip: 8223
+# lag: 8243
+# skip: 9356
+# lag: 9376
+# ignore: idle 9386
+# skip: 13352
+# lag: 13372
+# ignore: idle 13382
+# skip: 13759
+# lag: 13779
+# skip: 13949
+# lag: 13969
+---
+10 DOWN; 113 RIGHT; 8 UP; 55 -; 21 DOWN; 62 LEFT; 60 UP; 19 -; 98 LEFT; 245 -
+2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 6298 -; 1 A; 73 -; 302 LEFT; 60 UP
+5 -; 21 DOWN+LEFT; 72 LEFT; 26 DOWN; 16 DOWN+LEFT; 21 RIGHT; 8 DOWN+LEFT; 2 DOWN+RIGHT; 28 LEFT; 12 UP+LEFT
+11 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 4 LEFT; 10 DOWN+LEFT; 6 DOWN; 22 LEFT; 21 DOWN; 38 DOWN+RIGHT; 174 -
+14 RIGHT; 22 LEFT; 20 DOWN; 51 DOWN+RIGHT; 22 DOWN; 2 DOWN+RIGHT; 17 RIGHT; 10 DOWN; 14 LEFT; 150 UP
+2 -; 60 LEFT; 2 A; 12 -; 2 A; 24 -; 1 A; 4 -; 8 UP; 2 A
+12 -; 2 A; 10 -; 1 A; 17 -; 1 A; 29 -; 1 A; 53 -; 1 A
+29 -; 1 A; 55 -; 1 A; 81 -; 1 A; 25 -; 1 A; 71 -; 1 A
+43 -; 1 A; 271 -; 1 A; 33 -; 1 A; 59 -; 1 A; 59 -; 1 A
+4 -; 8 DOWN; 100 RIGHT; 14 -; 24 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 4 DOWN+RIGHT; 12 RIGHT; 12 DOWN
+4 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 4 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 14 -; 1 A; 31 -; 1 A
+69 -; 1 A; 97 -; 1 A; 101 -; 1 A; 256 -; 2 DOWN; 14 -; 2 A
+34 -; 2 A; 24 -; 2 A; 913 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A
+24 -; 2 A; 439 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 24 -; 2 A
+1020 -; 1 A; 25 -; 1 A; 33 -; 1 A; 23 -; 1 A; 19 -; 1 A
+23 -; 1 A; 17 -; 1 A; 35 -; 1 A; 25 -; 1 A; 39 -; 1 A
+109 -; 4 DOWN+RIGHT; 24 DOWN; 48 RIGHT; 26 UP+RIGHT; 12 RIGHT; 4 UP; 2 UP+LEFT; 22 UP+RIGHT; 20 UP
+4 UP+RIGHT; 25 UP; 22 UP+LEFT; 25 UP; 24 UP+LEFT; 30 UP; 29 -; 312 RIGHT; 18 UP+RIGHT; 42 RIGHT
+35 -; 21 DOWN; 76 RIGHT; 12 LEFT; 30 UP; 50 -; 11 DOWN; 70 LEFT; 2 A; 12 -
+2 A; 28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -
+1 A; 19 -; 1 A; 37 -; 1 A; 13 -; 1 A; 46 -; 2 A; 10 -
+1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A; 52 -; 1 A; 47 -
+1 A; 29 -; 1 A; 4 -
