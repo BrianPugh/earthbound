@@ -1,0 +1,6 @@
+# save: 24-Museum
+# Overworld PSI Teleport: open the town list, move, cancel all the way out
+flag 11 1; teleport 4000 9300 6; wait 10; until idle 300
+---
+press A; wait 30; press DOWN; press A; wait 40; press A; wait 40; press DOWN 2; wait 10; press A; wait 40
+press DOWN; wait 20; press DOWN; wait 20; press B; wait 30; press B; wait 30; press B; wait 30; press B; wait 30; press B; wait 40

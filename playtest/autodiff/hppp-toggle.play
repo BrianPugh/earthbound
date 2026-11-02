@@ -1,0 +1,5 @@
+# save: 05-Twoson
+# B toggles the HP/PP + money window on the overworld
+wait 5
+---
+press B; wait 30; press B; wait 30; 30 RIGHT; press B; wait 20; 20 LEFT; press B; wait 40

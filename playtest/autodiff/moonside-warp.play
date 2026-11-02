@@ -1,0 +1,5 @@
+# save: 19-Moonside
+# Cafe bottles: Check warps into Moonside (scripted cutscene)
+flag 11 1; teleport 5520 6584 0; 10 UP; until idle 300
+---
+press L; wait 100; press A; wait 100; press A; wait 100; press A; wait 300

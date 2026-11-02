@@ -1,0 +1,7 @@
+# save: 26-Dalaam
+# Talk to the Mu master (Yes/No dialogue)
+# ignore: ent4\..*
+# ignore: near
+flag 16 0; flag 273 0; flag 11 1; teleport 6832 8307 0; wait 5; until idle 300
+---
+press A; wait 30; press A; wait 150; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 100

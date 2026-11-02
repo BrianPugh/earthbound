@@ -1,0 +1,8 @@
+# save: 29-DungeonM
+# Phone, Escargo Express, Delivery, item, confirmations
+# ignore: ent8\..*
+# ignore: near
+flag 11 1
+---
+press A; wait 30; press A; wait 150; press DOWN 2; press A; wait 200; press RIGHT; press A; wait 200
+press DOWN; press A; wait 200; press RIGHT; press A; wait 200; press A; wait 200; press A; wait 100; press A; wait 100

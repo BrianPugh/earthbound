@@ -1,0 +1,7 @@
+# save: 24-Museum
+# Goods: pick Ness's 2nd item, Drop (refused or confirmed), close
+wait 5
+---
+press A; wait 30; press RIGHT; press A; wait 40; press DOWN; wait 20; press A; wait 40
+press DOWN 2; wait 10; press A; wait 120; press A; wait 60; press A; wait 60
+press B; wait 30; press B; wait 30; press B; wait 30

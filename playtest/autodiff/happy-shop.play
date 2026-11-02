@@ -1,0 +1,6 @@
+# save: 07-InHappy
+# Happy Happy drug store: Buy, equip here, sell, No
+48 RIGHT; 20 UP; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 120; press A; wait 100; press A; wait 100; press A; wait 100
+press A; wait 100; press A; wait 100; press RIGHT; press A; wait 150; press A; wait 60

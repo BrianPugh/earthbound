@@ -1,0 +1,6 @@
+# save: 02-Sharks
+# Hotel phone, Dad: Record, Continue
+wait 5
+---
+press A; wait 30; press A; wait 120; press A; wait 200; press A; wait 60; press A; wait 200
+press A; wait 60; press A; wait 60; press A; wait 100; press A; wait 100; press A; wait 60

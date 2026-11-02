@@ -1,0 +1,6 @@
+# save: 30-DeepDark
+# Deep Darkness: Hawk eye from Paula's Goods (lighting fade)
+flag 11 1; teleport 6152 7598 7; wait 30; 20 UP; 20 RIGHT; until idle 300
+---
+press A; wait 30; press RIGHT; press A; wait 40; press RIGHT; wait 20; press A; wait 40
+press DOWN 5; press RIGHT; wait 20; press A; wait 40; press A; wait 300; press A; wait 100; press A; wait 100

@@ -1,0 +1,7 @@
+# save: 24-Museum
+# Pause menu: Goods, switch character, item actions, Help!, close
+wait 5
+---
+press A; wait 30; press RIGHT; press A; wait 40; press RIGHT; wait 20; press A; wait 40
+press DOWN 3; wait 10; press A; wait 120; press A; wait 60
+press B; wait 30; press B; wait 30; press B; wait 30; press B; wait 40

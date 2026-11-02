@@ -1,0 +1,6 @@
+# save: 24-Museum
+# Pause menu: Equip, character, slot, item list, close
+wait 5
+---
+press A; wait 30; press DOWN; press RIGHT; press A; wait 40; press A; wait 40; press A; wait 40
+press DOWN; wait 20; press B; wait 30; press B; wait 30; press B; wait 30; press B; wait 40

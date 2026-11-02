@@ -21,14 +21,20 @@ Scenario file (the playtest command language)::
     press A
     wait 30
 
-A setup line prefixed ``port:`` or ``emu:`` runs on that side only.
+A setup line prefixed ``port:`` or ``emu:`` runs on that side only. A
+``# save: NN-Name`` header line (as in the regress cases) names the save in
+``playtest/saves/``, and ``# ignore: REGEX`` lines skip fields for that scenario
+(e.g. an NPC that wandered differently before the seed); a SAVE.srm given first on the command line is the default
+for scenarios without one.
 
 Usage::
 
-    uv run --no-sync python playtest/autodiff.py SAVE.srm SCENARIO.play [...] [--bin BIN]
+    uv run --no-sync python playtest/autodiff.py [SAVE.srm] SCENARIO.play [...] [--bin BIN] [-j N]
+    uv run --no-sync python playtest/autodiff.py playtest/autodiff/*.play   # the suite
 """
 
 import argparse
+import concurrent.futures
 import os
 import re
 import subprocess
@@ -143,6 +149,8 @@ def parse_snapshots(text):
             continue
         elif line.startswith(("PARTY", "NEAR", "ENEMIES")):
             key, _, rest = line.partition(" ")
+            if key == "NEAR":  # the 2 sides list the same entries in different orders
+                rest = " | ".join(sorted(rest.split(" | ")))
             cur[key.lower()] = rest
         elif line.startswith("FOLLOW"):
             cur["follow"] = GHOST.sub("", line[7:]).strip()
@@ -217,11 +225,80 @@ def run_side(cmd, script_path, log_path):
         )
 
 
+SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
+IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)", re.M)
+LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
+
+
+def scenario_save(scen, default):
+    """The save a scenario names in its ``# save:`` header, else the default."""
+    m = SAVE_HEADER.search(Path(scen).read_text())
+    if not m:
+        return default
+    name = m.group(1)
+    path = HERE / "saves" / (name if name.endswith(".srm") else name + ".srm")
+    return str(path.resolve())
+
+
+def run_scenario(scen, save, a, out):
+    """Play one scenario on both sides; return (status 0/1, report text)."""
+    name = Path(scen).stem
+    text = [c for raw in Path(scen).read_text().splitlines() for c in raw.split("#", 1)[0].split(";")]
+    if "---" in [t.strip() for t in text]:
+        cut = [t.strip() for t in text].index("---")
+        setup, body = text[:cut], text[cut + 1 :]
+    else:
+        setup, body = [], text
+    pads = expand_body(body)
+    sides = {
+        "port": [str(Path(a.bin).resolve()), "--headless", "--save", save, "--record-audio", "/dev/null"],
+        "emu": [sys.executable, str(HERE / "emu.py"), "--save", save, "--count-frames"],
+    }
+    procs = {}
+    t0 = time.time()
+    report = []
+    for side, cmd in sides.items():
+        script = out / f"{name}.{side}.play"
+        script.write_text(build_script(side, setup, pads, a.rng))
+        procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
+    for side, p in procs.items():
+        try:
+            p.wait(timeout=max(1.0, a.timeout - (time.time() - t0)))
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+            report.append(f"  {side} timed out")
+    res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
+    lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
+    ignore = a.ignore + IGNORE_HEADER.findall(Path(scen).read_text())
+    n, first, lines = compare(res["port"], res["emu"], pads, ignore)
+    merged = sorted(set(range(len(pads) + 1)) - set(res["emu"]))
+    if first:
+        f0 = min(first.values())
+        near = [m for m in merged if f0 - LAG_WINDOW <= m <= f0]
+        status = f"first divergence at logic frame {f0}"
+        if near and {k for k, i in first.items() if i == f0} <= {"idle"}:
+            # A fade runs on NMIs, so a lag stretch before it (the original's
+            # WAIT_UNTIL_NEXT_FRAME returning at once after a long load) moves its
+            # end in logic frames: townmap's fade-in ends 2 frames later in the emu.
+            status += f", {f0 - near[-1]} after lag-merged frame {near[-1]}: likely fade timing after lag"
+    else:
+        status = "identical"
+    head = f"== {name} [{Path(save).stem}]: {len(pads)} logic frames, compared {n} ({status}; "
+    report.insert(0, head + f"{lag[-1] if lag else 'no LAG line'})")
+    if merged:
+        report.append(f"  emu frames merged by lag (not compared): {merged}")
+    if len(res["port"]) < len(pads) + 1 or (res["emu"] and max(res["emu"]) < len(pads)):
+        report.append(f"  warning: snapshots port={len(res['port'])} emu={len(res['emu'])}, expected {len(pads) + 1}")
+    report += lines
+    report.append(f"  scripts/logs: {out}/{name}.{{port,emu}}.{{play,log}}")
+    return (1 if first else 0), "\n".join(report)
+
+
 def main():
     """Command-line entry point."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("save", help=".srm save (booted as file 1 -> Continue on both sides)")
-    ap.add_argument("scenarios", nargs="+", help="scenario .play files (setup --- body)")
+    ap.add_argument("files", nargs="+", help="[SAVE.srm] then scenario .play files (setup --- body)")
     ap.add_argument("--bin", default=os.environ.get("EB_BIN", str(DEFAULT_BIN)), help="port binary (256x224 build)")
     ap.add_argument("--rng", nargs=2, type=int, default=(4660, 22136), metavar=("A", "B"), help="RNG seed")
     ap.add_argument(
@@ -229,6 +306,7 @@ def main():
     )
     ap.add_argument("--out", default=str(HERE / "out" / "autodiff"), help="output dir (scripts, logs)")
     ap.add_argument("--timeout", type=float, default=300, help="seconds per side")
+    ap.add_argument("-j", "--jobs", type=int, default=3, help="scenarios run at once (2 processes each)")
     a = ap.parse_args()
 
     cache = Path(a.bin).resolve().parent / "CMakeCache.txt"
@@ -236,48 +314,21 @@ def main():
         print(f"warning: {a.bin} is not a 256x224 build: enemy spawns will differ", file=sys.stderr)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    save = str(Path(a.save).resolve())
-    sides = {
-        "port": [str(Path(a.bin).resolve()), "--headless", "--save", save, "--record-audio", "/dev/null"],
-        "emu": [sys.executable, str(HERE / "emu.py"), "--save", save, "--count-frames"],
-    }
+    files = list(a.files)
+    default = str(Path(files.pop(0)).resolve()) if files[0].endswith(".srm") else None
+    jobs = []
+    for scen in files:
+        save = scenario_save(scen, default)
+        if save is None:
+            sys.exit(f"{scen}: no '# save:' header and no SAVE.srm given")
+        jobs.append((scen, save))
     worst = 0
-    for scen in a.scenarios:
-        name = Path(scen).stem
-        text = [c for raw in Path(scen).read_text().splitlines() for c in raw.split("#", 1)[0].split(";")]
-        if "---" in [t.strip() for t in text]:
-            cut = [t.strip() for t in text].index("---")
-            setup, body = text[:cut], text[cut + 1 :]
-        else:
-            setup, body = [], text
-        pads = expand_body(body)
-        procs = {}
-        t0 = time.time()
-        for side, cmd in sides.items():
-            script = out / f"{name}.{side}.play"
-            script.write_text(build_script(side, setup, pads, a.rng))
-            procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
-        for side, p in procs.items():
-            try:
-                p.wait(timeout=max(1.0, a.timeout - (time.time() - t0)))
-            except subprocess.TimeoutExpired:
-                p.kill()
-                p.wait()
-                print(f"{name}: {side} timed out", file=sys.stderr)
-        res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
-        lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
-        n, first, lines = compare(res["port"], res["emu"], pads, a.ignore)
-        status = "identical" if not first else f"first divergence at logic frame {min(first.values())}"
-        print(f"== {name}: {len(pads)} logic frames, compared {n} ({status}; {lag[-1] if lag else 'no LAG line'})")
-        merged = sorted(set(range(len(pads) + 1)) - set(res["emu"]))
-        if merged:
-            print(f"  emu frames merged by lag (not compared): {merged}")
-        if len(res["port"]) < len(pads) + 1 or (res["emu"] and max(res["emu"]) < len(pads)):
-            print(f"  warning: snapshots port={len(res['port'])} emu={len(res['emu'])}, expected {len(pads) + 1}")
-        for line in lines:
-            print(line)
-        print(f"  scripts/logs: {out}/{name}.{{port,emu}}.{{play,log}}")
-        worst = max(worst, 1 if first else 0)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        futs = [ex.submit(run_scenario, scen, save, a, out) for scen, save in jobs]
+        for fut in futs:
+            status, text = fut.result()
+            print(text, flush=True)
+            worst = max(worst, status)
     return worst
 
 

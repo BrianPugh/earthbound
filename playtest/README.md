@@ -394,6 +394,16 @@ frame reads the same pad as the one before. `input` is ignored by default (the
 `playtest/out/autodiff/`; rerun a side with `--input NAME.port.play` / `emu.py
 --count-frames --input NAME.emu.play`.
 
+The suite in `playtest/autodiff/` (one scenario per file, `# save: NN-Name`
+header, optional `# ignore: REGEX` lines for fields that differ before the
+seed, such as a wandering NPC) runs with `autodiff.py playtest/autodiff/*.play`
+(`-j N` scenarios at once, a few seconds each). Read a report with care: a
+first divergence of `idle` alone a few frames after a lag-merged frame is
+usually a fade that runs on NMIs after the original's load lag (townmap's
+fade-in after RELOAD_MAP, door arrivals), and an RNG one call off for 1-5
+frames around a SET_WINDOW_TITLE is the port running a window tick before the
+title's 2 frame waits it presents (the screens match).
+
 An RNG state one call apart for a few frames (`WINDOW_TICK` calls RAND on every
 tick, so the RNG counts window ticks) usually means the port ran a tick inline
 without presenting its frame: a `CLOSE_WINDOW` or `SET_WINDOW_TITLE` wait that a

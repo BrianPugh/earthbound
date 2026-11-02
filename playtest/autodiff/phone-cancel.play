@@ -1,0 +1,5 @@
+# save: 12-Zombies
+# Threed hotel phone: talk to it, move, cancel
+wait 5
+---
+press A; wait 30; press A; wait 150; press DOWN; wait 20; press B; wait 60; press A; wait 60; press A; wait 60

@@ -1,0 +1,5 @@
+# save: 02-Sharks
+# Hotel Onett lobby out through the street door, then back in
+wait 5
+---
+20 DOWN; 30 DOWN+RIGHT; 20 RIGHT; 12 UP; 150 RIGHT; 60 -; 40 LEFT; 60 -

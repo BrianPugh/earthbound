@@ -1,0 +1,5 @@
+# save: 01-Start
+# Onett street battle: Bash twice, enemy turns
+teleport 2660 440 4; until battle 500 DOWN|RIGHT|LEFT; until input 1500
+---
+press A; wait 20; press A; wait 500; press A; wait 20; press A; wait 500

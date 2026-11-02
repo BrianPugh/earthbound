@@ -1,0 +1,7 @@
+# save: 24-Museum
+# 4-member battle by hand: Ness Rockin, Paula Fire, Jeff item, Poo Bash
+teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+press DOWN; press A; wait 30; press A; wait 30; press A; wait 30
+press DOWN; press A; wait 30; press A; wait 30; press A; wait 30; press A; wait 30
+press RIGHT; press A; wait 30; press RIGHT; press A; wait 30; press A; wait 30; press A; wait 30; press A; wait 900
