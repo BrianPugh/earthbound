@@ -1,5 +1,9 @@
 # save: 02-Sharks
 # Hotel Onett clerk: talk, Yes, the night, the morning in the room
+# the night's SCREEN_TRANSITION fade-out: the original's extra frame after its first-step lag (see
+# hotel-door), and NMI-stepped fade brightness (idle=fade) after the load lag
+# lag: 492
+# ignore: idle
 hp 1 20; 39 RIGHT; 1 UP; wait 5; 11 LEFT; 1 UP; wait 5; until idle 300
 ---
 press A; wait 30; press A; wait 120; press A; wait 60; press A; wait 60; press A; wait 60; press A; wait 600

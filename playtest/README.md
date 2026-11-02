@@ -397,7 +397,8 @@ frame reads the same pad as the one before. `input` is ignored by default (the
 
 The suite in `playtest/autodiff/` (one scenario per file, `# save: NN-Name`
 header, optional `# ignore: REGEX` lines for fields that differ before the
-seed, such as a wandering NPC) runs with `autodiff.py playtest/autodiff/*.play`
+seed, such as a wandering NPC, and `# lag: K` lines for an emu logic frame the
+original spends on CPU time alone, compared with the port shifted by one) runs with `autodiff.py playtest/autodiff/*.play`
 (`-j N` scenarios at once, a few seconds each). Read a report with care: a
 first divergence of `idle` alone a few frames after a lag-merged frame is
 usually a fade that runs on NMIs after the original's load lag (townmap's
