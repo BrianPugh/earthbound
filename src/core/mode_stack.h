@@ -1346,6 +1346,8 @@ typedef enum {
     SM_SETUP_CB,   /* SM_SETUP after the cursor_move_callback's owed frames */
     SM_MOVE_CB,    /* @SETUP_CURRENT_OPTION after the callback's owed frames */
     SM_PAGE2_CB,   /* SM_PAGE2's @SETUP_CURRENT_OPTION after the retitle's frame waits */
+    SM_SETUP_TAIL, /* SM_SETUP: run the callback's deferred tail (CursorTailId) */
+    SM_MOVE_TAIL,  /* a cursor move: run the callback's deferred tail */
 } SelectionMenuPhase;
 
 /* Park-resume markers: which of the mode's window_tick_work / update_hppp_meter_work
@@ -1374,6 +1376,9 @@ typedef struct {
                              * pop-up, selection_menu.asm @NO_CANCEL) */
     uint8_t  sm_flush;      /* park-resume marker (SelectionMenuFlush): which window/
                              * meter frame parked, so its tail runs after the push */
+    uint8_t  tail_id;       /* CursorTailId the cursor_move_callback deferred */
+    uint8_t  tail_focus;    /* focus window the callback left (the tail prints there) */
+    uint16_t tail_arg;      /* the callback's argument, for its tail */
 } SelectionMenuState;
 
 /* GAME_MODE_TOWN_MAP — run-to-completion port of display_town_map() (overworld X

@@ -1817,6 +1817,28 @@ static void sm_setup_pre(WindowInfo *w) {
  * RENDER_FRAME_TICK, so an entity / battle-BG step and a present), then resume at
  * `resume_phase`. False when the callback owed nothing. */
 static bool sm_push_callback_frames(SelectionMenuState *st, uint8_t resume_phase,
+                                    StepResult *out);
+
+/* A callback (or tail) that deferred a tail after its WINDOW_TICK: present the
+ * tick's frame with focus where the callback left it (the asm restores the
+ * menu's focus only after the callback returns), then resume at `tail_phase`. */
+static bool sm_push_tail_frames(SelectionMenuState *st, uint8_t tail_phase,
+                                StepResult *out) {
+    uint8_t id;
+    uint16_t arg;
+    if (!cursor_tail_take(&id, &arg))
+        return false;
+    st->tail_id = id;
+    st->tail_arg = arg;
+    st->tail_focus = (uint8_t)win.current_focus_window;
+    st->phase = tail_phase;
+    uint16_t owed = take_unpresented_ticks();
+    *out = owed ? battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed)
+                : STEP_RESULT_CONTINUE();
+    return true;
+}
+
+static bool sm_push_callback_frames(SelectionMenuState *st, uint8_t resume_phase,
                                     StepResult *out) {
     uint16_t owed = take_unpresented_ticks();
     if (!owed)
@@ -1920,8 +1942,10 @@ static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st)
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
         (void)take_unpresented_ticks();
         w->cursor_move_callback(val);
-        set_window_focus(w->id);
         StepResult r;
+        if (sm_push_tail_frames(st, SM_MOVE_TAIL, &r))
+            return r;
+        set_window_focus(w->id);
         if (sm_push_callback_frames(st, SM_MOVE_CB, &r))
             return r;
     }
@@ -2144,7 +2168,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
     /* Resuming after a parked actionscript frame: the child may have moved focus,
      * so restore focus to the menu window BEFORE deriving w — otherwise the
      * early-out below would POP and close the menu. */
-    if (st->sm_flush)
+    if (st->sm_flush || st->phase == SM_SETUP_TAIL || st->phase == SM_MOVE_TAIL)
         set_window_focus(st->menu_window);
 
     WindowInfo *w = get_window(win.current_focus_window);
@@ -2193,6 +2217,8 @@ StepResult mode_step_selection_menu(ModeState *ms) {
         sm_setup_pre(w);
         {
             StepResult r;
+            if (sm_push_tail_frames(st, SM_SETUP_TAIL, &r))
+                return r;
             if (sm_push_callback_frames(st, SM_SETUP_CB, &r)) {
                 set_window_focus(w->id);   /* lines 157-158, before the frames */
                 return r;
@@ -2205,6 +2231,28 @@ StepResult mode_step_selection_menu(ModeState *ms) {
 
     case SM_MOVE_CB:
         return sm_move_tick(w, st);
+
+    case SM_SETUP_TAIL:
+    case SM_MOVE_TAIL: {
+        /* The callback's tail after its tick's frame, printing where the
+         * callback left focus; a further stage defers again. */
+        uint8_t ph = st->phase;
+        StepResult r;
+        (void)take_unpresented_ticks();
+        set_window_focus(st->tail_focus);
+        psi_cursor_tail_run(st->tail_id, st->tail_arg);
+        if (sm_push_tail_frames(st, ph, &r))
+            return r;
+        set_window_focus(w->id);
+        if (ph == SM_SETUP_TAIL) {
+            if (sm_push_callback_frames(st, SM_SETUP_CB, &r))
+                return r;
+            return sm_setup_finish(w, st);
+        }
+        if (sm_push_callback_frames(st, SM_MOVE_CB, &r))
+            return r;
+        return sm_move_tick(w, st);
+    }
 
     case SM_PAGE2:
         /* Second half of an overflow page-flip. Assembly @HANDLE_PAGINATION
@@ -3453,6 +3501,26 @@ void clear_cursor_move_callback(void) {
         w->cursor_move_callback = NULL;
         w->cursor_move_callback_id = CURSOR_CB_NONE;
     }
+}
+
+/* The deferred tail lives here only between the callback's return and
+ * SELECTION_MENU taking it in the same step (no yield in between), then in
+ * SelectionMenuState. */
+static uint8_t  cursor_tail_id;
+static uint16_t cursor_tail_arg;
+
+void cursor_tail_defer(uint8_t id, uint16_t arg) {
+    cursor_tail_id = id;
+    cursor_tail_arg = arg;
+}
+
+bool cursor_tail_take(uint8_t *id, uint16_t *arg) {
+    if (cursor_tail_id == CURSOR_TAIL_NONE)
+        return false;
+    *id = cursor_tail_id;
+    *arg = cursor_tail_arg;
+    cursor_tail_id = CURSOR_TAIL_NONE;
+    return true;
 }
 
 /* ------------------------------------------------------------------------- *

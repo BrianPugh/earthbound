@@ -1118,6 +1118,9 @@ void display_character_psi_list(uint16_t char_id);
  * description text. Caches last_selected_psi_description to avoid redraws. */
 void display_psi_description(uint16_t ability_id);
 
+/* Runs a deferred stage of the PSI cursor callbacks (CursorTailId, window.h). */
+void psi_cursor_tail_run(uint8_t id, uint16_t arg);
+
 
 /* ---- Targeting ---- */
 

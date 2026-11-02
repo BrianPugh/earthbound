@@ -668,6 +668,20 @@ void set_cursor_move_callback(void (*cb)(uint16_t), CursorCallbackId id);
  * Clears the cursor_move_callback for the current focus window. */
 void clear_cursor_move_callback(void);
 
+/* A cursor_move_callback whose asm runs a WINDOW_TICK partway (the PSI
+ * target/cost and description windows) does the work up to the tick, then
+ * defers the rest here; SELECTION_MENU presents the tick's frame with focus
+ * where the callback left it, then runs the tail (psi_cursor_tail_run), which
+ * may defer a further stage after its own tick. */
+typedef enum {
+    CURSOR_TAIL_NONE = 0,
+    CURSOR_TAIL_PSI_TARGET_COST,   /* DISPLAY_PSI_TARGET_AND_COST after its tick */
+    CURSOR_TAIL_PSI_DESCRIPTION_1, /* DISPLAY_PSI_DESCRIPTION after the target/cost tick */
+    CURSOR_TAIL_PSI_DESCRIPTION_2, /* DISPLAY_PSI_DESCRIPTION after its own window's tick */
+} CursorTailId;
+void cursor_tail_defer(uint8_t id, uint16_t arg);
+bool cursor_tail_take(uint8_t *id, uint16_t *arg);
+
 /* CLEAR_WINDOW_TILEMAP: Port of asm/text/clear_window_tilemap.asm.
  * Clears the window's tilemap area, freeing tiles and filling with blank.
  * Sets redraw_all_windows=1 and calls clear_party_sprite_hide_flags(). */

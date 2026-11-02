@@ -402,15 +402,25 @@ void display_character_psi_list(uint16_t char_id) {
  * Called as cursor_move_callback during PSI ability selection.
  * ability_id: PSI ability index into PSI_ABILITY_TABLE.
  */
-void display_psi_target_and_cost(uint16_t ability_id) {
-    if (!ensure_battle_psi_table()) return;
-    if (!battle_action_table) return;
+/* Up to (and including) the WINDOW_TICK: the caller presents its frame
+ * before psi_target_and_cost_tail prints the window (cursor_tail_defer). */
+static bool psi_target_and_cost_head(void) {
+    if (!ensure_battle_psi_table()) return false;
+    if (!battle_action_table) return false;
 
     /* Create window for target/cost display (WINDOW::PSI_TARGET_COST) */
     create_window(WINDOW_PSI_TARGET_COST);
     window_tick_without_instant_printing();  /* asm line 17 */
     dt.enable_word_wrap = 0;                 /* asm line 18 */
+    return true;
+}
 
+void display_psi_target_and_cost(uint16_t ability_id) {
+    if (psi_target_and_cost_head())
+        cursor_tail_defer(CURSOR_TAIL_PSI_TARGET_COST, ability_id);
+}
+
+static void psi_target_and_cost_tail(uint16_t ability_id) {
     /* Assembly: reads psi_ability.name (byte 0). If name == 4 (Thunder),
      * shows generic "To enemy" text. Otherwise computes from battle_action. */
     const PsiAbility *psi = &battle_psi_table[ability_id];
@@ -457,6 +467,9 @@ void display_psi_target_and_cost(uint16_t ability_id) {
  * Shows the target type / PP cost window and the PSI description text.
  * US-only: caches LAST_SELECTED_PSI_DESCRIPTION to avoid redundant redraws.
  */
+static void psi_description_after_target_and_cost(uint16_t ability_id);
+static void psi_description_text(uint16_t ability_id);
+
 void display_psi_description(uint16_t ability_id) {
     /* US-only optimization: if same ability already shown, skip */
     if (bt.last_selected_psi_description != 0x00FF &&
@@ -464,15 +477,25 @@ void display_psi_description(uint16_t ability_id) {
         return;
     }
 
-    /* Show target type and PP cost (creates PSI_TARGET_COST window) */
-    display_psi_target_and_cost(ability_id);
+    /* Show target type and PP cost (creates PSI_TARGET_COST window). Each
+     * WINDOW_TICK below ends a stage: SELECTION_MENU presents its frame, then
+     * runs the next stage (psi_cursor_tail_run). */
+    if (psi_target_and_cost_head())
+        cursor_tail_defer(CURSOR_TAIL_PSI_DESCRIPTION_1, ability_id);
+    else
+        psi_description_after_target_and_cost(ability_id);
+}
 
+static void psi_description_after_target_and_cost(uint16_t ability_id) {
     /* Create PSI description window */
     create_window(WINDOW_PSI_DESCRIPTION);
 
     /* Tick one frame to show the window before printing text */
     window_tick_without_instant_printing();
+    cursor_tail_defer(CURSOR_TAIL_PSI_DESCRIPTION_2, ability_id);
+}
 
+static void psi_description_text(uint16_t ability_id) {
     /* Update cache */
     bt.last_selected_psi_description = ability_id;
 
@@ -489,6 +512,24 @@ void display_psi_description(uint16_t ability_id) {
     display_text_from_addr_inline(text_addr);
 
     clear_instant_printing();
+}
+
+/* The deferred stages of the PSI cursor callbacks (cursor_tail_defer). */
+void psi_cursor_tail_run(uint8_t id, uint16_t arg) {
+    switch (id) {
+    case CURSOR_TAIL_PSI_TARGET_COST:
+        psi_target_and_cost_tail(arg);
+        break;
+    case CURSOR_TAIL_PSI_DESCRIPTION_1:
+        psi_target_and_cost_tail(arg);
+        psi_description_after_target_and_cost(arg);
+        break;
+    case CURSOR_TAIL_PSI_DESCRIPTION_2:
+        psi_description_text(arg);
+        break;
+    default:
+        break;
+    }
 }
 
 
