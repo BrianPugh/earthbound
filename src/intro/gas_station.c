@@ -300,14 +300,18 @@ StepResult mode_step_gas_station(ModeState *st) {
 
     case GS_PH3:
         /* 120-frame hold at full brightness (no per-frame work). */
-        if (platform_input_get_pad_new())
-            return STEP_RESULT_POP(1);
-        if (--s->remaining == 0) {
-            /* Music change + EVENT_860 flash entity (yield-free). */
+        if (s->remaining == 0) {
+            /* After the 120th wait (WAIT_FRAMES_OR_UNTIL_PRESSED reads no pad
+             * after its last one): music change + EVENT_860 flash entity, and its
+             * first RUN_ACTIONSCRIPT_FRAME in the same frame. */
             change_music(174); /* MUSIC::GAS_STATION_2 */
             s->entity_offset = entity_init_wipe(860);
             s->phase = GS_PH4;
+            goto ph4_run;
         }
+        if (platform_input_get_pad_new())
+            return STEP_RESULT_POP(1);
+        s->remaining--;
         return STEP_RESULT_CONTINUE();
 
     case GS_PH4:
@@ -317,6 +321,7 @@ StepResult mode_step_gas_station(ModeState *st) {
             deactivate_entity(s->entity_offset);
             return STEP_RESULT_POP(1);
         }
+    ph4_run:
         if (!(s->entity_offset >= 0 &&
               entities.script_table[s->entity_offset] != ENTITY_NONE)) {
             /* Script finished: set up the 330-frame fade to white (yield-free).
