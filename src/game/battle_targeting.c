@@ -384,6 +384,10 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
     case ET_CANCELLED:
         return STEP_RESULT_POP(0);
 
+    case ET_CONFIRMED:
+        return STEP_RESULT_POP(s->current_row * bt.num_battlers_in_front_row +
+                               s->current_enemy + 1);
+
     case ET_INPUT:
     default: {
         uint16_t pressed = platform_input_get_pad_new();
@@ -472,11 +476,17 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
          * returned above, so a same-frame A is ignored, as in the original. */
         if (pressed & PAD_CONFIRM) {
             enemy_flashing_off();
-            uint16_t result = s->current_row * bt.num_battlers_in_front_row +
-                              s->current_enemy + 1;
             play_sfx(1);  /* SFX::CURSOR1 */
+            /* CLOSE_FOCUS_WINDOW's tick is a frame of its own before the
+             * caller's next CLOSE_WINDOW (emu, 24-Museum PSI: the 2 RANDs on
+             * 2 frames); present it here, as the cancel does. */
+            (void)take_unpresented_ticks();
             close_focus_window();
-            return STEP_RESULT_POP(result);
+            uint16_t ticks = take_unpresented_ticks();
+            s->phase = ET_CONFIRMED;
+            if (ticks)
+                return battle_push_vblanks(&g_mode_push_init, ticks);
+            return mode_step_battle_enemy_select(ms);
         }
 
         /* B/SELECT: cancel. CLOSE_FOCUS_WINDOW's tick takes a frame (the
@@ -588,6 +598,9 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
     case BR_CANCELLED:
         return STEP_RESULT_POP(0);
 
+    case BR_CONFIRMED:
+        return STEP_RESULT_POP(s->current_row + 1);  /* 1=front, 2=back */
+
     case BR_INPUT:
     default: {
         uint16_t pressed = platform_input_get_pad_new();
@@ -623,10 +636,15 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
         /* A/L: confirm */
         if (pressed & PAD_CONFIRM) {
             clear_battler_flashing();
-            uint16_t result = s->current_row + 1;  /* 1=front, 2=back */
             play_sfx(1);  /* SFX::CURSOR1 */
+            /* CLOSE_FOCUS_WINDOW's tick frame, as in the enemy select */
+            (void)take_unpresented_ticks();
             close_focus_window();
-            return STEP_RESULT_POP(result);
+            uint16_t ticks = take_unpresented_ticks();
+            s->phase = BR_CONFIRMED;
+            if (ticks)
+                return battle_push_vblanks(&g_mode_push_init, ticks);
+            return mode_step_battle_row_select(ms);
         }
 
         /* B/SELECT: cancel (CLOSE_FOCUS_WINDOW's tick frame, as in

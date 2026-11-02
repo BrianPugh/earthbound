@@ -1628,6 +1628,7 @@ typedef enum {
     BR_PRIME,      /* one update_hppp_meter_work frame before the input read */
     BR_INPUT,      /* read input: UP/DOWN row change, A confirm, B cancel */
     BR_CANCELLED,  /* pop 0 after the cancel's CLOSE_WINDOW tick frame */
+    BR_CONFIRMED,  /* pop row+1 after the confirm's CLOSE_WINDOW tick frame */
 } BattleRowSelectPhase;
 
 typedef struct {
@@ -1662,6 +1663,7 @@ typedef enum {
     ET_PRIME,       /* one update_hppp_meter_work frame before the input read */
     ET_INPUT,       /* read input: LEFT/RIGHT/UP/DOWN navigation, A confirm, B cancel */
     ET_CANCELLED,   /* pop 0 after the cancel's CLOSE_WINDOW tick frame */
+    ET_CONFIRMED,   /* pop the target after the confirm's CLOSE_WINDOW tick frame */
 } BattleEnemySelectPhase;
 
 typedef struct {
