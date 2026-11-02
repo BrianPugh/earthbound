@@ -3332,15 +3332,17 @@ static EB_NOINLINE bool pm_close_sfx_to_main(PauseMenuState *st, StepResult *out
 
 /* Assembly @CLEANUP_AND_CLOSE (lines 603-614): HIDE_HPPP_WINDOWS (the
  * indicator clear's wait), CLOSE_ALL_WINDOWS (its WINDOW_TICK), then wait for
- * the entity fade. */
+ * the entity fade. The indicator clear waits before HIDE_HPPP_WINDOWS snaps
+ * HP/PP to their targets, so the wait's frame is presented first and
+ * pm_cleanup_close runs the rest of HIDE_HPPP_WINDOWS. */
 static EB_NOINLINE bool pm_cleanup(PauseMenuState *st, StepResult *out) {
     uint16_t waits = clear_indicator_waits();
     clear_instant_printing();
-    hide_hppp_windows();
     return menu_flush_waits(&st->phase, PM_CLEANUP_CLOSE, waits, out);
 }
 
 static EB_NOINLINE bool pm_cleanup_close(PauseMenuState *st, StepResult *out) {
+    hide_hppp_windows();
     (void)take_unpresented_ticks();
     close_all_windows();
     return menu_flush_ticks(&st->phase, PM_CLEANUP_FADE, out);
@@ -3584,12 +3586,12 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
     }
 
     case QCT_FADE: {
-        /* HIDE_HPPP_WINDOWS (the indicator clear's wait), CLOSE_ALL_WINDOWS
-         * (its WINDOW_TICK), then the entity fade: a frame each. */
+        /* HIDE_HPPP_WINDOWS (the indicator clear's wait, before its HP/PP
+         * snap, which QCT_CLOSE runs), CLOSE_ALL_WINDOWS (its WINDOW_TICK),
+         * then the entity fade: a frame each. */
         StepResult r;
         uint16_t waits = clear_indicator_waits();
         clear_instant_printing();
-        hide_hppp_windows();
         if (menu_flush_waits(&st->phase, QCT_CLOSE, waits, &r))
             return r;
     }
@@ -3597,6 +3599,7 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
 
     case QCT_CLOSE: {
         StepResult r;
+        hide_hppp_windows();
         (void)take_unpresented_ticks();
         close_all_windows();
         if (menu_flush_ticks(&st->phase, QCT_FADE_WAIT, &r))
@@ -3629,9 +3632,11 @@ static StepResult hd_cancel_tick(HpppDisplayState *st) {
     return STEP_RESULT_CONTINUE();
 }
 
-/* Dismiss: CLOSE_ALL_WINDOWS and its tick's frame, then hd_cancel_tick. */
+/* Dismiss: the rest of HIDE_HPPP_WINDOWS, CLOSE_ALL_WINDOWS and its tick's frame,
+ * then hd_cancel_tick. */
 static StepResult hd_cancel_close(HpppDisplayState *st) {
     StepResult r;
+    hide_hppp_windows();
     (void)take_unpresented_ticks();
     close_all_windows();
     if (menu_flush_ticks(&st->phase, HD_CANCEL_TICK, &r))
@@ -3689,13 +3694,13 @@ StepResult mode_step_hppp_display(ModeState *ms) {
 
         /* B or Select → dismiss (assembly lines 17-26) */
         if (core.pad1_pressed & PAD_CANCEL) {
-            /* HIDE_HPPP_WINDOWS' wait, CLOSE_ALL_WINDOWS' tick, then the
+            /* HIDE_HPPP_WINDOWS' wait (before its HP/PP snap, which
+             * hd_cancel_close runs), CLOSE_ALL_WINDOWS' tick, then the
              * WINDOW_TICK (open_hppp_display.asm:23-25), a frame each. */
             StepResult r;
             uint16_t waits = clear_indicator_waits();
             play_sfx(2);  /* SFX::CURSOR2 */
             clear_instant_printing();
-            hide_hppp_windows();
             if (menu_flush_waits(&st->phase, HD_CANCEL_CLOSE, waits, &r))
                 return r;
             return hd_cancel_close(st);
