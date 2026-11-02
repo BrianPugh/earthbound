@@ -2917,12 +2917,14 @@ static EB_NOINLINE bool pm_goods_char(PauseMenuState *st, StepResult *out) {
             return false;
         }
 
-        /* Populate inventory window: its WINDOW_TICK_WITHOUT_INSTANT_
-         * PRINTING shows the empty, titled window for a frame. */
+        /* Populate inventory window: SET_WINDOW_TITLE's 2 frame waits, then
+         * its WINDOW_TICK_WITHOUT_INSTANT_PRINTING (RAND included) shows the
+         * empty, titled window for a frame (emu, 05-Twoson single-member
+         * Goods: the RAND lands after the title's 2 frames). */
         (void)take_unpresented_ticks();
-        inventory_get_item_name(member, WINDOW_INVENTORY);
+        inventory_get_item_name_head(member, WINDOW_INVENTORY);
         st->goods_char = member;
-        return menu_flush_ticks(&st->phase, PM_GOODS_SELECT, out);
+        return menu_flush_ticks(&st->phase, PM_GOODS_TAIL, out);
     }
     /* Multi-party path (assembly lines 84-93) */
     display_menu_header_text(0);  /* "Who?" */
@@ -3170,8 +3172,16 @@ static EB_NOINLINE bool pm_help_rebuild(PauseMenuState *st, StepResult *out) {
     set_window_focus(WINDOW_COMMAND_MENU);
     skip_adding_command_text = 1;
     build_command_menu();
-    inventory_get_item_name(st->goods_char, WINDOW_INVENTORY);
-    return menu_flush_ticks(&st->phase, PM_HELP_CLOSE_MENU, out);
+    inventory_get_item_name_head(st->goods_char, WINDOW_INVENTORY);
+    return menu_flush_ticks(&st->phase, PM_HELP_REBUILD_TAIL, out);
+}
+
+/* INVENTORY_GET_ITEM_NAME's WINDOW_TICK and items, after its title waits
+ * were presented (pm_goods_char / pm_help_rebuild). */
+static EB_NOINLINE bool pm_inventory_tail(PauseMenuState *st, uint8_t next, StepResult *out) {
+    (void)take_unpresented_ticks();
+    inventory_get_item_name_tail();
+    return menu_flush_ticks(&st->phase, next, out);
 }
 
 static EB_NOINLINE bool pm_help_close_menu(PauseMenuState *st, StepResult *out) {
@@ -3450,6 +3460,14 @@ StepResult mode_step_pause_menu(ModeState *ms) {
 
         case PM_HELP_CLOSE_MENU:
             if (pm_help_close_menu(st, &r)) return r;
+            continue;
+
+        case PM_GOODS_TAIL:
+            if (pm_inventory_tail(st, PM_GOODS_SELECT, &r)) return r;
+            continue;
+
+        case PM_HELP_REBUILD_TAIL:
+            if (pm_inventory_tail(st, PM_HELP_CLOSE_MENU, &r)) return r;
             continue;
 
         case PM_GIVE_CHAR_RESULT:

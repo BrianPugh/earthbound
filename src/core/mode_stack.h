@@ -392,6 +392,8 @@ typedef enum {
     PM_CLOSE_TEXT3,         /* give/drop tail: close the text window */
     PM_CLOSE_INV_MENU3,     /* give/drop tail: close the action menu */
     PM_CLOSE_INV3,          /* give/drop tail: close the inventory, -> PM_MAIN */
+    PM_GOODS_TAIL,          /* single party: the inventory's WINDOW_TICK + items after its title waits */
+    PM_HELP_REBUILD_TAIL,   /* help tail: the rebuilt inventory's WINDOW_TICK after its title waits */
 } PauseMenuPhase;
 
 typedef struct {
