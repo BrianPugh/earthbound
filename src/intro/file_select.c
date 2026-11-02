@@ -1946,9 +1946,8 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
 
     /* Ness's starting money from INITIAL_STATS[0] */
     game_state.money_carried = read_u16_le(initial_stats_data + 4);
-    game_state.party_count = 1;
-    game_state.player_controlled_party_count = 1;
-    game_state.current_party_members = 1;
+    /* The party stays empty: the prologue script (MSG_EVT0_PROLOGUE_METEORITE_FALL)
+     * adds Ness. */
 
     /* Set starting position from INITIAL_STATS[0]::coords × 8
        (file_select_menu_loop.asm lines 593-603 → PLACE_LEADER_AT_POSITION) */
