@@ -287,14 +287,18 @@ void rebuild_entity_free_list(void) {
  * INIT_ENTITY: allocates slot + script, sets up entity tables, links to active list,
  *              then initializes the script PC from EVENT_SCRIPT_POINTERS.
  */
-int16_t entity_init_wipe(uint16_t script_id) {
+int16_t entity_init_wipe_at(uint16_t script_id, int16_t x, int16_t y) {
     ert.new_entity_pos_z = 0;
     memset(ert.new_entity_var, 0, sizeof(ert.new_entity_var));
     ert.new_entity_priority = 0;
     entities.alloc_min_slot = 0;
     entities.alloc_max_slot = MAX_ENTITIES;
 
-    return entity_init(script_id, 0, 0);
+    return entity_init(script_id, x, y);
+}
+
+int16_t entity_init_wipe(uint16_t script_id) {
+    return entity_init_wipe_at(script_id, 0, 0);
 }
 
 int16_t entity_init(uint16_t script_id, int16_t x, int16_t y) {

@@ -593,6 +593,8 @@ void rebuild_entity_free_list(void);
 /* Allocate and initialize an entity with script (INIT_ENTITY_WIPE) */
 /* Returns entity offset on success, or -1 on failure */
 int16_t entity_init_wipe(uint16_t script_id);
+/* INIT_ENTITY_WIPE with the X/Y the caller left in the registers */
+int16_t entity_init_wipe_at(uint16_t script_id, int16_t x, int16_t y);
 
 /* Allocate and initialize an entity at position (INIT_ENTITY) */
 int16_t entity_init(uint16_t script_id, int16_t x, int16_t y);

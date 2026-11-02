@@ -174,8 +174,13 @@ static int16_t cr_spawn_entity(int16_t ent, int16_t scr,
     uint16_t script_id = sw(pc);
     *out_pc = pc + 2;
 
-    /* Pass ROM script ID directly — resolve_script_id handles all lookups */
-    entity_init_wipe(script_id);
+    /* SPAWN_ENTITY is SCRIPT_READ_WORD + JMP INIT_ENTITY_WIPE with X and Y as
+     * MOVEMENT_CODE_42_4C left them: X = $8A (the running script's offset, slot
+     * * 2) and Y = the script PC past the word (its in-bank ROM address: $80
+     * points at the bank's start). They become the new entity's position;
+     * scripts that never set one (TITLE_SCREEN_2) keep it. */
+    uint16_t rom_pc = (uint16_t)(script_banks[cr_bank_idx].rom_base_addr + pc + 2);
+    entity_init_wipe_at(script_id, (int16_t)(scr * 2), (int16_t)rom_pc);
     return 0;
 }
 
