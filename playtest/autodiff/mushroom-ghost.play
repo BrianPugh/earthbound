@@ -1,0 +1,6 @@
+# save: 24-Museum
+# Summers street with Ness mushroomized (the d-pad turns: MUSHROOMIZATION_MOVEMENT_SWAP) and Paula
+# possessed (the mini ghost orbits the party), walking in 4 directions
+flag 11 1; warp summers; wait 10; until idle 300; status 1 2 1; status 2 2 2
+---
+120 UP; 120 RIGHT; 120 DOWN; 120 LEFT; 60 UP+RIGHT; 60 DOWN+LEFT; wait 400; 200 RIGHT; 200 LEFT

@@ -1,0 +1,19 @@
+# save: 24-Museum
+# 4-member battle, 3 turns of battle items and odd commands: Jeff's Big bottle rocket, Paula's Pray,
+# Ness's Bomb (retargeted once the crocodile falls); Ness Healing α, Paula PSI Shield α while feeling
+# strange (it lands on the Elder Batty), Jeff's Neutralizer, Poo's Mirror; Ness tries to Run Away
+give 147 1; give 147 3; teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+2 RIGHT; 10 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 34 -; 2 A; 34 -
+2 RIGHT; 4 -; 2 RIGHT; 10 -; 2 A; 34 -; 2 RIGHT; 10 -; 2 A; 34 -
+2 RIGHT; 10 -; 2 A; 34 -; 2 A; 34 -; 2 DOWN; 10 -; 2 RIGHT; 10 -
+2 A; 871 -; 2 DOWN; 10 -; 2 A; 34 -; 2 DOWN; 10 -; 2 A; 34 -
+2 DOWN; 10 -; 2 A; 34 -; 2 A; 34 -; 2 DOWN; 10 -; 2 A; 34 -
+2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 34 -; 2 A; 34 -; 2 RIGHT; 10 -
+2 A; 34 -; 2 RIGHT; 10 -; 2 A; 34 -; 2 DOWN; 10 -; 2 A; 34 -
+2 RIGHT; 4 -; 2 RIGHT; 10 -; 2 A; 34 -; 2 A; 1103 -; 2 RIGHT; 4 -
+2 RIGHT; 10 -; 2 DOWN; 10 -; 2 A; 34 -; 2 DOWN; 10 -; 2 RIGHT; 10 -
+2 A; 34 -; 2 DOWN; 10 -; 2 RIGHT; 10 -; 2 A; 34 -; 2 DOWN; 10 -
+2 RIGHT; 10 -; 2 A; 315 -
+wait 300

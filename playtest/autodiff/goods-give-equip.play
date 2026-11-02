@@ -1,0 +1,18 @@
+# save: 24-Museum
+# Goods → Give: Ness gives a Large pizza to Paula and his equipped Big league bat to Jeff
+# (SWAP_ITEM_INTO_EQUIPMENT moves the equipment index); then Equip: Other → None, the weapon list,
+# Arms → None (CHANGE_EQUIPPED_*, CALC_RESISTANCES); the last B opens the HP/PP window
+wait 5
+---
+2 A; 34 -; 2 RIGHT; 14 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 44 -; 2 DOWN; 14 -; 2 A; 44 -; 2 RIGHT; 14 -
+2 A; 124 -; 2 A; 64 -; 2 A; 44 -; 2 A; 64 -; 2 A; 44 -
+2 DOWN; 14 -; 2 DOWN; 14 -; 2 DOWN; 14 -; 2 DOWN; 14 -; 2 A; 44 -
+2 DOWN; 14 -; 2 A; 44 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 124 -
+2 A; 64 -; 2 DOWN; 14 -; 2 A; 44 -; 2 A; 44 -; 2 B; 34 -
+2 B; 34 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 14 -
+2 DOWN; 14 -; 2 DOWN; 14 -; 2 A; 44 -; 2 DOWN; 14 -; 2 A; 44 -
+2 A; 44 -; 2 A; 44 -; 2 DOWN; 14 -; 2 DOWN; 14 -; 2 A; 44 -
+2 DOWN; 14 -; 2 A; 44 -; 2 B; 34 -; 2 B; 34 -; 2 B; 34 -
+2 B; 44 -
+wait 60

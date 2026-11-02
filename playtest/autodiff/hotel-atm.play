@@ -1,5 +1,6 @@
 # save: 02-Sharks
-# Hotel Onett ATM: a $12 deposit (NUMBER_SELECT), the balance text, thank you
+# Hotel Onett ATM: the transaction presses land before the menu opens, so no deposit is made
+# (atm-deposit-withdraw.play deposits and withdraws)
 flag 11 1; teleport 7236 1091 6; wait 10; until idle 300
 ---
 press L; wait 150; press RIGHT; wait 5; press A; wait 250; press UP; wait 5; press UP; wait 5; press LEFT; wait 5; press UP; wait 10

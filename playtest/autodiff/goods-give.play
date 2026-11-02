@@ -1,5 +1,6 @@
 # save: 24-Museum
-# Goods: Ness gives his first item to Paula
+# Goods: Ness picks his 2nd item, the Sound Stone, and Uses it (the action menu is vertical:
+# RIGHT does nothing; goods-give-equip.play gives items)
 # the original lags during the fade-in (frames 470-474 merged), and each lag frame's NMI takes a fade
 # step without a logic frame, so its fade-in ends a logic frame earlier (wall-clock noise)
 # ignore: idle 499

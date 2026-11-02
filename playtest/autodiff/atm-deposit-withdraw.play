@@ -1,0 +1,9 @@
+# save: 02-Sharks
+# Hotel Onett ATM: a $12 deposit, then a $3 withdrawal (WITHDRAW_FROM_ATM, the cash text)
+flag 11 1; teleport 7236 1091 6; wait 10; until idle 300
+---
+2 L; 40 -; 1 A; 41 -; 2 RIGHT; 14 -; 2 A; 46 -; 1 A; 41 -
+1 A; 26 -; 2 UP; 10 -; 2 UP; 10 -; 2 LEFT; 10 -; 2 UP; 14 -
+2 A; 48 -; 1 A; 21 -; 1 A; 14 -; 2 L; 40 -; 1 A; 41 -
+2 A; 46 -; 1 A; 45 -; 1 A; 27 -; 2 UP; 10 -; 2 UP; 10 -
+2 UP; 14 -; 2 A; 34 -; 1 A; 23 -; 1 A; 56 -

@@ -1,0 +1,8 @@
+# save: 36-CavePast
+# Dusty Dunes desert with the final party: an enemy touches the party and the battle is won instantly
+# (INSTANT_WIN_HANDLER: the flash, "YOU WON!", exp and the drop roll), then walk on
+flag 11 1; teleport 1400 9400 4; wait 10; until idle 300; flag 11 0
+---
+300 LEFT; 300 UP; 300 RIGHT; 300 DOWN; 250 LEFT
+press A; wait 30
+300 RIGHT; 300 UP; 300 LEFT; 300 DOWN
