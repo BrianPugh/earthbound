@@ -1939,12 +1939,20 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 }
                 uint16_t first_idx = find_first_character_with_psi();
                 st->char_id = game_state.party_members[first_idx - 1];
+                (void)take_unpresented_ticks();
                 display_character_psi_list(st->char_id);
                 only_one_character_with_psi = 1;
 
                 overworld_selected_psi_user = st->char_id;
                 st->last_ability = 0x00FF;
-                st->phase = PS_ABILITY;
+                /* DISPLAY_CHARACTER_PSI_LIST's WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+                 * and SET_WINDOW_TITLE's 2 waits are 3 frames before the
+                 * ability menu's cursor callback (emu, 05-Twoson). */
+                {
+                    StepResult r;
+                    if (menu_flush_ticks(&st->phase, PS_ABILITY, &r))
+                        return r;
+                }
                 continue;
             }
             /* Multiple PSI users — character selection (assembly lines 45-56).
@@ -1992,9 +2000,13 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             if ((psi_selection & 0xFF) == 0) {
                 /* @CANCELLED (assembly lines 213-216): close the target/cost
                  * window and break to character select; action_result stays as
-                 * is — cancel is not a PSI action. */
+                 * is — cancel is not a PSI action. CLOSE_WINDOW's WINDOW_TICK
+                 * is a frame of its own (emu, 05-Twoson). */
+                StepResult r;
+                (void)take_unpresented_ticks();
                 close_window(WINDOW_PSI_TARGET_COST);
-                st->phase = PS_CHAR;
+                if (menu_flush_ticks(&st->phase, PS_CHAR, &r))
+                    return r;
                 continue;
             }
 
@@ -2278,10 +2290,19 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             st->phase = PS_EXIT;
             continue;
 
-        case PS_EXIT:
-        default:
-            /* @AFTER_CHAR_SELECT6 / @DONE (assembly lines 566-570) */
+        case PS_EXIT: {
+            /* @AFTER_CHAR_SELECT6 / @DONE (assembly lines 566-570); the
+             * CLOSE_WINDOW's WINDOW_TICK is presented before the pop. */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
+            if (menu_flush_ticks(&st->phase, PS_EXIT_POP, &r))
+                return r;
+            continue;
+        }
+
+        case PS_EXIT_POP:
+        default:
             return STEP_RESULT_POP(st->action_result);
         }
     }

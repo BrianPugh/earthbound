@@ -527,7 +527,8 @@ typedef enum {
     PS_RADE,            /* render_and_disable_entities split: work + yield */
     PS_RADE_FLUSH,      /* render_and_disable_entities split: flush a parked frame */
     PS_RADE_FINISH,     /* render_and_disable_entities split: disable tail -> PS_EXIT */
-    PS_EXIT,            /* close the text window, POP the result */
+    PS_EXIT,            /* close the text window (its WINDOW_TICK is a frame) */
+    PS_EXIT_POP,        /* POP the result */
 } PsiMenuPhase;
 
 typedef struct {
@@ -618,11 +619,13 @@ typedef enum {
     STM_RESULT,     /* cleanup, POP the selected item id */
     STM_BUILD,      /* build the shop menu; push SELECTION_MENU */
     STM_TICK_FLUSH, /* resume after a parked actionscript frame in the prologue tick */
+    STM_POP,        /* after the CLOSE_FOCUS_WINDOW tick's frame: POP `result` */
 } StoreMenuPhase;
 
 typedef struct {
     uint8_t  phase;    /* StoreMenuPhase */
     uint16_t shop_id;  /* STORE_TABLE shop index */
+    uint16_t result;   /* selected item id, carried across the close tick's frame */
 } StoreMenuState;
 
 /* GAME_MODE_ESCARGO_MENU phases. Port of select_escargo_express_item()
@@ -655,6 +658,9 @@ typedef enum {
     TPH_ENTER = 0,    /* build the contact menu; push SELECTION_MENU */
     TPH_AFTER_MENU,   /* cleanup; (optional) push the contact's call text */
     TPH_AFTER_TEXT,   /* POP the contact index after the call text */
+    TPH_MENU,         /* after SET_WINDOW_TITLE's 2 waits: push SELECTION_MENU */
+    TPH_CLOSE,        /* CLOSE_FOCUS_WINDOW (its tick is a frame) + restore */
+    TPH_CALL,         /* (optional) push the contact's call text, else POP */
 } TelephoneMenuPhase;
 
 typedef struct {

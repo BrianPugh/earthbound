@@ -5770,13 +5770,18 @@ StepResult mode_step_battle(ModeState *ms) {
             break;
 
         case BTL_CLOSE_WINDOW:
-            /* close_battle_window + check_new_turn */
+            /* close_battle_window + check_new_turn. The CLOSE_WINDOW's
+             * WINDOW_TICK is a frame of its own before the next turn's
+             * initiative rolls (emu, 01-Start Spiteful Crow). */
+            (void)take_unpresented_ticks();
             redirect_close_focus_window();
-            if (st->post_battle_exit == 0) {
-                st->phase = BTL_TURN;  /* goto start_turn */
-                break;
+            st->phase = (st->post_battle_exit == 0) ? BTL_TURN  /* goto start_turn */
+                                                    : BTL_ENDING;
+            {
+                uint16_t ticks = take_unpresented_ticks();
+                if (ticks)
+                    return push_wait_frames(&g_mode_push_init, BW_VBLANK, ticks);
             }
-            st->phase = BTL_ENDING;
             break;
 
         case BTL_ENDING:

@@ -935,6 +935,9 @@ StepResult mode_step_store_menu(ModeState *ms) {
         break;
     }
 
+    case STM_POP:
+        return STEP_RESULT_POP(st->result);
+
     case STM_RESULT:
     default:
         result = (uint16_t)mode_child_result();
@@ -942,7 +945,10 @@ StepResult mode_step_store_menu(ModeState *ms) {
     }
 
     /* Assembly lines 96-104: cleanup.
-     * Order matches assembly: RESET → CLOSE → RESTORE → CLEAR. */
+     * Order matches assembly: RESET → CLOSE → RESTORE → CLEAR. The
+     * CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own before the
+     * caller's text resumes (emu, 07-InHappy drug store). */
+    (void)take_unpresented_ticks();
     reset_hppp_options_and_load_palette();
     close_focus_window();
     restore_window_text_attributes();
@@ -950,6 +956,12 @@ StepResult mode_step_store_menu(ModeState *ms) {
     /* CC_1A_06's epilogue SET_WINDOW_FOCUS(CURRENT_FOCUS_WINDOW) stores the
      * value it read, so it changes nothing. */
 
+    uint16_t owed = take_unpresented_ticks();
+    if (owed) {
+        st->result = result;
+        st->phase = STM_POP;
+        return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+    }
     return STEP_RESULT_POP(result);
 }
 
@@ -1236,28 +1248,49 @@ StepResult mode_step_telephone_menu(ModeState *ms) {
 
         if (menu_item_count > 0) {
             open_window_and_print_menu(1, 0);
-            /* selection_menu(1) — STEP_PUSH; cleanup + optional call text run in
-             * TPH_AFTER_MENU after it pops. */
-            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.selection_menu.phase        = SM_SETUP;
-            g_mode_push_init.selection_menu.allow_cancel = 1;
-            st->phase = TPH_AFTER_MENU;
-            return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
+            st->phase = TPH_MENU;
+        } else {
+            /* No contacts available: result 0, the shared cleanup, POP. */
+            st->selection = 0;
+            st->phase = TPH_CLOSE;
         }
-
-        /* No contacts available: result 0, run the shared cleanup and POP. */
-        close_focus_window();
-        restore_window_text_attributes();
-        return STEP_RESULT_POP(0);
+        /* SET_WINDOW_TITLE's 2 waits come before the menu (emu, 05-Twoson). */
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        return mode_step_telephone_menu(ms);   /* nothing owed: next phase now */
     }
 
-    case TPH_AFTER_MENU: {
-        st->selection = (uint16_t)mode_child_result();
+    case TPH_MENU:
+        /* selection_menu(1) — STEP_PUSH; cleanup + optional call text run in
+         * TPH_AFTER_MENU after it pops. */
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.selection_menu.phase        = SM_SETUP;
+        g_mode_push_init.selection_menu.allow_cancel = 1;
+        st->phase = TPH_AFTER_MENU;
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_SELECTION_MENU, &g_mode_push_init);
 
-        /* open_telephone_menu() cleanup (runs before the contact text). */
+    case TPH_AFTER_MENU:
+        st->selection = (uint16_t)mode_child_result();
+        st->phase = TPH_CLOSE;
+        EB_FALLTHROUGH;
+
+    case TPH_CLOSE: {
+        /* open_telephone_menu() cleanup (runs before the contact text); the
+         * CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own. */
+        (void)take_unpresented_ticks();
         close_focus_window();
         restore_window_text_attributes();
+        st->phase = TPH_CALL;
+        uint16_t owed = take_unpresented_ticks();
+        if (owed)
+            return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+    }
+        EB_FALLTHROUGH;
 
+    case TPH_CALL: {
         /* display_telephone_contact_text(): if a contact was chosen, look up its
          * 4-byte text pointer (offset 27 = label[25] + event_flag[2]) and run it
          * as a DISPLAY_TEXT child. Port of asm/text/display_telephone_contact_text.asm. */

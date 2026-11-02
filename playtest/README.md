@@ -394,9 +394,11 @@ frame reads the same pad as the one before. `input` is ignored by default (the
 `playtest/out/autodiff/`; rerun a side with `--input NAME.port.play` / `emu.py
 --count-frames --input NAME.emu.play`.
 
-Expected noise: RNG states one call apart for a few frames around merged lag
-frames (`WINDOW_TICK` calls RAND even on instant-printing ticks), and 1-frame
-`idle`/`focus` differences where a window closes.
+An RNG state one call apart for a few frames (`WINDOW_TICK` calls RAND on every
+tick, so the RNG counts window ticks) usually means the port ran a tick inline
+without presenting its frame: a `CLOSE_WINDOW` or `SET_WINDOW_TITLE` wait that a
+mode-step dropped. Check the emu's call chain (`modes=`) frame by frame around it
+(`N -` wall steps with `state`/`rng`) to find the missing frame.
 
 ## Implementation
 
