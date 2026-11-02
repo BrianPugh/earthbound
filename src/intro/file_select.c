@@ -1887,6 +1887,9 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
 
         case NGN_FINALIZE:
             break; /* fall out of the switch into the finalize body below */
+
+        case NGN_DONE:
+            return STEP_RESULT_POP(1);
         }
 
         break; /* NGN_FINALIZE reached: run the synchronous finalize, then POP */
@@ -1991,8 +1994,17 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
      * script). The incremental saves during text speed/sound/flavour
      * selection are handled by those individual menu functions. */
 
+    /* @FINALIZE_AND_START's CLOSE_ALL_WINDOWS ends with a WINDOW_TICK, a frame
+     * of its own before RUN_FILE_MENU's WINDOW_TICK (FM_NG_NAMING_RESULT runs
+     * the rest of @FINALIZE_AND_START after it). */
+    (void)take_unpresented_ticks();
     close_all_windows();
-
+    st->phase = NGN_DONE;
+    {
+        uint16_t owed = take_unpresented_ticks();
+        if (owed)
+            return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+    }
     return STEP_RESULT_POP(1);
 }
 
@@ -2074,6 +2086,16 @@ StepResult mode_step_file_menu(ModeState *ms) {
     FileMenuState *st = &ms->file_menu;
 
     for (;;) {
+        /* The cascade's CLOSE_WINDOW / CLOSE_FOCUS_WINDOW / CLOSE_ALL_WINDOWS
+         * each end with a WINDOW_TICK (US), a frame of its own before the next
+         * menu or close. A phase runs them inline and moves on with `continue`,
+         * so present what it owes before the next phase runs (st->phase is
+         * already the next one). */
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
         switch ((FileMenuPhase)st->phase) {
         case FM_FADEIN_WAIT:
             /* FILE_SELECT_MENU's @WAIT_FADE (file_select_menu.asm:262-265), after
@@ -2179,8 +2201,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 ow.respawn_x = game_state.leader_x_coord;
                 ow.respawn_y = game_state.leader_y_coord;
                 close_all_windows();
-                fm_finalize_and_start();
-                return STEP_RESULT_POP(1);
+                st->phase = FM_START;   /* after CLOSE_ALL_WINDOWS' frame */
+                continue;
 
             case 2: /* Copy — @MENU_COPY_SELECTED: SHOW_FILE_COPY_DIALOG.
                      * The submenu window stays open behind the copy window. */
@@ -2395,6 +2417,11 @@ StepResult mode_step_file_menu(ModeState *ms) {
             g_mode_push_init.new_game_naming.phase = NGN_ENTER;
             st->phase = FM_NG_NAMING_RESULT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_NEW_GAME_NAMING, &g_mode_push_init);
+
+        case FM_START:
+            /* @FINALIZE_AND_START after its CLOSE_ALL_WINDOWS (Continue) */
+            fm_finalize_and_start();
+            return STEP_RESULT_POP(1);
 
         case FM_NG_NAMING_RESULT:
             if (mode_child_result() == 0) {

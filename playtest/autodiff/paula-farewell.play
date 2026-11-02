@@ -16,6 +16,9 @@
 # lag: 445
 # skip: 2780
 # lag: 2841
+# The 2 boots reach the setup in different frames; a port wait puts the walk to the lair on
+# the frame phase the original's has, so the party trails the leader the same way
+port: wait 1
 flag 11 1; teleport 192 6056 0; wait 10; until idle 300; 30 UP; until idle 3000
 teleport 4224 1000 0; wait 20; until idle 300; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance
 debug on; wait 10

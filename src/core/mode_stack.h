@@ -2178,6 +2178,7 @@ typedef enum {
     FM_NG_NAMING_RESULT,/* naming popped: started (pop 1) or backed out (re-enter flavour) */
     FM_COPY_RESULT,     /* after the copy-destination selection_menu(1) (SHOW_FILE_COPY_DIALOG) */
     FM_CORRUPTION_CHECK,/* CORRUPTION_CHECK: "save data lost" text per flagged slot, then the slot list's menu */
+    FM_START,           /* Continue after CLOSE_ALL_WINDOWS' frame: @FINALIZE_AND_START, pop 1 */
 } FileMenuPhase;
 
 typedef struct {
@@ -2217,6 +2218,7 @@ typedef enum {
     NGN_NAME_MSG,       /* name box shown: create the message window */
     NGN_PROMPT_PUSH,    /* message window shown: print the prompt, push NAMING_PROMPT */
     NGN_CONFIRM_WINDOWS, /* CLOSE_ALL_WINDOWS shown: build the confirmation windows */
+    NGN_DONE,           /* after @FINALIZE_AND_START's CLOSE_ALL_WINDOWS frame: POP 1 */
 } NewGameNamingPhase;
 
 typedef struct {

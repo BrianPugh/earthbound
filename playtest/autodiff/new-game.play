@@ -4,17 +4,15 @@
 # through Don't Care -> OK, Yep, then the whole prologue (meteorite fall, the hilltop,
 # the police, home) up to control in Ness's bedroom
 # After Yep the original loads the overworld across 2 lag frames: frame 2367 is sampled
-# part-way through it (still in FILE_SELECT_INIT), and the load takes one more CPU-time
-# frame before the prologue text's CC_08 wait
+# part-way through it (still in FILE_SELECT_INIT)
 # skip: 2367
-# lag: 2371
 # Each of the prologue's 3 TELEPORTs repeats that: the first emu sample of its load is
 # part-way in (skip), and its fade-in ends a CPU-time frame later (lag)
-# skip: 3095
+# skip: 3096
 # lag: 3116
-# skip: 3841
+# skip: 3842
 # lag: 3862
-# skip: 4961
+# skip: 4962
 # lag: 4982
 ---
 press A; wait 60; press A; wait 30; press A; wait 30; press A; wait 60
