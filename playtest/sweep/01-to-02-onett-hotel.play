@@ -1,0 +1,31 @@
+# save: 01-Start
+# Sweep segment 01 -> 02: from the house phone out the front door, down the hill past the
+# library into Onett, into Hotel Onett and the lobby phone: Dad, Record, Continue (02-Sharks
+# starts there). No levelling or shopping (the save's L8 and equipment came from grinding); no
+# battles on the way. Body recorded with padlog on the port (playtest/padlog_body.py); 2 pad
+# changes that fell on the frame after an emu lag-merged frame were moved a frame later (the
+# original reads the previous pad there: playtest/sweep/STATUS.md)
+# The front door's approach: a CPU-time frame in the original (lag-merged 235)
+# lag: 235
+# Onett's streets lag every few frames in the original (NPCs, map streaming); the overclock is
+# off for the house (its NPC phases come from the boot) and on from the walk down the hill
+# overclock-on: 1000
+# Hotel Onett's door load: the first emu sample is part-way in (skip) and its fade-in starts a
+# CPU-time frame later (lag), as in hotel-door.play
+# skip: 2285
+# lag: 2305
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the
+# load, so the original's fade-in ends a logic frame later (wall-clock noise)
+# ignore: idle 2315
+---
+20 DOWN; 170 RIGHT; 40 UP+LEFT; 30 RIGHT; 28 -; 48 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT
+12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 13 DOWN+LEFT; 12 LEFT; 8 DOWN
+2 LEFT; 41 DOWN+LEFT; 12 LEFT; 17 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 17 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 17 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 21 RIGHT; 32 DOWN; 106 RIGHT; 123 DOWN; 26 LEFT; 67 DOWN; 3 LEFT; 59 DOWN+LEFT
+58 DOWN; 61 DOWN+LEFT; 270 LEFT; 24 UP+LEFT; 12 LEFT; 24 UP+LEFT; 12 LEFT; 24 UP; 12 UP+LEFT; 12 UP+RIGHT
+24 UP+LEFT; 12 LEFT; 21 DOWN+LEFT; 66 LEFT; 2 UP; 69 DOWN; 6 LEFT; 24 DOWN; 12 DOWN+LEFT; 4 DOWN
+40 DOWN+LEFT; 80 DOWN; 120 DOWN+LEFT; 39 DOWN; 36 RIGHT; 22 DOWN+RIGHT; 16 RIGHT; 6 UP; 56 -; 123 LEFT
+20 UP; 2 A; 6 -; 2 A; 28 -; 1 A; 15 -; 2 A; 22 -; 1 A
+37 -; 1 A; 11 -; 1 A; 46 -; 2 A; 10 -; 1 A; 73 -; 1 A
+57 -; 1 A; 37 -; 2 A; 52 -; 1 A; 47 -; 1 A; 29 -; 1 A
+34 -

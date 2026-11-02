@@ -481,6 +481,14 @@ walking steps (in a session, adaptive moves are fine: the game waits between bat
 --no-sync python playtest/padlog_body.py FILE` prints the body as `N BUTTONS` runs that replay
 the port run frame for frame (giygas-pray.play, paula-farewell.play).
 
+The clean sweep (`playtest/sweep/`, status and method in `playtest/sweep/STATUS.md`) replays the
+main story this way, one scenario per save-to-save segment (`01-to-02-onett-hotel.play`, ...).
+`playtest/sweep/go.py` walks a recording session through waypoints (Auto Fighting battles on the
+way), and `playtest/sweep/nudge.py` moves a padlog pad change that lands on the frame after an
+emu lag-merged frame one frame later, where the original would read it late. `# overclock-on: K
+[MODE]` turns the emu's overclock on after port frame K (a lag-heavy town walk that starts in a
+house whose NPC phases need the normal speed).
+
 Read a report with care: a first divergence of `idle` alone, 1 frame, at the end
 of a fade-in near a lag-merged frame is the original's fade running on NMIs, which
 lag frames shift against logic frames either way: a long load before FADE_IN takes

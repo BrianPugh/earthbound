@@ -42,7 +42,10 @@ the emu with snes9x's CPU overclock, for places whose logic overruns every frame
 (Moonside): there no frame boundary falls on a wall-frame boundary, so every sample
 would be ``LSTEP mid``; with the faster CPU each frame fits and parks, like the port's. An
 ``# overclock-off: K`` line turns it off after (port) frame K (emu.py ``overclock disabled``),
-for a scenario whose later part breaks under it (the credits hang overclocked: ending.play).
+for a scenario whose later part breaks under it (the credits hang overclocked: ending.play), and
+``# overclock-on: K [MODE]`` turns it on (default ``max``) after (port) frame K, for a
+scenario whose setup and start must run at the normal speed (NPC phases before the seed)
+but whose later part lags (a town walk: playtest/sweep/).
 ``# boot: power`` plays the body from power-on (no boot commands, no seed: RESET seeds the
 RNG with the default --rng). An ``# extra: K [K ...]`` line marks port frames the original
 spends inside a load's lag (the mirror of ``# lag:``): they have no emu counterpart, the emu
@@ -164,7 +167,18 @@ def emu_to_port(j, lags, extras=()):
 
 
 def build_script(
-    side, setup, pads, seed, lags=(), boot_kind="load", reseeds=None, oc_off=(), at=None, extras=(), bright=False
+    side,
+    setup,
+    pads,
+    seed,
+    lags=(),
+    boot_kind="load",
+    reseeds=None,
+    oc_off=(),
+    at=None,
+    extras=(),
+    bright=False,
+    oc_on=None,
 ):
     """The whole input script for one side."""
     snapshot = SNAPSHOT_BRIGHT if bright else SNAPSHOT
@@ -200,6 +214,8 @@ def build_script(
             out.append("rng {} {}".format(*reseeds[p]))
         if side == "emu" and p in oc_off:
             out.append("overclock disabled")
+        if side == "emu" and p in (oc_on or {}):
+            out.append(f"overclock {oc_on[p]}")
         out += (at or {}).get(p, [])
     if side == "emu":
         out.append("lag")
@@ -355,6 +371,7 @@ OVERCLOCK_HEADER = re.compile(r"^#\s*overclock:\s*(light|compatible|max)\b", re.
 SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
 AT_HEADER = re.compile(r"^#\s*at:\s*(\d+)\s+(debug on|debug off)\s*$", re.M)
 OVERCLOCK_OFF_HEADER = re.compile(r"^#\s*overclock-off:\s*(\d+)", re.M)
+OVERCLOCK_ON_HEADER = re.compile(r"^#\s*overclock-on:\s*(\d+)(?:[ \t]+(light|compatible|max))?", re.M)
 RESEED_HEADER = re.compile(r"^#\s*reseed:\s*(\d+)(?:[ \t]+(\d+)[ \t]+(\d+))?", re.M)
 COMPARE_BRIGHT_HEADER = re.compile(r"^#\s*compare:\s*bright\b", re.M)
 BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu|power)\b", re.M)
@@ -425,7 +442,10 @@ def run_scenario(scen, save, a, out):
     for side, cmd in sides.items():
         script = out / f"{name}.{side}.play"
         oc_off = {int(k) for k in OVERCLOCK_OFF_HEADER.findall(Path(scen).read_text())}
-        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind, reseeds, oc_off, at, extras, bright))
+        oc_on = {int(k): m or "max" for k, m in OVERCLOCK_ON_HEADER.findall(Path(scen).read_text())}
+        script.write_text(
+            build_script(side, setup, pads, a.rng, lags, boot_kind, reseeds, oc_off, at, extras, bright, oc_on)
+        )
         procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
     for side, p in procs.items():
         try:
