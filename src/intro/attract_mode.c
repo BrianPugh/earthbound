@@ -261,12 +261,10 @@ void run_attract_mode_prepare(uint16_t scene_index) {
   ppu.coldata_g = 0;
   ppu.coldata_b = 0;
 
-  /* Step 10: Clear TM (no layers visible initially) and enable screen.
-   * The ROM's NMI handler writes INIDISP from a mirror; in the C port
-   * we set it directly. After the title screen fadeout (INIDISP=$80),
-   * we need to turn the screen back on at full brightness. */
+  /* Step 10: Clear TM (no layers visible initially). INIDISP stays as the
+   * title's FADE_OUT_WITH_MOSAIC left it ($80): the scene script's TELEPORT_TO
+   * then fades out in a single NMI step and fades the scene in after the load. */
   ppu.tm = 0;
-  ppu.inidisp = 0x0F;
 
   /* Step 11: Initialize oval window (type 0 = standard open) */
   init_oval_window(0);
