@@ -824,14 +824,44 @@ class Player:
         self.logic_reset_pending = True  # lstep state (see logic_step)
         self.lag_frames = 0
         self.logic_mid = False
+        self.egroup = None  # `egroup N`: battle group forced onto every overworld enemy
 
     # --- frames
+
+    def egroup_apply(self):
+        """Give every overworld enemy battle group ``self.egroup`` (as the port's ``egroup``).
+
+        ENTITY_NPC_IDS becomes group + 0x8000 and ENTITY_ENEMY_IDS the group's
+        enemies (ENEMY_BATTLE_GROUPS_TABLE, each repeated by its count) in turn.
+        """
+        g = self.game
+        n = 0
+        if self.egroup is None:
+            return n
+        e8 = g.sym("BTL_ENTRY_PTR_TABLE") + self.egroup * 8
+        p = g.rom8(e8) | g.rom8(e8 + 1) << 8 | g.rom8(e8 + 2) << 16
+        enemies = []
+        while g.rom8(p) != 0xFF:
+            enemies += [g.rom8(p + 1) | g.rom8(p + 2) << 8] * g.rom8(p)
+            p += 3
+        npcs, eids = g.sym("ENTITY_NPC_IDS"), g.sym("ENTITY_ENEMY_IDS")
+        for e in range(MAX_ENTITIES):
+            npc = g.entity16("ENTITY_NPC_IDS", e)
+            if g.entity16("ENTITY_SCRIPT_TABLE", e) == 0xFFFF or npc == 0xFFFF or not npc & 0x8000:
+                continue
+            g.put16(npcs + e * 2, 0x8000 | self.egroup)
+            if enemies:
+                g.put16(eids + e * 2, enemies[n % len(enemies)])
+            n += 1
+        return n
 
     def step(self, pad=0):
         """Run one frame with ``pad`` (a libretro joypad bitmask) held."""
         self.core.run(pad)
         self.frame += 1
         self.game.frame_changed()
+        if self.egroup is not None:
+            self.egroup_apply()
         if self.recording:
             if self.record_video is not None:
                 self.record_video.write(self.core.rgb().tobytes())
@@ -1540,6 +1570,17 @@ class Player:
             g.put16(b + BT_HP, ints[1])
             g.put16(b + BT_HP_TARGET, ints[1])
             log(f"EHP [{ints[0]}] hp={g.w16(b + BT_HP)}")
+        elif cmd == "egroup":
+            # every overworld enemy's battle group becomes N, now and after every later frame
+            if args and args[0] == "off":
+                self.egroup = None
+                log("EGROUP off")
+                return
+            if not ints or not 0 <= ints[0] <= 0x7FFF:
+                self.err("usage: egroup N|off")
+                return
+            self.egroup = ints[0]
+            log(f"EGROUP {ints[0]} n={self.egroup_apply()}")
         elif cmd == "heal":
             for cid in g.party():
                 c = g.char(cid)

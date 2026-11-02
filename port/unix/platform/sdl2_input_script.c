@@ -91,6 +91,8 @@
 #include "include/pad.h"
 #include "include/constants.h"
 #include "core/math.h"
+#include "data/assets.h"
+#include "include/binary.h"
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "entity/entity.h"
@@ -1078,6 +1080,39 @@ static void poke_pp(CharStruct *c, uint16_t pp) {
  * this frame's command processing (it waits on the root boundary). */
 static FILE *pad_log;
 
+/* `egroup N`: the battle group forced onto every overworld enemy, -1 = off. */
+static int egroup_override = -1;
+
+/* Every overworld enemy (ENTITY_NPC_IDS = group + 0x8000) gets battle group
+ * egroup_override, and the enemies of that group (ENEMY_BATTLE_GROUPS_TABLE,
+ * each repeated by its count) in turn as its ENTITY_ENEMY_IDS: the touched one
+ * is what INITIATE_ENEMY_ENCOUNTER puts in the battle, and the group's others
+ * join from the enemies around it that pathfind in. Returns the count. */
+static int egroup_apply(void) {
+    if (egroup_override < 0)
+        return 0;
+    const uint8_t *ptrs = ASSET_DATA(ASSET_DATA_BTL_ENTRY_PTR_TABLE_BIN);
+    const uint8_t *groups = ASSET_DATA(ASSET_DATA_ENEMY_BATTLE_GROUPS_TABLE_BIN);
+    const uint8_t *e8 = ptrs + (uint32_t)egroup_override * 8;
+    const uint8_t *g = groups + (((uint32_t)e8[0] | (uint32_t)e8[1] << 8 | (uint32_t)e8[2] << 16) - 0xD0D52D);
+    int16_t list[16];
+    int len = 0;
+    for (; *g != 0xFF; g += 3)
+        for (int c = 0; c < *g && len < 16; c++)
+            list[len++] = (int16_t)read_u16_le(g + 1);
+    int n = 0;
+    for (int e = 0; e < MAX_ENTITIES; e++) {
+        if (entities.script_table[e] == -1 || entities.npc_ids[e] == 0xFFFF ||
+            !(entities.npc_ids[e] & 0x8000))
+            continue;
+        entities.npc_ids[e] = (uint16_t)(0x8000 | egroup_override);
+        if (len)
+            entities.enemy_ids[e] = list[n % len];
+        n++;
+    }
+    return n;
+}
+
 static bool run_command(const char *cmd, const char *arg, const char *line, uint16_t *aux) {
     int v1 = 0, v2 = 0, v3 = 0;
     int nv = sscanf(line, "%*s %d %d %d", &v1, &v2, &v3);
@@ -1219,6 +1254,20 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             Battler *b = &bt.battlers_table[slot];
             b->hp = b->hp_target = (uint16_t)v2;
             printf("EHP [%d] hp=%u\n", v1, (unsigned)b->hp);
+        }
+    } else if (strcmp(cmd, "egroup") == 0) {
+        /* Every overworld enemy's battle group (ENTITY_NPC_IDS = group + 0x8000,
+         * read by INITIATE_ENEMY_ENCOUNTER) becomes N, now and at every later
+         * frame (enemies spawned later too), until `egroup off`: touching one
+         * starts enemy group N's battle. Sprite and ENTITY_ENEMY_IDS stay. */
+        if (arg && strncmp(arg, "off", 3) == 0) {
+            egroup_override = -1;
+            printf("EGROUP off\n");
+        } else if (nv < 1 || v1 < 0 || v1 > 0x7FFF) {
+            script_error("usage: egroup N|off%s", "");
+        } else {
+            egroup_override = v1;
+            printf("EGROUP %d n=%d\n", v1, egroup_apply());
         }
     } else if (strcmp(cmd, "heal") == 0) {
         for (int i = 0; i < TOTAL_PARTY_COUNT; i++) {
@@ -1368,6 +1417,7 @@ uint16_t input_script_next(uint16_t *aux) {
 static uint16_t script_next(uint16_t *aux) {
     char line[256];
     uint16_t pad = 0;
+    egroup_apply();
     frame_was_rendered = video_frames_rendered != last_poll_render_count;
     last_poll_render_count = video_frames_rendered;
 
