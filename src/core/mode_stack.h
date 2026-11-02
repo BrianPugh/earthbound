@@ -2502,7 +2502,8 @@ typedef struct {
  * get_off_bicycle_with_message() (overworld_teleport.c,
  * asm/overworld/get_off_bicycle.asm): show the "got off the bicycle" message,
  * then dismount. BD_TEXT creates the standard text window and STEP_PUSHes the
- * message (DISPLAY_TEXT); BD_CLOSE closes the window + one window_tick frame;
+ * message (DISPLAY_TEXT); BD_CLOSE closes the window (CLOSE_WINDOW's own tick
+ * frame) and BD_TICK runs GET_OFF_BICYCLE's window_tick frame;
  * BD_DISMOUNT calls dismount_bicycle() and POPs. The caller (the overworld
  * root) brackets the call with disable/enable_all_entities, unchanged.
  * get_off_bicycle_with_message() is the pump bridge; the root STEP_PUSHes at
@@ -2514,6 +2515,7 @@ typedef enum {
     BD_CLOSE_FLUSH, /* park-propagating resume of BD_CLOSE's window_tick frame */
     BD_DISMOUNT_FINISH, /* dismount_bicycle_finish (create sprite), POP */
     BD_DISMOUNT_FLUSH,  /* park-propagating resume of BD_DISMOUNT's render frame */
+    BD_TICK,       /* GET_OFF_BICYCLE's own window_tick frame (after CLOSE_WINDOW's) */
 } BicycleDismountPhase;
 
 typedef struct {

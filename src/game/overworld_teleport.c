@@ -1117,9 +1117,25 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
         return STEP_RESULT_CONTINUE();
     }
 
-    case BD_CLOSE:
-        /* Assembly: CLOSE_FOCUS_WINDOW + WINDOW_TICK (one frame). */
+    case BD_CLOSE: {
+        /* Assembly: CLOSE_FOCUS_WINDOW + WINDOW_TICK. CLOSE_WINDOW ends with its
+         * own WINDOW_TICK (US), a frame of its own before GET_OFF_BICYCLE's
+         * (emu: CLOSE_WINDOW>WINDOW_TICK_WITHOUT_INSTANT_PRINTING one logic
+         * frame, then WINDOW_TICK the next, one RAND each). */
+        (void)take_unpresented_ticks();
         close_focus_window();
+        uint16_t owed = take_unpresented_ticks();
+        bs->phase = BD_TICK;
+        if (owed) {
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
+            g_mode_push_init.battle_wait.remaining = owed;
+            g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+        }
+    }
+        EB_FALLTHROUGH;
+    case BD_TICK:
         if (window_tick_work_step()) {
             bs->phase = BD_CLOSE_FLUSH;
             return actionscript_frame_take_push();
