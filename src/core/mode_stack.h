@@ -574,7 +574,10 @@ typedef enum {
     UI_RADE,           /* render_and_disable_entities split: work + yield */
     UI_RADE_FLUSH,     /* render_and_disable_entities split: flush a parked frame */
     UI_RADE_FINISH,    /* render_and_disable_entities split: disable tail -> UI_EXIT */
-    UI_EXIT,           /* @CLOSE_TEXT_WINDOW: close the text window, POP 1 */
+    UI_EXIT,           /* @CLOSE_TEXT_WINDOW: close the text window (a frame) */
+    UI_SETUP_INV,      /* after CLOSE_WINDOW(INVENTORY_MENU)'s frame: close INVENTORY */
+    UI_SETUP_TEXT,     /* after CLOSE_WINDOW(INVENTORY)'s frame: names, text window */
+    UI_EXIT_POP,       /* after the text window's close frame: POP 1 */
 } UseItemPhase;
 
 typedef struct {

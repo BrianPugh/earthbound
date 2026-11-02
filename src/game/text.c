@@ -2540,9 +2540,25 @@ StepResult mode_step_use_item(ModeState *ms) {
 
         case UI_SETUP: {
             /* @SETUP_ACTION_WINDOW: close inventory windows, set up battle state
-             * (assembly lines 275-334) */
+             * (assembly lines 275-334). Each CLOSE_WINDOW's WINDOW_TICK is a
+             * frame of its own (emu, 24-Museum Goods > Use). */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_INVENTORY_MENU);
+            if (menu_flush_ticks(&st->phase, UI_SETUP_INV, &r))
+                return r;
+            continue;
+        }
+
+        case UI_SETUP_INV: {
+            StepResult r;
             close_window(WINDOW_INVENTORY);
+            if (menu_flush_ticks(&st->phase, UI_SETUP_TEXT, &r))
+                return r;
+            continue;
+        }
+
+        case UI_SETUP_TEXT: {
 
             /* Set attacker name from character (assembly lines 280-287) */
             set_battle_attacker_name(
@@ -2713,10 +2729,19 @@ StepResult mode_step_use_item(ModeState *ms) {
             st->phase = UI_EXIT;
             continue;
 
-        case UI_EXIT:
-        default:
-            /* @CLOSE_TEXT_WINDOW (assembly lines 540-543) */
+        case UI_EXIT: {
+            /* @CLOSE_TEXT_WINDOW (assembly lines 540-543); its WINDOW_TICK
+             * is a frame of its own. */
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
+            if (menu_flush_ticks(&st->phase, UI_EXIT_POP, &r))
+                return r;
+            continue;
+        }
+
+        case UI_EXIT_POP:
+        default:
             return STEP_RESULT_POP(1);  /* TRUE */
         }
     }
