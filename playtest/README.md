@@ -346,6 +346,15 @@ save's story point. To recreate it, download the zips from that page and copy
 each `earthbound.srm` to `playtest/saves/NN-Name.srm`. The last zip ("End")
 holds only ZSNES savestates and is skipped.
 
+Saves numbered from 37 on are not from that page: they were made in this repo by
+playing the original ROM in emu mode from the nearest earlier save and saving
+in game, for story points no downloaded save reaches. They're in
+`saves/INDEX` too, which says how each was made; autodiff scenarios that need
+one (`# save: 37-ChaosTheater`: chaos-theater-show.play) can't run without it,
+so copy it from a checkout that has it (or recreate it as INDEX describes).
+`run-NN.srm` files are the port's continuous-playthrough saves
+(docs/plans/continuous-run.md), not used by the suite.
+
 ## The original game (emu mode)
 
 `pt.py start NAME --emu --save SAVE.srm` runs the ORIGINAL game instead of

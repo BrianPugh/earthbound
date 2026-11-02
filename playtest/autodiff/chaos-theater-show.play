@@ -1,0 +1,34 @@
+# save: 37-ChaosTheater
+# Chaos Theater lobby: Use the Backstage pass on the ticket man (npc226), into the hall, talk to the
+# girl by the stage door (npc231) to go backstage, then out through the stage door (TEXT_DOOR_234):
+# the Runaway Five's show (EVENT_357/365/368: spotlight setup, HDMA windows on channels 4 and 5).
+# Body recorded with padlog
+# the TELEPORT_TO backstage lags the original for ~25 frames, and that lag-merged load can't be
+# lined up without the overclock
+# overclock: max
+# the hall door's load: the first emu sample is part-way in (skip) and the fade-in ends a logic
+# frame later in the original (lag), as at every door arrival
+# skip: 635
+# lag: 655
+# overclocked, the hall's map load still takes the NMI before FADE_IN, so the original's fade-in
+# ends a logic frame later (battle-autowin.play)
+# ignore: idle 665
+# the girl's TELEPORT_TO backstage: the same pair at its load
+# skip: 1477
+# lag: 1497
+# the stage door (TEXT_DOOR_234): the same pair at its load
+# skip: 1747
+# lag: 1767
+# the show's closing TELEPORT_TO into the hall: the same pair
+# skip: 6409
+# lag: 6429
+# its fade-in ends a logic frame later in the original (the load takes the NMI before FADE_IN)
+# ignore: idle 6439
+teleport 7576 7387 0; wait 10; until idle 300
+---
+2 A; 6 -; 2 RIGHT; 10 -; 2 A; 314 -; 2 A; 16 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 RIGHT; 10 -
+2 A; 16 -; 2 A; 112 -; 1 A; 56 -; 60 UP; 16 -; 240 LEFT; 2 A
+6 -; 2 A; 96 -; 1 A; 139 -; 1 A; 107 -; 1 A; 91 -; 1 A
+43 -; 1 A; 243 -; 82 RIGHT; 240 -; 1 A; 77 -; 1 A; 69 -; 1 A
+31 -; 1 A; 105 -; 1 A; 4221 -
