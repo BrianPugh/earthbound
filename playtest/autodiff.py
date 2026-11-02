@@ -46,7 +46,9 @@ for a scenario whose later part breaks under it (the credits hang overclocked: e
 ``# overclock-on: K [MODE]`` turns it on (default ``max``) after (port) frame K, for a
 scenario whose setup and start must run at the normal speed (NPC phases before the seed)
 but whose later part lags (a town walk: playtest/sweep/).
-``# boot: power`` plays the body from power-on (no boot commands, no seed: RESET seeds the
+A ``# late-pads`` line reruns the port on the pads the original actually read (the frame
+after a lag-merged emu frame plays the merged frame's pad), for long walks recorded on the
+port (playtest/sweep/). ``# boot: power`` plays the body from power-on (no boot commands, no seed: RESET seeds the
 RNG with the default --rng). An ``# extra: K [K ...]`` line marks port frames the original
 spends inside a load's lag (the mirror of ``# lag:``): they have no emu counterpart, the emu
 doesn't get their pads, and later emu frames are compared with port frame + 1 for each.
@@ -355,6 +357,25 @@ def compare(port, emu, pads, ignore):
     return n, first, lines
 
 
+def late_pads(pads, lags, extras, emu_snaps):
+    """Return the port's pads as the original read them (late after each lag-merged frame).
+
+    A game frame that completes inside a lag frame (merged: no sample, or an ``LSTEP mid``
+    one) is followed by one that starts before the next NMI reads the joypad, so it plays the
+    pad the merged frame had. The port, which has no lag, would read the new pad there and
+    walk a pixel ahead. Computed from the emu's own run (its merged frames are facts of that
+    run, and the frame after one ignores its own pad), so a port rerun on these pads plays
+    what the original played.
+    """
+    emu = emu_pads(pads, lags, extras)
+    eff = list(pads)
+    for j in sorted(set(range(1, len(emu))) - set(emu_snaps)):
+        p = emu_to_port(j + 1, lags, extras)  # the frame after merged emu frame j
+        if p is not None and 1 <= p <= len(eff):
+            eff[p - 1] = emu[j - 1]
+    return eff
+
+
 def run_side(cmd, script_path, log_path):
     """Start one side (stdout to log_path); return the Popen."""
     with Path(log_path).open("w") as log:
@@ -375,6 +396,7 @@ OVERCLOCK_ON_HEADER = re.compile(r"^#\s*overclock-on:\s*(\d+)(?:[ \t]+(light|com
 RESEED_HEADER = re.compile(r"^#\s*reseed:\s*(\d+)(?:[ \t]+(\d+)[ \t]+(\d+))?", re.M)
 COMPARE_BRIGHT_HEADER = re.compile(r"^#\s*compare:\s*bright\b", re.M)
 BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu|power)\b", re.M)
+LATE_PADS_HEADER = re.compile(r"^#\s*late-pads\b", re.M)
 SRAM_SIZE = 8192
 LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
 
@@ -461,6 +483,29 @@ def run_scenario(scen, save, a, out):
         report += [f"  {ln}" for ln in lost]
         return (1 if lost or not checked else 0), "\n".join(report)
     res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
+    if LATE_PADS_HEADER.search(Path(scen).read_text()):
+        eff = late_pads(pads, lags, extras, res["emu"])
+        moved = sum(1 for x, y in zip(pads, eff) if x != y)
+        if moved:
+            # Rerun the port on the pads the original read (late-pads: see late_pads), from a
+            # fresh copy of the save (the first run may have saved over its copy)
+            if save == "blank":
+                copies["port"].write_bytes(bytes(SRAM_SIZE))
+            else:
+                shutil.copyfile(save, copies["port"])
+            script = out / f"{name}.port.play"
+            script.write_text(
+                build_script("port", setup, eff, a.rng, lags, boot_kind, reseeds, (), at, extras, bright, None)
+            )
+            p = run_side(sides["port"], script, out / f"{name}.port.log")
+            try:
+                p.wait(timeout=a.timeout)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
+                report.append("  port (late-pads rerun) timed out")
+            res["port"] = parse_snapshots((out / f"{name}.port.log").read_text(errors="replace"))
+            report.append(f"  late-pads: port rerun with {moved} pads read late by the original")
     if lags or extras:
         res["emu"] = {
             emu_to_port(j, lags, extras): v for j, v in res["emu"].items() if emu_to_port(j, lags, extras) is not None

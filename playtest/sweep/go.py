@@ -25,7 +25,7 @@ def do(session, cmd):
     modes = re.findall(r"modes=\[([^\]]*)\]", out)
     return (
         (int(pos[-1][0]), int(pos[-1][1])) if pos else None,
-        bool(bat) and bat[-1] != "0",
+        (bool(bat) and bat[-1] != "0") or "idle=battle" in out,
         modes[-1] if modes else "",
         out,
     )
@@ -65,7 +65,15 @@ def main():
     for wp in points:
         tx, ty = map(int, wp.split(","))
         stuck = 0
+        best, since_best = 1 << 30, 0
         while abs(tx - pos[0]) > 3 or abs(ty - pos[1]) > 3:
+            dist = abs(tx - pos[0]) + abs(ty - pos[1])
+            if dist < best:
+                best, since_best = dist, 0
+            else:
+                since_best += 1
+                if since_best >= 6:  # oscillating round an obstacle: give up on this waypoint
+                    sys.exit(f"NO PROGRESS at {pos} heading {wp}")
             d = heading(tx - pos[0], ty - pos[1])
             n = max(2, min(24, int(max(abs(tx - pos[0]), abs(ty - pos[1])) / 1.5)))
             npos, bat, modes, _ = do(session, f"until battle {n} {d}")
