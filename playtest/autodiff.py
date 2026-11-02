@@ -71,6 +71,8 @@ DEFAULT_BIN = ROOT / "port" / "unix" / "build-native" / "earthbound"
 # (emu.py's FILE_MENU is an alias for FILE_SELECT_INIT)
 MENU_BOOT = "until in:FILE_MENU 3000 START*; until input 600"
 SNAPSHOT = ["state", "digest", "rng"]
+# ``# compare: bright``: also the brightness each logic frame ended with (FRAC bright=)
+SNAPSHOT_BRIGHT = ["state", "digest", "frac", "rng"]
 STATE_KEYS = (
     "idle",
     "input",
@@ -125,42 +127,63 @@ def side_lines(lines, side):
     return out
 
 
-def emu_pads(pads, lags):
-    """The emu's pads: the port's, with the pad of each extra ``# lag: K`` frame repeated."""
-    out = list(pads)
+def emu_pads(pads, lags, extras=()):
+    """The emu's pads: the port's minus each ``# extra: K`` frame's, each ``# lag: K`` one repeated."""
+    out = [p for n, p in enumerate(pads, 1) if n not in extras]
     for k in sorted(lags):
         out.insert(k - 1, out[k - 2] if k >= 2 else "-")
     return out
 
 
-def emu_to_port(j, lags):
-    """The port frame emu logic frame j is compared with (None for an extra lag frame)."""
+def emu_to_port(j, lags, extras=()):
+    """The port frame emu logic frame j is compared with (None for an extra lag frame).
+
+    The k-th emu frame that isn't a ``# lag:`` frame is compared with the k-th port
+    frame that isn't an ``# extra:`` frame.
+    """
     if j in lags:
         return None
-    return j - sum(1 for k in lags if k < j)
+    p = j - sum(1 for k in lags if k < j)
+    for e in sorted(extras):
+        if e > p:
+            break
+        p += 1
+    return p
 
 
-def build_script(side, setup, pads, seed, lags=(), boot_kind="load", reseeds=None, oc_off=(), at=None):
+def build_script(
+    side, setup, pads, seed, lags=(), boot_kind="load", reseeds=None, oc_off=(), at=None, extras=(), bright=False
+):
     """The whole input script for one side."""
+    snapshot = SNAPSHOT_BRIGHT if bright else SNAPSHOT
     reseeds = reseeds or {}
-    boot = (MENU_BOOT if boot_kind == "menu" else BOOT if side == "port" else EMU_BOOT).split(";")
+    if boot_kind == "power":
+        # From power-on: no boot commands and no seed (RESET seeds RAND_A/RAND_B with
+        # $56781234, the default --rng, and clears FRAME_COUNTER on both sides)
+        boot = []
+    else:
+        boot = (MENU_BOOT if boot_kind == "menu" else BOOT if side == "port" else EMU_BOOT).split(";")
     step = "1 {}" if side == "port" else "lstep {}"
-    out = [b.strip() for b in boot] + side_lines(setup, side) + ["note SEED", f"rng {seed[0]} {seed[1]}", "fc 0"]
+    out = [b.strip() for b in boot] + side_lines(setup, side) + ["note SEED"]
+    if boot_kind != "power" or setup:
+        out += [f"rng {seed[0]} {seed[1]}", "fc 0"]
     if side == "emu":
         out.append("lstep reset")
-        pads = emu_pads(pads, lags)
-    out += SNAPSHOT
+        pads = emu_pads(pads, lags, extras)
+    out += snapshot
+    last = 0
     for i, pad in enumerate(pads, 1):
         out.append(step.format(pad))
         if side == "emu":
             # The original's lag frames advance FRAME_COUNTER (NMI) without a game
             # frame; the port has no lag. Re-sync it to the game-frame count so its
             # phase (HP/PP roller member, blinks) matches the port's.
-            p = emu_to_port(i, lags)
-            out.append(f"fc {(p if p is not None else i - 1 - sum(1 for k in lags if k < i)) & 0xFF}")
+            p = emu_to_port(i, lags, extras)
+            out.append(f"fc {(p if p is not None else last) & 0xFF}")
+            last = p if p is not None else last
         else:
             p = i
-        out += SNAPSHOT
+        out += snapshot
         if p in reseeds:
             out.append("rng {} {}".format(*reseeds[p]))
         if side == "emu" and p in oc_off:
@@ -213,7 +236,9 @@ def parse_snapshots(text):
                 rest = " | ".join(sorted(rest.split(" | ")))
             cur[key.lower()] = rest
         elif line.startswith("FOLLOW"):
-            cur["follow"] = GHOST.sub("", line[7:]).strip()
+            follow = GHOST.sub("", line[7:]).strip()
+            if follow:  # the emu prints no FOLLOW line when no member follows
+                cur["follow"] = follow
         elif line.startswith("DIGEST "):
             for k, v in re.findall(r" (\w+)=(\S*)", line):
                 if k == "ents":
@@ -226,6 +251,10 @@ def parse_snapshots(text):
                     cur["wins"] = " ".join(sorted(WIN.findall(v), key=lambda w: int(w.split(":")[0])))
                 else:
                     cur[k] = v
+        elif line.startswith("FRAC "):
+            m = re.search(r" bright=(\S+)", line)
+            if m:
+                cur["bright"] = m.group(1)
         elif line.startswith("RNG "):
             cur["rng"] = line[4:].strip()
             if not mid:  # sampled part-way into the next frame (emu lag): not comparable
@@ -309,12 +338,14 @@ def run_side(cmd, script_path, log_path):
 SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
 IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)(?:[ \t]+(\d+)(?:-(\d+))?)?[ \t]*$", re.M)
 LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
+EXTRA_HEADER = re.compile(r"^#\s*extra:((?:[ \t]+\d+)+)", re.M)
 OVERCLOCK_HEADER = re.compile(r"^#\s*overclock:\s*(light|compatible|max)\b", re.M)
 SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
 AT_HEADER = re.compile(r"^#\s*at:\s*(\d+)\s+(debug on|debug off)\s*$", re.M)
 OVERCLOCK_OFF_HEADER = re.compile(r"^#\s*overclock-off:\s*(\d+)", re.M)
 RESEED_HEADER = re.compile(r"^#\s*reseed:\s*(\d+)(?:[ \t]+(\d+)[ \t]+(\d+))?", re.M)
-BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu)\b", re.M)
+COMPARE_BRIGHT_HEADER = re.compile(r"^#\s*compare:\s*bright\b", re.M)
+BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu|power)\b", re.M)
 SRAM_SIZE = 8192
 LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
 
@@ -342,6 +373,8 @@ def run_scenario(scen, save, a, out):
         setup, body = [], text
     pads = expand_body(body)
     lags = {int(k) for k in LAG_HEADER.findall(Path(scen).read_text())}
+    bright = bool(COMPARE_BRIGHT_HEADER.search(Path(scen).read_text()))
+    extras = {int(k) for ks in EXTRA_HEADER.findall(Path(scen).read_text()) for k in ks.split()}
     at = {}
     for k, cmd in AT_HEADER.findall(Path(scen).read_text()):
         at.setdefault(int(k), []).append(cmd.strip())
@@ -378,7 +411,7 @@ def run_scenario(scen, save, a, out):
     for side, cmd in sides.items():
         script = out / f"{name}.{side}.play"
         oc_off = {int(k) for k in OVERCLOCK_OFF_HEADER.findall(Path(scen).read_text())}
-        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind, reseeds, oc_off, at))
+        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind, reseeds, oc_off, at, extras, bright))
         procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
     for side, p in procs.items():
         try:
@@ -388,14 +421,18 @@ def run_scenario(scen, save, a, out):
             p.wait()
             report.append(f"  {side} timed out")
     res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
-    if lags:
-        res["emu"] = {emu_to_port(j, lags): v for j, v in res["emu"].items() if emu_to_port(j, lags) is not None}
+    if lags or extras:
+        res["emu"] = {
+            emu_to_port(j, lags, extras): v for j, v in res["emu"].items() if emu_to_port(j, lags, extras) is not None
+        }
     lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
     ignore = a.ignore + parse_ignores(Path(scen).read_text())
+    if boot_kind == "power":
+        res["emu"].pop(0, None)  # sampled before RESET ran: uninitialized WRAM
     for k in SKIP_HEADER.findall(Path(scen).read_text()):
         res["emu"].pop(int(k), None)  # sampled part-way into a load's lag frame
     n, first, lines = compare(res["port"], res["emu"], pads, ignore)
-    merged = sorted(set(range(len(pads) + 1)) - set(res["emu"]))
+    merged = sorted(set(range(len(pads) + 1)) - set(res["emu"]) - extras)
     if first:
         f0 = min(first.values())
         near = [m for m in merged if f0 - LAG_WINDOW <= m <= f0]

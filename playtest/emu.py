@@ -160,6 +160,11 @@ FRAME_WAIT_FUNCS = ("WAIT_UNTIL_NEXT_FRAME", "FORCE_BLANK_AND_WAIT_VBLANK", "BLA
 NMI_SPIN_LOOPS = (
     ("LOAD_MAP_PALETTE", bytes.fromhex("29ff00d0f8")),
     ("FADE_OUT_WITH_MOSAIC", bytes.fromhex("f0fb")),
+    # FILE_SELECT_MENU's @WAIT_FADE and LOAD_MAP_AT_POSITION's @WAIT_FOR_FADE (REP;
+    # LDA FADE_PARAMETERS step; AND #$00FF; BNE): busy waits on an NMI fade, which
+    # the port presents as frames too (FM_FADEIN_WAIT, wait_for_fade_complete)
+    ("FILE_SELECT_MENU", bytes.fromhex("29ff00d0f8")),
+    ("LOAD_MAP_AT_POSITION", bytes.fromhex("29ff00d0f6")),
 )
 LOGIC_STEP_LIMIT = 120  # wall frames one lstep may take before giving up
 WAIT_FOR_NMI_LOOP = (9, 17)  # WAIT_UNTIL_NEXT_FRAME offsets: @WAIT_FOR_NMI loop + its STZ
@@ -854,9 +859,10 @@ class Player:
                 if start is None:
                     continue
                 off = g.core.rom.find(loop, start & 0x3FFFFF, g.function_end(start) & 0x3FFFFF)
-                if off >= 0:  # the loop starts at the LDA abs 3 bytes before
-                    lo = (start & 0xFF0000) | ((off - 3) & 0xFFFF)
-                    self._wait_ranges.append((lo, lo + 3 + len(loop)))
+                if off >= 0:  # the loop starts where its closing branch jumps back to
+                    head = off + len(loop) + loop[-1] - 0x100
+                    lo = (start & 0xFF0000) | (head & 0xFFFF)
+                    self._wait_ranges.append((lo, lo + off + len(loop) - head))
             self._nmi = {g.syms[n] for n in ("NMI_VECTOR", "NMI", "IRQ_VECTOR") if n in g.syms}
             w = g.syms["WAIT_UNTIL_NEXT_FRAME"]
             self._nmi_wait = range(w + WAIT_FOR_NMI_LOOP[0], w + WAIT_FOR_NMI_LOOP[1])
