@@ -1,0 +1,10 @@
+# save: 24-Museum
+# Ness's house, Tracy's room: talk to Tracy (MSG_SHOP3_TRACY_INTRO), Store: Ness's Large pizza
+# (ESCARGO_EXPRESS_MOVE), Check out: the Pak of bubble gum to Paula (DELIVER_ESCARGO_EXPRESS_ITEM), B. Body recorded with padlog
+flag 11 1; teleport 7558 724 0; wait 10; until idle 300
+---
+2 A; 6 -; 2 A; 40 -; 2 A; 38 -; 2 A; 26 -; 1 A; 12 -
+2 A; 16 -; 2 DOWN; 10 -; 2 RIGHT; 10 -; 2 A; 52 -; 1 A; 65 -
+2 RIGHT; 10 -; 2 A; 46 -; 2 RIGHT; 10 -; 2 A; 30 -; 1 A; 17 -
+2 DOWN; 10 -; 2 A; 16 -; 2 RIGHT; 10 -; 2 A; 48 -; 1 A; 54 -
+2 RIGHT; 10 -; 2 A; 46 -; 2 B; 55 -; 2 A; 36 -

@@ -1,0 +1,11 @@
+# save: 18-DeptStore
+# Topolla Theater lobby: through the green hall doors (TEXT_DOOR_636, band freed and thanked, Venus not
+# seen yet): Venus's concert (EVENT_438/442, a spotlight HDMA window on channel 4). Body recorded with padlog
+# the hall door's load: the first emu sample is part-way in (skip) and the fade-in ends a logic
+# frame later in the original (lag), as at every door arrival
+# skip: 32
+# lag: 52
+flag 11 1; teleport 4812 5448 0; wait 10; until idle 300
+---
+8 UP; 270 -; 1 A; 27 -; 1 A; 47 -; 1 A; 93 -; 1 A; 107 -
+1 A; 53 -; 1 A; 85 -; 1 A; 53 -; 1 A; 8495 -

@@ -1,0 +1,11 @@
+# save: 17-GoldMine
+# Topolla Theater backstage: walk out through the stage door (TEXT_DOOR_642, the band still in debt):
+# the Runaway Five's stage-2 show (EVENT_372/382/397/398: spotlight HDMA windows on channels 4 and 5).
+# Body recorded with padlog
+# the stage door's load: the first emu sample is part-way in (skip) and the fade-in ends a
+# logic frame later in the original (lag), as at every door arrival
+# skip: 33
+# lag: 53
+flag 11 1; teleport 5618 6776 0; wait 10; until idle 300
+---
+60 UP; 210 -; 1 A; 57 -; 1 A; 41 -; 1 A; 107 -; 1 A; 4888 -

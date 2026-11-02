@@ -1,0 +1,11 @@
+# save: 18-DeptStore
+# Topolla Theater lobby with the band freed but not yet thanked (flag 147 cleared: the save is just past
+# it): through the green hall doors (TEXT_DOOR_636) the Runaway Five's final show plays
+# (EVENT_401/410/411: spotlight setup, HDMA windows on channels 4 and 5). Body recorded with padlog
+# the hall door's load: the first emu sample is part-way in (skip) and the fade-in ends a logic
+# frame later in the original (lag), as at every door arrival
+# skip: 32
+# lag: 52
+flag 11 1; flag 147 0; teleport 4812 5448 0; wait 10; until idle 300
+---
+8 UP; 268 -; 1 A; 409 -; 1 A; 57 -; 1 A; 43 -; 1 A; 3966 -

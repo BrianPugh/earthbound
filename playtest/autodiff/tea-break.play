@@ -1,0 +1,9 @@
+# save: 32-LumineHall
+# Tenda Village: the Tenda by the hut (npc1257, MSG_GUMI_7 after the shyness book) offers tea, Yes:
+# the tea-break flyover (FLYOVER_TEXT 2, multi-line text scroll). Body recorded with padlog
+# the map reload after the flyover (frame 8977 merged) takes the NMI before FADE_IN, so the
+# original's fade-in ends a logic frame later (wall-clock noise, as at door arrivals)
+# ignore: idle 9007
+flag 11 1; teleport 352 339 0; wait 10; until idle 300
+---
+2 A; 6 -; 2 A; 36 -; 2 A; 6 -; 1 A; 8984 -
