@@ -21,6 +21,8 @@ Usage::
     rec.py DIR drop                  # delete the last chunk
     rec.py DIR import SCEN.play      # start DIR from a scenario (a segment in progress):
                                      # its header -> head.play, its body -> 000.pad
+    rec.py DIR emu-frame N [N ...]   # the emu logic frame that port frame N compares with
+                                     # under head.play's lags (`# lag:` takes emu frames)
 """
 
 import os
@@ -173,6 +175,15 @@ def main():
         truncate(d, int(args[0]))
     elif cmd == "import":
         import_scenario(d, args[0])
+    elif cmd == "emu-frame":
+        text = (d / "head.play").read_text()
+        lags = {int(k) for k in autodiff.LAG_HEADER.findall(text)}
+        extras = {int(k) for ks in autodiff.EXTRA_HEADER.findall(text) for k in ks.split()}
+        for n in map(int, args):
+            j = n
+            while autodiff.emu_to_port(j, lags, extras) != n:
+                j += 1
+            print(f"port {n} -> emu {j}")
     elif cmd == "drop":
         chunks(d)[-1].unlink()
     else:

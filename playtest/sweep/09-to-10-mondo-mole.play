@@ -1,17 +1,22 @@
 # save: 09-MondoMole
-# Sweep segment 09 -> 10, IN PROGRESS (identical so far): the Happy Happy drug store phone out to
-# Lilliput Steps (Happy Happy's east cave; the spiral walk, Auto Fight battles, overworld Lifeup
-# alpha), Mondo Mole (manual: Paula PSI Shield alpha on both, then Ness bashes, Paula bashes while
-# the mole's PSI shield is up; a first take lost at L23/L16 to homesickness turns and was cut),
-# the Lilliput Steps melody, back down the spiral, Happy Happy, the valley cave, Peaceful Rest
-# Valley reversed (switchback, log bridge, west bank), the Twoson cave rooms, Twoson, Polestar
-# Preschool (Paula's father: farewell, FLG_POLA), the phone call, Burglin Park, Everdred
-# (Wad of bills). Recorded in chunks with playtest/sweep/rec.py
+# Sweep segment 09 -> 10: the Happy Happy drug store phone out to Lilliput Steps (Happy Happy's
+# east cave: the spiral walk, Auto Fight battles, overworld Lifeup alpha), Mondo Mole (manual:
+# Paula PSI Shield alpha, then Ness and Paula bash while the mole's PSI shield is up; a first
+# take lost at L23/L16 and was cut), the Lilliput Steps melody, back down the spiral, Happy
+# Happy, the valley cave, Peaceful Rest Valley reversed (switchback, log bridge, west bank), the
+# Twoson cave rooms, Twoson, Polestar Preschool (Paula's father: FLG_POLA), the phone call,
+# Burglin Park, Everdred (Wad of bills; leaving his house the party bounces through the door
+# pair 5 times, in both games), the Runaway Five member (Backstage pass), the photographer,
+# the Chaos Theater (pass on the ticket man, backstage, the show), the manager (Wad of bills;
+# "Oh, pardon me" moves the ticket man out of the counter gap first), the Twoson hotel phone:
+# Dad, Record, Continue (10-ToThreed starts there). Recorded in chunks with playtest/sweep/rec.py
 # late-pads: the port replays the pads the original read after each lag-merged frame
-# Doors: skip K / lag K+20 / ignore: idle K+30; other idle masks are post-battle fade-ins.
-# The preschool and Everdred's house doors change the music to a track with its own sample
-# pack: the original's load spends 2 (preschool) / 1 (Everdred) more CPU-time frames, so their
-# pairs carry 3 / 2 lag lines.
+# Doors: skip K / lag / ignore: idle K+30; other idle masks are post-battle fade-ins. `# lag:`
+# numbers are emu logic frames: K+20 lands that many frames early once lag lines pile up, and
+# the later ones are placed with the emu frame of port frame K+20 instead.
+# The preschool, Everdred's house, the theater lobby (both ways) and the backstage TELEPORT_TO
+# loads spend more CPU-time frames in the original (the emu's LSTEP jumps 3 during the load),
+# so their pairs carry 3 / 2 / 3 / 7 lag lines; idle 57272-57275 is that lobby fade's end.
 # party 25323-25560: Ness's HP meter rolls up from the sanctuary heal through the first battle
 # after it; the original's roller phase (FRAME_COUNTER & 3) shifts at the battle-entry lag
 # (docs/known-original-behaviour.md, rolling meter row), 1 HP apart for ~190 frames
@@ -75,6 +80,56 @@
 # lag: 53023
 # lag: 53024
 # ignore: idle 53032
+# skip: 54019
+# lag: 54039
+# skip: 54088
+# lag: 54108
+# skip: 54145
+# lag: 54165
+# skip: 54214
+# lag: 54234
+# skip: 57243
+# lag: 57265
+# skip: 53962
+# lag: 53982
+# skip: 57850
+# lag: 57870
+# skip: 58753
+# lag: 58773
+# skip: 58756
+# skip: 58755
+# lag: 58775
+# skip: 58754
+# lag: 58774
+# lag: 58776
+# lag: 58777
+# lag: 58778
+# lag: 58779
+# skip: 59023
+# lag: 59043
+# skip: 63685
+# lag: 63705
+# skip: 64011
+# lag: 64031
+# skip: 64010
+# lag: 64030
+# lag: 57270
+# lag: 57271
+# lag: 57266
+# lag: 57267
+# ignore: idle 57272-57275
+# lag: 64052
+# lag: 64053
+# ignore: idle 64040
+# skip: 65181
+# lag: 65201
+# ignore: idle 65211
+# skip: 67662
+# lag: 67682
+# skip: 67879
+# lag: 67899
+# skip: 68708
+# lag: 68773
 ---
 10 DOWN; 113 RIGHT; 8 UP; 55 -; 30 DOWN; 80 RIGHT; 50 DOWN; 1 -; 16 RIGHT; 20 DOWN
 1 -; 42 LEFT; 30 DOWN; 72 RIGHT; 20 UP; 20 RIGHT; 60 -; 48 UP; 12 UP+LEFT; 12 UP+RIGHT
@@ -191,4 +246,44 @@
 7 UP; 24 RIGHT; 10 UP; 2 RIGHT; 24 UP; 3 UP+RIGHT; 72 UP; 12 UP+RIGHT; 44 UP; 40 -
 36 LEFT; 20 UP; 2 A; 6 -; 2 A; 40 -; 1 A; 81 -; 1 A; 69 -
 1 A; 93 -; 1 A; 21 -; 1 A; 125 -; 1 A; 53 -; 1 A; 41 -
-1 A; 49 -; 1 A; 197 -; 1 A; 4 -
+1 A; 49 -; 1 A; 197 -; 1 A; 4 -; 24 DOWN+RIGHT; 15 RIGHT; 4 UP+RIGHT; 12 RIGHT
+5 UP; 42 -; 12 UP+LEFT; 24 RIGHT; 21 -; 5 UP; 3 UP+RIGHT; 12 RIGHT; 4 UP; 45 -
+12 UP+LEFT; 24 RIGHT; 21 -; 5 UP; 3 UP+RIGHT; 20 RIGHT; 20 DOWN; 40 -; 27 DOWN; 48 DOWN+RIGHT
+22 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 22 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 22 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 22 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 33 UP+LEFT; 24 DOWN; 12 DOWN+LEFT; 12 LEFT; 4 DOWN+RIGHT; 12 RIGHT; 6 DOWN+LEFT; 12 LEFT
+4 DOWN+RIGHT; 12 RIGHT; 1 -; 13 UP; 150 RIGHT; 2 UP; 265 RIGHT; 24 UP+RIGHT; 12 RIGHT; 41 UP+RIGHT
+6 UP; 180 UP+RIGHT; 24 UP; 28 UP+RIGHT; 8 UP; 3 RIGHT; 24 UP; 48 RIGHT; 12 UP+RIGHT; 24 RIGHT
+12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 1 -; 20 UP
+87 RIGHT; 31 UP; 1 -; 2 RIGHT; 1 UP; 2 A; 6 -; 2 A; 40 -; 1 A
+37 -; 1 A; 85 -; 1 A; 95 -; 1 A; 4 -; 20 DOWN; 90 LEFT; 12 UP+LEFT
+12 DOWN+LEFT; 18 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 18 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 18 LEFT; 12 UP+LEFT; 12 DOWN+LEFT
+30 UP; 247 -; 1 A; 67 -; 1 A; 55 -; 1 A; 53 -; 1 A; 39 -
+1 A; 137 -; 1 A; 53 -; 1 A; 182 -; 18 LEFT; 30 UP; 40 -; 56 LEFT
+8 UP; 12 UP+LEFT; 12 UP+RIGHT; 8 UP; 12 UP+LEFT; 12 UP+RIGHT; 8 UP; 12 UP+LEFT; 12 UP+RIGHT; 8 UP
+12 UP+LEFT; 12 UP+RIGHT; 1 -; 3 LEFT; 12 UP; 1 -; 2 A; 16 -; 2 RIGHT; 4 -
+2 A; 26 -; 2 A; 24 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 112 -
+1 A; 56 -; 60 UP; 40 -; 232 LEFT; 5 UP; 12 UP+LEFT; 12 UP+RIGHT; 5 UP; 12 UP+LEFT
+1 -; 1 LEFT; 2 A; 6 -; 2 A; 96 -; 1 A; 139 -; 1 A; 107 -
+1 A; 91 -; 1 A; 43 -; 1 A; 239 -; 81 RIGHT; 240 -; 1 A; 77 -
+1 A; 69 -; 1 A; 31 -; 1 A; 105 -; 1 A; 4191 -; 24 DOWN+RIGHT; 238 RIGHT
+4 DOWN+RIGHT; 20 RIGHT; 40 -; 45 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 200 LEFT; 41 -; 36 RIGHT; 40 DOWN; 1 -
+10 RIGHT; 20 DOWN; 10 RIGHT; 20 DOWN; 1 -; 20 DOWN+RIGHT; 20 RIGHT; 20 DOWN; 1 -; 8 RIGHT
+30 DOWN; 30 DOWN+LEFT; 90 -; 30 DOWN; 1 -; 40 LEFT; 2 A; 6 -; 2 A; 14 -
+1 A; 71 -; 17 LEFT; 30 DOWN; 90 LEFT; 7 UP; 40 LEFT; 40 -; 48 UP+LEFT; 12 LEFT
+47 UP+LEFT; 12 LEFT; 21 UP+LEFT; 12 LEFT; 21 UP; 12 UP+LEFT; 12 UP+RIGHT; 21 UP; 12 UP+LEFT; 12 UP+RIGHT
+1 LEFT; 1 -; 10 RIGHT; 40 UP; 8 LEFT; 1 -; 30 RIGHT; 40 UP; 40 LEFT; 1 -
+8 RIGHT; 1 -; 2 A; 6 -; 2 A; 40 -; 1 A; 43 -; 1 A; 35 -
+1 A; 59 -; 1 A; 4 -; 1 RIGHT; 2 A; 16 -; 2 RIGHT; 4 -; 2 A
+26 -; 2 A; 24 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN
+4 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 A; 140 -; 1 A
+89 -; 1 A; 49 -; 1 A; 197 -; 1 A; 59 -; 1 A; 163 -; 1 A
+145 -; 1 A; 147 -; 1 A; 51 -; 1 A; 141 -; 1 A; 65 -; 10 UP
+12 UP+LEFT; 12 UP+RIGHT; 10 UP; 12 UP+LEFT; 12 UP+RIGHT; 10 UP; 12 UP+LEFT; 12 UP+RIGHT; 10 UP; 12 UP+LEFT
+12 UP+RIGHT; 30 RIGHT; 40 -; 30 DOWN+RIGHT; 30 DOWN; 40 RIGHT; 40 -; 16 UP; 20 RIGHT; 40 -
+240 RIGHT; 41 -; 4 DOWN; 669 LEFT; 40 UP; 60 -; 125 LEFT; 30 UP; 2 A; 6 -
+2 A; 28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -
+1 A; 19 -; 1 A; 37 -; 1 A; 13 -; 1 A; 15 -; 1 A; 46 -
+2 A; 10 -; 1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A; 52 -
+1 A; 47 -; 1 A; 29 -; 1 A; 4 -
