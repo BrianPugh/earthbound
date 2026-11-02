@@ -578,7 +578,7 @@ void load_current_map_block_events(void) {
  * and the `arrangement_loaded`/`chunks_loaded` flags + the compile-time
  * table pointers (tilesetpalette_data, chunk_data[], collision_arrangement_table).
  * On an in-process F7 load those are already live; on a cold boot the boot path
- * that would have set them is bypassed, so fill_tilemaps()/fill_collision_tiles()
+ * that would have set them is bypassed, so fill_tilemaps() and the collision loaders
  * early-return and the camera just scrolls within the stale VRAM nametable (the
  * "street loops as you walk" symptom). Re-derive them here from the restored
  * tileset combo. Everything rebuilt is deterministic from restored state (combo +
@@ -602,73 +602,80 @@ void map_loader_savestate_rebind(void) {
     load_map_block_event_changes(tileset_id);
 }
 
-/* --- FILL_COLLISION_TILES ---
- * Populates the 64×64 ml.loaded_collision_tiles grid from chunk data + collision tables.
- *
- * Port of LOAD_COLLISION_ROW (asm/overworld/load_collision_row.asm) applied to
- * the full visible area. For each tile in the 64×64 grid:
- *   1. Get block_id from chunk data (same as tilemap fill)
- *   2. Look up collision pointer: ml.tile_collision_buffer[block_id]
- *   3. Read arrangement entry at pointer + sub_row * 4 + sub_col
- *   4. Store collision flag byte in ml.loaded_collision_tiles */
-static void fill_collision_tiles(int16_t view_x_tile, int16_t view_y_tile) {
-    if (!ml.tile_collision_loaded || !collision_arrangement_table || !chunks_loaded)
-        return;
+/* SCREEN_LEFT_X / SCREEN_TOP_Y of the SNES band (ml.screen_left_x/top_y are
+ * the wide viewport's corner). */
+static int16_t band_left(void) { return (int16_t)(ml.screen_left_x + EB_VIEWPORT_PAD_LEFT / 8); }
+static int16_t band_top(void) { return (int16_t)(ml.screen_top_y + EB_VIEWPORT_PAD_TOP / 8); }
 
-    /* Center the 64-tile fill range around the viewport.
-     * view_x/y_tile is the viewport's top-left corner. The viewport is
-     * 32×28 tiles (256×224 px). The SNES assembly streams columns/rows from
-     * both edges as the camera scrolls, giving equal coverage on all sides.
-     * The C port refills all 64 tiles at once — centering gives 16 tiles of
-     * padding on each side of the 32-tile viewport, matching the assembly's
-     * effective coverage and ensuring nearby off-screen entities (like NPCs
-     * behind counters) have valid collision data. */
-    int16_t start_x = view_x_tile - 16;
-    int16_t start_y = view_y_tile - 16;
+/* --- LOAD_COLLISION_ROW / LOAD_COLLISION_COLUMN ---
+ * ml.loaded_collision_tiles is the asm's LOADED_COLLISION_TILES: a 64x64 ring
+ * of per-tile collision bytes indexed by (world tile & 63). The original only
+ * writes the rows and columns its loaders name (LOAD_MAP_AT_POSITION's 60
+ * rows, REFRESH_MAP_AT_POSITION's one edge row or column per tile scrolled),
+ * so the rest of the ring keeps what an earlier map left there: an enemy
+ * spawned just past the loaded rows after a door reads the previous room's
+ * collision (Summers hospital exit: the Tough Guy 217 px below the leader
+ * stands on stale solid tiles and doesn't wander). */
 
-    for (int ty = 0; ty < 64; ty++) {
-        int16_t world_ty = start_y + ty;
-        uint16_t by = (uint16_t)world_ty / 4;       /* block row */
-        uint8_t sub_row = (uint16_t)world_ty & 3;
-
-        for (int tx = 0; tx < 64; tx++) {
-            int16_t world_tx = start_x + tx;
-            uint16_t bx = (uint16_t)world_tx / 4;       /* block column */
-            uint8_t sub_col = (uint16_t)world_tx & 3;
-
-            /* Look up collision flags for this tile.
-             * LOAD_MAP_ROW / LOAD_MAP_COLUMN store block 0 for tiles outside
-             * the map (block x >= 256 or y >= 320, which also catches negative
-             * coordinates as unsigned) or in another tileset combo, and
-             * LOAD_COLLISION_ROW then reads block 0's collision like any
-             * other block. */
-            uint16_t cx = world_tx & 63;
-            uint16_t cy = world_ty & 63;
-            if (!tilesetpalette_data) {
-                ml.loaded_collision_tiles[cy * 64 + cx] = 0x40;
-                continue;
-            }
-            uint16_t block_id;
-            uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
-            if (bx >= 256 || by >= 320 || tp_index >= tilesetpalette_size ||
-                (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo) {
-                block_id = 0;
-            } else {
-                block_id = get_block_id(bx, by);
-            }
-            uint8_t flags = 0;
-            if (block_id < 960) {
-                uint16_t coll_ptr = ml.tile_collision_buffer[block_id];
-                uint32_t arr_off = (uint32_t)coll_ptr + sub_row * 4 + sub_col;
-                if (arr_off < collision_arrangement_table_size) {
-                    flags = collision_arrangement_table[arr_off];
-                }
-            }
-
-            ml.loaded_collision_tiles[cy * 64 + cx] = flags;
-
-        }
+/* The collision byte of world tile (tx, ty), as LOAD_MAP_ROW/LOAD_MAP_COLUMN
+ * stage its block in LOADED_MAP_BLOCKS and LOAD_COLLISION_ROW/COLUMN look it
+ * up: block 0 for tiles outside the map (block x >= 256 or y >= 320, which
+ * also catches negative coordinates as unsigned) or in another tileset combo. */
+static uint8_t collision_flags_at(int16_t world_tx, int16_t world_ty) {
+    if (!tilesetpalette_data)
+        return 0x40;
+    uint16_t bx = (uint16_t)world_tx / 4;
+    uint16_t by = (uint16_t)world_ty / 4;
+    uint32_t tp_index = (uint32_t)((uint16_t)world_ty >> 4) * 32 + ((uint16_t)world_tx >> 5);
+    uint16_t block_id;
+    if (bx >= 256 || by >= 320 || tp_index >= tilesetpalette_size ||
+        (tilesetpalette_data[tp_index] >> 3) != (uint8_t)ml.loaded_tileset_combo) {
+        block_id = 0;
+    } else {
+        block_id = get_block_id(bx, by);
     }
+    if (block_id >= 960)
+        return 0;
+    uint32_t arr_off = (uint32_t)ml.tile_collision_buffer[block_id] + ((uint16_t)world_ty & 3) * 4 +
+                       ((uint16_t)world_tx & 3);
+    return arr_off < collision_arrangement_table_size ? collision_arrangement_table[arr_off] : 0;
+}
+
+static bool collision_tables_ready(void) {
+    return ml.tile_collision_loaded && collision_arrangement_table && chunks_loaded;
+}
+
+/* LOAD_MAP_ROW + LOAD_COLLISION_ROW: ring row `row_tile`, 16 blocks from the
+ * block holding tile x0 (the asm's x0 >> 2 is arithmetic). */
+static void load_collision_row(int16_t row_tile, int16_t x0_tile) {
+    if (!collision_tables_ready())
+        return;
+    int16_t first = (int16_t)((x0_tile >> 2) * 4);
+    uint8_t *ring_row = &ml.loaded_collision_tiles[((uint16_t)row_tile & 63) * 64];
+    for (int i = 0; i < 64; i++) {
+        int16_t tx = (int16_t)(first + i);
+        ring_row[(uint16_t)tx & 63] = collision_flags_at(tx, row_tile);
+    }
+}
+
+/* LOAD_MAP_COLUMN + LOAD_COLLISION_COLUMN: ring column `col_tile`, 16 blocks
+ * from the block holding tile y0. */
+static void load_collision_column(int16_t col_tile, int16_t y0_tile) {
+    if (!collision_tables_ready())
+        return;
+    int16_t first = (int16_t)((y0_tile >> 2) * 4);
+    for (int i = 0; i < 64; i++) {
+        int16_t ty = (int16_t)(first + i);
+        ml.loaded_collision_tiles[((uint16_t)ty & 63) * 64 + ((uint16_t)col_tile & 63)] =
+            collision_flags_at(col_tile, ty);
+    }
+}
+
+/* The 60 collision rows from y0 (LOAD_MAP_AT_POSITION, RELOAD_MAP_AT_POSITION,
+ * LOAD_INITIAL_MAP_DATA: CPY #60 loops), each from tile column x0. */
+static void load_collision_rows(int16_t x0_tile, int16_t y0_tile) {
+    for (int i = 0; i < 60; i++)
+        load_collision_row((int16_t)(y0_tile + i), x0_tile);
 }
 
 /* --- LOOKUP_SURFACE_FLAGS ---
@@ -1158,7 +1165,7 @@ static uint16_t visible_block_id(int16_t world_tx, int16_t world_ty) {
  * loaded, only to filler tiles, and only while the SNES-visible band doesn't
  * touch its rectangle, so the 256x224 picture never changes and the strip
  * flips back to filler as a whole once the SNES camera would reveal it.
- * Collision is untouched (fill_collision_tiles reads the map itself), which
+ * Collision is untouched (the collision loaders read the map itself), which
  * is fine because the gutter is never reachable. The table lives in the
  * embedded asset (flash); the active list is on the stack. */
 #define GUTTER_OVERRIDE_ENTRY_HEADER 8
@@ -1883,10 +1890,6 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
          * N.gfx.raw assets are $7001 bytes, and the last one is not uploaded. */
         size_t gfx_max = photograph_map_loading_mode ? 0x4000 : 0x7000;
         copy_raw_asset(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
-        /* Clear collision grid when switching tilesets. Fill with 0x40 (wall)
-         * so any cell not overwritten by fill_collision_tiles() blocks movement.
-         * This prevents walking into out-of-bounds areas at map edges. */
-        memset(ml.loaded_collision_tiles, 0x40, sizeof(ml.loaded_collision_tiles));
         ml.loaded_tileset_combo = tileset_combo;
     }
 
@@ -2460,7 +2463,8 @@ void load_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
     int16_t view_x_tile = (int16_t)x_tile - (EB_VIEWPORT_CENTER_X / 8);
     int16_t view_y_tile = (int16_t)y_tile - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile, x_pixels, y_pixels);
-    fill_collision_tiles(view_x_tile, view_y_tile);
+    /* Assembly lines 93-110: 60 collision rows from y-32, columns from x-32 */
+    load_collision_rows((int16_t)(x_tile - 32), (int16_t)(y_tile - 32));
 
     /* Assembly lines 118-122: Wait for any active fade to complete
      * before setting up VRAM/palette display settings. */
@@ -2568,7 +2572,7 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
 
     /* Assembly lines 60-110: invalidate streaming cache, fill tilemaps + collision */
     fill_tilemaps(view_x_tile, view_y_tile, x_pixels, y_pixels);
-    fill_collision_tiles(view_x_tile, view_y_tile);
+    load_collision_rows((int16_t)(x_tile - 32), (int16_t)(y_tile - 32));
 
     /* Assembly lines 128-132: wait for any active fade to complete */
     wait_for_fade_complete();
@@ -2599,9 +2603,11 @@ void reload_map_at_position(uint16_t x_pixels, uint16_t y_pixels) {
  * up, in script 263, its only caller.) */
 void load_initial_map_data(void) {
     /* BG1_X_POS = ppu.bg_hofs[0], BG1_Y_POS = ppu.bg_vofs[0] */
-    uint16_t view_x_tile = (uint16_t)((int16_t)ppu.bg_hofs[0] - EB_VIEWPORT_CENTER_X) >> 3;
-    uint16_t view_y_tile = (uint16_t)((int16_t)ppu.bg_vofs[0] - EB_VIEWPORT_CENTER_Y) >> 3;
-    fill_collision_tiles(view_x_tile, view_y_tile);
+    /* (BG1_X_POS - 128) >> 3 and (BG1_Y_POS - 128) >> 3 (LSR: unsigned), with
+     * BG1_X/Y_POS the SNES band's corner (the wide viewport's plus its pad) */
+    uint16_t x0 = (uint16_t)(ppu.bg_hofs[0] + EB_VIEWPORT_PAD_LEFT - 128) >> 3;
+    uint16_t y0 = (uint16_t)(ppu.bg_vofs[0] + EB_VIEWPORT_PAD_TOP - 128) >> 3;
+    load_collision_rows((int16_t)x0, (int16_t)y0);
 }
 
 /* --- SPAWN_NPCS_IN_COLUMN ---
@@ -2765,6 +2771,11 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
      * Assembly lines 21-54: @VIRTUAL04 = scroll_x >> 3, @VIRTUAL02 = scroll_y >> 3. */
     int16_t target_x_tile = scroll_x >> 3;
     int16_t target_y_tile = scroll_y >> 3;
+    /* The collision loads use the SNES band's SCREEN_LEFT_X/TOP_Y and target
+     * tiles (ml.screen_left_x/top_y are the wide viewport's corner), so they
+     * stream the same world rows and columns at any viewport size. */
+    int16_t band_target_x = (int16_t)(target_x_tile + EB_VIEWPORT_PAD_LEFT / 8);
+    int16_t band_target_y = (int16_t)(target_y_tile + EB_VIEWPORT_PAD_TOP / 8);
 
     /* Step 3: X-axis scroll — move ml.screen_left_x toward target one tile
      * at a time, spawning NPCs in newly visible columns.
@@ -2774,6 +2785,7 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling RIGHT: SCREEN_LEFT_X < target.
              * Assembly lines 58-97. */
             ml.screen_left_x++;
+            load_collision_column((int16_t)(band_left() + 41), (int16_t)(band_target_y - 16));
             spawn_npcs_in_column(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 2 + EB_VIEWPORT_PAD_LEFT / 8), target_y_tile - 1);
             /* Assembly lines 89-96: SPAWN_VERTICAL */
             spawn_vertical((uint16_t)(ml.screen_left_x + (EB_VIEWPORT_WIDTH / 8 + 8)),
@@ -2782,6 +2794,7 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling LEFT: SCREEN_LEFT_X > target.
              * Assembly lines 99-137. */
             ml.screen_left_x--;
+            load_collision_column((int16_t)(band_left() - 16), (int16_t)(band_target_y - 16));
             spawn_npcs_in_column(ml.screen_left_x - 3 - EB_VIEWPORT_PAD_LEFT / 8, target_y_tile - 1);
             /* Assembly lines 130-137: SPAWN_VERTICAL */
             spawn_vertical((uint16_t)(ml.screen_left_x - 8),
@@ -2797,6 +2810,7 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling DOWN: SCREEN_TOP_Y < target.
              * Assembly lines 147-188. */
             ml.screen_top_y++;
+            load_collision_row((int16_t)(band_top() + 41), (int16_t)(band_target_x - 16));
             spawn_npcs_in_row(target_x_tile, ml.screen_top_y + (EB_VIEWPORT_HEIGHT / 8 + 1 + EB_VIEWPORT_PAD_TOP / 8));
             /* Assembly lines 181-188: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
@@ -2805,6 +2819,7 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
             /* Scrolling UP: SCREEN_TOP_Y > target.
              * Assembly lines 191-228. */
             ml.screen_top_y--;
+            load_collision_row((int16_t)(band_top() - 16), (int16_t)(band_target_x - 16));
             spawn_npcs_in_row(target_x_tile, ml.screen_top_y - 1 - EB_VIEWPORT_PAD_TOP / 8);
             /* Assembly lines 221-228: SPAWN_HORIZONTAL */
             spawn_horizontal((uint16_t)(target_x_tile - 8),
@@ -2818,7 +2833,6 @@ void map_refresh_tilemaps(uint16_t cam_x_pixels, uint16_t cam_y_pixels) {
     int16_t view_x_tile = (int16_t)(cam_x_pixels >> 3) - (EB_VIEWPORT_CENTER_X / 8);
     int16_t view_y_tile = (int16_t)(cam_y_pixels >> 3) - (EB_VIEWPORT_CENTER_Y / 8);
     fill_tilemaps(view_x_tile, view_y_tile, cam_x_pixels, cam_y_pixels);
-    fill_collision_tiles(view_x_tile, view_y_tile);
 }
 
 /* =========================================================================
