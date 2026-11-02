@@ -144,6 +144,7 @@ MODE_ALIASES = {
     "BATTLE_ENEMY_SELECT": ("SELECT_BATTLE_TARGET",),
     "BATTLE_ROW_SELECT": ("SELECT_BATTLE_ROW",),
     "OVERWORLD": ("MAIN_LOOP",),
+    "FILE_MENU": ("FILE_SELECT_INIT",),
 }
 
 # Unused WRAM for the teleport stub: the bottom of the 255-byte hardware stack

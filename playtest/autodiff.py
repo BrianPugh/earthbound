@@ -28,7 +28,11 @@ A setup line prefixed ``port:`` or ``emu:`` runs on that side only. A
 for scenarios without one. A ``# lag: K`` line marks emu logic frame K as one the
 original spends on CPU time alone (a loop's extra WAIT_UNTIL_NEXT_FRAME after a lag
 frame, which the port can't have): the emu gets the port's frame-K pad twice, frame
-K isn't compared, and later emu frames are compared with port frame - 1.
+K isn't compared, and later emu frames are compared with port frame - 1. A ``# skip: K``
+line drops (port) frame K from the comparison: the emu sampled it part-way into a long
+load's lag frame. ``# save: blank`` boots an empty SRAM, and ``# boot: menu`` stops the
+boot at the file select menu's first input wait instead of loading slot 1, so the
+scenario can pick a slot, start a new game or name the party.
 
 Usage::
 
@@ -52,6 +56,10 @@ sys.path.insert(0, str(HERE))
 from pt import BOOT, EMU_BOOT  # noqa: E402
 
 DEFAULT_BIN = ROOT / "port" / "unix" / "build-native" / "earthbound"
+# ``# boot: menu``: stop at the file select menu's first input wait instead of loading
+# slot 1, so a scenario can pick a slot, start a new game, name the party, ...
+# (emu.py's FILE_MENU is an alias for FILE_SELECT_INIT)
+MENU_BOOT = "until in:FILE_MENU 3000 START*; until input 600"
 SNAPSHOT = ["state", "digest", "rng"]
 STATE_KEYS = (
     "idle",
@@ -122,9 +130,9 @@ def emu_to_port(j, lags):
     return j - sum(1 for k in lags if k < j)
 
 
-def build_script(side, setup, pads, seed, lags=()):
+def build_script(side, setup, pads, seed, lags=(), boot_kind="load"):
     """The whole input script for one side."""
-    boot = (BOOT if side == "port" else EMU_BOOT).split(";")
+    boot = (MENU_BOOT if boot_kind == "menu" else BOOT if side == "port" else EMU_BOOT).split(";")
     step = "1 {}" if side == "port" else "lstep {}"
     out = [b.strip() for b in boot] + side_lines(setup, side) + [f"rng {seed[0]} {seed[1]}", "fc 0"]
     if side == "emu":
@@ -258,6 +266,9 @@ def run_side(cmd, script_path, log_path):
 SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
 IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)", re.M)
 LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
+SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
+BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu)\b", re.M)
+SRAM_SIZE = 8192
 LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
 
 
@@ -267,6 +278,8 @@ def scenario_save(scen, default):
     if not m:
         return default
     name = m.group(1)
+    if name == "blank":  # an empty SRAM: no save files (new game)
+        return "blank"
     path = HERE / "saves" / (name if name.endswith(".srm") else name + ".srm")
     return str(path.resolve())
 
@@ -286,7 +299,12 @@ def run_scenario(scen, save, a, out):
     # (a phone call to Dad), which would change the save for every later run.
     copies = {side: out / f"{name}.{side}.srm" for side in ("port", "emu")}
     for c in copies.values():
-        shutil.copyfile(save, c)
+        if save == "blank":
+            c.write_bytes(bytes(SRAM_SIZE))
+        else:
+            shutil.copyfile(save, c)
+    m = BOOT_HEADER.search(Path(scen).read_text())
+    boot_kind = m.group(1) if m else "load"
     sides = {
         "port": [
             str(Path(a.bin).resolve()),
@@ -303,7 +321,7 @@ def run_scenario(scen, save, a, out):
     report = []
     for side, cmd in sides.items():
         script = out / f"{name}.{side}.play"
-        script.write_text(build_script(side, setup, pads, a.rng, lags))
+        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind))
         procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
     for side, p in procs.items():
         try:
@@ -317,6 +335,8 @@ def run_scenario(scen, save, a, out):
         res["emu"] = {emu_to_port(j, lags): v for j, v in res["emu"].items() if emu_to_port(j, lags) is not None}
     lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
     ignore = a.ignore + IGNORE_HEADER.findall(Path(scen).read_text())
+    for k in SKIP_HEADER.findall(Path(scen).read_text()):
+        res["emu"].pop(int(k), None)  # sampled part-way into a load's lag frame
     n, first, lines = compare(res["port"], res["emu"], pads, ignore)
     merged = sorted(set(range(len(pads) + 1)) - set(res["emu"]))
     if first:
