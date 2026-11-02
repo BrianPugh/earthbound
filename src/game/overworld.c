@@ -2457,12 +2457,12 @@ uint16_t attempt_homesickness(void) {
         if (roll != 0)
             return 0;
 
-        /* Inflict homesick: STATUS_GROUP::HOMESICKNESS = status_group 6 (arg+1=7),
-         * STATUS_5::HOMESICK = value 1 (arg+1=2), PARTY_MEMBER::NESS = 1 */
-        /* JSL INFLICT_STATUS_NONBATTLE; BRA @RETURN: its result (Ness's id)
+        /* Inflict homesick: X = STATUS_GROUP::HOMESICKNESS + 1 (6; the callee
+         * writes afflictions[X - 1]), Y = STATUS_5::HOMESICK + 1, A = NESS.
+         * JSL INFLICT_STATUS_NONBATTLE; BRA @RETURN: its result (Ness's id)
          * is the return value, which DISPATCH_SPECIAL_EVENT hands to the text
          * result register (EBATTLE8's jump_if_true after trigger_event 17). */
-        return inflict_status_nonbattle(1, 7, 2);
+        return inflict_status_nonbattle(PARTY_MEMBER_NESS, STATUS_GROUP_HOMESICKNESS + 1, STATUS_5_HOMESICK + 1);
     }
 
     return 0;
