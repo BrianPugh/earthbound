@@ -1,0 +1,138 @@
+# save: 10-ToThreed
+# Sweep segment 10 -> 11: the Twoson hotel phone, the Runaway Five (Yes) and their bus to Threed,
+# the cemetery (No Good Fly + Smelly Ghost: Ness PSI Rockin alpha, Paula PSI Fire alpha), the
+# gatekeepers' area (flag 46), the Sunset Hotel (the girl, the corridor room: the zombie
+# capture), the jail, then Jeff in Winters. Recorded in chunks with playtest/sweep/rec.py
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 14741 is the post-battle
+# fade-in. The Sunset Hotel's street door spends 3 more CPU-time frames in the original (the
+# emu's LSTEP steps by 2 through the load: lags 17036-17038); the lobby -> corridor fade-in
+# ends 4 frames later there (idle 17269-17272)
+# late-pads
+# skip: 202
+# lag: 222
+# ignore: idle 232
+# skip: 7731
+# lag: 7752
+# skip: 8749
+# lag: 8771
+# ignore: idle 14741
+# skip: 17033
+# lag: 17036
+# lag: 17037
+# lag: 17038
+# lag: 17060
+# skip: 17239
+# lag: 17266
+# ignore: idle 17269-17272
+# skip: 17703
+# lag: 17731
+# skip: 18383
+# lag: 18412
+---
+40 DOWN; 130 RIGHT; 8 UP; 56 -; 24 DOWN; 312 RIGHT; 12 UP+RIGHT; 48 RIGHT; 31 DOWN; 8 RIGHT
+2 DOWN+RIGHT; 264 RIGHT; 14 DOWN+RIGHT; 5 RIGHT; 22 UP; 24 RIGHT; 24 DOWN+RIGHT; 17 RIGHT; 10 UP; 2 A
+6 -; 2 A; 20 -; 1 A; 55 -; 1 A; 33 -; 2 A; 74 -; 1 A
+4 -; 8 DOWN; 40 LEFT; 20 UP; 174 -; 1 A; 207 -; 1 A; 3903 -; 1 A
+31 -; 1 A; 83 -; 1 A; 249 -; 1 A; 57 -; 1 A; 3255 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A
+1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 1 -; 1 A; 3 -; 18 RIGHT
+170 UP; 170 LEFT; 14 UP; 152 LEFT; 230 UP; 18 RIGHT; 50 UP; 20 LEFT; 120 UP; 90 UP+RIGHT
+12 DOWN; 40 RIGHT; 150 UP+RIGHT; 24 UP; 366 LEFT; 12 -; 60 UP+LEFT; 62 UP; 690 -; 2 DOWN
+14 -; 2 A; 24 -; 2 A; 24 -; 2 A; 34 -; 2 DOWN; 14 -; 2 A
+24 -; 2 A; 24 -; 2 A; 34 -; 2 A; 761 -; 2 DOWN; 14 -; 2 A
+24 -; 2 A; 24 -; 2 A; 34 -; 2 DOWN; 14 -; 2 A; 24 -; 2 A
+24 -; 2 A; 34 -; 2 A; 736 -; 1 A; 25 -; 1 A; 17 -; 1 A
+25 -; 1 A; 25 -; 1 A; 83 -; 100 UP; 200 RIGHT; 42 -; 1 A; 147 -
+1 A; 6 -; 180 LEFT; 210 DOWN; 400 RIGHT; 50 DOWN+LEFT; 40 DOWN; 40 DOWN+RIGHT; 20 DOWN+LEFT; 12 DOWN
+14 LEFT; 64 DOWN; 30 RIGHT; 130 DOWN+LEFT; 34 RIGHT; 96 DOWN+LEFT; 8 DOWN; 53 DOWN+LEFT; 3 LEFT; 80 DOWN
+192 RIGHT; 45 UP; 57 -; 2 UP; 55 -; 151 LEFT; 55 -; 300 LEFT; 66 RIGHT; 120 UP
+544 -; 1 A; 49 -; 1 A; 462 -
