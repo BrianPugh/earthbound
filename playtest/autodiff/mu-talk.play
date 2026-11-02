@@ -1,8 +1,7 @@
 # save: 26-Dalaam
 # Talk to the Mu master (Yes/No dialogue)
-# ent4 wanders: after `teleport` the emu lands a frame later, so give it 20 frames to finish its step
-# ignore: ent4\..*
-# ignore: near
-flag 16 0; flag 273 0; flag 11 1; teleport 6832 8307 0; wait 20; until idle 300
+# ent4 wanders: the emu's `teleport` lands a frame later, which starts ent4's pause timer a frame
+# later; one more emu setup frame lines it up, and 20 frames let it finish its step
+flag 16 0; flag 273 0; flag 11 1; teleport 6832 8307 0; emu: wait 1; wait 20; until idle 300
 ---
 press A; wait 30; press A; wait 150; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 100
