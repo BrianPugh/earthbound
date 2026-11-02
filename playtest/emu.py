@@ -152,9 +152,14 @@ MODE_ALIASES = {
 FRAME_WAIT_FUNCS = ("WAIT_UNTIL_NEXT_FRAME", "FORCE_BLANK_AND_WAIT_VBLANK", "BLANK_SCREEN_AND_WAIT_VBLANK")
 # Busy-waits on an NMI inside other functions that always span a frame boundary, as
 # (function, the loop's bytes): LOAD_MAP_PALETTE's @WAIT_PALETTE_DMA
-# (LDA PALETTE_UPLOAD_MODE; AND #$00FF; BNE) after the last fade step. The port
-# presents that frame, so the emu counts it as a game frame like the 2 above.
-NMI_SPIN_LOOPS = (("LOAD_MAP_PALETTE", bytes.fromhex("29ff00d0f8")),)
+# (LDA PALETTE_UPLOAD_MODE; AND #$00FF; BNE) after the last fade step, and
+# FADE_OUT_WITH_MOSAIC's @WAIT_VBLANK (STZ NEW_FRAME_STARTED; LDA NEW_FRAME_STARTED;
+# BEQ) after the screen goes black. The port presents those frames, so the emu
+# counts them as game frames like the 2 above.
+NMI_SPIN_LOOPS = (
+    ("LOAD_MAP_PALETTE", bytes.fromhex("29ff00d0f8")),
+    ("FADE_OUT_WITH_MOSAIC", bytes.fromhex("f0fb")),
+)
 LOGIC_STEP_LIMIT = 120  # wall frames one lstep may take before giving up
 WAIT_FOR_NMI_LOOP = (9, 17)  # WAIT_UNTIL_NEXT_FRAME offsets: @WAIT_FOR_NMI loop + its STZ
 WAIT_COUNTED_TAIL = (17, 19)  # the NMI path's BRA @VBLANK_REACHED, after the counted STZ/INC
