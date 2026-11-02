@@ -1,0 +1,18 @@
+# save: 29-DungeonM
+# Phone, Mach Pizza, a small pizza; the courier walks in ~10000 frames later, $48, Yes
+# ignore: ent8\..*
+# ignore: near
+# The courier (slot 9, script 500) starts with MOVEMENT_CMD_SET_NPC_ID $051F, which goes
+# through SET_DIRECTION: ENTITY_DIRECTIONS holds $051F until he walks; the port's 8-bit
+# directions[] keeps $1F (cr_movement_cmd_set_npc_id)
+# ignore: ent9\.dir
+flag 11 1
+---
+press A; wait 30; press A; wait 60; press A; wait 60
+press DOWN 3; wait 10; press A; wait 100
+press A; wait 80
+press A; wait 80
+press A; wait 50; press A; wait 60
+wait 10880
+press A; wait 60
+wait 10; press A; wait 60; press A; wait 200

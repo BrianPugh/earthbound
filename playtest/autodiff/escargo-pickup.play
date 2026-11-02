@@ -1,0 +1,23 @@
+# save: 29-DungeonM
+# Phone, Escargo Express, Pick-up; the courier walks in (~700 frames), $18, Yes,
+# Ness's Large pizza, nothing else, confirm
+# ignore: ent8\..*
+# ignore: near
+# The courier (slot 9, script 499) starts with MOVEMENT_CMD_SET_NPC_ID $051F, which goes
+# through SET_DIRECTION: ENTITY_DIRECTIONS holds $051F until he walks; the port's 8-bit
+# directions[] keeps $1F (cr_movement_cmd_set_npc_id)
+# ignore: ent9\.dir
+flag 11 1
+---
+press A; wait 30; press A; wait 60; press A; wait 60
+press DOWN 2; wait 10; press A; wait 60
+press A; wait 150
+press A; wait 40; press A; wait 40; press A; wait 40; press A; wait 60
+wait 20; press A; wait 60
+wait 20; press A; wait 30; press A; wait 740
+press A; wait 50; press A; wait 60
+wait 10; press A; wait 50; press A; wait 51; press A; wait 60
+press A; wait 40; press DOWN; wait 10; press RIGHT; wait 10; press A; wait 100
+press RIGHT; wait 10; press A; wait 70
+press A; wait 50; press A; wait 60
+wait 10; press A; wait 60; press A; wait 50; press A; wait 50; press A; wait 100
