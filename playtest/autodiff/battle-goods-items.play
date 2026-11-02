@@ -1,0 +1,35 @@
+# save: 36-CavePast
+# Battle items against Ghost of Starman + Nuclear Reactor Robot (egroup 408, 30000 HP each), given to
+# Ness, Paula and Poo first: Snake, Handbag strap, Mummy wrap, Insecticide and Xterminator spray, Rust
+# promoter and DX, Defense spray, Bag of Dragonite, Sudden guts pill, IQ capsule, and the Jeff-only Bottle
+# rocket, Yogurt dispenser and HP-sucker failing for the others. Body recorded with padlog
+give 199 1; give 155 1; give 142 1; give 144 1; give 149 2; give 137 2; give 150 2; give 151 2; give 159 2; give 161 4; give 160 4; give 139 4; give 135 4; give 113 4; egroup 408; teleport 615 6535 0; until battle 200; until input 1500; egroup off; ehp 0 30000 30000; ehp 1 30000 30000; heal
+---
+2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 A; 855 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 A; 44 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 1020 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 66 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 923 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 A; 748 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 A; 1226 -
