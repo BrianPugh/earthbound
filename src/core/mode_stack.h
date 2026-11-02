@@ -2195,6 +2195,10 @@ typedef enum {
     NGN_CONFIRM_WAIT,   /* WINDOW_TICK + 180 RENDER_FRAME_TICKs (actionscripts run) */
     NGN_CONFIRM_FLUSH,  /* resume after a parked actionscript frame in NGN_CONFIRM_WAIT */
     NGN_FINALIZE,       /* initialise character stats/position/prologue, POP 1 */
+    NGN_EVENTS_PUSH,    /* after the keyboard's CLOSE_WINDOW tick: push NAMING_EVENTS */
+    NGN_NAME_MSG,       /* name box shown: create the message window */
+    NGN_PROMPT_PUSH,    /* message window shown: print the prompt, push NAMING_PROMPT */
+    NGN_CONFIRM_WINDOWS, /* CLOSE_ALL_WINDOWS shown: build the confirmation windows */
 } NewGameNamingPhase;
 
 typedef struct {

@@ -847,7 +847,7 @@ static uint8_t *name_target_buffer(int id) {
  * GAME_MODE_ENTER_NAME, e.g. Tony's call) have no EVENT_787, and a battle's BG
  * state left loaded there must not scroll the screen. The battle-mode branch of
  * RENDER_FRAME_TICK never applies: no keyboard runs in battle. */
-static void text_input_bg_update(void) {
+void file_menu_bg_update(void) {
     for (int i = 0; i < g_mode_stack.depth; i++) {
         if (g_mode_stack.mode[i] == GAME_MODE_FILE_MENU) {
             battle_bg_update();
@@ -869,7 +869,7 @@ StepResult mode_step_text_input(ModeState *st) {
         s->flush = 0;
         render_all_priority_sprites();
         sync_palettes_to_cgram();
-        text_input_bg_update();
+        file_menu_bg_update();
         s->primed = 1;
         return STEP_RESULT_CONTINUE();
     }
@@ -1122,8 +1122,8 @@ StepResult mode_step_text_input(ModeState *st) {
     /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
     sync_palettes_to_cgram();
 
-    /* Battle-BG animation (EVENT_787 stand-in; see text_input_bg_update) */
-    text_input_bg_update();
+    /* Battle-BG animation (EVENT_787 stand-in; see file_menu_bg_update) */
+    file_menu_bg_update();
 
     s->primed = 1;
     return STEP_RESULT_CONTINUE();
@@ -1496,6 +1496,17 @@ static const struct {
  * while X <= 179 (LDA #180; CLC; SBC X; BRANCHGTS). */
 #define NGN_CONFIRM_FRAMES 180
 
+/* A WINDOW_TICK_WITHOUT_INSTANT_PRINTING presented as its own frame (RAND, window
+ * render, entities advance): the naming steps' window-show beats. */
+static StepResult ngn_present_window_tick(void) {
+    uint8_t instant = dt.instant_printing;
+    (void)take_unpresented_ticks();
+    window_tick_without_instant_printing();
+    dt.instant_printing = instant;
+    uint16_t owed = take_unpresented_ticks();
+    return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed ? owed : 1);
+}
+
 StepResult mode_step_new_game_naming(ModeState *ms) {
     NewGameNamingState *st = &ms->new_game_naming;
 
@@ -1511,6 +1522,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                change music, close all windows, load naming-screen assets, then
                init the entity system once before the naming loop. */
             change_music(2); /* MUSIC::NAMING_SCREEN */
+            (void)take_unpresented_ticks();
             close_all_windows();
             load_event_script_data();
             load_sprite_data();
@@ -1519,6 +1531,14 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
             st->char_i = 0;
             st->phase = NGN_LOOP_HEAD;
+            {
+                /* CLOSE_ALL_WINDOWS ends with a WINDOW_TICK, its own frame before
+                 * DISPLAY_ANIMATED_NAMING_SPRITE (emu, new game: the walk-in
+                 * sprite started a frame early without it). */
+                uint16_t owed = take_unpresented_ticks();
+                if (owed)
+                    return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            }
             continue;
 
         case NGN_LOOP_HEAD: {
@@ -1537,14 +1557,25 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* name_a_character() front (assembly name_a_character.asm):
                create the name box, then the message window + prompt, then the
                initial name display (bullet + dashes), then wait for a button
-               via GAME_MODE_NAMING_PROMPT. */
+               via GAME_MODE_NAMING_PROMPT. Each window is shown by a
+               WINDOW_TICK_WITHOUT_INSTANT_PRINTING (name_a_character.asm:33/121,
+               RAND included), a frame of its own. */
             create_window(WINDOW_FILE_SELECT_NAMING_BOX);
-            WindowInfo *msg_w = create_window(WINDOW_FILE_SELECT_NAMING_MSG);
-            if (msg_w) {
-                set_focus_text_cursor(0, 0);
-                print_eb_string(naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE,
-                                NAMING_PROMPT_ENTRY_SIZE);
-            }
+            st->phase = NGN_NAME_MSG;
+            return ngn_present_window_tick();
+        }
+
+        case NGN_NAME_MSG:
+            create_window(WINDOW_FILE_SELECT_NAMING_MSG);
+            st->phase = NGN_PROMPT_PUSH;
+            return ngn_present_window_tick();
+
+        case NGN_PROMPT_PUSH: {
+            int i = st->char_i;
+            win.current_focus_window = WINDOW_FILE_SELECT_NAMING_MSG;
+            set_focus_text_cursor(0, 0);
+            print_eb_string(naming_prompts_data + i * NAMING_PROMPT_ENTRY_SIZE,
+                            NAMING_PROMPT_ENTRY_SIZE);
             /* name_a_character.asm:53-55: a name already entered (coming back
                via B on the next keyboard, or Nope at "Are you sure?") is shown
                by INITIALIZE_EXISTING_NAME_VWF (its characters, the bullet if
@@ -1560,12 +1591,8 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                                       ng_name_targets[i].max_len);
                 name_tile_cols = kb_render_name_tiles(display, ng_name_targets[i].max_len);
             }
-            /* name_a_character.asm:33/121 run WINDOW_TICK_WITHOUT_INSTANT_PRINTING
-               after creating each window, and CC_13_14 (the prompt wait) starts
-               with a WINDOW_TICK; each begins with JSL RAND. The prompt mode's
-               first frame stands in for CC_13_14's render. */
-            rng_next_byte();
-            rng_next_byte();
+            /* CC_13_14 (the prompt wait) starts with a WINDOW_TICK (RAND); the
+               prompt mode's first frame stands in for its render. */
             rng_next_byte();
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             g_mode_push_init.naming_prompt.name_tile_cols = (int16_t)name_tile_cols;
@@ -1587,6 +1614,17 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
 
         case NGN_INPUT_DONE: {
             st->char_result = (int16_t)mode_child_result();
+            st->phase = NGN_EVENTS_PUSH;
+            /* NAME_A_CHARACTER's CLOSE_WINDOW of the keyboard ends with a
+             * WINDOW_TICK, its own frame before INIT_NAMING_SCREEN_EVENTS (emu,
+             * new game: the walk-out started a frame early without it). */
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            continue;
+        }
+
+        case NGN_EVENTS_PUSH: {
             /* Assembly (@NAMING_ADVANCE): ALWAYS run INIT_NAMING_SCREEN_EVENTS
                for the current index BEFORE advancing — the return animation
                (entities walk off) + wait for all entity scripts to finish. */
@@ -1648,8 +1686,21 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
 
             /* Show confirmation (CLOSE_ALL_WINDOWS, SET_INSTANT_PRINTING, then
              * confirmation windows). All naming entities are already
-             * deactivated by GAME_MODE_NAMING_EVENTS. */
+             * deactivated by GAME_MODE_NAMING_EVENTS. CLOSE_ALL_WINDOWS'
+             * WINDOW_TICK is a frame of its own (emu: the confirmation windows
+             * came a frame early without it). */
+            (void)take_unpresented_ticks();
             close_all_windows();
+            st->phase = NGN_CONFIRM_WINDOWS;
+            {
+                uint16_t owed = take_unpresented_ticks();
+                if (owed)
+                    return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            }
+            continue;
+        }
+
+        case NGN_CONFIRM_WINDOWS: {
             set_instant_printing();
 
             /* Display all names for confirmation (print EB-encoded directly) */
@@ -1746,14 +1797,14 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 st->phase = NGN_CONFIRM_FLUSH;
                 return actionscript_frame_take_push();
             }
-            text_input_bg_update();  /* EVENT_787's frame (see text_input_bg_update) */
+            file_menu_bg_update();  /* EVENT_787's frame (see file_menu_bg_update) */
             return STEP_RESULT_CONTINUE();
         }
 
         case NGN_CONFIRM_FLUSH:
             /* A parked actionscript frame finished: complete that frame. */
             render_frame_tick_work_flush();
-            text_input_bg_update();
+            file_menu_bg_update();
             st->phase = NGN_CONFIRM_WAIT;
             return STEP_RESULT_CONTINUE();
 

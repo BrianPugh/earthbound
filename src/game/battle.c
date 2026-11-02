@@ -25,6 +25,7 @@
 #include "game/fade.h"
 #include "game/oval_window.h"
 #include "game/battle_bg.h"
+#include "intro/file_select.h"
 #include "entity/entity.h"
 #include "entity/buffer_layout.h"
 #include "data/assets.h"
@@ -1271,6 +1272,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
         if (s->primed) {
             s->primed = 0;
             render_frame_tick_work_flush();
+            file_menu_bg_update();
             s->remaining--;
             return STEP_RESULT_CONTINUE();
         }
@@ -1295,6 +1297,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
                 return actionscript_frame_take_push();
             }
             update_screen();
+            file_menu_bg_update(); /* EVENT_787's frame on the naming screens */
         }
         s->remaining--;
         return STEP_RESULT_CONTINUE();

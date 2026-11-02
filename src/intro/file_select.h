@@ -11,6 +11,12 @@ typedef union ModeState ModeState;
  * then STEP_PUSHes GAME_MODE_FILE_MENU (phase FM_FADEIN_WAIT) to run the cascade. */
 void file_menu_setup(void);
 
+/* The file menu's battle-BG animation frame: the stand-in for FILE_SELECT_INIT's
+ * EVENT_787 (EVENT_UPDATE_BATTLE_SCREEN_EFFECTS), which RUN_ACTIONSCRIPT_FRAME
+ * runs on every frame that advances the entities. A no-op unless
+ * GAME_MODE_FILE_MENU is on the mode stack. */
+void file_menu_bg_update(void);
+
 /* Regression guard (savestate cold-load): the file-select asset pointers live
  * outside any savestate section, so a restore into the file-select/naming flow
  * must re-resolve them on demand rather than dereferencing NULL (the meteorite-
