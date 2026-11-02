@@ -40,6 +40,7 @@ import argparse
 import concurrent.futures
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -281,9 +282,21 @@ def run_scenario(scen, save, a, out):
         setup, body = [], text
     pads = expand_body(body)
     lags = {int(k) for k in LAG_HEADER.findall(Path(scen).read_text())}
+    # Each side plays a private copy: both write SRAM back to --save when the game saves
+    # (a phone call to Dad), which would change the save for every later run.
+    copies = {side: out / f"{name}.{side}.srm" for side in ("port", "emu")}
+    for c in copies.values():
+        shutil.copyfile(save, c)
     sides = {
-        "port": [str(Path(a.bin).resolve()), "--headless", "--save", save, "--record-audio", "/dev/null"],
-        "emu": [sys.executable, str(HERE / "emu.py"), "--save", save, "--count-frames"],
+        "port": [
+            str(Path(a.bin).resolve()),
+            "--headless",
+            "--save",
+            str(copies["port"]),
+            "--record-audio",
+            "/dev/null",
+        ],
+        "emu": [sys.executable, str(HERE / "emu.py"), "--save", str(copies["emu"]), "--count-frames"],
     }
     procs = {}
     t0 = time.time()
