@@ -357,22 +357,44 @@ def compare(port, emu, pads, ignore):
     return n, first, lines
 
 
-def late_pads(pads, lags, extras, emu_snaps):
-    """Return the port's pads as the original read them (late after each lag-merged frame).
+def late_pads(pads, lags, extras, emu_log):
+    """Return the port's pads as the original read them, from the emu run's LSTEP lines.
 
-    A game frame that completes inside a lag frame (merged: no sample, or an ``LSTEP mid``
-    one) is followed by one that starts before the next NMI reads the joypad, so it plays the
-    pad the merged frame had. The port, which has no lag, would read the new pad there and
-    walk a pixel ahead. Computed from the emu's own run (its merged frames are facts of that
-    run, and the frame after one ignores its own pad), so a port rerun on these pads plays
-    what the original played.
+    A game frame reads the pad latched when it starts. Normally that is the lstep holding
+    its own pad; but a frame whose predecessor completed inside a lag frame (merged: no
+    sample, or an ``LSTEP N mid`` one, where the lstep stops part-way into the next frame)
+    starts in the same wall frame, under the pad the emu was holding then. The port, which
+    has no lag, would read the new pad there and walk a pixel ahead. Replaying the lstep
+    sequence gives, per emu frame, the lstep whose pad it started under; a port rerun on
+    those pads plays what the original played (the emu run is unchanged: it read them).
     """
     emu = emu_pads(pads, lags, extras)
+    text = emu_log.split("\n> SEED\n", 1)[-1]
+    read = {}
+    done, mid_prev = 0, False
+    i = 0
+    for line in text.splitlines():
+        if not line.startswith("LSTEP "):
+            continue
+        words = line.split()
+        i += 1  # emu lstep i holds emu[i - 1]
+        n, mid = int(words[1]), "mid" in words[2:]
+        if i > len(emu):
+            break
+        for f in range(done + 1, n + 1):
+            if f == done + 1 and mid_prev:
+                continue  # started under the previous lstep (assigned there)
+            read.setdefault(f, emu[i - 1])
+        if mid and n + 1 not in read:
+            read[n + 1] = emu[i - 1]  # the sample caught it part-way: it started here
+        if n > done:
+            done = n
+        mid_prev = mid if n >= done else mid_prev
     eff = list(pads)
-    for j in sorted(set(range(1, len(emu))) - set(emu_snaps)):
-        p = emu_to_port(j + 1, lags, extras)  # the frame after merged emu frame j
+    for j, pad in read.items():
+        p = emu_to_port(j, lags, extras)
         if p is not None and 1 <= p <= len(eff):
-            eff[p - 1] = emu[j - 1]
+            eff[p - 1] = pad
     return eff
 
 
@@ -484,7 +506,7 @@ def run_scenario(scen, save, a, out):
         return (1 if lost or not checked else 0), "\n".join(report)
     res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
     if LATE_PADS_HEADER.search(Path(scen).read_text()):
-        eff = late_pads(pads, lags, extras, res["emu"])
+        eff = late_pads(pads, lags, extras, (out / f"{name}.emu.log").read_text(errors="replace"))
         moved = sum(1 for x, y in zip(pads, eff) if x != y)
         if moved:
             # Rerun the port on the pads the original read (late-pads: see late_pads), from a

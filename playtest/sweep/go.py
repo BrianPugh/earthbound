@@ -6,6 +6,7 @@ walk with this (it only sends `until battle N DIR` steps, so padlog sees every f
 Usage::
 
     EB_BIN=/abs/build-native/earthbound uv run --no-sync python playtest/sweep/go.py SESSION X,Y [X,Y ...]
+    ... go.py SESSION --steps "40 DOWN+RIGHT; 50 RIGHT"   # fixed steps, battles fought on the way
 """
 
 import re
@@ -15,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PT = [sys.executable, str(ROOT / "playtest/pt.py")]
-FIGHT = "until in:BATTLE_MENU 1500 advance; wait 10; press RIGHT 2; press A; until idle 8000 advance"
+AUTO_FIGHT = "wait 10; press RIGHT 2; press A; until idle 8000 advance"
 
 
 def do(session, cmd):
@@ -33,7 +34,14 @@ def do(session, cmd):
 
 def fight(session):
     print("  battle", flush=True)
-    out = do(session, FIGHT)[3]
+    # The battle menu, or straight back to the overworld (a weak enemy's "YOU WON" without a
+    # battle, or a touch that came to nothing)
+    _, _, modes, out = do(session, "until input 1500 advance")
+    if "BATTLE_MENU" not in modes:
+        if "TIMEOUT" in do(session, "until idle 1500 advance")[3]:
+            sys.exit("battle timeout")
+        return
+    out = do(session, AUTO_FIGHT)[3]
     for line in out.splitlines():
         if line.startswith(("PARTY", "UNTIL")):
             print("   ", line[:200])
@@ -59,7 +67,25 @@ def sidesteps(d):
     return [f"{d}+LEFT", f"{d}+RIGHT"]
 
 
+def steps(session, text):
+    """Run ``N BUTTONS`` steps as ``until battle``, fighting and finishing a step a battle cut."""
+    for step in [t.strip() for t in text.split(";") if t.strip()]:
+        n, buttons = step.split()
+        left = int(n)
+        while left > 0:
+            out = do(session, f"until battle {left} {buttons}")[3]
+            m = re.findall(r"UNTIL (?:met|TIMEOUT) after (\d+) frames", out)
+            used = int(m[-1]) if m else left
+            if "UNTIL met" in out:
+                fight(session)
+            left -= max(used, 1)
+    print("DONE", do(session, "state")[0])
+
+
 def main():
+    if sys.argv[2] == "--steps":
+        steps(sys.argv[1], sys.argv[3])
+        return
     session, points = sys.argv[1], sys.argv[2:]
     pos = do(session, "state")[0]
     for wp in points:

@@ -1,0 +1,141 @@
+# save: 03-GiantStep
+# Sweep segment 03 -> 04: Hotel Onett out the side door, north through Onett past the library
+# to the touring entertainers' shack (Key to the shack: "The door opened"), through the shack
+# to the cave behind it (lower level, rope, middle level, rope, top level; Rowdy Mice and
+# Attack Slugs on Auto Fight, 2 overworld Lifeups), out onto the Giant Step ledge, the side
+# cave, the dungeon rooms and ropes to Titanic Ant (PSI Rockin alpha, Pizza, Hamburger, Bash),
+# the footprint melody, back down the same way to the cave behind the shack (the cop at the
+# exit: "Get yer butt to the Onett Police Station", Yes), through the shack and back to the
+# hotel phone: Dad, Record, Continue (04-Police starts there; its L13 came from levelling).
+# Recorded in chunks with playtest/sweep/rec.py
+# The hotel side door: the original's CPU-time frame (hotel-door.play)
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Each door: skip K (the first emu sample is part-way into the load), lag K+20 (its fade-in
+# starts a CPU-time frame later), ignore: idle K+30 (that FADE_IN after the load lag ends a
+# logic frame later in the original; wall-clock noise). The other idle masks are the same
+# fade-in end after a battle
+# late-pads
+# lag: 177
+# skip: 2692
+# lag: 2712
+# ignore: idle 2722
+# skip: 2904
+# lag: 2924
+# skip: 3038
+# lag: 3058
+# ignore: idle 3068
+# ignore: idle 5492
+# ignore: idle 6947
+# ignore: idle 8651
+# ignore: idle 10196
+# ignore: idle 11680
+# ignore: idle 13090
+# ignore: idle 19426
+# skip: 19698
+# lag: 19718
+# skip: 20677
+# lag: 20697
+# ignore: idle 20707
+# skip: 21317
+# lag: 21337
+# ignore: idle 21347
+# skip: 21809
+# lag: 21829
+# ignore: idle 21839
+# ignore: idle 24634
+# skip: 31047
+# lag: 31067
+# ignore: idle 31077
+# skip: 32461
+# lag: 32481
+# ignore: idle 32491
+# skip: 33114
+# lag: 33134
+# ignore: idle 33144
+# skip: 33183
+# lag: 33203
+# ignore: idle 33213
+# skip: 33259
+# lag: 33279
+# ignore: idle 33289
+# skip: 33502
+# lag: 33522
+# ignore: idle 33532
+# skip: 33711
+# lag: 33731
+# ignore: idle 33741
+# skip: 33946
+# lag: 33966
+# ignore: idle 33976
+# skip: 36199
+# lag: 36219
+# skip: 36659
+# lag: 36679
+# ignore: idle 36689
+# skip: 36803
+# lag: 36823
+# skip: 38294
+# lag: 38314
+---
+20 DOWN; 30 DOWN+RIGHT; 20 RIGHT; 12 UP; 150 RIGHT; 2 -; 54 LEFT; 24 UP+LEFT; 24 LEFT; 12 UP+LEFT
+12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT
+12 UP; 28 LEFT; 48 UP; 12 UP+LEFT; 12 UP+RIGHT; 24 UP; 12 UP+LEFT; 12 UP+RIGHT; 24 UP; 12 UP+LEFT
+12 UP+RIGHT; 24 UP; 12 UP+LEFT; 12 UP+RIGHT; 8 LEFT; 50 UP; 12 DOWN; 117 UP+RIGHT; 3 RIGHT; 80 UP
+39 UP+RIGHT; 114 UP; 72 LEFT; 15 UP+LEFT; 35 LEFT; 50 UP; 20 LEFT; 20 UP; 20 LEFT; 20 UP
+20 LEFT; 20 UP; 55 LEFT; 2 UP+LEFT; 171 LEFT; 288 -; 1 A; 27 -; 1 A; 45 -
+1 A; 15 -; 1 A; 7 -; 63 LEFT; 30 UP; 15 LEFT; 30 UP; 15 LEFT; 63 UP
+24 UP+RIGHT; 26 UP; 12 UP+LEFT; 12 UP+RIGHT; 4 UP; 12 UP+LEFT; 12 UP+RIGHT; 4 UP; 12 UP+LEFT; 12 UP+RIGHT
+4 UP; 12 UP+LEFT; 12 UP+RIGHT; 10 UP; 2 -; 4 RIGHT; 20 UP; 2 A; 12 -; 2 RIGHT
+10 -; 2 A; 16 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN
+4 -; 2 DOWN; 10 -; 2 A; 16 -; 2 A; 34 -; 1 A; 17 -; 1 A
+8 -; 6 LEFT; 2 UP; 56 -; 140 LEFT; 17 UP; 55 -; 28 UP; 40 LEFT; 11 UP
+56 -; 161 LEFT; 242 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 1932 -; 1 A
+73 -; 28 LEFT; 21 DOWN; 108 LEFT; 526 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A
+684 -; 1 A; 73 -; 278 LEFT; 430 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A
+908 -; 1 A; 73 -; 12 LEFT; 38 UP; 2 A; 16 -; 2 DOWN; 4 -; 2 A
+16 -; 2 A; 35 -; 1 A; 59 -; 1 A; 17 -; 154 UP; 242 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 732 -; 1 A; 25 -; 1 A; 23 -; 1 A
+17 -; 1 A; 27 -; 1 A; 25 -; 1 A; 73 -; 300 UP; 6 RIGHT; 226 -
+2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 864 -; 1 A; 73 -; 138 RIGHT; 242 -
+2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 852 -; 1 A; 27 -; 1 A; 45 -
+1 A; 15 -; 1 A; 73 -; 260 RIGHT; 161 UP; 242 -; 2 RIGHT; 4 -; 2 RIGHT
+4 -; 2 A; 1216 -; 1 A; 73 -; 2 A; 16 -; 2 DOWN; 4 -; 2 A
+16 -; 2 A; 35 -; 1 A; 59 -; 1 A; 17 -; 92 UP; 242 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 3790 -; 1 A; 73 -; 20 DOWN; 173 LEFT; 54 UP
+55 -; 20 DOWN; 60 LEFT; 20 UP; 40 LEFT; 80 UP; 2 -; 34 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+14 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 14 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 14 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 60 UP
+2 -; 64 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 16 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 16 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT
+16 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 20 DOWN; 60 LEFT; 20 UP; 40 LEFT; 80 UP; 2 -; 24 DOWN
+12 RIGHT; 3 UP; 54 -; 25 DOWN+RIGHT; 288 -; 1 A; 27 -; 1 A; 45 -; 1 A
+15 -; 1 A; 7 -; 15 DOWN+RIGHT; 50 RIGHT; 40 UP+RIGHT; 69 UP; 55 -; 20 DOWN; 3 LEFT
+288 -; 1 A; 7 -; 94 LEFT; 24 UP; 55 -; 7 LEFT; 242 -; 2 RIGHT; 4 -
+2 RIGHT; 4 -; 2 A; 2458 -; 1 A; 73 -; 32 LEFT; 300 UP; 31 RIGHT; 6 LEFT
+180 UP; 2 -; 6 LEFT; 2 A; 6 -; 2 A; 22 -; 1 A; 87 -; 1 A
+63 -; 1 A; 195 -; 2 DOWN; 10 -; 2 A; 16 -; 2 A; 16 -; 2 A
+677 -; 2 A; 16 -; 2 A; 307 -; 2 RIGHT; 10 -; 2 A; 16 -; 2 DOWN
+4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 RIGHT; 10 -; 2 A
+369 -; 2 A; 16 -; 2 A; 287 -; 2 A; 16 -; 2 A; 294 -; 2 A
+16 -; 2 A; 307 -; 2 A; 16 -; 2 A; 525 -; 2 A; 16 -; 2 A
+307 -; 2 RIGHT; 10 -; 2 A; 16 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 RIGHT
+10 -; 2 A; 296 -; 2 A; 16 -; 2 A; 371 -; 2 A; 16 -; 2 A
+371 -; 2 A; 16 -; 2 A; 582 -; 1 A; 25 -; 1 A; 23 -; 1 A
+23 -; 1 A; 19 -; 1 A; 19 -; 1 A; 25 -; 1 A; 25 -; 1 A
+41 -; 1 A; 167 -; 15 UP; 56 -; 40 DOWN; 200 RIGHT; 844 -; 1 A; 119 -
+1 A; 5 -; 42 UP+LEFT; 6 LEFT; 11 UP+LEFT; 12 LEFT; 6 UP; 4 UP+LEFT; 12 LEFT; 6 UP
+4 UP+LEFT; 12 LEFT; 6 UP; 4 UP+LEFT; 12 LEFT; 11 UP; 56 -; 13 DOWN+RIGHT; 5 RIGHT; 5 DOWN+RIGHT
+200 DOWN; 21 UP+LEFT; 7 LEFT; 300 DOWN; 24 UP+RIGHT; 16 RIGHT; 5 UP; 3 RIGHT; 54 -; 12 UP+RIGHT
+24 LEFT; 33 -; 12 UP+LEFT; 5 DOWN+RIGHT; 4 RIGHT; 55 -; 24 DOWN; 86 RIGHT; 74 UP; 2 -
+2 RIGHT; 55 -; 24 DOWN; 19 DOWN+RIGHT; 27 DOWN; 48 LEFT; 10 DOWN+LEFT; 22 UP+LEFT; 4 LEFT; 55 -
+15 RIGHT; 4 DOWN; 108 RIGHT; 18 UP+RIGHT; 12 RIGHT; 10 UP+RIGHT; 13 UP; 55 -; 52 DOWN; 168 RIGHT
+18 UP; 300 DOWN; 31 UP; 392 LEFT; 3 UP; 4 UP+LEFT; 5 DOWN; 9 -; 3 DOWN; 288 -
+1 A; 7 -; 297 DOWN; 14 UP+RIGHT; 394 RIGHT; 21 UP; 166 RIGHT; 2 UP+RIGHT; 113 RIGHT; 116 -
+1 A; 12 -; 2 A; 52 -; 1 A; 49 -; 1 A; 88 -; 21 RIGHT; 4 DOWN+RIGHT
+22 DOWN; 55 -; 72 RIGHT; 14 DOWN+RIGHT; 4 RIGHT; 55 -; 50 RIGHT; 12 UP+RIGHT; 48 RIGHT; 12 UP+RIGHT
+12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 60 DOWN; 2 -; 27 DOWN+LEFT; 30 DOWN; 15 RIGHT; 30 DOWN
+15 RIGHT; 30 DOWN; 266 RIGHT; 3 DOWN+RIGHT; 20 RIGHT; 20 DOWN; 20 RIGHT; 20 DOWN; 20 RIGHT; 20 DOWN
+20 RIGHT; 50 DOWN; 115 RIGHT; 56 DOWN; 5 LEFT; 24 DOWN; 13 DOWN+LEFT; 4 DOWN; 39 DOWN+LEFT; 80 DOWN
+119 DOWN+LEFT; 38 DOWN; 35 RIGHT; 16 DOWN; 2 DOWN+RIGHT; 32 RIGHT; 7 UP; 56 -; 123 LEFT; 20 UP
+2 A; 6 -; 2 A; 28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -
+1 A; 51 -; 1 A; 19 -; 1 A; 37 -; 1 A; 11 -; 1 A; 46 -
+2 A; 10 -; 1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A; 52 -
+1 A; 47 -; 1 A; 29 -; 1 A; 34 -

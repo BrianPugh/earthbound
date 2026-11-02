@@ -16,28 +16,39 @@ uv run --no-sync python playtest/autodiff.py playtest/sweep/*.play --port-only -
 
 ## How a segment is made
 
-1. `pt.py start NAME --save playtest/saves/NN-Name.srm` on a native 256x224 build (the
-   autodiff boot is the same), then `rng 4660 22136; fc 0; padlog FILE` (the autodiff seed).
-2. Walk the route (`playtest/sweep/go.py SESSION X,Y ...` walks waypoints and Auto Fights the
-   battles on the way; doors, talks and menus by hand with `until`), `padlog off`.
-3. Run autodiff; line up loads with `# skip:` / `# lag:` and fade-in ends with
-   `# ignore: idle K` (playtest/README.md).
+The original reads a late pad after a lag frame: a frame that starts in the same wall frame
+as the one before it completed (lag, or an `LSTEP N mid` sample) plays the pad the emu was
+holding then. Onett's streets and caves lag even overclocked, so a port recording drifts a
+pixel from the original at each pad change there, and the drift can change who touches whom.
+`# late-pads` (autodiff.py) reruns the port on the pads the original read (from the emu run's
+LSTEP sequence). That changes what the port plays, so a segment is recorded in chunks, each
+planned on the late pads of the ones before (`playtest/sweep/rec.py`):
 
-The original reads a late pad on the frame after a lag-merged frame (the frame starts before
-the next NMI reads the joypad). Onett's streets lag even overclocked (enemies chasing), so a
-port recording drifts a pixel from the original at the first pad change after one, and in a
-long lag stretch (the arcade door, 3746-3801 in 02-to-03) the drift changes who touches whom.
-`# late-pads` (autodiff.py) reruns the port on the pads the original actually read, computed
-from the emu run. Since that changes what the port plays, record in chunks so later moves are
-planned on those pads: `playtest/sweep/rec.py DIR check` (scenario = DIR/head.play + the padlog
-chunks DIR/NNN.pad), add the skip/lag/ignore lines it needs to head.play, then
-`rec.py DIR replay SESSION SAVE` restarts the session on the late pads and opens the next
-chunk's padlog. `rec.py DIR build OUT.play` writes the scenario. Segment 01 predates this and
-used `playtest/sweep/nudge.py` (moves such pad changes a frame later in the body itself),
-which only works for isolated lag frames: iterated over a lag stretch it walks the route off
-course.
-4. Masks: every `# ignore:` is listed below with its reason. A mask on game state that lag
-   can't explain is a divergence.
+1. `DIR/head.play` holds the header (`# save:`, `# late-pads`, setup, `---`). `rec.py DIR
+   replay SESSION SAVE` starts a pt.py session on SAVE (the 256x224 build autodiff runs),
+   replays the setup, the autodiff seed and the late pads of the chunks so far, and opens
+   `padlog DIR/NNN.pad` for the next chunk.
+2. Play the chunk: `playtest/sweep/go.py SESSION X,Y ...` walks waypoints (Auto Fighting
+   battles; `--steps "N DIR; ..."` for fixed moves), talks and menus by hand with `until`.
+   Keep chunks short (a door or two, a battle): `padlog off` at the end.
+3. `rec.py DIR check` runs autodiff on head + chunks. Line up each load in head.play
+   (playtest/README.md): a door is `# skip: K` (the first emu sample is part-way into the
+   load), `# lag: K+20` (its fade-in starts a CPU-time frame later) and `# ignore: idle K+30`
+   (that FADE_IN ends a logic frame later after the load lag); a battle's end is the same
+   idle frame. The scratchpad helper loops for this were: add a skip at a multi-field 1-frame
+   divergence, a lag 20 frames after it, an idle mask for an idle-only one; anything else is
+   a divergence to investigate.
+4. `rec.py DIR verify SESSION` checks the check's late-pads port run ends where the session
+   is. If not, the chunk's late pads took the route elsewhere (a battle started or didn't):
+   find the frame in `DIR/ad/scenario.port.log`, `rec.py DIR truncate N` before it, replay,
+   and record the rest again.
+5. `rec.py DIR build playtest/sweep/NN-to-MM-name.play`. Lost frames: run the lost-frame
+   build on the late-pads script (`EB_BIN=port/unix/build-lfc-native/earthbound --headless
+   --save COPY.srm --input DIR/ad/scenario.port.play`, grep `LOST-FRAME`); `--port-only` plays
+   the recorded pads, which leave the route.
+
+Segment 01 predates this and used `playtest/sweep/nudge.py` (moves such a pad change a frame
+later in the body itself), which only works for isolated lag frames.
 
 Harness additions for the sweep: `# overclock-on: K [MODE]` (autodiff.py) turns the emu's
 overclock on after port frame K, so the setup and the first frames (NPC phases from the boot)
@@ -55,5 +66,6 @@ Recurring masks, all lag (each listed per segment):
 
 | Segment | Status | Logic frames | Commits | Notes |
 |---|---|---|---|---|
-| 01-to-02-onett-hotel | identical | 2983 (2924 compared) | (this file's commit) | House phone → front door → down the hill past the library → Hotel Onett → lobby phone, Dad: Record, Continue. No battles. Masks: `idle 2315` (the hotel door's FADE_IN after the load lag). Lag/skip: 235 (front door CPU frame), skip 2285 / lag 2305 (hotel door load). Overclock on from 1000. 2 pad changes nudged |
-| 02-to-03-mayor-key | identical | 17765 (17399 compared) | (this file's commit) | Hotel side door → street (Pogo Punk group) → arcade (Pogo Punk; doorway Shark, No: Yes Man Junior) → overworld Lifeup → Frank, Frankystein Mark II (Lifeup, Auto Fight) → arcade → town hall, Mayor Pirkle (key, Yes) → hotel phone, Dad: Record, Continue. late-pads (24 pads). Masks: `idle` 3590, 4950, 5955 (post-battle fade-ins), 3857, 10246, 11057, 12932, 14237, 15928, 16978 (door fade-ins); `focus 8030` (Frankystein's PSI menu: the original redraws the preview window over lag frames 8031-8032 and the 8030 sample catches the focus on it part-way). 9 door skip/lag pairs |
+| 01-to-02-onett-hotel | identical | 2983 (2924 compared) | 64453f54 | House phone → front door → down the hill past the library → Hotel Onett → lobby phone, Dad: Record, Continue. No battles. Masks: `idle 2315` (the hotel door's FADE_IN after the load lag). Lag/skip: 235 (front door CPU frame), skip 2285 / lag 2305 (hotel door load). Overclock on from 1000. 2 pad changes nudged |
+| 02-to-03-mayor-key | identical | 17765 (17399 compared) | ac02f536 | Hotel side door → street (Pogo Punk group) → arcade (Pogo Punk; doorway Shark, No: Yes Man Junior) → overworld Lifeup → Frank, Frankystein Mark II (Lifeup, Auto Fight) → arcade → town hall, Mayor Pirkle (key, Yes) → hotel phone, Dad: Record, Continue. late-pads (26 pads). Masks: `idle` 3590, 4950, 5955 (post-battle fade-ins), 3857, 10246, 11057, 12932, 14237, 15928, 16978 (door fade-ins); `focus 8030` (Frankystein's PSI menu: the original redraws the preview window over lag frames 8031-8032 and the 8030 sample catches the focus on it part-way). 9 door skip/lag pairs |
+| 03-to-04-giant-step | identical | 39109 (34916 compared) | (this file's commit) | Hotel side door → north past the library → shack (key) → cave behind it (3 levels, ropes; 2 overworld Lifeups) → Giant Step ledge → side cave → dungeon → Titanic Ant (Rockin α, Pizza, Hamburger, Bash; L10 after) → footprint melody → back down the cave → the cop at the exit (Yes) → shack → hotel phone, Dad: Record, Continue. No overclock (turning it on changed the original's lag and the late pads before the route's encounters). late-pads (155). Masks: `idle` ×22 (door fade-ins at skip+30 and post-battle fade-ins), 19 door skip/lag pairs. The rope top's enemies make the original lag every frame (`LSTEP mid`), so ~4000 frames there are uncompared |

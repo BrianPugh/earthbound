@@ -15,10 +15,14 @@ Usage::
     rec.py DIR check OUT.play        # build, run autodiff (prints the report head)
     rec.py DIR replay SESSION SAVE   # restart SESSION on SAVE, replay the setup and the late
                                      # pads of the last check, open padlog DIR/<next>.pad
+    rec.py DIR verify SESSION        # does the late-pads port run (last check) end where
+                                     # the recording session is?
+    rec.py DIR truncate N            # keep the first N frames of the chunks (cut the rest)
     rec.py DIR drop                  # delete the last chunk
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -75,14 +79,15 @@ def effective_pads(d, scen):
     extras = {int(k) for ks in autodiff.EXTRA_HEADER.findall(text) for k in ks.split()}
     pads = body_pads(d)
     log = outdir(d) / f"{Path(scen).stem}.emu.log"
-    emu = autodiff.parse_snapshots(log.read_text(errors="replace"))
-    if max(emu, default=0) < len(autodiff.emu_pads(pads, lags, extras)):
+    text = log.read_text(errors="replace")
+    steps = sum(1 for ln in text.split("\n> SEED\n", 1)[-1].splitlines() if ln.startswith("LSTEP "))
+    if steps < len(autodiff.emu_pads(pads, lags, extras)):
         sys.exit(f"{log} is older than the chunks: run check first")
-    return autodiff.late_pads(pads, lags, extras, emu)
+    return autodiff.late_pads(pads, lags, extras, text)
 
 
 def replay(d, session, save, scen):
-    pads = effective_pads(d, scen)
+    pads = effective_pads(d, scen) if chunks(d) else []
     head = (d / "head.play").read_text().splitlines()
     setup = [c.strip() for raw in head[: head.index("---")] for c in raw.split("#", 1)[0].split(";")]
     setup = autodiff.side_lines(setup, "port")
@@ -100,6 +105,39 @@ def replay(d, session, save, scen):
     print(f"recording into {nxt}")
 
 
+def verify(d, scen, session):
+    """Check the late-pads port run of the last check ends where the recording session is.
+
+    The session played the late pads of the chunks before the last replay and the last
+    chunk as recorded; the check's port run plays the late pads of everything. If the last
+    chunk's late pads changed the route, the 2 end apart: truncate the chunk before the
+    change and record the rest again.
+    """
+    log = (ROOT / "playtest/out/sessions" / session / "log.txt").read_text(errors="replace")
+    sess = [ln for ln in log.splitlines() if ln.startswith("STATE ")][-1]
+    b = autodiff.parse_snapshots((outdir(d) / f"{Path(scen).stem}.port.log").read_text(errors="replace"))
+    late = b[max(b)]["raw_state"]
+
+    def key(line):
+        m = re.search(r"modes=\[[^\]]*\] .*? pos=\(\d+,\d+\)", line)
+        return m.group(0) if m else line
+
+    print(f"session: {key(sess)}\nlate:    {key(late)}\n" + ("SAME" if key(sess) == key(late) else "DIFFERENT"))
+
+
+def truncate(d, n):
+    left = n
+    for c in chunks(d):
+        words = c.read_text().split()
+        if left <= 0:
+            c.unlink()
+        elif len(words) > left:
+            c.write_text("\n".join(words[:left]) + "\n")
+            left = 0
+        else:
+            left -= len(words)
+
+
 def main():
     d, cmd, args = Path(sys.argv[1]), sys.argv[2], sys.argv[3:]
     scen = d / "scenario.play"
@@ -109,6 +147,10 @@ def main():
         check(d, args[0] if args else scen)
     elif cmd == "replay":
         replay(d, args[0], args[1], args[2] if len(args) > 2 else scen)
+    elif cmd == "verify":
+        verify(d, scen, args[0])
+    elif cmd == "truncate":
+        truncate(d, int(args[0]))
     elif cmd == "drop":
         chunks(d)[-1].unlink()
     else:
