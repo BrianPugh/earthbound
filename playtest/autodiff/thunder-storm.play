@@ -1,0 +1,9 @@
+# save: 26-Dalaam
+# overclock: max
+# Pink Cloud cave boss on Auto Fight: Thunder and Storm's Crashing Boom Bang, deep breaths, the level 4
+# intertwine, the summoned storm; 3 members collapse, Ness wins alone; A tapped through the win text
+flag 11 1; teleport 2083 5521 0; wait 10; until idle 300; press A; until input 60; press A; until in:BATTLE 3000 advance; until input 1500
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 8300
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

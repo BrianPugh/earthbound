@@ -1,0 +1,10 @@
+# save: 28-Scaraba
+# overclock: max
+# Pyramid boss on Auto Fight, Guardian General given 1300 HP (ehp, both sides) so the fight runs long
+# enough for its war cry (offense and defense down to all) besides the PP drain and bashes; the win,
+# A tapped through the level-up text
+flag 11 1; teleport 4280 8944 2; wait 10; until idle 300; press L; until in:BATTLE 3000 advance; until input 1500; ehp 0 1300 1300
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 7450
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

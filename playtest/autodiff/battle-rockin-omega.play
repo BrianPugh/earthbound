@@ -1,0 +1,9 @@
+# save: 36-CavePast
+# Ghost of Starman + Nuclear Reactor Robot (egroup 408, 30000 HP each): Ness's PSI Rockin Omega on all
+# enemies, the others Defend; the enemies' turns. Body recorded with padlog
+egroup 408; teleport 615 6535 0; until battle 200; until input 1500; egroup off; ehp 0 30000 30000; ehp 1 30000 30000; heal
+---
+2 DOWN; 14 -; 2 A; 34 -; 2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -
+2 RIGHT; 14 -; 2 A; 34 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 DOWN; 14 -; 2 RIGHT; 14 -
+2 A; 821 -

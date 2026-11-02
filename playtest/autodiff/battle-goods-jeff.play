@@ -1,0 +1,38 @@
+# save: 24-Museum
+# overclock: max
+# Battle goods against a Lesser Mook (egroup 15, 30000 HP) with Paula, Jeff and Poo poisoned (no
+# instant win): Rock candy, a Hamburger with the Ketchup packet (condiment), Counter-PSI unit, Shield
+# killer, Bottle rocket, Jar of Fly Honey, Yogurt dispenser, Guts and Speed capsules, Cup of Lifenoodles,
+# Horn of life reviving Jeff, Paula's PSI Fire beta; Ness and Paula collapse. Body recorded with padlog
+give 131 3; give 132 3; give 144 3; give 139 3; give 105 3; give 101 1; give 130 1; give 90 2; give 118 2; give 252 4; give 114 4; give 115 4; egroup 15; status 2 1 5; status 3 1 5; status 4 1 5; teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900; egroup off; ehp 0 30000 30000; ehp 1 30000 30000
+---
+2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 34 -
+2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 RIGHT; 14 -
+2 A; 34 -; 2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 A; 34 -
+2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -
+2 RIGHT; 14 -; 2 A; 1557 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 34 -
+2 RIGHT; 14 -; 2 A; 34 -; 2 A; 34 -; 2 RIGHT; 24 -; 2 A; 34 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -
+2 A; 34 -; 2 A; 34 -; 2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -
+2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -; 2 A; 1226 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -
+2 A; 34 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 A; 34 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -
+2 A; 34 -; 2 RIGHT; 14 -; 2 A; 1160 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 RIGHT; 4 -
+2 RIGHT; 14 -; 2 A; 34 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 445 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 599 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 34 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 72 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -
+2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -; 2 A; 780 -

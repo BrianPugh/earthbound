@@ -1,0 +1,25 @@
+# save: 24-Museum
+# overclock: max
+# Summers hotel lobby Goods: Help on a Fresh Egg, Ness gives it to Poo (the real give starts its timed
+# transformation), Paula eats a Hamburger with her Ketchup packet, Ness eats Rock candy, Poo gives an IQ
+# capsule to Paula; then 5500 frames standing: the egg hatches into a Chick and the Chick grows into a
+# Chicken (their sound effects). Body recorded with padlog
+give 92 1; give 101 1; give 90 2; give 118 2; give 113 4; teleport 6716 9416 0; wait 10; until idle 300
+---
+2 A; 24 -; 2 RIGHT; 14 -; 2 A; 34 -; 2 A; 24 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -
+2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 13 -
+2 A; 38 -; 2 A; 34 -; 2 A; 44 -; 2 A; 34 -; 2 DOWN; 14 -
+2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 24 -; 2 A; 36 -
+2 A; 44 -; 2 A; 34 -; 2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -
+2 A; 34 -; 2 A; 34 -; 2 RIGHT; 14 -; 2 A; 34 -; 1 A; 35 -
+1 A; 21 -; 1 A; 29 -; 1 A; 7 -; 2 A; 24 -; 2 RIGHT; 14 -
+2 A; 34 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 34 -
+2 A; 30 -; 1 A; 29 -; 1 A; 7 -; 2 A; 24 -; 2 RIGHT; 14 -
+2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 24 -; 2 A; 34 -
+2 B; 34 -; 2 RIGHT; 24 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 34 -; 2 RIGHT; 14 -
+2 A; 28 -; 1 A; 23 -; 1 A; 27 -; 1 A; 5507 -
+wait 700

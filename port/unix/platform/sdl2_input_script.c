@@ -1151,8 +1151,24 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
         } else if (nv >= 2 && !party_char(v2)) {
             /* party_char printed the error */
         } else {
-            uint16_t who = nv >= 2 ? (uint16_t)v2 : 0xFF;
-            uint16_t got = give_item_to_character(who, (uint16_t)v1);
+            /* Write the item into the first empty slot directly, as emu.py's give does:
+             * GIVE_ITEM_TO_CHARACTER would also start a timed transformation (Fresh Egg,
+             * Chick: a RAND call and the 60-frame check timer) or update the teddy bear
+             * party, which the original never sees, so the 2 sides would part there */
+            uint16_t got = 0;
+            int n = nv >= 2 ? 1 : (game_state.party_count < 6 ? game_state.party_count : 6);
+            for (int i = 0; i < n && !got; i++) {
+                int c = nv >= 2 ? v2 : game_state.party_members[i];
+                if (c < 1 || c > 6)
+                    continue;
+                for (int k = 0; k < ITEM_INVENTORY_SIZE; k++) {
+                    if (party_characters[c - 1].items[k] == 0) {
+                        party_characters[c - 1].items[k] = (uint8_t)v1;
+                        got = (uint16_t)c;
+                        break;
+                    }
+                }
+            }
             printf("GIVE item %d (", v1);
             print_eb(item->name, ITEM_NAME_LEN);
             if (got) {

@@ -149,7 +149,7 @@ Instant (no frame passes):
 | `shot [--crop W H] [--zoom N] [LABEL\|PATH.png]` | write the current frame as PNG (`shots/NNNN-LABEL.png`); `--crop` keeps a WxH box centred on the leader (clamped to the screen), `--zoom` scales it up N times |
 | `state [LABEL]` / `text` | print STATE/PARTY/FOLLOW/NEAR/ENEMIES lines / WIN+MENU lines |
 | `flag N [0\|1]` | read / set an event flag |
-| `give ITEM [CHAR]` | give item id to char 1-6 (default: first with room). Prints `GIVE item N (Name) -> char C Name`, or `FAILED` when the inventory (or every inventory) is full |
+| `give ITEM [CHAR]` | give item id to char 1-6 (default: first party member with room). Writes the inventory slot directly on both sides, so it starts no timed transformation (a given Fresh Egg only starts hatching once the game itself gives it, e.g. through Goods → Give) and updates no teddy bear party. Prints `GIVE item N (Name) -> char C Name`, or `FAILED` when the inventory (or every inventory) is full |
 | `status CHAR GROUP VALUE` | set an affliction: `afflictions[GROUP-1] = VALUE` (GROUP 1-7 as in PARTY `st=`, VALUE 0 clears), or GROUP 8 = `party_status` (CHAR ignored). E.g. `status 2 2 2` possesses Paula. In a battle it also sets the member's battler, which the battle copies back over the char afflictions |
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
 | `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |

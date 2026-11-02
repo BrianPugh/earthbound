@@ -1,0 +1,10 @@
+# save: 32-LumineHall
+# overclock: max
+# Lumine Hall boss on Auto Fight, Electro Specter cut to 1200 HP (ehp, both sides): its electrical
+# shock (shield killer) and Neutralizer, the win, A tapped through the level-up text
+flag 11 1; teleport 3528 204 0; wait 10; until idle 300; press A; until input 60; press A; until in:BATTLE 3000 advance; until input 1500; ehp 0 1200
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 3850
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

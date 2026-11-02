@@ -1,0 +1,7 @@
+# save: 03-GiantStep
+# overclock: max
+# Giant Step boss on Auto Fight: the Titanic Ant's bites and PSI Magnet, the Black Antoids' PSI, Ness
+# (L8, alone) loses; up to the defeat
+flag 11 1; flag 108 1; teleport 1100 330 0; wait 10; until idle 300; 30 UP; until idle 300; press A; until input 60; press A; until in:BATTLE 3000 advance; until input 1500
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 7200

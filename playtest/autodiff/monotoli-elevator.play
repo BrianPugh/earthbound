@@ -1,0 +1,10 @@
+# save: 21-Monotoli
+# Monotoli Building 47F: talk to the elevator girl, the ride down (EVENT_583's window effect), A tapped
+# through the text, then walk up to the lobby door
+flag 11 1; teleport 5176 5324 0; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 30
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+40 UP; wait 120

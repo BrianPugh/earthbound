@@ -1,0 +1,11 @@
+# save: 33-FireSpring
+# overclock: max
+# Fire Spring boss on Auto Fight, Carbon Dog cut to 1300 HP (ehp, both sides) so it lasts 2 rounds:
+# its spray of fire (350 fire damage), the rainbow of colours into Diamond Dog, Diamond Dog's bites
+# (level 2 diamondize), glorious light and shield, the win, A tapped through the win text
+flag 11 1; teleport 3344 6410 0; wait 10; 30 UP; until idle 300; press A; until input 60; press A; until in:BATTLE 3000 advance; until input 1500; ehp 0 1300
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 12300
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

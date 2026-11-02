@@ -1,0 +1,11 @@
+# save: 21-Monotoli
+# overclock: max
+# Monotoli 48F: the Clumsy Robot boss (Ness + Jeff) on Auto Fight from the first menu: its solidify and
+# super bomb, then the Runaway Five's switch scene (CLUMSYDEATH) and the win, A tapped through the text
+flag 11 1; teleport 6080 5992 6; wait 10; until idle 300; 10 UP; 40 LEFT; until in:BATTLE 3000 advance; until input 1500
+---
+press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 12100
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
