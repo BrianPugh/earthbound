@@ -158,6 +158,8 @@ Instant (no frame passes):
 | `ehp ENEMY N` | in a battle, set enemy ENEMY's (the `[i]` index in ENEMIES) HP and HP target to N |
 | `hpt` | print `HPT id:HP/PP ... exp E ... bank B`: each member's HP/PP *rolling target* (where the meter will settle, so big hits show before the meter catches up), exp, and the bank balance |
 | `digest` | print `DIGEST flags=HEX items=ID:HEX,... bgm=N ents=SLOT:SCRIPT@X,Y/DIR/SPRITE,... wins=ID:X,Y,WxH,... focus=N` (raw state for autodiff.py; emu.py prints the same) |
+| `frac` | print `FRAC leader=X,Y ent24=X,Y bright=HH`: the leader's (game_state) and entity slot 24's 16-bit sub-pixel x,y and the brightness the logic frame ended with (port `g_inidisp_logic_end`, emu `INIDISP_MIRROR`); the port adds `fade=STEP/COUNTER`. For 1-px walking phase and fade-timing diffs that `state` can't show |
+| `padlog FILE\|off` | port only: write the pad of every later frame to FILE, one hex word a line. `playtest/padlog_body.py FILE` turns it into a fixed-length autodiff body (see "Writing a long scenario") |
 | `peek SYMBOL [INDEX] [COUNT]` | emu only: print `PEEK SYMBOL[INDEX] HHHH ...`, COUNT 16-bit WRAM words from SYMBOL + 2*INDEX (entity tables by slot, e.g. `peek ENTITY_OBSTACLE_FLAGS 2`) |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
@@ -417,6 +419,15 @@ setup waits are wall frames and lag frames there count no logic frame: EVENT_1's
 check (every 1200 frames from the file load) lands a few frames apart on sand, and a `port: wait
 N` before the teleport moves it (desert-walk.play); a wanderer spawned by a lagging teleport is a
 frame behind in the original, and an `emu: wait 1` after it lines it up (magic-cake.play).
+
+Writing a long scenario (a battle with menus, a cutscene with prompts, a walk): the body takes
+fixed-length inputs only, so plan it on the port with `until` commands and record the pads.
+Run the scenario's setup on the port (a `pt.py` session or a `--input` script), then
+`rng 4660 22136; fc 0; padlog FILE` where autodiff seeds, then the `until input ... advance` /
+walking steps (in a session, adaptive moves are fine: the game waits between batches, but don't
+`snap`/`restore` after `padlog`, since a capture free-runs frames), `padlog off`; `uv run
+--no-sync python playtest/padlog_body.py FILE` prints the body as `N BUTTONS` runs that replay
+the port run frame for frame (giygas-pray.play, paula-farewell.play).
 
 Read a report with care: a first divergence of `idle` alone, 1 frame, at the end
 of a fade-in near a lag-merged frame is the original's fade running on NMIs, which

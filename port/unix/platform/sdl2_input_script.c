@@ -49,6 +49,10 @@
  *   mark TEXT        print "MARK n=FRAMES frame=F TEXT": FRAMES is the number
  *                    of frames recorded so far (pt.py video chapters)
  *   record on|off    resume / pause --record-video/--record-audio
+ *   frac             print FRAC: the leader's and entity slot 24's sub-pixel x,y
+ *   padlog FILE|off  write the pad of every later frame to FILE (one hex
+ *                    word per line), for turning an 'until' run into a
+ *                    fixed-length autodiff body (playtest/padlog_body.py)
  *   flag N [0|1]     read / write event flag N
  *   give ITEM [CHAR] give item id to party member CHAR (1-6; default first
  *                    with room); prints who got it, or FAILED if full
@@ -93,6 +97,7 @@
 #include "game/audio.h"
 #include "game/battle.h"
 #include "game/display_text.h"
+#include "game/fade.h"
 #include "game/display_text_internal.h"
 #include "game/game_state.h"
 #include "game/inventory.h"
@@ -1071,11 +1076,18 @@ static void poke_pp(CharStruct *c, uint16_t pp) {
 
 /* Run one instant/deferred command. Returns false if the command must end
  * this frame's command processing (it waits on the root boundary). */
+static FILE *pad_log;
+
 static bool run_command(const char *cmd, const char *arg, const char *line, uint16_t *aux) {
     int v1 = 0, v2 = 0, v3 = 0;
     int nv = sscanf(line, "%*s %d %d %d", &v1, &v2, &v3);
 
-    if (strcmp(cmd, "shot") == 0) {
+    if (strcmp(cmd, "padlog") == 0) {
+        if (pad_log)
+            fclose(pad_log);
+        pad_log = strcmp(arg, "off") == 0 ? NULL : fopen(arg, "w");
+        printf("PADLOG %s\n", pad_log ? arg : "off");
+    } else if (strcmp(cmd, "shot") == 0) {
         take_shot(line);
     } else if (strcmp(cmd, "state") == 0) {
         print_state(arg);
@@ -1118,6 +1130,10 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
                 printf(") FAILED: every party inventory is full\n");
             }
         }
+    } else if (strcmp(cmd, "frac") == 0) {
+        /* Sub-pixel positions: the leader's (game_state) and entity slot 24's */
+        printf("FRAC leader=%04X,%04X ent24=%04X,%04X bright=%02X fade=%d/%d\n", game_state.leader_x_frac,
+               game_state.leader_y_frac, entities.frac_x[24], entities.frac_y[24], g_inidisp_logic_end, fade_state.step, fade_state.counter);
     } else if (strcmp(cmd, "hpt") == 0) {
         printf("HPT");
         for (int i = 0; i < game_state.party_count && i < 6; i++) {
@@ -1336,9 +1352,20 @@ static uint16_t press_step(void) {
     return pad;
 }
 
+static uint16_t script_next(uint16_t *aux);
+
 /* Advance the script by one frame. Returns the pad state for this frame and
  * ORs any one-frame aux pulses into *aux. */
 uint16_t input_script_next(uint16_t *aux) {
+    uint16_t pad = script_next(aux);
+    if (pad_log && script_file) {
+        fprintf(pad_log, "%04x\n", pad);
+        fflush(pad_log);
+    }
+    return pad;
+}
+
+static uint16_t script_next(uint16_t *aux) {
     char line[256];
     uint16_t pad = 0;
     frame_was_rendered = video_frames_rendered != last_poll_render_count;

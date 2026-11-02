@@ -1474,6 +1474,12 @@ class Player:
                 if hasattr(self, "last_count"):  # --count-frames counts in FRAME_COUNTER
                     self.last_count = ints[0] & 0xFF
             log(f"FC {g.w8(g.sym('FRAME_COUNTER'))}")
+        elif cmd == "frac":
+            gs = g.gs
+            xf, yf = g.sym("ENTITY_ABS_X_FRACTION_TABLE") + 48, g.sym("ENTITY_ABS_Y_FRACTION_TABLE") + 48
+            log(
+                f"FRAC leader={g.w16(gs + GS_LEADER_X - 2):04X},{g.w16(gs + GS_LEADER_Y - 2):04X} ent24={g.w16(xf):04X},{g.w16(yf):04X} bright={g.w8(g.sym('INIDISP_MIRROR')):02X}"
+            )
         elif cmd == "peek":
             # peek SYMBOL [INDEX] [COUNT]: 16-bit words at SYMBOL + 2*INDEX (WRAM tables)
             if not args or args[0] not in g.syms:
