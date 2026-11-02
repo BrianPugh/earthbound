@@ -1,7 +1,8 @@
 # save: blank
 # boot: menu
 # New game from an empty SRAM: file 1, text speed / sound / window flavour, each name
-# through Don't Care -> OK, Yep, then the prologue's first scene (meteorite fall text)
+# through Don't Care -> OK, Yep, then the whole prologue (meteorite fall, the hilltop,
+# the police, home) up to control in Ness's bedroom
 # The port runs FILE_SELECT_INIT's battle-BG entity (EVENT_787, slot 23) as a stand-in
 # call (file_menu_bg_update), so slot 23 is empty there
 # ignore: ent23\..*
@@ -10,6 +11,14 @@
 # frame before the prologue text's CC_08 wait
 # skip: 2367
 # lag: 2371
+# Each of the prologue's 3 TELEPORTs repeats that: the first emu sample of its load is
+# part-way in (skip), and its fade-in ends a CPU-time frame later (lag)
+# skip: 3095
+# lag: 3116
+# skip: 3841
+# lag: 3862
+# skip: 4961
+# lag: 4982
 ---
 press A; wait 60; press A; wait 30; press A; wait 30; press A; wait 60
 press A; wait 30; press DOWN 5; wait 6; press A; wait 30; press RIGHT 2; wait 6; press A; wait 120
@@ -20,5 +29,5 @@ press A; wait 30; press DOWN 5; wait 6; press A; wait 30; press RIGHT 2; wait 6;
 press A; wait 30; press DOWN 5; wait 6; press A; wait 30; press RIGHT 2; wait 6; press A; wait 120
 press A; wait 30; press DOWN 5; wait 6; press A; wait 30; press RIGHT 2; wait 6; press A; wait 120
 wait 200
-# Yep, then the prologue up to the teleport to the hilltop
-press A; wait 880
+# Yep, then the prologue up to control in the bedroom
+press A; wait 8300
