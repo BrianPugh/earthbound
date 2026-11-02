@@ -1,0 +1,22 @@
+# save: 24-Museum
+# overclock: max
+# Tony's player-name call (TEXT_DOOR_725, FLG_SYS_INPUT_PLAYER_NAME cleared): walk out of the Toto
+# house, the call, the in-game name registration (ENTER_YOUR_NAME_PLEASE) twice: type 3 letters,
+# Backspace, OK; then OK again; Tony's goodbye. Body recorded with padlog
+# the door's load: the original's loop takes an extra frame there (CPU time), so the Summers
+# street and the call's pause run a frame later
+# lag: 43
+# teleport into the house again: the wanderer inside spawns after the seed on both sides
+flag 11 1; teleport 7186 2850 0; wait 10; until idle 300; until in:DOOR_TRANSITION 60 UP; until idle 300; flag 539 0; teleport 7816 9544 6; wait 10; until idle 300
+---
+10 LEFT; 9 RIGHT; 602 -; 1 A; 15 -; 1 A; 15 -; 1 A; 31 -; 1 A
+11 -; 1 A; 19 -; 1 A; 53 -; 1 A; 33 -; 1 A; 51 -; 1 A
+39 -; 1 A; 29 -; 1 A; 55 -; 2 A; 14 -; 2 RIGHT; 14 -; 2 A
+14 -; 2 A; 24 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN
+4 -; 2 DOWN; 14 -; 2 A; 14 -; 2 RIGHT; 14 -; 2 A; 22 -; 1 A
+21 -; 1 A; 17 -; 1 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN
+4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 86 -; 1 A
+61 -; 1 A; 19 -; 1 A; 15 -; 1 A; 27 -; 1 A; 11 -; 1 A
+65 -; 1 A; 65 -; 1 A; 15 -; 1 A; 41 -; 1 A; 13 -; 1 A
+13 -; 1 A; 13 -; 1 A; 11 -; 1 A; 37 -; 1 A; 9 -; 1 A
+11 -; 1 A; 68 -

@@ -699,11 +699,14 @@ static int kb_text_x_to_grid_col(int text_x) {
 }
 
 /* Check if a position has a valid cursor stop.
-   Uses the static kb_row_stops[] table rather than scanning the tilemap. */
-static bool kb_is_valid_stop(WindowInfo *kw, int text_x, int text_y) {
-    (void)kw;
+   Uses the static kb_row_stops[] table rather than scanning the tilemap for the
+   $2F markers as FIND_NEXT_MENU_OPTION does (GET_MENU_TILE_AT_POSITION). Without
+   Don't Care (MSG_KBD_LAYOUT_BUTTONS_NO_DONT_CARE: the in-game player-name entry)
+   row 6 has no marker at x=0, so a vertical move into it lands on Backspace. */
+static bool kb_is_valid_stop(bool has_dont_care, int text_x, int text_y) {
     if (text_y < 0 || text_y >= KB_TOTAL_ROWS) return false;
     if (text_x < 0) return false;
+    if (text_y == 6 && text_x == 0 && !has_dont_care) return false;
     for (int i = 0; kb_row_stops[text_y][i] >= 0; i++) {
         if (kb_row_stops[text_y][i] == text_x) return true;
     }
@@ -715,7 +718,7 @@ static bool kb_is_valid_stop(WindowInfo *kw, int text_x, int text_y) {
    - Primary: scan in dy direction, keeping text_x fixed
    - Secondary: scan in dx direction at each row
    Returns packed (text_y << 8 | text_x), or -1 if none found. */
-static int kb_find_next(WindowInfo *kw, int cur_x, int cur_y, int dx, int dy) {
+static int kb_find_next(WindowInfo *kw, bool has_dont_care, int cur_x, int cur_y, int dx, int dy) {
     int half_height = (int)kw->height / 2;
     int width = (int)kw->width;
 
@@ -725,16 +728,16 @@ static int kb_find_next(WindowInfo *kw, int cur_x, int cur_y, int dx, int dy) {
         for (int steps = 0; steps < half_height; steps++) {
             if (y < 0) y = half_height - 1;
             if (y >= half_height) y = 0;
-            if (kb_is_valid_stop(kw, cur_x, y))
+            if (kb_is_valid_stop(has_dont_care, cur_x, y))
                 return (y << 8) | cur_x;
             /* Try scanning left from cur_x */
             for (int x = cur_x - 1; x >= 0; x--) {
-                if (kb_is_valid_stop(kw, x, y))
+                if (kb_is_valid_stop(has_dont_care, x, y))
                     return (y << 8) | x;
             }
             /* Try scanning right from cur_x */
             for (int x = cur_x + 1; x < width; x++) {
-                if (kb_is_valid_stop(kw, x, y))
+                if (kb_is_valid_stop(has_dont_care, x, y))
                     return (y << 8) | x;
             }
             y += dy;
@@ -745,7 +748,7 @@ static int kb_find_next(WindowInfo *kw, int cur_x, int cur_y, int dx, int dy) {
         for (int steps = 0; steps < width; steps++) {
             if (x < 0) x = width - 1;
             if (x >= width) x = 0;
-            if (kb_is_valid_stop(kw, x, cur_y))
+            if (kb_is_valid_stop(has_dont_care, x, cur_y))
                 return (cur_y << 8) | x;
             x += dx;
         }
@@ -1009,7 +1012,7 @@ StepResult mode_step_text_input(ModeState *st) {
         bool confirm_request = false;
 
         if (dx != 0 || dy != 0) {
-            int found = kb_find_next(kw, s->cur_x, s->cur_y, dx, dy);
+            int found = kb_find_next(kw, s->has_dont_care, s->cur_x, s->cur_y, dx, dy);
             if (found >= 0) {
                 s->cur_y = (found >> 8) & 0xFF;
                 s->cur_x = found & 0xFF;
