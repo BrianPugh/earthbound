@@ -1,0 +1,5 @@
+# save: 20-TarahRama
+# Dusty Dunes desert: walk until an enemy touches the party, Auto Fight (a Skelpion poisons Ness)
+flag 11 1; teleport 1400 9400 4; wait 10; until idle 300; flag 11 0
+---
+300 LEFT; 300 UP; 300 RIGHT; 300 DOWN; 300 LEFT; wait 300; press RIGHT 2; press A; wait 3000
