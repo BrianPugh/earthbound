@@ -4924,10 +4924,22 @@ static EB_NOINLINE bool btl_step_announce(BattleRoutineState *st, StepResult *ou
             btl_push_text(MSG_BTL0_STATUS_STRANGE_AT_START, out))
             return true;
     }
+    /* REDIRECT_CLOSE_FOCUS_WINDOW closes the encounter text with a WINDOW_TICK:
+     * its own frame before the first command menu's SELECT_BATTLE_MENU_CHARACTER
+     * wait (emu, 01-Start back-to-back battle: the first menu's title and tick a
+     * frame early without it). */
+    (void)take_unpresented_ticks();
     redirect_close_focus_window();
     st->post_battle_exit = 0;
     bt.special_defeat = 0;
     st->phase = BTL_TURN;  /* goto check_new_turn (post_battle_exit == 0) */
+    {
+        uint16_t owed = take_unpresented_ticks();
+        if (owed) {
+            *out = push_wait_frames(&g_mode_push_init, BW_VBLANK, owed);
+            return true;
+        }
+    }
     return false;
 }
 
