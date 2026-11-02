@@ -5,6 +5,6 @@
 #ifndef EB_CORE_STATE_LAYOUT_H
 #define EB_CORE_STATE_LAYOUT_H
 
-#define STATE_LAYOUT_SOURCE_HASH 0x9FFA28F3u /* over 339 definitions */
+#define STATE_LAYOUT_SOURCE_HASH 0xF14FA316u /* over 340 definitions */
 
 #endif /* EB_CORE_STATE_LAYOUT_H */

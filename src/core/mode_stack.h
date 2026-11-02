@@ -1744,6 +1744,13 @@ typedef struct {
     uint8_t  flush;                  /* D4b: 1 = resume after a parked actionscript frame */
     uint8_t  relayout;               /* 1 = keyboard window was re-created by CAPITAL/small;
                                         print the layout text on the next step */
+    uint8_t  skip_read;              /* 1 = @PROCESS_INPUT's RENDER_FRAME_TICK after
+                                        @RENDER_CURSOR's tick: a frame with no input read */
+    uint8_t  kb_pending;             /* RENDER_KEYBOARD_INPUT_CHARACTER calls whose entry
+                                        frame wait is presented but whose body hasn't run */
+    uint8_t  kb_op;                  /* TextInputKbOp of those calls */
+    uint8_t  kb_arg;                 /* KB_OP_INSERT: the character; KB_OP_DONT_CARE: the
+                                        next character's index in the Don't Care name */
     uint8_t  eb_name[32];            /* the name being built (EB-encoded) */
 } TextInputState;
 

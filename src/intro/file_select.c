@@ -93,6 +93,16 @@ static const uint8_t *get_dont_care_name(int category, int index) {
     return dont_care_names_data + (category * DONT_CARE_COUNT + index) * DONT_CARE_NAME_SIZE;
 }
 
+/* Character i of a Don't Care name as RENDER_DONT_CARE_NAME reads it: straight
+ * through DONT_CARE_NAMES until a 0, so a full 6-byte name runs on into the next. */
+#define DONT_CARE_TABLE_SIZE (THINGS_NAMED_COUNT * DONT_CARE_COUNT * DONT_CARE_NAME_SIZE)
+static uint8_t dont_care_char(int category, int index, int i) {
+    int off = (category * DONT_CARE_COUNT + index) * DONT_CARE_NAME_SIZE + i;
+    if (off < 0 || off >= DONT_CARE_TABLE_SIZE)
+        return 0;
+    return get_dont_care_name(0, 0)[off];
+}
+
 /* See file_select.h. Mirrors a cold load: null the (un-sectioned) asset caches,
  * then confirm a consumer entry (get_dont_care_name) and the resolver re-resolve
  * all four. */
@@ -860,6 +870,25 @@ void file_menu_bg_update(void) {
  * keyboard loop. Each step reads the input the pump's prior yield latched (when
  * `primed`), acts on it, then renders one frame; the pump owns the single yield.
  * See the mode header in mode_stack.h. */
+/* TextInputState.kb_op: what the pending RENDER_KEYBOARD_INPUT_CHARACTER calls do */
+enum {
+    KB_OP_INSERT = 0,       /* type kb_arg (fails silently when the name is full) */
+    KB_OP_DONT_CARE,        /* type the Don't Care name's next character */
+    KB_OP_BACKSPACE,        /* delete the last character (nothing when empty) */
+    KB_OP_BACKSPACE_EXIT,   /* backspace on an empty name: leave the keyboard */
+};
+
+/* Start `n` RENDER_KEYBOARD_INPUT_CHARACTER calls (RENDER_NAMING_CHARACTER /
+ * RENDER_DONT_CARE_NAME): the name box takes the focus and this frame ends in the
+ * first call's entry wait. Returns true (the frame is bare). */
+static bool kb_start_calls(TextInputState *s, uint8_t op, uint8_t arg, uint8_t n) {
+    s->kb_op = op;
+    s->kb_arg = arg;
+    s->kb_pending = n;
+    win.current_focus_window = s->name_display_window_id;
+    return true;
+}
+
 StepResult mode_step_text_input(ModeState *st) {
     TextInputState *s = &st->text_input;
 
@@ -898,16 +927,70 @@ StepResult mode_step_text_input(ModeState *st) {
      *     there, so each exits right after the RAND without rendering. */
     uint16_t rand_ticks = 0;
     const uint16_t char_ticks = (uint16_t)(dt.selected_text_speed + 1);
-    if (s->relayout) {
+    /* A frame that ends in RENDER_KEYBOARD_INPUT_CHARACTER's entry
+     * WAIT_UNTIL_NEXT_FRAME (render_keyboard_input_character.asm:19): no window
+     * tick and no RUN_ACTIONSCRIPT_FRAME, so the entities and the battle BG
+     * (EVENT_787) hold. Each character typed, deleted or filled in by Don't Care
+     * takes one; its body (the name display update and the text-speed RANDs) runs
+     * at the start of the next frame. */
+    bool bare = false;
+    if (s->kb_pending) {
+        switch (s->kb_op) {
+        case KB_OP_INSERT:
+            if (s->name_pos < s->max_len) {
+                s->eb_name[s->name_pos++] = s->kb_arg;
+                rand_ticks = char_ticks;
+            }
+            break;
+        case KB_OP_DONT_CARE: {
+            uint8_t ch = dont_care_char(s->naming_index, s->dont_care_row, s->kb_arg++);
+            if (s->name_pos < s->max_len) {
+                s->eb_name[s->name_pos++] = ch;
+                rand_ticks = char_ticks;
+            }
+            break;
+        }
+        case KB_OP_BACKSPACE:
+        case KB_OP_BACKSPACE_EXIT:
+            if (s->name_pos > 0) {
+                s->name_pos--;
+                s->eb_name[s->name_pos] = 0;
+                rand_ticks = char_ticks;
+            }
+            break;
+        default:
+            break;
+        }
+        if (--s->kb_pending) {
+            bare = true;
+        } else {
+            /* RENDER_NAMING_CHARACTER / RENDER_DONT_CARE_NAME end with
+             * SET_WINDOW_FOCUS(keyboard) */
+            win.current_focus_window = WINDOW_FILE_SELECT_NAMING_KB;
+            if (s->kb_op == KB_OP_BACKSPACE_EXIT) {
+                /* Backspace on an empty name: TRUE -> @RETURN */
+                close_window(WINDOW_FILE_SELECT_NAMING_KB);
+                return STEP_RESULT_POP(-1);
+            }
+            rand_ticks++; /* @RENDER_CURSOR */
+            s->skip_read = 1;
+        }
+    } else if (s->relayout) {
         /* Second half of @REDRAW_KEYBOARD: the empty keyboard window has been
-           shown for a frame; print the new layout. Input is next read after
-           the following frame (@RENDER_CURSOR's WINDOW_TICK). */
+           shown for a frame; print the new layout, then @RENDER_CURSOR. */
         s->relayout = 0;
         set_instant_printing();
         kb_display_layout(s);
         clear_instant_printing();
+        rand_ticks = 1;
+        s->skip_read = 1;
     } else if (!s->primed) {
         rand_ticks = 1; /* @RENDER_CURSOR on entry */
+        s->skip_read = 1;
+    } else if (s->skip_read) {
+        /* @CURSOR_BLINK -> @PROCESS_INPUT's RENDER_FRAME_TICK: the frame after
+           @RENDER_CURSOR's WINDOW_TICK reads no input (text_input_dialog.asm:167-230). */
+        s->skip_read = 0;
     } else {
         uint16_t pressed = platform_input_get_pad_new();
         uint16_t held = core.pad1_autorepeat; /* PAD_HELD */
@@ -938,6 +1021,7 @@ StepResult mode_step_text_input(ModeState *st) {
                 play_sfx(dy != 0 ? 124 : 123); /* NAMING_CURSOR_VERTICAL / horizontal */
             }
             rand_ticks = 1;
+            s->skip_read = 1;
         } else if (pressed & PAD_CONFIRM) {
             /* A/L button: select */
             if (s->cur_y == 6) {
@@ -951,30 +1035,27 @@ StepResult mode_step_text_input(ModeState *st) {
                         s->dont_care_row = 0;
                     else
                         s->dont_care_row++;
-                    const uint8_t *eb_src = get_dont_care_name(s->naming_index, s->dont_care_row);
+                    /* RENDER_DONT_CARE_NAME: re-create the name box (empty name,
+                       INITIALIZE_KEYBOARD_INPUT_VWF), then one
+                       RENDER_KEYBOARD_INPUT_CHARACTER per character of the name,
+                       then @RENDER_CURSOR. */
                     memset(s->eb_name, 0, sizeof(s->eb_name));
                     s->name_pos = 0;
-                    for (int i = 0; i < DONT_CARE_NAME_SIZE && i < (int)s->max_len && eb_src[i] != 0; i++) {
-                        s->eb_name[i] = eb_src[i];
-                        s->name_pos++;
+                    uint8_t n = 0;
+                    while (dont_care_char(s->naming_index, s->dont_care_row, n) != 0)
+                        n++;
+                    if (n)
+                        bare = kb_start_calls(s, KB_OP_DONT_CARE, 0, n);
+                    else {
+                        rand_ticks = 1;
+                        s->skip_read = 1;
                     }
-                    /* RENDER_DONT_CARE_NAME: one RENDER_KEYBOARD_INPUT_CHARACTER
-                       per character, then @RENDER_CURSOR. */
-                    rand_ticks = (uint16_t)(1 + char_ticks * s->name_pos);
                 } else if (s->cur_x == 17) {
                     /* Backspace (@BACKSPACE_SELECTED): an empty name returns to
                        the previous screen, like B. */
                     play_sfx(122); /* SFX::TEXT_INPUT */
-                    if (s->name_pos > 0) {
-                        s->name_pos--;
-                        s->eb_name[s->name_pos] = 0;
-                        rand_ticks = (uint16_t)(char_ticks + 1);
-                    } else if (s->naming_index != -1) {
-                        close_window(WINDOW_FILE_SELECT_NAMING_KB);
-                        return STEP_RESULT_POP(-1);
-                    } else {
-                        rand_ticks = 1;
-                    }
+                    bare = kb_start_calls(s, (s->name_pos == 0 && s->naming_index != -1)
+                                                 ? KB_OP_BACKSPACE_EXIT : KB_OP_BACKSPACE, 0, 1);
                 } else if (s->cur_x == 25) {
                     /* OK */
                     play_sfx(94); /* SFX::NAMING_CONFIRM */
@@ -989,22 +1070,24 @@ StepResult mode_step_text_input(ModeState *st) {
                        empty for one frame (WINDOW_TICK_WITHOUT_INSTANT_PRINTING)
                        and then prints the new layout (next step). */
                     bool lower = (s->cur_x == 7);
-                    rand_ticks = 1;
+                    rand_ticks = 1; /* WINDOW_TICK_WITHOUT_INSTANT_PRINTING, or
+                                       @RENDER_CURSOR when the layout stays */
                     if (lower != (bool)s->is_lowercase) {
                         s->is_lowercase = lower;
                         create_window(WINDOW_FILE_SELECT_NAMING_KB);
                         s->relayout = 1;
-                        rand_ticks = 2;
+                    } else {
+                        s->skip_read = 1;
                     }
                 } else {
                     /* Punctuation at column 11/12 */
                     int col = kb_text_x_to_grid_col(s->cur_x);
                     const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
-                    rand_ticks = 1;
-                    if (col >= 0 && grid[4][col] != 0xFF && s->name_pos < s->max_len) {
-                        s->eb_name[s->name_pos] = grid[4][col];
-                        s->name_pos++;
-                        rand_ticks += char_ticks;
+                    if (col >= 0 && grid[4][col] != 0xFF) {
+                        bare = kb_start_calls(s, KB_OP_INSERT, grid[4][col], 1);
+                    } else {
+                        rand_ticks = 1;
+                        s->skip_read = 1;
                     }
                 }
             } else if (s->cur_y >= 0 && s->cur_y <= 3) {
@@ -1012,29 +1095,21 @@ StepResult mode_step_text_input(ModeState *st) {
                 play_sfx(122); /* SFX::TEXT_INPUT */
                 int col = kb_text_x_to_grid_col(s->cur_x);
                 const uint8_t (*grid)[KB_GRID_COLS] = s->is_lowercase ? kb_lower_grid : kb_upper_grid;
-                rand_ticks = 1;
-                if (col >= 0 && grid[s->cur_y][col] != 0xFF && s->name_pos < s->max_len) {
-                    s->eb_name[s->name_pos] = grid[s->cur_y][col];
-                    s->name_pos++;
-                    rand_ticks += char_ticks;
+                if (col >= 0 && grid[s->cur_y][col] != 0xFF) {
+                    bare = kb_start_calls(s, KB_OP_INSERT, grid[s->cur_y][col], 1);
+                } else {
+                    rand_ticks = 1;
+                    s->skip_read = 1;
                 }
             }
         } else if (pressed & PAD_CANCEL) {
             /* B/SELECT: backspace (assembly: @CHECK_B_SELECT) */
             play_sfx(125); /* SFX::NAMING_BACKSPACE */
-            if (s->name_pos > 0) {
-                s->name_pos--;
-                s->eb_name[s->name_pos] = 0;
-                rand_ticks = (uint16_t)(char_ticks + 1);
-            } else if (s->naming_index != -1) {
-                /* No characters and not standalone — go back to previous screen.
-                   Assembly only closes the keyboard window; name box and message
-                   are left for the caller. */
-                close_window(WINDOW_FILE_SELECT_NAMING_KB);
-                return STEP_RESULT_POP(-1);
-            } else {
-                rand_ticks = 1;
-            }
+            /* No characters and not standalone: back to the previous screen once
+               the call's frame wait is over. Assembly only closes the keyboard
+               window; name box and message are left for the caller. */
+            bare = kb_start_calls(s, (s->name_pos == 0 && s->naming_index != -1)
+                                         ? KB_OP_BACKSPACE_EXIT : KB_OP_BACKSPACE, 0, 1);
         } else if (pressed & PAD_START) {
             /* START: confirm */
             play_sfx(126); /* SFX::NAMING_CONFIRM_ALT */
@@ -1047,7 +1122,11 @@ StepResult mode_step_text_input(ModeState *st) {
         if (confirm_request) {
             if (s->name_pos == 0) {
                 rand_ticks = 1;
+                s->skip_read = 1;
             } else {
+                /* @CONFIRM_NAME: SET_WINDOW_FOCUS(name box) before the copy, so
+                   closing the keyboard leaves the focus there */
+                win.current_focus_window = s->name_display_window_id;
                 uint8_t *name_buf = name_target_buffer(s->name_target);
                 if (name_buf) {
                     memset(name_buf, 0, (size_t)s->max_len);
@@ -1088,7 +1167,11 @@ StepResult mode_step_text_input(ModeState *st) {
     /* Draw blinking cursor matching selection_menu() two-frame animation:
        Frame 0 (big):  tiles 0x41/0x51  — CURSOR_FRAME0 from TEXT_WINDOW_GFX
        Frame 1 (small): tiles 0x28D/0x29D — CURSOR_FRAME1 from TEXT_WINDOW_GFX
-       Toggle every 10 frames; always draw one frame (never skip). */
+       Toggle every 10 frames; always draw one frame (never skip). @RENDER_CURSOR
+       (this frame, when skip_read was just set) restarts the blink on the big
+       cursor (text_input_dialog.asm:168-172, CURSOR_BLINK_UPPER_TILES[0]). */
+    if (s->skip_read)
+        s->frame_counter = 0;
     {
         bool cursor_frame = ((s->frame_counter / 10) % 2 != 0);
         uint16_t *tilemap = (uint16_t *)win.bg2_buffer;
@@ -1104,10 +1187,16 @@ StepResult mode_step_text_input(ModeState *st) {
             }
         }
     }
-    s->frame_counter++;
-
     /* Sync win.bg2_buffer to VRAM (NMI DMA equivalent) */
     upload_battle_screen_to_vram();
+
+    if (bare) {
+        /* A bare WAIT_UNTIL_NEXT_FRAME: entities, sprites and the battle BG hold */
+        sync_palettes_to_cgram();
+        s->primed = 1;
+        return STEP_RESULT_CONTINUE();
+    }
+    s->frame_counter++;
 
     /* Run entity scripts for naming screen animations. A parked actionscript
      * frame STEP_PUSHes ACTIONSCRIPT_FRAME; the post-render tail runs on its pop
