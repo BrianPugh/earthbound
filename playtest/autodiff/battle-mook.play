@@ -1,0 +1,17 @@
+# save: 24-Museum
+# overclock: max
+# Lesser Mook + Whirling Robo (egroup 15) vs the party with Paula, Jeff and Poo poisoned (INSTANT_WIN_CHECK
+# needs more active members than enemies): everyone Defends 8 rounds. Diamondize, hypnosis, cold; Poo
+# collapses (CHECK_DEAD_PLAYERS' KO text and its window close), then the rest: the battle-defeat game over.
+# Overclocked: the plain emu's lag frames at the defeat's fade-out and the game over screen's load shift
+# its NMI fades a frame
+egroup 15; status 2 1 5; status 3 1 5; status 4 1 5; teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900; egroup off
+---
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; wait 1500

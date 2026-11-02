@@ -2527,11 +2527,18 @@ StepResult mode_step_check_dead_players(ModeState *ms) {
      * battler's affliction-sync tail, then advance and fall into the loop. */
     if (s->pc == 1) {
         dt.blinking_triangle_flag = 0;
+        (void)take_unpresented_ticks();
         if (!s->existing)
             redirect_close_focus_window();
         cdp_sync_afflictions(&bt.battlers_table[s->i]);
         s->i++;
         s->pc = 0;
+        /* REDIRECT_CLOSE_FOCUS_WINDOW's WINDOW_TICK (check_dead_players.asm:85)
+         * is a frame of its own before the next battler's check (emu, 24-Museum
+         * Lesser Mook: the next battle menu opened a frame early without it). */
+        uint16_t ticks = take_unpresented_ticks();
+        if (ticks)
+            return push_wait_frames(&g_mode_push_init, BW_VBLANK, ticks);
     }
 
     while (s->i < TOTAL_PARTY_COUNT) {
