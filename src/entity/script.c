@@ -109,7 +109,7 @@ static AsYieldRequest as_req;  /* .child_kind == AS_CHILD_NONE when idle */
 
 void actionscript_request_text(uint32_t text_addr) {
     as_req.child_kind = AS_CHILD_TEXT;
-    as_req.epilogue = AS_EPI_TEXT_FLAG;
+    as_req.epilogue = AS_EPI_NONE;
     as_req.text_addr = text_addr;
 }
 
@@ -433,10 +433,7 @@ StepResult mode_step_actionscript_frame(ModeState *ms) {
         case ASF_RESUME: {
             /* Post-child epilogue at the callroutine's original sequence
              * point (blocking order: child finishes, then the epilogue,
-             * then the script continues). */
-            if (st->epilogue == AS_EPI_TEXT_FLAG)
-                event_flag_set(2);
-
+             * then the script continues). No callroutine has one now. */
             EmsResult r = as_continue_entity(st);
             if (r == EMS_DONE)
                 r = as_run_phase1_from(ert.next_active_entity);

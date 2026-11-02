@@ -2407,7 +2407,6 @@ typedef enum {
 
 typedef enum {
     AS_EPI_NONE = 0,
-    AS_EPI_TEXT_FLAG,  /* event_flag_set(2) — text-done flag, after the text pops */
 } AsEpilogue;
 
 /* GAME_MODE_PP_RECOVERY_FLASH — run-to-completion port of

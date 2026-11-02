@@ -23,7 +23,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1: L0 HP 0/0 PP 0/0",
-   "state": "STATE scene-2 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(5550,10000) dir=LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x00",
+   "state": "STATE scene-2 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(5598,10000) dir=LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x03(hide-lower,hide-upper)",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
    "win": "sha256:e3b0c44298fc1c14"
@@ -32,7 +32,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1: L0 HP 0/0 PP 0/0",
-   "state": "STATE scene-3 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(1693,6929) dir=LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x00 walk=3",
+   "state": "STATE scene-3 modes=[OVERWORLD>INIT_INTRO>ATTRACT] idle=modes input=0 pos=(1735,6929) dir=LEFT music=0 money=0 battle=0 ow_enemies=0 surface=0x00 walk=3",
    "text": "sha256:e3b0c44298fc1c14",
    "until": [],
    "win": "sha256:e3b0c44298fc1c14"

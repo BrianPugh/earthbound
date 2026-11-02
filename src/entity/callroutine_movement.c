@@ -509,19 +509,16 @@ int16_t cr_movement_display_text(int16_t entity_offset, int16_t script_offset,
 
     /* The text box runs as a GAME_MODE_DISPLAY_TEXT child pushed by
      * GAME_MODE_ACTIONSCRIPT_FRAME; the interpreter parks this frame and
-     * resumes the script after the text. FLG_TEMP_1 (flag 2, the text-done
-     * flag that unblocks script spin loops) is set by the mode's
-     * AS_EPI_TEXT_FLAG epilogue at this exact sequence point — after the
-     * text, before the next opcode. An unresolvable address skips the child
-     * and warns there, matching display_text_from_addr(); probe it here so
-     * the no-text case doesn't take a frame boundary at all. */
+     * resumes the script after the text. MOVEMENT_DISPLAY_TEXT is just
+     * DISPLAY_TEXT_FROM_PARAMS -> DISPLAY_TEXT: it sets no flag of its own (texts
+     * that unblock a waiting script set FLG_TEMP_1 themselves). An unresolvable
+     * address skips the child and warns there, matching display_text_from_addr();
+     * probe it here so the no-text case doesn't take a frame boundary at all. */
     ModeState probe;
-    if (dt_make_child_init(&probe, text_addr)) {
+    if (dt_make_child_init(&probe, text_addr))
         actionscript_request_text(text_addr);
-    } else {
+    else
         LOG_WARN("WARNING: resolve_text_addr(0x%06X) returned NULL\n", text_addr);
-        event_flag_set(2);
-    }
     return 0;
 }
 
