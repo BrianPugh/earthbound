@@ -1,0 +1,90 @@
+# save: 36-CavePast
+# The end of the Giygas fight: Pokey and Giygas's second form are set to 1 HP in the setup
+# (`ehp`; the setup seeds the RNG before each round so both sides play the same rounds, and
+# `heal` stops the rolling meters), which reaches the prayer phase. The body plays the prayers
+# (Paula Prays; Ness Defends, or casts Healing gamma on Paula when Giygas's flash knocked her
+# out; Jeff and Poo Defend), the player's prayer and Giygas's death, to the battle's end.
+# Body generated from a port run with playtest/padlog_body.py.
+# The battle's effects run over budget nearly every frame in the original (giygas.play)
+# overclock: max
+# Returning from a prayer's vignette, LOAD_BATTLE_SCENE's FADE_IN follows the load lag: the
+# original's fade-in ends a logic frame later (NMI-driven; battle-autowin.play) and that extra
+# WAIT_FOR_FADE_WITH_TICK frame ticks a window (RAND), so the RNGs end one call apart. A
+# `# lag:` per such fade lines the frames up again, and a `# reseed:` right after it re-seeds
+# both sides before the next turn's initiative rolls. Each vignette's TELEPORT load: the first
+# emu sample is part-way in (skip), its SCREEN_TRANSITION takes one more frame (lag)
+# The body stops at the battle's end: the original's HP meters roll differently there (lag
+# frames), so @WAIT_HPPP_STABLE ticks once more and everything after is a frame off
+# reseed: 3031
+# reseed: 6646
+# reseed: 9710
+# reseed: 13233
+# reseed: 16837
+# reseed: 19525
+# reseed: 23093
+# lag: 3031
+# ignore: rng 3028-3031
+# lag: 6646
+# ignore: rng 6643-6646
+# lag: 9710
+# ignore: rng 9707-9710
+# skip: 11480
+# lag: 11500
+# lag: 13233
+# ignore: rng 13226-13233
+# skip: 15220
+# lag: 15240
+# lag: 16837
+# ignore: rng 16830-16837
+# lag: 19525
+# ignore: rng 19518-19525
+# lag: 23093
+# ignore: rng 23080-23093
+flag 11 1; teleport 192 6056 0; wait 10; until idle 300; 30 UP; until idle 3000
+teleport 4224 1000 0; wait 20; until idle 300; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance
+wait 10; rng 1 2; ehp 1 1
+press A; wait 10; press DOWN; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; until input 8000 advance
+wait 10; rng 5 6; ehp 0 1
+press A; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; wait 20; until input 300; wait 10
+press DOWN; wait 10; press RIGHT; wait 10; press A; until input 8000 advance; wait 10; heal; wait 30
+---
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 236 -; 1 A; 33 -; 1 A; 2025 -; 1 A; 35 -
+1 A; 1101 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 1230 -; 1 A; 1043 -; 1 A; 817 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 258 -; 1 A; 1325 -; 1 A; 879 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 374 -; 1 A; 1607 -; 1 A; 745 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 724 -; 1 A; 1469 -; 1 A; 707 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 568 -; 1 A; 745 -; 1 A; 885 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 282 -; 1 A; 1741 -; 1 A; 839 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 408 -; 1 A; 725 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 36 -
+2 DOWN; 14 -; 2 RIGHT; 14 -; 2 A; 16 -; 2 DOWN; 14 -; 2 RIGHT; 14 -
+2 A; 36 -; 2 RIGHT; 14 -; 2 RIGHT; 14 -; 2 A; 334 -; 2 DOWN; 14 -
+2 RIGHT; 14 -; 2 A; 462 -; 1 A; 383 -; 1 A; 3475 -; 1 A; 77 -
+1 A; 53 -; 1 A; 63 -; 1 A; 3370 -

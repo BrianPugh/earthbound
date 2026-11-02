@@ -31,12 +31,18 @@ original spends on CPU time alone (a loop's extra WAIT_UNTIL_NEXT_FRAME after a 
 frame, which the port can't have): the emu gets the port's frame-K pad twice, frame
 K isn't compared, and later emu frames are compared with port frame - 1. A ``# skip: K``
 line drops (port) frame K from the comparison: the emu sampled it part-way into a long
-load's lag frame. ``# save: blank`` boots an empty SRAM, and ``# boot: menu`` stops the
+load's lag frame. A ``# reseed: K [A B]`` line seeds the RNG (default: the --rng seed) on both
+sides after (port) frame K's snapshot: for a lag-shifted stretch where the original's extra
+frame also called RAND, so the 2 RNGs are one call apart from then on (giygas-pray.play). An
+``# at: K debug on|off`` line runs that command on both sides after (port) frame K (a debug win
+in the body, whose debug mode must be off again before the text that follows: paula-farewell.play). ``# save: blank`` boots an empty SRAM, and ``# boot: menu`` stops the
 boot at the file select menu's first input wait instead of loading slot 1, so the
 scenario can pick a slot, start a new game or name the party. ``# overclock: max`` runs
 the emu with snes9x's CPU overclock, for places whose logic overruns every frame
 (Moonside): there no frame boundary falls on a wall-frame boundary, so every sample
-would be ``LSTEP mid``; with the faster CPU each frame fits and parks, like the port's.
+would be ``LSTEP mid``; with the faster CPU each frame fits and parks, like the port's. An
+``# overclock-off: K`` line turns it off after (port) frame K (emu.py ``overclock disabled``),
+for a scenario whose later part breaks under it (the credits hang overclocked: ending.play).
 
 Usage::
 
@@ -134,11 +140,12 @@ def emu_to_port(j, lags):
     return j - sum(1 for k in lags if k < j)
 
 
-def build_script(side, setup, pads, seed, lags=(), boot_kind="load"):
+def build_script(side, setup, pads, seed, lags=(), boot_kind="load", reseeds=None, oc_off=(), at=None):
     """The whole input script for one side."""
+    reseeds = reseeds or {}
     boot = (MENU_BOOT if boot_kind == "menu" else BOOT if side == "port" else EMU_BOOT).split(";")
     step = "1 {}" if side == "port" else "lstep {}"
-    out = [b.strip() for b in boot] + side_lines(setup, side) + [f"rng {seed[0]} {seed[1]}", "fc 0"]
+    out = [b.strip() for b in boot] + side_lines(setup, side) + ["note SEED", f"rng {seed[0]} {seed[1]}", "fc 0"]
     if side == "emu":
         out.append("lstep reset")
         pads = emu_pads(pads, lags)
@@ -151,7 +158,14 @@ def build_script(side, setup, pads, seed, lags=(), boot_kind="load"):
             # phase (HP/PP roller member, blinks) matches the port's.
             p = emu_to_port(i, lags)
             out.append(f"fc {(p if p is not None else i - 1 - sum(1 for k in lags if k < i)) & 0xFF}")
+        else:
+            p = i
         out += SNAPSHOT
+        if p in reseeds:
+            out.append("rng {} {}".format(*reseeds[p]))
+        if side == "emu" and p in oc_off:
+            out.append("overclock disabled")
+        out += (at or {}).get(p, [])
     if side == "emu":
         out.append("lag")
     out.append("end")
@@ -166,10 +180,16 @@ def parse_snapshots(text):
     and an ``LSTEP N mid`` snapshot (taken part-way into frame N+1) is dropped.
     """
     snaps, cur, seeded, idx, mid = {}, None, False, 0, False
+    # From the seed on: the ``note SEED`` marker (a setup can print RNG and LSTEP lines too),
+    # else the first RNG line (older logs)
+    marked = "\n> SEED\n" in text
     for line in text.splitlines():
-        if line.startswith("RNG ") and not seeded:
+        if not seeded and (line == "> SEED" if marked else line.startswith("RNG ")):
             seeded = True
+            idx, mid = 0, False
             continue
+        if marked and seeded and cur is None and not snaps and line.startswith("RNG "):
+            continue  # the seeding rng's own line
         if not seeded:
             continue
         if line.startswith("LSTEP "):
@@ -291,6 +311,9 @@ IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)(?:[ \t]+(\d+)(?:-(\d+))?)?[ \t
 LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
 OVERCLOCK_HEADER = re.compile(r"^#\s*overclock:\s*(light|compatible|max)\b", re.M)
 SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
+AT_HEADER = re.compile(r"^#\s*at:\s*(\d+)\s+(debug on|debug off)\s*$", re.M)
+OVERCLOCK_OFF_HEADER = re.compile(r"^#\s*overclock-off:\s*(\d+)", re.M)
+RESEED_HEADER = re.compile(r"^#\s*reseed:\s*(\d+)(?:[ \t]+(\d+)[ \t]+(\d+))?", re.M)
 BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu)\b", re.M)
 SRAM_SIZE = 8192
 LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
@@ -319,6 +342,12 @@ def run_scenario(scen, save, a, out):
         setup, body = [], text
     pads = expand_body(body)
     lags = {int(k) for k in LAG_HEADER.findall(Path(scen).read_text())}
+    at = {}
+    for k, cmd in AT_HEADER.findall(Path(scen).read_text()):
+        at.setdefault(int(k), []).append(cmd.strip())
+    reseeds = {
+        int(k): (int(x or a.rng[0]), int(y or a.rng[1])) for k, x, y in RESEED_HEADER.findall(Path(scen).read_text())
+    }
     # Each side plays a private copy: both write SRAM back to --save when the game saves
     # (a phone call to Dad), which would change the save for every later run.
     copies = {side: out / f"{name}.{side}.srm" for side in ("port", "emu")}
@@ -348,7 +377,8 @@ def run_scenario(scen, save, a, out):
     report = []
     for side, cmd in sides.items():
         script = out / f"{name}.{side}.play"
-        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind))
+        oc_off = {int(k) for k in OVERCLOCK_OFF_HEADER.findall(Path(scen).read_text())}
+        script.write_text(build_script(side, setup, pads, a.rng, lags, boot_kind, reseeds, oc_off, at))
         procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
     for side, p in procs.items():
         try:

@@ -1,0 +1,298 @@
+# save: 36-CavePast
+# THE END: the setup replays ending.play to Mom's Yes, plays the album, the cast and the credits
+# by events (`until idle`: the credits follow the IRQ-driven scroll, so they can't be compared
+# logic frame by logic frame, see playtest/README.md) and respawns the bedroom by a teleport to
+# Ness's spot. The body walks down to the living room, where Picky brings Pokey's letter, to
+# THE END... ?. Body generated with playtest/padlog_body.py
+# overclock: max
+# Each door / TELEPORT load: the first emu sample is part-way in (skip) and its SCREEN_TRANSITION takes
+# hotel-door's extra exit-loop wait (CPU time, lag)
+# skip: 509
+# lag: 529
+# skip: 767
+# lag: 787
+# skip: 2522
+# lag: 2542
+flag 11 1; teleport 192 6056 0; wait 10; until idle 300; 30 UP; until idle 3000
+teleport 4224 1000 0; wait 20; until idle 300; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance
+debug on; wait 10; 2 SELECT+START; until in:SELECTION_MENU 20000 advance; debug off; wait 10
+press A; until idle 6000 advance; wait 10; rng 4660 22136; teleport 384 7624 4; emu: wait 1; until idle 300
+rng 4660 22136; fc 0
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 14 -; emu: lstep - 14
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 RIGHT; emu: lstep RIGHT 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 558 -; emu: lstep - 558
+port: 31 DOWN; emu: lstep DOWN 31
+port: 128 RIGHT; emu: lstep RIGHT 128
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 24 RIGHT; emu: lstep RIGHT 24
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 16 RIGHT; emu: lstep RIGHT 16
+port: 16 DOWN; emu: lstep DOWN 16
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 55 RIGHT; emu: lstep RIGHT 55
+port: 8 UP+LEFT; emu: lstep UP+LEFT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 UP+LEFT; emu: lstep UP+LEFT 8
+port: 12 UP; emu: lstep UP 12
+port: 6 UP+LEFT; emu: lstep UP+LEFT 6
+port: 6 UP; emu: lstep UP 6
+port: 376 RIGHT; emu: lstep RIGHT 376
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 88 DOWN; emu: lstep DOWN 88
+port: 16 DOWN+LEFT; emu: lstep DOWN+LEFT 16
+port: 8 LEFT; emu: lstep LEFT 8
+port: 192 DOWN+LEFT; emu: lstep DOWN+LEFT 192
+port: 8 DOWN; emu: lstep DOWN 8
+port: 80 DOWN+LEFT; emu: lstep DOWN+LEFT 80
+port: 4 LEFT; emu: lstep LEFT 4
+port: 55 DOWN; emu: lstep DOWN 55
+port: 40 DOWN+LEFT; emu: lstep DOWN+LEFT 40
+port: 8 LEFT; emu: lstep LEFT 8
+port: 48 DOWN+LEFT; emu: lstep DOWN+LEFT 48
+port: 8 LEFT; emu: lstep LEFT 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 LEFT; emu: lstep LEFT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 152 RIGHT; emu: lstep RIGHT 152
+port: 2 LEFT; emu: lstep LEFT 2
+port: 64 UP; emu: lstep UP 64
+port: 42 -; emu: lstep - 42
+port: 1 A; emu: lstep A 1
+port: 7 -; emu: lstep - 7
+port: 1 A; emu: lstep A 1
+port: 69 -; emu: lstep - 69
+port: 1 A; emu: lstep A 1
+port: 53 -; emu: lstep - 53
+port: 1 A; emu: lstep A 1
+port: 45 -; emu: lstep - 45
+port: 1 A; emu: lstep A 1
+port: 11 -; emu: lstep - 11
+port: 1 A; emu: lstep A 1
+port: 41 -; emu: lstep - 41
+port: 1 A; emu: lstep A 1
+port: 11 -; emu: lstep - 11
+port: 1 A; emu: lstep A 1
+port: 9 -; emu: lstep - 9
+port: 1 A; emu: lstep A 1
+port: 337 -; emu: lstep - 337
+teleport 2042 7103 0; emu: wait 1; until idle 300
+rng 4660 22136; fc 0
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 14 -; emu: lstep - 14
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 RIGHT; emu: lstep RIGHT 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 A; emu: lstep A 2
+port: 222 -; emu: lstep - 222
+port: 40 DOWN; emu: lstep DOWN 40
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 4 DOWN+RIGHT; emu: lstep DOWN+RIGHT 4
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 14 -; emu: lstep - 14
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 RIGHT; emu: lstep RIGHT 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 A; emu: lstep A 2
+port: 559 -; emu: lstep - 559
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 40 RIGHT; emu: lstep RIGHT 40
+port: 32 UP+RIGHT; emu: lstep UP+RIGHT 32
+port: 93 RIGHT; emu: lstep RIGHT 93
+port: 1 -; emu: lstep - 1
+port: 20 RIGHT; emu: lstep RIGHT 20
+port: 400 UP+RIGHT; emu: lstep UP+RIGHT 400
+port: 60 DOWN; emu: lstep DOWN 60
+port: 120 LEFT; emu: lstep LEFT 120
+port: 200 UP; emu: lstep UP 200
+port: 300 UP+LEFT; emu: lstep UP+LEFT 300
+port: 300 LEFT; emu: lstep LEFT 300
+port: 100 UP; emu: lstep UP 100
+port: 1 -; emu: lstep - 1
+port: 16 UP+LEFT; emu: lstep UP+LEFT 16
+port: 8 LEFT; emu: lstep LEFT 8
+port: 16 UP+LEFT; emu: lstep UP+LEFT 16
+port: 8 LEFT; emu: lstep LEFT 8
+port: 16 UP+LEFT; emu: lstep UP+LEFT 16
+port: 8 LEFT; emu: lstep LEFT 8
+port: 8 UP+LEFT; emu: lstep UP+LEFT 8
+port: 24 UP+RIGHT; emu: lstep UP+RIGHT 24
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 1 -; emu: lstep - 1
+port: 10 UP; emu: lstep UP 10
+port: 150 UP+RIGHT; emu: lstep UP+RIGHT 150
+port: 60 RIGHT; emu: lstep RIGHT 60
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 A; emu: lstep A 2
+port: 78 -; emu: lstep - 78
+port: 1 A; emu: lstep A 1
+port: 4 -; emu: lstep - 4
+port: 20 UP; emu: lstep UP 20
+port: 80 UP+RIGHT; emu: lstep UP+RIGHT 80
+port: 1 -; emu: lstep - 1
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 32 UP+RIGHT; emu: lstep UP+RIGHT 32
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 24 RIGHT; emu: lstep RIGHT 24
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 DOWN; emu: lstep DOWN 16
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 DOWN; emu: lstep DOWN 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 DOWN; emu: lstep DOWN 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 LEFT; emu: lstep LEFT 8
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 8 DOWN; emu: lstep DOWN 8
+port: 2 -; emu: lstep - 2
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 24 DOWN+RIGHT; emu: lstep DOWN+RIGHT 24
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 24 DOWN; emu: lstep DOWN 24
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 63 RIGHT; emu: lstep RIGHT 63
+port: 2 -; emu: lstep - 2
+port: 48 UP+RIGHT; emu: lstep UP+RIGHT 48
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 40 UP+RIGHT; emu: lstep UP+RIGHT 40
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 16 DOWN+RIGHT; emu: lstep DOWN+RIGHT 16
+port: 24 RIGHT; emu: lstep RIGHT 24
+port: 32 UP+RIGHT; emu: lstep UP+RIGHT 32
+port: 47 RIGHT; emu: lstep RIGHT 47
+port: 1 -; emu: lstep - 1
+port: 100 UP; emu: lstep UP 100
+port: 300 UP+RIGHT; emu: lstep UP+RIGHT 300
+port: 1 -; emu: lstep - 1
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 12 UP+RIGHT; emu: lstep UP+RIGHT 12
+port: 6 RIGHT; emu: lstep RIGHT 6
+port: 12 UP+LEFT; emu: lstep UP+LEFT 12
+port: 6 LEFT; emu: lstep LEFT 6
+port: 12 UP+RIGHT; emu: lstep UP+RIGHT 12
+port: 6 RIGHT; emu: lstep RIGHT 6
+port: 6 UP+LEFT; emu: lstep UP+LEFT 6
+port: 2 -; emu: lstep - 2
+port: 16 UP+RIGHT; emu: lstep UP+RIGHT 16
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 24 UP+RIGHT; emu: lstep UP+RIGHT 24
+port: 40 UP; emu: lstep UP 40
+port: 24 UP+RIGHT; emu: lstep UP+RIGHT 24
+port: 88 UP; emu: lstep UP 88
+port: 56 UP+LEFT; emu: lstep UP+LEFT 56
+port: 72 LEFT; emu: lstep LEFT 72
+port: 1 -; emu: lstep - 1
+port: 6 RIGHT; emu: lstep RIGHT 6
+port: 200 UP; emu: lstep UP 200
+port: 12 -; emu: lstep - 12
+port: 20 DOWN; emu: lstep DOWN 20
+port: 200 LEFT; emu: lstep LEFT 200
+port: 10 UP; emu: lstep UP 10
+port: 50 RIGHT; emu: lstep RIGHT 50
+port: 1 -; emu: lstep - 1
+port: 64 LEFT; emu: lstep LEFT 64
+port: 1 -; emu: lstep - 1
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 A; emu: lstep A 2
+port: 66 -; emu: lstep - 66
+port: 1 A; emu: lstep A 1
+port: 39 -; emu: lstep - 39
+port: 1 A; emu: lstep A 1
+port: 69 -; emu: lstep - 69
+port: 1 A; emu: lstep A 1
+port: 77 -; emu: lstep - 77
+port: 1 A; emu: lstep A 1
+port: 23 -; emu: lstep - 23
+port: 1 A; emu: lstep A 1
+port: 35 -; emu: lstep - 35
+port: 1 A; emu: lstep A 1
+port: 35 -; emu: lstep - 35
+port: 1 A; emu: lstep A 1
+port: 2653 -; emu: lstep - 2653
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+emu: overclock disabled
+port: 36 -; emu: lstep - 36
+port: 1 A; emu: lstep A 1
+port: 13 -; emu: lstep - 13
+port: 2 A; emu: lstep A 2
+port: 124 -; emu: lstep - 124
+until idle 40000 advance; wait 30; emu: overclock max; teleport 8120 1104 6; emu: wait 1; until idle 300
+---
+20 DOWN; 300 LEFT; 10 RIGHT; 10 UP; 100 LEFT; 20 RIGHT; 30 UP; 100 UP+LEFT; 440 LEFT; 50 DOWN
+140 RIGHT; 60 UP; 8 DOWN; 300 RIGHT; 3 -; 16 DOWN; 72 RIGHT; 8 UP+RIGHT; 8 UP; 8 UP+RIGHT
+287 RIGHT; 84 -; 1 A; 79 -; 1 A; 27 -; 1 A; 51 -; 1 A; 31 -
+1 A; 25 -; 1 A; 7997 -

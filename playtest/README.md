@@ -160,6 +160,7 @@ Instant (no frame passes):
 | `digest` | print `DIGEST flags=HEX items=ID:HEX,... bgm=N ents=SLOT:SCRIPT@X,Y/DIR/SPRITE,... wins=ID:X,Y,WxH,... focus=N` (raw state for autodiff.py; emu.py prints the same) |
 | `frac` | print `FRAC leader=X,Y ent24=X,Y bright=HH`: the leader's (game_state) and entity slot 24's 16-bit sub-pixel x,y and the brightness the logic frame ended with (port `g_inidisp_logic_end`, emu `INIDISP_MIRROR`); the port adds `fade=STEP/COUNTER`. For 1-px walking phase and fade-timing diffs that `state` can't show |
 | `padlog FILE\|off` | port only: write the pad of every later frame to FILE, one hex word a line. `playtest/padlog_body.py FILE` turns it into a fixed-length autodiff body (see "Writing a long scenario") |
+| `regs` / `overclock MODE` | emu only: print `REGS PC=... (FUNCTION+OFF) A= S=` (where a hang spins) / change snes9x's CPU overclock mid-run (`light`, `compatible`, `max`, `disabled`) |
 | `peek SYMBOL [INDEX] [COUNT]` | emu only: print `PEEK SYMBOL[INDEX] HHHH ...`, COUNT 16-bit WRAM words from SYMBOL + 2*INDEX (entity tables by slot, e.g. `peek ENTITY_OBSTACLE_FLAGS 2`) |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
@@ -470,6 +471,28 @@ Places that "couldn't be aligned" before, and why:
   the seed, so their RAND calls shift the RNG for everything after. Start where no
   NPC wanders: the pink maze (magicant-battle.play), or the save point's hut with no
   setup, so the town's wanderers spawn after the seed (magicant-town.play).
+
+- **The Giygas prayers** (giygas-pray.play): each prayer's vignette is a TELEPORT (its
+  load needs a `# skip:` / `# lag:` pair like skyrunner's), and each return to the battle is
+  LOAD_BATTLE_SCENE's FADE_IN after the load lag, which ends a logic frame later in the
+  original; that extra WAIT_FOR_FADE_WITH_TICK frame ticks a window, so RAND is one call
+  ahead from then on and the next turn's rolls differ. A `# lag:` at the fade's end lines the
+  frames up and a `# reseed: K` there (autodiff.py seeds both sides again after frame K) puts
+  the RNGs back together before the next turn; the reseed hides that one RAND call and
+  nothing else (the rng ignore covers the few frames before it). The battle runs overclocked.
+  The scenario stops at the battle's end: the meters roll there differently in the 2 games
+  (lag-merged frames), so the original's @WAIT_HPPP_STABLE ticks once more and the rest is a
+  frame off; paula-farewell.play compares the post-battle farewells (after the debug win).
+- **The ending**: overclocked, the emu hangs in the photo album (the NMI's DMA queue loop
+  re-enters until the stack runs away, `regs` shows IRQ_ENABLED+EF with S falling), so
+  ending.play turns the overclock off at Mom's (`# overclock-off: K`, emu.py `overclock
+  disabled`), after the lag-heavy Onett walk; the album and the cast roll then line up with
+  skip/lag pairs at their loads. The staff credits can't be compared: CREDITS_SCROLL_FRAME
+  scrolls on the IRQ (every wall frame, lag frames too) and each photo waits for the scroll, so
+  in logic frames the photos land wherever the original's map loads put them (each load's busy
+  wait on the fade is one lag-merged logic frame there, a frame per NMI in the port), and the
+  entities differ for most of the roll. ending.play stops at the credits; the-end.play plays them
+  in its setup by events (`until idle`) and compares the bedroom to THE END.
 
 The overclock is not neutral elsewhere: it changes how many frames the setup's
 `until`s take, so NPC phases and spawns before the seed differ from a plain run

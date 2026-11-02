@@ -1,0 +1,127 @@
+# save: 36-CavePast
+# The ending: the setup replays paula-farewell.play (debug win, farewells, Twoson, Paula's
+# farewell; `emu: lstep` keeps the replay on logic frames) and respawns Polestar's NPCs. The body
+# PSI Teleports (beta) to Onett (a first try by the preschool fence fails for room), walks the
+# town (a talk on the dirt path north of the hotel) up the hill home, talks to Mom twice, Yes:
+# the photo album and the cast roll, to the start of the credits (the-end.play takes over after
+# them). Body generated with playtest/padlog_body.py
+# Onett and the walks lag the original (overclocked to fit), but the album/credits hang in the
+# emu overclocked (the NMI's DMA queue loop re-enters until the stack runs away): the overclock
+# goes off at Mom's, before the Yes
+# overclock: max
+# overclock-off: 8600
+# The house door's load: the first emu sample is part-way in (skip) and its SCREEN_TRANSITION
+# takes hotel-door's extra exit-loop wait (CPU time, lag)
+# skip: 5062
+# lag: 5082
+# FADE_IN after the load lag (battle-autowin.play): the fade-in into the house ends a frame later
+# in the original (wall-clock noise)
+# ignore: idle 5092
+# the cast scene's load (LOAD_CAST_SCENE) takes one more logic frame in the original (CPU time)
+# lag: 10073
+# back from the cast scene (CC_1F_41 reloads the map): the first emu sample is part-way into
+# the load (skip) and the load takes one more logic frame (CPU time, lag)
+# skip: 22621
+# lag: 22622
+flag 11 1; teleport 192 6056 0; wait 10; until idle 300; 30 UP; until idle 3000
+teleport 4224 1000 0; wait 20; until idle 300; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance
+debug on; wait 10; 2 SELECT+START; until in:SELECTION_MENU 20000 advance; debug off; wait 10
+press A; until idle 6000 advance; wait 10; rng 4660 22136; teleport 384 7624 4; emu: wait 1; until idle 300
+rng 4660 22136; fc 0
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 14 -; emu: lstep - 14
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 RIGHT; emu: lstep RIGHT 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 16 -; emu: lstep - 16
+port: 2 DOWN; emu: lstep DOWN 2
+port: 10 -; emu: lstep - 10
+port: 2 A; emu: lstep A 2
+port: 558 -; emu: lstep - 558
+port: 31 DOWN; emu: lstep DOWN 31
+port: 128 RIGHT; emu: lstep RIGHT 128
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 24 RIGHT; emu: lstep RIGHT 24
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 RIGHT; emu: lstep RIGHT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 DOWN+RIGHT; emu: lstep DOWN+RIGHT 8
+port: 16 RIGHT; emu: lstep RIGHT 16
+port: 16 DOWN; emu: lstep DOWN 16
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 55 RIGHT; emu: lstep RIGHT 55
+port: 8 UP+LEFT; emu: lstep UP+LEFT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 8 UP+LEFT; emu: lstep UP+LEFT 8
+port: 12 UP; emu: lstep UP 12
+port: 6 UP+LEFT; emu: lstep UP+LEFT 6
+port: 6 UP; emu: lstep UP 6
+port: 376 RIGHT; emu: lstep RIGHT 376
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 88 DOWN; emu: lstep DOWN 88
+port: 16 DOWN+LEFT; emu: lstep DOWN+LEFT 16
+port: 8 LEFT; emu: lstep LEFT 8
+port: 192 DOWN+LEFT; emu: lstep DOWN+LEFT 192
+port: 8 DOWN; emu: lstep DOWN 8
+port: 80 DOWN+LEFT; emu: lstep DOWN+LEFT 80
+port: 4 LEFT; emu: lstep LEFT 4
+port: 55 DOWN; emu: lstep DOWN 55
+port: 40 DOWN+LEFT; emu: lstep DOWN+LEFT 40
+port: 8 LEFT; emu: lstep LEFT 8
+port: 48 DOWN+LEFT; emu: lstep DOWN+LEFT 48
+port: 8 LEFT; emu: lstep LEFT 8
+port: 8 DOWN+LEFT; emu: lstep DOWN+LEFT 8
+port: 8 LEFT; emu: lstep LEFT 8
+port: 8 UP+RIGHT; emu: lstep UP+RIGHT 8
+port: 152 RIGHT; emu: lstep RIGHT 152
+port: 2 LEFT; emu: lstep LEFT 2
+port: 64 UP; emu: lstep UP 64
+port: 42 -; emu: lstep - 42
+port: 1 A; emu: lstep A 1
+port: 7 -; emu: lstep - 7
+port: 1 A; emu: lstep A 1
+port: 69 -; emu: lstep - 69
+port: 1 A; emu: lstep A 1
+port: 53 -; emu: lstep - 53
+port: 1 A; emu: lstep A 1
+port: 45 -; emu: lstep - 45
+port: 1 A; emu: lstep A 1
+port: 11 -; emu: lstep - 11
+port: 1 A; emu: lstep A 1
+port: 41 -; emu: lstep - 41
+port: 1 A; emu: lstep A 1
+port: 11 -; emu: lstep - 11
+port: 1 A; emu: lstep A 1
+port: 9 -; emu: lstep - 9
+port: 1 A; emu: lstep A 1
+port: 337 -; emu: lstep - 337
+teleport 2042 7103 0; emu: wait 1; until idle 300
+---
+2 A; 16 -; 2 DOWN; 14 -; 2 A; 16 -; 2 DOWN; 10 -; 2 DOWN; 10 -
+2 RIGHT; 10 -; 2 A; 16 -; 2 A; 222 -; 40 DOWN; 16 DOWN+RIGHT; 8 UP+RIGHT; 8 DOWN+RIGHT
+8 UP+RIGHT; 8 DOWN+RIGHT; 8 UP+RIGHT; 4 DOWN+RIGHT; 2 A; 16 -; 2 DOWN; 14 -; 2 A; 16 -
+2 DOWN; 10 -; 2 DOWN; 10 -; 2 RIGHT; 10 -; 2 A; 16 -; 2 A; 559 -
+16 UP+RIGHT; 40 RIGHT; 32 UP+RIGHT; 93 RIGHT; 1 -; 20 RIGHT; 400 UP+RIGHT; 60 DOWN; 120 LEFT; 200 UP
+300 UP+LEFT; 300 LEFT; 100 UP; 1 -; 16 UP+LEFT; 8 LEFT; 16 UP+LEFT; 8 LEFT; 16 UP+LEFT; 8 LEFT
+8 UP+LEFT; 24 UP+RIGHT; 8 RIGHT; 1 -; 10 UP; 150 UP+RIGHT; 60 RIGHT; 2 A; 16 -; 2 A
+78 -; 1 A; 4 -; 20 UP; 80 UP+RIGHT; 1 -; 16 UP+RIGHT; 8 RIGHT; 16 UP+RIGHT; 8 RIGHT
+16 UP+RIGHT; 8 RIGHT; 16 UP+RIGHT; 8 RIGHT; 32 UP+RIGHT; 8 RIGHT; 8 UP+RIGHT; 24 RIGHT; 16 DOWN+RIGHT; 8 RIGHT
+16 DOWN+RIGHT; 8 RIGHT; 16 DOWN; 8 DOWN+LEFT; 8 DOWN; 8 DOWN+LEFT; 8 DOWN+RIGHT; 8 DOWN; 8 DOWN+LEFT; 8 DOWN+RIGHT
+8 LEFT; 16 DOWN+RIGHT; 8 RIGHT; 8 DOWN; 2 -; 16 DOWN+RIGHT; 8 RIGHT; 24 DOWN+RIGHT; 8 DOWN+LEFT; 8 DOWN+RIGHT
+8 DOWN+LEFT; 8 DOWN+RIGHT; 8 DOWN+LEFT; 24 DOWN; 8 UP+RIGHT; 63 RIGHT; 2 -; 48 UP+RIGHT; 8 RIGHT; 40 UP+RIGHT
+8 RIGHT; 16 UP+RIGHT; 8 RIGHT; 16 UP+RIGHT; 8 RIGHT; 16 UP+RIGHT; 8 RIGHT; 8 UP+RIGHT; 16 DOWN+RIGHT; 24 RIGHT
+32 UP+RIGHT; 47 RIGHT; 1 -; 100 UP; 300 UP+RIGHT; 1 -; 16 UP+RIGHT; 8 RIGHT; 16 UP+RIGHT; 8 RIGHT
+12 UP+RIGHT; 6 RIGHT; 12 UP+LEFT; 6 LEFT; 12 UP+RIGHT; 6 RIGHT; 6 UP+LEFT; 2 -; 16 UP+RIGHT; 8 RIGHT
+24 UP+RIGHT; 40 UP; 24 UP+RIGHT; 88 UP; 56 UP+LEFT; 72 LEFT; 1 -; 6 RIGHT; 200 UP; 12 -
+20 DOWN; 200 LEFT; 10 UP; 50 RIGHT; 1 -; 64 LEFT; 1 -; 2 A; 16 -; 2 A
+66 -; 1 A; 39 -; 1 A; 69 -; 1 A; 77 -; 1 A; 23 -; 1 A
+35 -; 1 A; 35 -; 1 A; 2653 -; 2 A; 16 -; 2 A; 52 -; 1 A
+13 -; 2 A; 124 -; 1 A; 17 -; 1 A; 15793 -

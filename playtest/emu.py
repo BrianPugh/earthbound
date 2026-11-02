@@ -276,6 +276,7 @@ ENV_GET_CAN_DUPE, ENV_SET_PIXEL_FORMAT = 3, 10
 ENV_GET_SYSTEM_DIRECTORY, ENV_GET_SAVE_DIRECTORY = 9, 31
 ENV_GET_INPUT_BITMASKS = 51 | 0x10000
 ENV_GET_VARIABLE = 15
+ENV_GET_VARIABLE_UPDATE = 17
 
 
 class RetroVariable(C.Structure):
@@ -325,6 +326,7 @@ class Core:
         lib = C.CDLL(str(core_path()))
         # Core options answered through GET_VARIABLE (key -> value, both bytes)
         self.options = {k.encode(): C.create_string_buffer(v.encode()) for k, v in (options or {}).items()}
+        self.options_changed = False
         self.lib = lib
         lib.retro_load_game.restype = C.c_bool
         lib.retro_get_memory_data.restype = C.c_void_p
@@ -380,6 +382,10 @@ class Core:
             return True
         if cmd in (ENV_GET_SYSTEM_DIRECTORY, ENV_GET_SAVE_DIRECTORY):
             C.cast(data, C.POINTER(C.c_void_p))[0] = C.cast(self._sysdir, C.c_void_p)
+            return True
+        if cmd == ENV_GET_VARIABLE_UPDATE:
+            C.cast(data, C.POINTER(C.c_bool))[0] = self.options_changed
+            self.options_changed = False
             return True
         if cmd == ENV_GET_VARIABLE:
             var = C.cast(data, C.POINTER(RetroVariable)).contents
@@ -1406,7 +1412,8 @@ class Player:
             for _ in range(int(cmd)):
                 self.step(pad)
         elif cmd == "lstep":
-            if self.logic_reset_pending:
+            # `lstep reset` restarts the count (autodiff's seed point, also after setup lsteps)
+            if self.logic_reset_pending or (args and args[0] == "reset"):
                 self.logic_reset()
                 self.logic_reset_pending = False
             if args and args[0] == "reset":
@@ -1474,6 +1481,23 @@ class Player:
                 if hasattr(self, "last_count"):  # --count-frames counts in FRAME_COUNTER
                     self.last_count = ints[0] & 0xFF
             log(f"FC {g.w8(g.sym('FRAME_COUNTER'))}")
+        elif cmd == "overclock":
+            # overclock light|compatible|max|disabled: change snes9x's CPU overclock mid-run
+            # (the core re-reads its options on the next frame)
+            if not args or args[0] not in ("light", "compatible", "max", "disabled"):
+                self.err("usage: overclock light|compatible|max|disabled")
+                return
+            self.core.options[b"snes9x_overclock_cycles"] = C.create_string_buffer(args[0].encode())
+            self.core.options_changed = True
+        elif cmd == "regs":
+            r = g.regs()
+            pc = (
+                ((r["PB"] & 0x3F) | 0xC0) << 16 | r["PC"]
+                if r["PC"] >= 0x8000 or r["PB"] >= 0xC0
+                else (r["PB"] << 16) | r["PC"]
+            )
+            name, start = g.function_at(pc)
+            log(f"REGS PC={pc:06X} ({name}+{pc - start:X}) A={r.get('A', 0):04X} S={r['S']:04X}")
         elif cmd == "frac":
             gs = g.gs
             xf, yf = g.sym("ENTITY_ABS_X_FRACTION_TABLE") + 48, g.sym("ENTITY_ABS_Y_FRACTION_TABLE") + 48
