@@ -792,6 +792,8 @@ typedef enum {
     BM_CYCLE_FIND,      /* debug CYCLE_BATTLE_TARGET: skip unconscious, WINDOW_TICK */
     BM_CYCLE_POLL,      /* debug CYCLE_BATTLE_TARGET: per-frame LEFT/RIGHT/press poll */
     BM_ITEM_AFTER,      /* item result, after the inventory close's tick frame */
+    BM_ITEM_TAIL,       /* the inventory's WINDOW_TICK + items, after its title waits */
+    BM_ITEM_SELECT,     /* push SELECTION_MENU after the inventory tick's frame */
 } BattleMenuPhase;
 
 typedef struct {

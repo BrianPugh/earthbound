@@ -3222,11 +3222,37 @@ static EB_NOINLINE bool bm_item(BattleMenuState *st, StepResult *out) {
         st->phase = BM_MAIN;
         return false;
     }
-    /* Create the inventory window and populate it.
-     * inventory_get_item_name's embedded window_tick yield is the
-     * accepted precedent (the pause menu's Goods path calls it the
-     * same way from a step). */
-    inventory_get_item_name(st->char_id, WINDOW_INVENTORY);
+    /* Create the inventory window and populate it: INVENTORY_GET_ITEM_NAME's
+     * SET_WINDOW_TITLE waits 2 frames before its WINDOW_TICK (and RAND), each
+     * frame presented in turn (emu, 24-Museum battle Goods). */
+    (void)take_unpresented_ticks();
+    inventory_get_item_name_head(st->char_id, WINDOW_INVENTORY);
+    st->phase = BM_ITEM_TAIL;
+    {
+        uint16_t owed = take_unpresented_ticks();
+        if (owed) {
+            *out = push_wait_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            return true;
+        }
+    }
+    return false;
+}
+
+static EB_NOINLINE bool bm_item_tail(BattleMenuState *st, StepResult *out) {
+    (void)take_unpresented_ticks();
+    inventory_get_item_name_tail();
+    st->phase = BM_ITEM_SELECT;
+    {
+        uint16_t owed = take_unpresented_ticks();
+        if (owed) {
+            *out = push_wait_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+            return true;
+        }
+    }
+    return false;
+}
+
+static EB_NOINLINE bool bm_item_select(BattleMenuState *st, StepResult *out) {
     memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
     g_mode_push_init.selection_menu.phase        = SM_SETUP;
     g_mode_push_init.selection_menu.allow_cancel = 1;
@@ -3416,6 +3442,14 @@ StepResult mode_step_battle_menu(ModeState *ms) {
 
         case BM_ITEM_AFTER:
             if (bm_item_after(st, &r)) return r;
+            break;
+
+        case BM_ITEM_TAIL:
+            if (bm_item_tail(st, &r)) return r;
+            break;
+
+        case BM_ITEM_SELECT:
+            if (bm_item_select(st, &r)) return r;
             break;
 
         case BM_ITEM_TGT_RESULT:
