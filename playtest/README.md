@@ -526,7 +526,25 @@ An RNG state one call apart for a few frames (`WINDOW_TICK` calls RAND on every
 tick, so the RNG counts window ticks) usually means the port ran a tick inline
 without presenting its frame: a `CLOSE_WINDOW` or `SET_WINDOW_TITLE` wait that a
 mode-step dropped. Check the emu's call chain (`modes=`) frame by frame around it
-(`N -` wall steps with `state`/`rng`) to find the missing frame.
+(`N -` wall steps with `state`/`rng`) to find the missing frame. When the emu merges
+the frames around it (lag), rerun the scenario with `# overclock: max`: the original
+then parks at every frame and each one is sampled (bicycle-dismount.play's 2 missing
+frames showed up that way).
+
+## Source coverage (what the suite never runs)
+
+```
+uv run --no-sync python playtest/coverage.py build    # port/unix/build-cov, Homebrew clang
+uv run --no-sync python playtest/coverage.py run -j 6 # autodiff suite + regress cases
+uv run --no-sync python playtest/coverage.py report --md docs/plans/coverage-autodiff.md
+```
+
+`coverage.py` builds an instrumented 256x224 port (`-fprofile-instr-generate
+-fcoverage-mapping`, needs `brew install llvm`), plays every autodiff scenario (both sides) and
+records the regress cases with it, then merges the profiles and lists, per `src/` subsystem,
+the executed functions and lines, the game functions never run (debug, platform, selftest and
+tool code left out) and the barely-run ones. Code the suite never reaches is where new
+scenarios find bugs: write one that gets there (`padlog` for a battle or a menu walk).
 
 ## Implementation
 
