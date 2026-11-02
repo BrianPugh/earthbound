@@ -387,8 +387,11 @@ reports, per field, the first frame where they differ and how many frames do.
 
 Game frames, not wall frames: the emu's `lstep BUTTONS` holds the pad until
 the next game frame completes. `--count-frames` patches WAIT_UNTIL_NEXT_FRAME
-to count its returns in an unused stack byte, so lag frames (CPU still busy at
-the NMI) don't shift the inputs. A frame that completes inside a lag frame
+to count its returns in `FRAME_COUNTER` (and the NMI no longer increments it),
+so lag frames (CPU still busy at the NMI) shift neither the inputs nor that
+counter's phase, which picks the HP/PP roller's member as in the port (one count
+per presented frame). A frame boundary that falls on the wait's entry counts as
+parked; one in its tail, after the count, is still the next frame running. A frame that completes inside a lag frame
 can't be sampled: the report lists those as merged, and the frame after a lag
 frame reads the same pad as the one before. `input` is ignored by default (the
 2 sides define it differently). The scripts and logs land in

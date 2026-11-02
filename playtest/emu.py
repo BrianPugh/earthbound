@@ -157,12 +157,19 @@ FRAME_WAIT_FUNCS = ("WAIT_UNTIL_NEXT_FRAME", "FORCE_BLANK_AND_WAIT_VBLANK", "BLA
 NMI_SPIN_LOOPS = (("LOAD_MAP_PALETTE", bytes.fromhex("29ff00d0f8")),)
 LOGIC_STEP_LIMIT = 120  # wall frames one lstep may take before giving up
 WAIT_FOR_NMI_LOOP = (9, 17)  # WAIT_UNTIL_NEXT_FRAME offsets: @WAIT_FOR_NMI loop + its STZ
+WAIT_COUNTED_TAIL = (17, 19)  # the NMI path's BRA @VBLANK_REACHED, after the counted STZ/INC
+WAIT_VBLANK_REACHED = 31  # @VBLANK_REACHED, the tail both paths share
 # --count-frames: WAIT_UNTIL_NEXT_FRAME's first STZ NEW_FRAME_STARTED (the NMI path;
-# @VBLANK_REACHED clears it again) becomes INC FRAME_COUNT_ADDR, a byte deep in the
-# hardware stack that the game never reaches (below the teleport stub's bytes; the
-# padding before STACK_START gets cleared in some menus)
-FRAME_COUNT_ADDR = 0x1F7F
+# @VBLANK_REACHED clears it again) becomes INC FRAME_COUNTER, and the NMI's own
+# INC <FRAME_COUNTER (IRQ_ENABLED + 13) becomes 2 NOPs. FRAME_COUNTER (1 byte, 7E0002)
+# then counts game frames, as in the port (one per presented frame), instead of NMIs:
+# a lag frame no longer moves its phase, which picks the HP/PP roller's member
+# (HP_PP_ROLLER: FRAME_COUNTER & 3), the battle sprite and text window blinks. Its
+# only other writers are boot-time (RESTORE_RNG_IF_BAD_SRAM, the replay save
+# slot) and the `fc` command, which resyncs last_count.
+FRAME_COUNT_ADDR = 0x0002
 COUNT_FRAMES_PATCH = (14, bytes.fromhex("9c2b00"), bytes((0xEE, FRAME_COUNT_ADDR & 0xFF, FRAME_COUNT_ADDR >> 8)))
+NMI_FRAME_COUNTER_PATCH = (13, bytes.fromhex("e602"), bytes.fromhex("eaea"))
 
 STUB_ADDR = 0x7E1F00
 STUB_LIMIT = 0x60
@@ -824,6 +831,18 @@ class Player:
             pc = rom_addr(g.w8(sp + 4), g.w16(sp + 2))
         if pc in self._nmi_wait:
             return "nmi"
+        w = g.syms["WAIT_UNTIL_NEXT_FRAME"]
+        nmi_path = g.w8(g.sym("NMITIMEN_MIRROR")) & 0xB0
+        if nmi_path and w <= pc < w + WAIT_FOR_NMI_LOOP[0]:
+            # Entering the wait, before the loop: the frame's work is done and its
+            # INC is still ahead, as in the loop
+            return "nmi"
+        if w + WAIT_COUNTED_TAIL[0] <= pc < w + WAIT_COUNTED_TAIL[1] or (
+            nmi_path and w + WAIT_VBLANK_REACHED <= pc < g.function_end(w)
+        ):
+            # Past the NMI path's counted INC: after a lag frame the wait returned at
+            # once and the boundary fell in its tail, so the next game frame is running
+            return None
         return "other" if any(a <= pc < b for a, b in self._wait_ranges) else None
 
     def logic_step(self, pad):
@@ -1400,6 +1419,8 @@ class Player:
             # FRAME_COUNTER (1 byte, NMI-incremented): autodiff.py seeds it on both sides
             if ints:
                 g.put8(g.sym("FRAME_COUNTER"), ints[0] & 0xFF)
+                if hasattr(self, "last_count"):  # --count-frames counts in FRAME_COUNTER
+                    self.last_count = ints[0] & 0xFF
             log(f"FC {g.w8(g.sym('FRAME_COUNTER'))}")
         elif cmd == "digest":
             self.print_digest()
@@ -1558,9 +1579,11 @@ def main():
     t0 = time.time()
     patches = []
     if a.count_frames:
+        syms = load_symbols()
         off, expect, repl = COUNT_FRAMES_PATCH
-        wait = load_symbols()["WAIT_UNTIL_NEXT_FRAME"]
-        patches.append(((wait & 0x3FFFFF) + off, expect, repl))
+        patches.append(((syms["WAIT_UNTIL_NEXT_FRAME"] & 0x3FFFFF) + off, expect, repl))
+        off, expect, repl = NMI_FRAME_COUNTER_PATCH
+        patches.append(((syms["IRQ_ENABLED"] & 0x3FFFFF) + off, expect, repl))
     core = Core(rom_path(), patches)
     if a.save:
         data = Path(a.save).read_bytes()
