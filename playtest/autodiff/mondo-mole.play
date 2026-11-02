@@ -1,0 +1,46 @@
+# save: 09-MondoMole
+# Lilliput Steps: talk to Mondo Mole and fight the Your Sanctuary boss, A tapped through the text
+# and every battle menu (Bash, then the first target)
+flag 11 1; teleport 3984 1180 0; wait 10; until idle 300; 50 UP; until idle 300
+---
+press A; wait 30; press A
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

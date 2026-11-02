@@ -1,0 +1,24 @@
+# save: 18-DeptStore
+# Fourside Department Store: in through the front door, 1F escalator up (arriving on 2F crosses
+# hotspot 11, which arms hotspot 10), 2F escalator down, walk right across hotspot 10 on 1F: the
+# blackout, the announcement and Paula kidnapped, A tapped through the text
+# The store's escalators lag the original every few frames (a pad change or an escalator end next
+# to a lag frame lands a frame late there), so the emu runs overclocked
+# overclock: max
+# The door load: the first emu sample is part-way in (skip) and its fade-in ends a CPU-time frame
+# later in the original (lag)
+# skip: 54
+# lag: 74
+# the NMI that would take the door fade-in's first step ran during the load, before the FADE_IN
+# call, so the original's fade-in ends a logic frame later (wall-clock noise)
+# ignore: idle 84
+flag 11 1; teleport 3588 4323 0; wait 10; until idle 300
+---
+40 UP+RIGHT; wait 50; 20 DOWN+LEFT; 200 LEFT; 20 UP; 50 LEFT; 8 DOWN; 60 LEFT; wait 270
+14 UP; 60 RIGHT; wait 270; 150 RIGHT
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19
+press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19; press A; wait 19

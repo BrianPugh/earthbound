@@ -412,6 +412,11 @@ original spends on CPU time alone, compared with the port shifted by one) runs w
 the setup: state that differs at frame 0 comes from the 2 boots reaching the seed in
 different frames, and a `teleport` to the save's own spot (pos and dir from STATE)
 clears the enemies the save loaded and respawns the NPCs (escargo.play, poison-walk.play).
+Timers that start before the teleport keep the boots' phase difference, since the emu's
+setup waits are wall frames and lag frames there count no logic frame: EVENT_1's sunstroke
+check (every 1200 frames from the file load) lands a few frames apart on sand, and a `port: wait
+N` before the teleport moves it (desert-walk.play); a wanderer spawned by a lagging teleport is a
+frame behind in the original, and an `emu: wait 1` after it lines it up (magic-cake.play).
 
 Read a report with care: a first divergence of `idle` alone, 1 frame, at the end
 of a fade-in near a lag-merged frame is the original's fade running on NMIs, which
