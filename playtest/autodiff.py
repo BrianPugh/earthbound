@@ -107,12 +107,17 @@ def build_script(side, setup, pads, seed):
     """The whole input script for one side."""
     boot = (BOOT if side == "port" else EMU_BOOT).split(";")
     step = "1 {}" if side == "port" else "lstep {}"
-    out = [b.strip() for b in boot] + side_lines(setup, side) + [f"rng {seed[0]} {seed[1]}"]
+    out = [b.strip() for b in boot] + side_lines(setup, side) + [f"rng {seed[0]} {seed[1]}", "fc 0"]
     if side == "emu":
         out.append("lstep reset")
     out += SNAPSHOT
-    for pad in pads:
+    for i, pad in enumerate(pads, 1):
         out.append(step.format(pad))
+        if side == "emu":
+            # The original's lag frames advance FRAME_COUNTER (NMI) without a game
+            # frame; the port has no lag. Re-sync it to the game-frame count so its
+            # phase (HP/PP roller member, blinks) matches the port's.
+            out.append(f"fc {i & 0xFF}")
         out += SNAPSHOT
     if side == "emu":
         out.append("lag")

@@ -1383,6 +1383,11 @@ class Player:
                 g.put16(g.sym("RAND_A"), ints[0])
                 g.put16(g.sym("RAND_B"), ints[1])
             log(f"RNG {g.w16(g.sym('RAND_A'))} {g.w16(g.sym('RAND_B'))}")
+        elif cmd == "fc":
+            # FRAME_COUNTER (1 byte, NMI-incremented): autodiff.py seeds it on both sides
+            if ints:
+                g.put8(g.sym("FRAME_COUNTER"), ints[0] & 0xFF)
+            log(f"FC {g.w8(g.sym('FRAME_COUNTER'))}")
         elif cmd == "digest":
             self.print_digest()
         elif cmd == "money":

@@ -154,6 +154,7 @@ Instant (no frame passes):
 | `debug on\|off` | set `ow.debug_flag` (battle debug keys, B+R debug menu) without opening the debug menu |
 | `money N`, `hp CHAR N`, `pp CHAR N`, `heal` | edit the party (`hp`/`pp` set the current value and its rolling target; `heal` fills every member's HP/PP). In a battle they also set the member's battler, so the next hit is taken from the new HP |
 | `rng [A B]` | print `RNG A B`, the game RNG state (`rng_state` / the asm's `RAND_A`/`RAND_B`); with 2 numbers, set it first. RAND isn't saved in SRAM, so seed both sides with it before comparing RNG-dependent steps against the original |
+| `fc [N]` | print `FC N`, the low byte of the frame counter (the asm's 1-byte `FRAME_COUNTER`); with a number, set it first. Its phase picks the HP/PP roller's member and blink phases; autodiff.py seeds it to 0 on both sides |
 | `ehp ENEMY N` | in a battle, set enemy ENEMY's (the `[i]` index in ENEMIES) HP and HP target to N |
 | `hpt` | print `HPT id:HP/PP ... exp E ... bank B`: each member's HP/PP *rolling target* (where the meter will settle, so big hits show before the meter catches up), exp, and the bank balance |
 | `digest` | print `DIGEST flags=HEX items=ID:HEX,... bgm=N ents=SLOT:SCRIPT@X,Y/DIR/SPRITE,... wins=ID:X,Y,WxH,... focus=N` (raw state for autodiff.py; emu.py prints the same) |

@@ -1133,6 +1133,12 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             rng_state.b = (uint16_t)v2;
         }
         printf("RNG %u %u\n", (unsigned)rng_state.a, (unsigned)rng_state.b);
+    } else if (strcmp(cmd, "fc") == 0) {
+        /* The asm's FRAME_COUNTER is 1 byte; autodiff.py seeds it on both
+         * sides (its phase picks the HP/PP roller's member, blink phases...). */
+        if (nv >= 1)
+            core.frame_counter = (uint16_t)((core.frame_counter & 0xFF00) | (v1 & 0xFF));
+        printf("FC %u\n", (unsigned)(core.frame_counter & 0xFF));
     } else if (strcmp(cmd, "digest") == 0) {
         /* Raw state for playtest/autodiff.py, in the same format as emu.py's
          * digest: event flags (hex), each party member's items, every live
