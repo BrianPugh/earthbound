@@ -150,6 +150,11 @@ MODE_ALIASES = {
 # (STACK_65816_START). The game's call depth stays far above it.
 # Frame-wait loops: a frame boundary inside one ends a game-logic frame (lstep)
 FRAME_WAIT_FUNCS = ("WAIT_UNTIL_NEXT_FRAME", "FORCE_BLANK_AND_WAIT_VBLANK", "BLANK_SCREEN_AND_WAIT_VBLANK")
+# Busy-waits on an NMI inside other functions that always span a frame boundary, as
+# (function, the loop's bytes): LOAD_MAP_PALETTE's @WAIT_PALETTE_DMA
+# (LDA PALETTE_UPLOAD_MODE; AND #$00FF; BNE) after the last fade step. The port
+# presents that frame, so the emu counts it as a game frame like the 2 above.
+NMI_SPIN_LOOPS = (("LOAD_MAP_PALETTE", bytes.fromhex("29ff00d0f8")),)
 LOGIC_STEP_LIMIT = 120  # wall frames one lstep may take before giving up
 WAIT_FOR_NMI_LOOP = (9, 17)  # WAIT_UNTIL_NEXT_FRAME offsets: @WAIT_FOR_NMI loop + its STZ
 # --count-frames: WAIT_UNTIL_NEXT_FRAME's first STZ NEW_FRAME_STARTED (the NMI path;
@@ -797,6 +802,14 @@ class Player:
                 start = g.syms.get(fn)
                 if start is not None:
                     self._wait_ranges.append((start, g.function_end(start)))
+            for fn, loop in NMI_SPIN_LOOPS:
+                start = g.syms.get(fn)
+                if start is None:
+                    continue
+                off = g.core.rom.find(loop, start & 0x3FFFFF, g.function_end(start) & 0x3FFFFF)
+                if off >= 0:  # the loop starts at the LDA abs 3 bytes before
+                    lo = (start & 0xFF0000) | ((off - 3) & 0xFFFF)
+                    self._wait_ranges.append((lo, lo + 3 + len(loop)))
             self._nmi = {g.syms[n] for n in ("NMI_VECTOR", "NMI", "IRQ_VECTOR") if n in g.syms}
             w = g.syms["WAIT_UNTIL_NEXT_FRAME"]
             self._nmi_wait = range(w + WAIT_FOR_NMI_LOOP[0], w + WAIT_FOR_NMI_LOOP[1])
