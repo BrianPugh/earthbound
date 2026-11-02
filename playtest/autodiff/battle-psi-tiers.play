@@ -1,0 +1,57 @@
+# save: 36-CavePast
+# Ghost of Starman + Nuclear Reactor Robot (egroup 408, 30000 HP each) vs the final party, 9 rounds of PSI
+# and items: PSI Shield Ω, Hypnosis α, Starstorm α/Ω, Rockin γ, Freeze β/γ/Ω, Flash β/Ω, Fire γ/Ω,
+# Thunder γ/Ω, Lifeup β/Ω, Brainshock α, Paralysis α, Shield β, Offense up Ω, Defense down α, Magnet α/Ω,
+# Healing γ, a Multi bottle rocket, the Heavy bazooka, Pixie's bracelet (armor switch), a Large pizza;
+# the enemies' Starstorm (deflected), Lifeup γ and countdown. Body recorded with padlog
+egroup 408; teleport 615 6535 0; until battle 200; until input 1500; egroup off; ehp 0 30000 30000; ehp 1 30000 30000; heal
+---
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 A; 1486 -; 2 DOWN; 24 -
+2 A; 44 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 A; 1414 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 1235 -; 2 DOWN; 24 -
+2 A; 44 -; 2 A; 44 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 1525 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 A; 44 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -
+2 A; 44 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -
+2 A; 2216 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 44 -; 2 DOWN; 24 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 A; 1972 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 DOWN; 24 -; 2 A; 44 -; 2 A; 922 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 DOWN; 24 -; 2 A; 44 -
+2 A; 1161 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -
+2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -; 2 RIGHT; 24 -
+2 A; 66 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 44 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 A; 916 -

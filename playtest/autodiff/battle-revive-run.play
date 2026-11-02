@@ -1,0 +1,24 @@
+# save: 36-CavePast
+# Ghost of Starman + Nuclear Reactor Robot (egroup 408, 30000 HP each) with Jeff at 0 HP: his collapse,
+# Paula's first Pray (aroma) puts everyone to sleep before Ness's Healing γ on him, Poo's Healing Ω then
+# revives him (BATTLE_REVIVE); 4 more Prays (dazzling light: crying; subtle and warm light), bashes that
+# miss and get dodged, then a successful Run Away. Body recorded with padlog
+egroup 408; teleport 615 6535 0; until battle 200; until input 1500; egroup off; ehp 0 30000 30000; ehp 1 30000 30000; heal; hp 3 0
+---
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 A; 56 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 44 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 865 -; 2 DOWN; 24 -; 2 A; 44 -; 2 DOWN; 24 -
+2 A; 44 -; 2 DOWN; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -
+2 A; 44 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 475 -; 2 A; 44 -
+2 A; 66 -; 2 A; 44 -; 2 A; 66 -; 2 A; 44 -; 2 A; 733 -
+2 A; 44 -; 2 A; 66 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 66 -
+2 A; 44 -; 2 A; 66 -; 2 A; 44 -; 2 A; 1207 -; 2 A; 44 -
+2 A; 66 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 A; 44 -
+2 A; 66 -; 2 A; 44 -; 2 A; 1009 -; 2 A; 44 -; 2 A; 66 -
+2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 A; 66 -; 2 A; 44 -; 2 A; 66 -
+2 A; 44 -; 2 A; 1022 -; 2 A; 44 -; 2 A; 66 -; 2 RIGHT; 24 -
+2 RIGHT; 24 -; 2 A; 66 -; 2 A; 44 -; 2 A; 66 -; 2 A; 44 -
+2 A; 1012 -; 2 RIGHT; 24 -; 2 RIGHT; 24 -; 2 DOWN; 24 -; 2 A; 384 -

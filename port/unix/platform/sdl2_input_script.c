@@ -1253,6 +1253,8 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
         } else {
             Battler *b = &bt.battlers_table[slot];
             b->hp = b->hp_target = (uint16_t)v2;
+            if (nv >= 3 && v3 > 0)
+                b->hp_max = (uint16_t)v3;   /* `ehp ENEMY N MAX`: also the max (SET_HP clamps to it) */
             printf("EHP [%d] hp=%u\n", v1, (unsigned)b->hp);
         }
     } else if (strcmp(cmd, "egroup") == 0) {

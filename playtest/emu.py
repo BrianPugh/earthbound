@@ -1569,6 +1569,8 @@ class Player:
             b = g.sym("BATTLERS_TABLE") + (FIRST_ENEMY_INDEX + ints[0]) * BATTLER_SIZE
             g.put16(b + BT_HP, ints[1])
             g.put16(b + BT_HP_TARGET, ints[1])
+            if len(ints) > 2 and ints[2] > 0:
+                g.put16(b + BT_HP_MAX, ints[2])  # `ehp ENEMY N MAX`: also the max (SET_HP clamps to it)
             log(f"EHP [{ints[0]}] hp={g.w16(b + BT_HP)}")
         elif cmd == "egroup":
             # every overworld enemy's battle group becomes N, now and after every later frame
