@@ -249,12 +249,13 @@ static void fs_add_slot_menu_items(void) {
 
 /* FILE_SELECT_MENU pass 2 (file_select_menu.asm:115-214): for each occupied
  * slot, FILE_SELECT_TEXT_LEVEL at (9, slot), the level at (13, slot), and
- * FILE_SELECT_TEXT_TEXTSPEED + CHAR::SPACE + the speed name at (16, slot). */
+ * FILE_SELECT_TEXT_TEXTSPEED + CHAR::SPACE + the speed name at (16, slot).
+ * Every slot is loaded (@DISPLAY_SLOT_DETAILS: LOAD_GAME_SLOT, then the
+ * favourite_thing test), so the game state left behind is the last slot's. */
 static void fs_print_slot_details(void) {
     for (int slot = 0; slot < SAVE_COUNT; slot++) {
-        if (!save_files_present[slot]) continue;
-
         load_game(slot);
+        if (game_state.favourite_thing[1] == 0) continue;
 
         set_focus_text_cursor(9, (uint16_t)slot);
         FS_PRINT(LEVEL);
