@@ -1,5 +1,11 @@
 # save: 02-Sharks
 # Hotel Onett lobby out through the street door, then back in
+# SCREEN_TRANSITION's fade-out loop waits a frame more when PALETTE_UPLOAD_MODE is still set at its
+# top, which only happens after the original's lag frame on the first fade step (CPU time)
+# lag: 177
+# idle=fade is the INIDISP brightness, which the original's fades step on NMIs: after its load lag
+# the fade-in ends a frame later in logic frames (wall-clock noise; positions and RNG still match)
+# ignore: idle
 wait 5
 ---
 20 DOWN; 30 DOWN+RIGHT; 20 RIGHT; 12 UP; 150 RIGHT; 60 -; 40 LEFT; 60 -

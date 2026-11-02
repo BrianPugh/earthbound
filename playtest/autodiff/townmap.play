@@ -1,5 +1,8 @@
 # save: 05-Twoson
 # Town map (X), close with B, fade back in
+# idle=fade is the INIDISP brightness, which the original's fades step on NMIs: after its load lag
+# the fade-in ends a frame later in logic frames (wall-clock noise; positions and RNG still match)
+# ignore: idle
 give 202 1; wait 5
 ---
 press X; wait 60; press B; wait 40

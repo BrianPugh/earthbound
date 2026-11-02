@@ -25,7 +25,10 @@ A setup line prefixed ``port:`` or ``emu:`` runs on that side only. A
 ``# save: NN-Name`` header line (as in the regress cases) names the save in
 ``playtest/saves/``, and ``# ignore: REGEX`` lines skip fields for that scenario
 (e.g. an NPC that wandered differently before the seed); a SAVE.srm given first on the command line is the default
-for scenarios without one.
+for scenarios without one. A ``# lag: K`` line marks emu logic frame K as one the
+original spends on CPU time alone (a loop's extra WAIT_UNTIL_NEXT_FRAME after a lag
+frame, which the port can't have): the emu gets the port's frame-K pad twice, frame
+K isn't compared, and later emu frames are compared with port frame - 1.
 
 Usage::
 
@@ -103,13 +106,29 @@ def side_lines(lines, side):
     return out
 
 
-def build_script(side, setup, pads, seed):
+def emu_pads(pads, lags):
+    """The emu's pads: the port's, with the pad of each extra ``# lag: K`` frame repeated."""
+    out = list(pads)
+    for k in sorted(lags):
+        out.insert(k - 1, out[k - 2] if k >= 2 else "-")
+    return out
+
+
+def emu_to_port(j, lags):
+    """The port frame emu logic frame j is compared with (None for an extra lag frame)."""
+    if j in lags:
+        return None
+    return j - sum(1 for k in lags if k < j)
+
+
+def build_script(side, setup, pads, seed, lags=()):
     """The whole input script for one side."""
     boot = (BOOT if side == "port" else EMU_BOOT).split(";")
     step = "1 {}" if side == "port" else "lstep {}"
     out = [b.strip() for b in boot] + side_lines(setup, side) + [f"rng {seed[0]} {seed[1]}", "fc 0"]
     if side == "emu":
         out.append("lstep reset")
+        pads = emu_pads(pads, lags)
     out += SNAPSHOT
     for i, pad in enumerate(pads, 1):
         out.append(step.format(pad))
@@ -117,7 +136,8 @@ def build_script(side, setup, pads, seed):
             # The original's lag frames advance FRAME_COUNTER (NMI) without a game
             # frame; the port has no lag. Re-sync it to the game-frame count so its
             # phase (HP/PP roller member, blinks) matches the port's.
-            out.append(f"fc {i & 0xFF}")
+            p = emu_to_port(i, lags)
+            out.append(f"fc {(p if p is not None else i - 1 - sum(1 for k in lags if k < i)) & 0xFF}")
         out += SNAPSHOT
     if side == "emu":
         out.append("lag")
@@ -232,6 +252,7 @@ def run_side(cmd, script_path, log_path):
 
 SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
 IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)", re.M)
+LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
 LAG_WINDOW = 24  # logic frames after a lag-merged frame where NMI-driven state (fades) can shift
 
 
@@ -255,6 +276,7 @@ def run_scenario(scen, save, a, out):
     else:
         setup, body = [], text
     pads = expand_body(body)
+    lags = {int(k) for k in LAG_HEADER.findall(Path(scen).read_text())}
     sides = {
         "port": [str(Path(a.bin).resolve()), "--headless", "--save", save, "--record-audio", "/dev/null"],
         "emu": [sys.executable, str(HERE / "emu.py"), "--save", save, "--count-frames"],
@@ -264,7 +286,7 @@ def run_scenario(scen, save, a, out):
     report = []
     for side, cmd in sides.items():
         script = out / f"{name}.{side}.play"
-        script.write_text(build_script(side, setup, pads, a.rng))
+        script.write_text(build_script(side, setup, pads, a.rng, lags))
         procs[side] = run_side(cmd, script, out / f"{name}.{side}.log")
     for side, p in procs.items():
         try:
@@ -274,6 +296,8 @@ def run_scenario(scen, save, a, out):
             p.wait()
             report.append(f"  {side} timed out")
     res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
+    if lags:
+        res["emu"] = {emu_to_port(j, lags): v for j, v in res["emu"].items() if emu_to_port(j, lags) is not None}
     lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
     ignore = a.ignore + IGNORE_HEADER.findall(Path(scen).read_text())
     n, first, lines = compare(res["port"], res["emu"], pads, ignore)
