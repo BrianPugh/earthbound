@@ -32,13 +32,17 @@ void fade_out(uint8_t step, uint8_t delay) {
 }
 
 bool fade_update(void) {
-    if (!fade_state.fading) return false;
-
     /* Per-frame guard: prevent double-updates when both explicit callers
      * and wait_for_vblank (NMI equivalent) call fade_update in the same frame.
-     * Assembly NMI handler updates fade exactly once per vblank. */
-    if (fade_state.updated_this_frame) return true;
+     * Assembly NMI handler updates fade exactly once per vblank. The frame's
+     * NMI-equivalent call (host_process_frame) claims the frame even when no
+     * fade is running: a FADE_OUT/FADE_IN armed in the next frame's logic
+     * first counts at that frame's NMI, not at an explicit call earlier in
+     * the same frame (the PSI Teleport departure fade-out and every other
+     * RUN_FRAMES_UNTIL_FADE_DONE ended a frame early, one delay tick short). */
+    if (fade_state.updated_this_frame) return fade_state.fading;
     fade_state.updated_this_frame = true;
+    if (!fade_state.fading) return false;
 
     if (fade_state.counter < fade_state.delay) {
         fade_state.counter++;

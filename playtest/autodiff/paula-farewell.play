@@ -1,0 +1,21 @@
+# save: 36-CavePast
+# After Giygas: the setup wins the final battle with the debug SELECT+START (which goes straight
+# to "The war against Giygas is over...", the same in the original), plays the farewells and
+# answers Yes to Paula's "escort me home?"; a teleport to the spot respawns Saturn Valley's
+# wanderers after the seed. The body PSI Teleports (beta) to Twoson, walks to Polestar
+# Preschool and plays Paula's farewell. Body generated with playtest/padlog_body.py
+# Saturn Valley and Twoson run over budget in the original (every lstep `mid`)
+# overclock: max
+flag 11 1; teleport 192 6056 0; wait 10; until idle 300; 30 UP; until idle 3000
+teleport 4224 1000 0; wait 20; until idle 300; 60 UP; until in:BATTLE 6000 advance; wait 150; until input 900 advance
+debug on; wait 10; 2 SELECT+START; until in:SELECTION_MENU 20000 advance; debug off; wait 10
+press A; until idle 6000 advance; wait 10; rng 4660 22136; teleport 384 7624 4; emu: wait 1; until idle 300
+---
+2 A; 16 -; 2 DOWN; 14 -; 2 A; 16 -; 2 DOWN; 10 -; 2 DOWN; 10 -
+2 RIGHT; 10 -; 2 A; 16 -; 2 DOWN; 10 -; 2 A; 558 -; 31 DOWN; 128 RIGHT
+8 UP+RIGHT; 24 RIGHT; 8 UP+RIGHT; 8 RIGHT; 8 UP+RIGHT; 8 DOWN+RIGHT; 16 RIGHT; 16 DOWN; 8 UP+RIGHT; 55 RIGHT
+8 UP+LEFT; 8 UP+RIGHT; 8 UP+LEFT; 12 UP; 6 UP+LEFT; 6 UP; 376 RIGHT; 8 DOWN+LEFT; 88 DOWN; 16 DOWN+LEFT
+8 LEFT; 192 DOWN+LEFT; 8 DOWN; 80 DOWN+LEFT; 4 LEFT; 55 DOWN; 40 DOWN+LEFT; 8 LEFT; 48 DOWN+LEFT; 8 LEFT
+8 DOWN+LEFT; 8 LEFT; 8 UP+RIGHT; 152 RIGHT; 2 LEFT; 64 UP; 42 -; 1 A; 7 -; 1 A
+69 -; 1 A; 53 -; 1 A; 45 -; 1 A; 11 -; 1 A; 41 -; 1 A
+11 -; 1 A; 9 -; 1 A; 337 -
