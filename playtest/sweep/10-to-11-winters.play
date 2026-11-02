@@ -2,7 +2,9 @@
 # Sweep segment 10 -> 11: the Twoson hotel phone, the Runaway Five (Yes) and their bus to Threed,
 # the cemetery (No Good Fly + Smelly Ghost: Ness PSI Rockin alpha, Paula PSI Fire alpha), the
 # gatekeepers' area (flag 46), the Sunset Hotel (the girl, the corridor room: the zombie
-# capture), the jail, then Jeff in Winters. Recorded in chunks with playtest/sweep/rec.py
+# capture), the jail cell door (Paula's prayer), Jeff in Snow Wood (Tony; Maxwell's bent key
+# fails on locker npc595, Maxwell's Bad key machine opens it: Pop gun, equipped), the gate
+# (Tony's boost), the Winters drugstore (Nancy, Yes: Pak of bubble gum; the Bubble Monkey) Recorded in chunks with playtest/sweep/rec.py
 # late-pads: the port replays the pads the original read after each lag-merged frame
 # Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 14741 is the post-battle
 # fade-in. The Sunset Hotel's street door spends 3 more CPU-time frames in the original (the
@@ -29,6 +31,48 @@
 # lag: 17731
 # skip: 18383
 # lag: 18412
+# skip: 19606
+# lag: 19636
+# skip: 20352
+# lag: 20383
+# skip: 21159
+# lag: 21191
+# skip: 23181
+# lag: 23214
+# ignore: idle 23211
+# skip: 23456
+# lag: 23490
+# ignore: idle 23486
+# skip: 23513
+# lag: 23528
+# lag: 23549
+# skip: 23651
+# lag: 23668
+# lag: 23689
+# skip: 23800
+# lag: 23819
+# lag: 23840
+# skip: 25101
+# lag: 25122
+# lag: 25143
+# skip: 25257
+# lag: 25300
+# skip: 25764
+# lag: 25808
+# skip: 25871
+# lag: 25896
+# lag: 25917
+# skip: 26809
+# lag: 26856
+# ignore: idle 26839
+# skip: 26933
+# lag: 26981
+# skip: 27688
+# lag: 27737
+# skip: 27965
+# lag: 28015
+# skip: 28784
+# lag: 28835
 ---
 40 DOWN; 130 RIGHT; 8 UP; 56 -; 24 DOWN; 312 RIGHT; 12 UP+RIGHT; 48 RIGHT; 31 DOWN; 8 RIGHT
 2 DOWN+RIGHT; 264 RIGHT; 14 DOWN+RIGHT; 5 RIGHT; 22 UP; 24 RIGHT; 24 DOWN+RIGHT; 17 RIGHT; 10 UP; 2 A
@@ -135,4 +179,35 @@
 1 A; 6 -; 180 LEFT; 210 DOWN; 400 RIGHT; 50 DOWN+LEFT; 40 DOWN; 40 DOWN+RIGHT; 20 DOWN+LEFT; 12 DOWN
 14 LEFT; 64 DOWN; 30 RIGHT; 130 DOWN+LEFT; 34 RIGHT; 96 DOWN+LEFT; 8 DOWN; 53 DOWN+LEFT; 3 LEFT; 80 DOWN
 192 RIGHT; 45 UP; 57 -; 2 UP; 55 -; 151 LEFT; 55 -; 300 LEFT; 66 RIGHT; 120 UP
-544 -; 1 A; 49 -; 1 A; 462 -
+544 -; 1 A; 49 -; 1 A; 462 -; 48 RIGHT; 29 UP+RIGHT; 10 UP; 16 -; 1 A
+395 -; 1 A; 47 -; 1 A; 85 -; 1 A; 65 -; 1 A; 33 -; 1 A
+1899 -; 1 A; 33 -; 1 A; 87 -; 1 A; 81 -; 1 A; 47 -; 1 A
+69 -; 1 A; 39 -; 1 A; 308 -; 16 DOWN; 136 RIGHT; 76 -; 1 A; 79 -
+1 A; 67 -; 1 A; 43 -; 1 A; 35 -; 1 A; 91 -; 1 A; 59 -
+1 A; 89 -; 1 A; 33 -; 1 A; 243 -; 1 A; 6 -; 120 RIGHT; 62 -
+24 LEFT; 24 DOWN+LEFT; 24 LEFT; 24 DOWN+LEFT; 56 LEFT; 53 -; 8 LEFT; 49 -; 24 DOWN; 17 UP
+5 LEFT; 32 UP+LEFT; 2 -; 2 UP; 1 UP+LEFT; 2 -; 51 UP+LEFT; 2 -; 12 RIGHT; 50 UP
+30 RIGHT; 2 UP; 55 -; 64 LEFT; 30 UP; 2 A; 6 -; 2 A; 24 -; 1 A
+4 -; 20 UP; 12 LEFT; 10 UP; 2 A; 6 -; 2 A; 74 -; 1 A; 41 -
+1 A; 41 -; 1 A; 49 -; 1 A; 47 -; 1 A; 35 -; 1 A; 53 -
+1 A; 51 -; 1 A; 37 -; 1 A; 59 -; 1 A; 27 -; 1 A; 201 -
+1 A; 71 -; 1 A; 65 -; 1 A; 6 -; 30 DOWN; 100 RIGHT; 2 -; 10 DOWN
+40 RIGHT; 8 UP; 55 -; 10 DOWN; 40 RIGHT; 40 UP; 2 -; 7 RIGHT; 2 UP; 55 -
+50 LEFT; 30 UP; 2 A; 16 -; 2 RIGHT; 9 -; 2 A; 21 -; 2 DOWN; 4 -
+2 DOWN; 9 -; 2 RIGHT; 14 -; 2 A; 21 -; 2 A; 54 -; 1 A; 7 -
+30 DOWN; 160 RIGHT; 2 -; 12 UP; 51 -; 50 LEFT; 2 UP; 55 -; 50 LEFT; 24 UP
+30 LEFT; 2 A; 6 -; 2 A; 42 -; 1 A; 89 -; 1 A; 73 -; 1 A
+31 -; 1 A; 199 -; 1 A; 31 -; 1 A; 63 -; 1 A; 39 -; 1 A
+6 -; 30 DOWN; 100 RIGHT; 10 DOWN; 40 RIGHT; 8 UP; 55 -; 10 DOWN; 47 RIGHT; 12 UP
+55 -; 50 LEFT; 30 UP; 2 A; 16 -; 2 RIGHT; 9 -; 2 A; 21 -; 2 DOWN
+4 -; 2 DOWN; 9 -; 2 RIGHT; 14 -; 2 A; 21 -; 2 A; 52 -; 1 A
+35 -; 1 A; 13 -; 1 A; 10 -; 2 A; 16 -; 2 DOWN; 9 -; 2 A
+36 -; 1 A; 4 -; 2 A; 26 -; 2 DOWN; 24 -; 2 RIGHT; 14 -; 2 UP
+14 -; 2 A; 26 -; 2 A; 26 -; 2 A; 34 -; 2 B; 34 -; 2 B
+36 -; 24 DOWN; 49 RIGHT; 55 -; 60 DOWN; 120 RIGHT; 30 UP+LEFT; 11 UP; 56 -; 100 DOWN
+3 -; 60 DOWN; 2 L; 68 -; 1 A; 85 -; 1 A; 41 -; 1 A; 71 -
+1 A; 166 -; 8 DOWN; 154 RIGHT; 2 UP; 55 -; 12 DOWN; 74 LEFT; 30 UP; 6 RIGHT
+40 UP; 22 RIGHT; 30 UP; 30 LEFT; 10 UP; 2 A; 6 -; 2 A; 88 -; 1 A
+67 -; 1 A; 75 -; 1 A; 13 -; 2 A; 248 -; 1 A; 1265 -; 14 DOWN
+60 RIGHT; 2 A; 6 -; 2 A; 28 -; 1 A; 69 -; 1 A; 465 -; 1 A
+6 -
