@@ -784,6 +784,7 @@ class Player:
         self._wait_ranges = None
         self.logic_reset_pending = True  # lstep state (see logic_step)
         self.lag_frames = 0
+        self.logic_mid = False
 
     # --- frames
 
@@ -862,10 +863,12 @@ class Player:
         an index (and the 2nd frame read the same pad as the 1st).
         """
         self.logic_target += 1
+        mid = self.logic_mid  # an lstep with nothing left to run repeats the last sample
         for _ in range(LOGIC_STEP_LIMIT):
             if self.logic_done >= self.logic_target:
                 break
             self.step(pad)
+            mid = False
             ctr = self.game.w8(FRAME_COUNT_ADDR)
             delta = (ctr - self.last_count) & 0xFF
             self.last_count = ctr
@@ -879,9 +882,19 @@ class Player:
             self.parked_other = where == "other"
             if where is None:
                 self.lag_frames += 1
+                # Each wait return ended a game frame. Under sustained CPU load
+                # (every frame a little over budget, so every wait returns at once)
+                # the logic never parks at a boundary, and one lstep would run all
+                # of those frames on one pad: stop once the frame after the target
+                # has completed too (the target is then merged, as after a single
+                # lag frame, and this sample catches the next frame mid-way)
+                if self.wait_returns > self.logic_target:
+                    self.logic_done = self.wait_returns
+                    mid = True
             else:
                 self.logic_done = self.wait_returns + 1
-        log(f"LSTEP {self.logic_done - self.logic_base}")
+        self.logic_mid = mid
+        log(f"LSTEP {self.logic_done - self.logic_base}" + (" mid" if mid else ""))
 
     def logic_reset(self):
         """Start counting game-logic frames here (index 0)."""
@@ -890,6 +903,7 @@ class Player:
         self.parked_other = self.parked() == "other"
         self.logic_done = self.logic_base = self.logic_target = 0 if self.parked() is None else 1
         self.lag_frames = 0
+        self.logic_mid = False
 
     def parse_buttons(self, s):
         """Parse ``A+UP`` style buttons into a libretro bitmask."""
@@ -1422,7 +1436,9 @@ class Player:
             log(f"RNG {g.w16(g.sym('RAND_A'))} {g.w16(g.sym('RAND_B'))}")
         elif cmd == "fc":
             # FRAME_COUNTER (1 byte, NMI-incremented): autodiff.py seeds it on both sides
-            if ints:
+            if ints and not getattr(self, "logic_mid", False):
+                # (after a mid lstep a later frame is running and has counted itself:
+                # autodiff.py's re-sync to the target frame's count would rewind it)
                 g.put8(g.sym("FRAME_COUNTER"), ints[0] & 0xFF)
                 if hasattr(self, "last_count"):  # --count-frames counts in FRAME_COUNTER
                     self.last_count = ints[0] & 0xFF

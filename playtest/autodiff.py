@@ -149,9 +149,10 @@ def parse_snapshots(text):
     """Split a run's output into {logic frame: field dict} (from the seeding RNG line on).
 
     Snapshots are numbered in order, or by the preceding ``LSTEP N`` line (emu);
-    an index seen twice (an lstep that had nothing left to run) keeps the first.
+    an index seen twice (an lstep that had nothing left to run) keeps the first,
+    and an ``LSTEP N mid`` snapshot (taken part-way into frame N+1) is dropped.
     """
-    snaps, cur, seeded, idx = {}, None, False, 0
+    snaps, cur, seeded, idx, mid = {}, None, False, 0, False
     for line in text.splitlines():
         if line.startswith("RNG ") and not seeded:
             seeded = True
@@ -159,7 +160,8 @@ def parse_snapshots(text):
         if not seeded:
             continue
         if line.startswith("LSTEP "):
-            idx = int(line.split()[1])
+            words = line.split()
+            idx, mid = int(words[1]), "mid" in words[2:]
             continue
         if line.startswith("STATE "):
             cur = {}
@@ -193,8 +195,10 @@ def parse_snapshots(text):
                     cur[k] = v
         elif line.startswith("RNG "):
             cur["rng"] = line[4:].strip()
-            snaps.setdefault(idx, cur)
+            if not mid:  # sampled part-way into the next frame (emu lag): not comparable
+                snaps.setdefault(idx, cur)
             idx += 1
+            mid = False
             cur = None
     return snaps
 

@@ -1,6 +1,13 @@
 # save: 24-Museum
-# Summers hospital: revive an unconscious Paula (Yes, pay, the healing sfx, the prompts)
-flag 11 1; status 2 1 1; teleport 6735 9680 0; wait 10; until idle 300
+# Summers hospital: revive an unconscious Paula (Yes, pay, the healing sfx, the prompts), then the
+# last prompt closes the pause menu and the wandering npc1048 picks its next move
+# The emu's setup `wait` counts wall frames, and the teleport's load lags the original by one, so the
+# port waits 9 to start the body with npc1048's pause timer in the same phase (with 10 its roll after
+# the menu closes comes a frame early in the port)
+flag 11 1; status 2 1 1; teleport 6735 9680 0
+port: wait 9
+emu: wait 10
+until idle 300
 ---
 press A; wait 30; press A; wait 200; press RIGHT; wait 10; press A; wait 200; press A; wait 200; press A; wait 200
-press A; wait 200
+press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 300

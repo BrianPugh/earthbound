@@ -1,0 +1,7 @@
+# save: 17-GoldMine
+# Dusty Dunes: walk until an overworld enemy touches the party, the battle entry, the first menu
+# The enemies spawn in the body (flag 11 holds them off during the teleport), so their spawn rolls
+# and wandering use the seeded RNG; a teleport right before the body leaves the emu mid-frame
+flag 11 1; teleport 3424 9312; wait 10; until idle 300; flag 11 0
+---
+400 LEFT; 600 -

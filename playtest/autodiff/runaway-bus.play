@@ -1,0 +1,15 @@
+# save: 10-ToThreed
+# Runaway Five: talk to the band, Yes, walk into the strip under the tour bus, ride to Threed
+# The original lags under sustained CPU load while the party walks left of x≈2182 here (every
+# frame a little over budget): emu.py drops those part-way samples (LSTEP mid), and the body
+# changes direction only outside that stretch, since a lag frame reads the previous frame's pad
+# the TELEPORT_TO to the Threed tunnel: its SCREEN_TRANSITION's first fade step lags the original
+# (3902), so the exit loop takes the extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door)
+# lag: 3923
+# the TELEPORT_TO out of the tunnel to Threed the same (first step lags at 4921)
+# lag: 4942
+teleport 2224 6600 0; wait 10; 10 UP; until idle 300
+---
+press A; wait 34; press A; wait 204; press A; wait 204; press A; wait 204; press A; wait 204; press A; wait 204
+8 DOWN; 28 LEFT; 30 -; 30 UP+LEFT
+press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198; press A; wait 198

@@ -393,7 +393,11 @@ counter's phase, which picks the HP/PP roller's member as in the port (one count
 per presented frame). A frame boundary that falls on the wait's entry counts as
 parked; one in its tail, after the count, is still the next frame running. A frame that completes inside a lag frame
 can't be sampled: the report lists those as merged, and the frame after a lag
-frame reads the same pad as the one before. `input` is ignored by default (the
+frame reads the same pad as the one before. Under sustained CPU load (every frame a little
+over budget, so the logic never parks at a frame boundary) an lstep stops once the frame after
+its target has completed and prints `LSTEP N mid`: that sample caught a later frame part-way,
+so autodiff drops it (merged). Pads still reach the game a frame late there, so change
+direction outside such a stretch (runaway-bus.play). `input` is ignored by default (the
 2 sides define it differently). The scripts and logs land in
 `playtest/out/autodiff/`; rerun a side with `--input NAME.port.play` / `emu.py
 --count-frames --input NAME.emu.play`.
