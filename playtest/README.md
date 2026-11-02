@@ -437,9 +437,7 @@ the NMI before the call (the original ends a frame later: townmap, door arrivals
 and lag frames during the fade give it extra steps (a frame earlier: goods-give).
 Both sides read the brightness the logic frame ended with (the port's
 `g_inidisp_logic_end`, before host_process_frame's NMI-equivalent fade step), so
-fades without lag match frame for frame. An RNG one call off for 1-5
-frames around a SET_WINDOW_TITLE is the port running a window tick before the
-title's 2 frame waits it presents (the screens match).
+fades without lag match frame for frame.
 
 File select, naming and new games: `# save: blank` boots an empty 8 KB SRAM
 (no save files), and `# boot: menu` replaces the boot that loads slot 1 with one

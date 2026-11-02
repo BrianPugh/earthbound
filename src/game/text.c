@@ -2205,10 +2205,18 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             continue;
 
         case PS_FAIL_RESUME:
-            /* Tail of the not-enough-PP / teleport-blocked message. */
-            close_focus_window();
-            st->action_result = 0;
-            st->phase = PS_HANDLE;
+            /* Tail of the not-enough-PP / teleport-blocked message:
+             * CLOSE_FOCUS_WINDOW's WINDOW_TICK (overworld_psi_menu.asm:150,
+             * :201) is a frame of its own before @PSI_ABILITY_LOOP redisplays
+             * the list (whose take_unpresented_ticks would drop it). */
+            {
+                StepResult r;
+                (void)take_unpresented_ticks();
+                close_focus_window();
+                st->action_result = 0;
+                if (menu_flush_ticks(&st->phase, PS_HANDLE, &r))
+                    return r;
+            }
             continue;
 
         case PS_HANDLE: {

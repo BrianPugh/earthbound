@@ -1,13 +1,6 @@
 # save: 24-Museum
 # Overworld PSI with too little PP: Ness picks Lifeup, "not enough PP", the ability list
 # again, a 2nd pick that fails the same way, back out
-# both redisplays of the ability list after the message: the port runs a window tick (one RAND, the
-# focus on the title window for a frame) before SET_WINDOW_TITLE's 2 frame waits it presents,
-# the original after them; the screens and the RNG agree 3 frames later
-# ignore: rng 185-187
-# ignore: focus 185-187
-# ignore: rng 463-465
-# ignore: focus 463-465
 hp 2 20; pp 1 2
 ---
 press A; wait 30; press DOWN; press A; wait 40; press A; wait 40; press A; wait 40; press A; wait 40
