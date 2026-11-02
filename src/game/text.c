@@ -2137,8 +2137,19 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 continue;
             }
 
-            close_window(WINDOW_PSI_TARGET_COST);
+            /* CLOSE_WINDOW's WINDOW_TICK is a frame of its own before the
+             * PP deduction and the description text (emu, 24-Museum Lifeup). */
+            {
+                StepResult r;
+                (void)take_unpresented_ticks();
+                close_window(WINDOW_PSI_TARGET_COST);
+                if (menu_flush_ticks(&st->phase, PS_HANDLE_EXEC, &r))
+                    return r;
+            }
+            continue;
+        }
 
+        case PS_HANDLE_EXEC: {
             if ((st->last_ability & 0xFF) == 0) {
                 st->phase = PS_CHAR;  /* cancelled → retry character select */
                 continue;

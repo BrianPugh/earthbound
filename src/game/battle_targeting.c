@@ -819,19 +819,37 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
                                (uint16_t)(uint8_t)result);
     }
 
-    case TGT_ALLY_RESULT:
-    default: {
+    case TGT_ALLY_RESULT: {
         /* The ally SELECTION_MENU popped: run char_select_prompt's mode-1
          * epilogue (window close, attrs, pagination, argument_memory), then
-         * determine_targetting's own header close. */
+         * determine_targetting's own header close. Each CLOSE_WINDOW's
+         * WINDOW_TICK is a frame of its own (emu, 24-Museum Lifeup). */
         uint16_t result = (uint16_t)mode_child_result();
+        st->result = (result == 0) ? 0  /* cancelled */
+                   : (uint16_t)(((uint16_t)st->targeting_mode << 8) |
+                                (uint16_t)(uint8_t)result);
+        (void)take_unpresented_ticks();
         char_select_overworld_finish(st->ally_window_id, false);
         set_argument_memory(st->saved_argument_memory);
-        close_menu_header_window();
-        if (result == 0) return STEP_RESULT_POP(0);  /* cancelled */
-        return STEP_RESULT_POP(((uint16_t)st->targeting_mode << 8) |
-                               (uint16_t)(uint8_t)result);
+        st->phase = TGT_ALLY_HEADER;
+        uint16_t ticks = take_unpresented_ticks();
+        if (ticks)
+            return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, ticks);
     }
+        EB_FALLTHROUGH;
+
+    case TGT_ALLY_HEADER: {
+        close_menu_header_window();
+        st->phase = TGT_POP;
+        uint16_t ticks = take_unpresented_ticks();
+        if (ticks)
+            return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, ticks);
+    }
+        EB_FALLTHROUGH;
+
+    case TGT_POP:
+    default:
+        return STEP_RESULT_POP(st->result);
     }
 }
 

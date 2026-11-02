@@ -531,6 +531,7 @@ typedef enum {
     PS_EXIT_POP,        /* POP the result */
     PS_ABILITY_MENU,    /* @SKIP_REDISPLAY: after the redisplay's frames, push SELECTION_MENU */
     PS_CHECK_PP,        /* @CHECK_PP_COST: after DISPLAY_PSI_ABILITY_DETAILS's frames */
+    PS_HANDLE_EXEC,     /* @HANDLE_RESULT after CLOSE_WINDOW(PSI_TARGET_COST)'s frame */
 } PsiMenuPhase;
 
 typedef struct {
@@ -691,6 +692,8 @@ typedef enum {
     TGT_ENTER = 0,    /* classify; inline cases POP, UI cases push a child */
     TGT_PICK_RESULT,  /* after enemy/row select pops: 0 = cancel, else pack */
     TGT_ALLY_RESULT,  /* after the ally SELECTION_MENU pops: cleanup + pack */
+    TGT_ALLY_HEADER,  /* after the name window's close frame: close the header */
+    TGT_POP,          /* after the header's close frame: POP `result` */
 } TargetingPhase;
 
 typedef struct {
@@ -700,6 +703,7 @@ typedef struct {
     uint16_t char_id;        /* 1-based acting character (input) */
     uint16_t ally_window_id; /* mode-1 char-select window to close on pop */
     uint32_t saved_argument_memory; /* restored in TGT_ALLY_RESULT */
+    uint16_t result;         /* packed result POPped by TGT_POP */
 } TargetingState;
 
 /* GAME_MODE_BATTLE_PSI_MENU phases. Port of battle_psi_menu()
