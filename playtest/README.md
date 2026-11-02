@@ -404,13 +404,23 @@ direction outside such a stretch (runaway-bus.play). `input` is ignored by defau
 --count-frames --input NAME.emu.play`.
 
 The suite in `playtest/autodiff/` (one scenario per file, `# save: NN-Name`
-header, optional `# ignore: REGEX` lines for fields that differ before the
-seed, such as a wandering NPC, and `# lag: K` lines for an emu logic frame the
+header, optional `# ignore: REGEX [A[-B]]` lines for fields that can't be aligned, on
+logic frames A to B only when given (keep masks to the smallest field and frame range,
+with a comment saying why), and `# lag: K` lines for an emu logic frame the
 original spends on CPU time alone, compared with the port shifted by one) runs with `autodiff.py playtest/autodiff/*.play`
-(`-j N` scenarios at once, a few seconds each). Read a report with care: a
-first divergence of `idle` alone a few frames after a lag-merged frame is
-usually a fade that runs on NMIs after the original's load lag (townmap's
-fade-in after RELOAD_MAP, door arrivals), and an RNG one call off for 1-5
+(`-j N` scenarios at once, a few seconds each). Before reaching for a mask, align
+the setup: state that differs at frame 0 comes from the 2 boots reaching the seed in
+different frames, and a `teleport` to the save's own spot (pos and dir from STATE)
+clears the enemies the save loaded and respawns the NPCs (escargo.play, poison-walk.play).
+
+Read a report with care: a first divergence of `idle` alone, 1 frame, at the end
+of a fade-in near a lag-merged frame is the original's fade running on NMIs, which
+lag frames shift against logic frames either way: a long load before FADE_IN takes
+the NMI before the call (the original ends a frame later: townmap, door arrivals),
+and lag frames during the fade give it extra steps (a frame earlier: goods-give).
+Both sides read the brightness the logic frame ended with (the port's
+`g_inidisp_logic_end`, before host_process_frame's NMI-equivalent fade step), so
+fades without lag match frame for frame. An RNG one call off for 1-5
 frames around a SET_WINDOW_TITLE is the port running a window tick before the
 title's 2 frame waits it presents (the screens match).
 

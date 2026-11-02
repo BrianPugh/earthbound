@@ -774,6 +774,11 @@ class Game:
         return self.w16(self.sym(table) + slot * 2)
 
 
+def s8(v):
+    """Interpret an 8-bit value as signed."""
+    return v - 0x100 if v & 0x80 else v
+
+
 def s16(v):
     """Interpret a 16-bit value as signed."""
     return v - 0x10000 if v & 0x8000 else v
@@ -1156,7 +1161,10 @@ class Player:
             if script == 0xFFFF:
                 continue
             x, y = s16(g.entity16("ENTITY_ABS_X_TABLE", e)), s16(g.entity16("ENTITY_ABS_Y_TABLE", e))
-            d, spr = s16(g.entity16("ENTITY_DIRECTIONS", e)), s16(g.entity16("ENTITY_SPRITE_IDS", e))
+            # The port's directions[] is 8-bit: compare the low byte (MOVEMENT_CMD_SET_NPC_ID
+            # stores an NPC id such as $051F there through SET_DIRECTION; see
+            # cr_movement_cmd_set_npc_id)
+            d, spr = s8(g.entity16("ENTITY_DIRECTIONS", e) & 0xFF), s16(g.entity16("ENTITY_SPRITE_IDS", e))
             ents.append(f"{e}:{script}@{x},{y}/{d}/{spr}")
         ws, t = g.sym("WINDOW_STATS"), g.sym("OPEN_WINDOW_TABLE")
         wins = []
