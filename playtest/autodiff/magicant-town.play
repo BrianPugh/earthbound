@@ -1,0 +1,15 @@
+# save: 34-Magicant
+# Magicant: from the save point's hut (the TEL phone) out the right door and around the town
+# among the wandering NPCs (no setup: the hut's NPCs stand still, so the town's wanderers spawn
+# in the body, after the seed, on both sides)
+# The door's load: the first emu sample is part-way in (skip) and its SCREEN_TRANSITION takes
+# hotel-door's extra exit-loop wait (CPU time, lag)
+# skip: 58
+# lag: 78
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the long
+# load, before the FADE_IN call, so the original's fade-in ends a logic frame later
+# ignore: idle 88
+wait 5
+---
+60 RIGHT; 240 -; 150 DOWN; 150 LEFT; 150 DOWN; 150 RIGHT; 100 -
+200 UP+RIGHT; 100 RIGHT; 200 DOWN+LEFT; 150 LEFT; 150 UP; 100 -

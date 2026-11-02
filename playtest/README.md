@@ -442,16 +442,18 @@ Places that "couldn't be aligned" before, and why:
   wall-frame boundary; every lstep ends `LSTEP N mid` and nothing is compared.
   `# overclock: max` runs the emu with snes9x's "Reduce Slowdown" CPU overclock
   (emu.py `--overclock`), so each frame fits and parks as in the port (which has
-  no lag); moonside-walk.play aligns frame for frame.
+  no lag); moonside-walk.play aligns frame for frame, and moonside-battle.play a street
+  battle on Auto Fight.
 - **Scaraba desert, the Winters lab walk, the Sky Runner flight**: lag frames
   every few frames (many enemies / a long CPU-heavy flight with TELEPORTs). A pad
   change next to a lag frame reaches the original a frame late, and enemy spawns
   before the seed follow the setup's lag; with `# overclock: max` both go away
   (scaraba-battle.play, skyrunner.play: the whole flight, 11000 frames). Each
   TELEPORT still needs its `# skip:` / `# lag:` pair, 20 frames apart.
-- **Magicant**: no lag problem; near the save point the wandering NPCs' timers
-  differ before the seed, so their RAND calls shift the RNG for everything after.
-  Start where no NPC wanders (magicant-battle.play, the pink maze).
+- **Magicant**: no lag problem; outdoors the wandering NPCs' timers differ before
+  the seed, so their RAND calls shift the RNG for everything after. Start where no
+  NPC wanders: the pink maze (magicant-battle.play), or the save point's hut with no
+  setup, so the town's wanderers spawn after the seed (magicant-town.play).
 
 The overclock is not neutral elsewhere: it changes how many frames the setup's
 `until`s take, so NPC phases and spawns before the seed differ from a plain run

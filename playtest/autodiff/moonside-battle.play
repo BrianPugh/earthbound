@@ -1,0 +1,13 @@
+# save: 19-Moonside
+# Moonside street from the café exit: walk DOWN+RIGHT into an enemy (it gets the first turn),
+# Auto Fight, the victory text, back on the overworld and walk on
+# Moonside's logic overruns every frame in the original (moonside-walk.play): the emu runs
+# overclocked
+# overclock: max
+# the map reload after the battle (frames 1175-1177 merged) takes the NMI before FADE_IN even
+# overclocked, so the original's fade-in ends a logic frame later (battle-autowin.play)
+# ignore: idle 1205
+teleport 7360 3903 4; until idle 600; wait 30
+---
+165 DOWN+RIGHT; wait 370; press RIGHT; wait 10; press RIGHT; wait 10; press A; wait 560
+press A; wait 400; 100 RIGHT; 60 -
