@@ -1144,12 +1144,15 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
          * frame as a park-propagating step (the former blocking run_actionscript_frame
          * + wait_for_vblank inside dismount_bicycle). */
         dismount_bicycle_begin();
-        bs->phase = BD_DISMOUNT_FINISH;
         if (render_frame_tick_work_step()) {
             bs->phase = BD_DISMOUNT_FLUSH;
             return actionscript_frame_take_push();
         }
-        EB_FALLTHROUGH; /* no park, finish inline */
+        /* No park: the asm's WAIT_UNTIL_NEXT_FRAME after UPDATE_SCREEN is still a
+         * presented frame before the Ness entity is created. */
+        bs->phase = BD_DISMOUNT_FINISH;
+        return STEP_RESULT_CONTINUE();
+
     case BD_DISMOUNT_FINISH:
         dismount_bicycle_finish();
         return STEP_RESULT_POP(0);
