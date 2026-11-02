@@ -1,0 +1,94 @@
+# save: 05-Twoson
+# Sweep segment 05 -> 06: the Twoson hotel phone out to the street, east and down the diagonal
+# roads to Apple Kid's house (a Hamburger, invest Yes, $200 Yes; the mouse's Receiver phone), the
+# main road east (2 battles) to the southeast cave, the cave rooms into Peaceful Rest Valley, up
+# the river's west bank to the pencil statue (Lifeup alpha on the way; flag 111 within 136 px),
+# back down to the cave and through it to Twoson (Apple Kid's call), the main road west (Mobile
+# Sprout Auto Fight; 2 Ramblin' Evil Mushrooms met facing them, PSI Rockin alpha + Bash), Burglin
+# Park (Apple Kid: Pencil eraser), the diagonal road north, the street west to the hotel, the
+# lobby phone, Dad: Record, Continue.
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag K+20 / ignore: idle K+30; the other idle masks are post-battle fade-ins
+# late-pads
+# skip: 202
+# lag: 222
+# skip: 3438
+# lag: 3458
+# skip: 5496
+# lag: 5516
+# ignore: idle 7348
+# ignore: idle 9135
+# skip: 9837
+# lag: 9857
+# skip: 10209
+# lag: 10229
+# ignore: idle 10239
+# ignore: idle 11470
+# skip: 11686
+# lag: 11706
+# ignore: idle 13034
+# skip: 15226
+# lag: 15246
+# ignore: idle 16610
+# skip: 17177
+# lag: 17197
+# skip: 17443
+# lag: 17463
+# ignore: idle 18668
+# ignore: idle 20488
+# skip: 24434
+# lag: 24454
+---
+40 DOWN; 130 RIGHT; 8 UP; 56 -; 24 DOWN; 234 RIGHT; 72 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 33 UP; 72 RIGHT
+12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 120 RIGHT; 12 UP+RIGHT
+12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT
+13 DOWN; 95 RIGHT; 16 UP; 111 RIGHT; 12 UP+RIGHT; 14 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 14 RIGHT; 12 UP+RIGHT
+12 DOWN+RIGHT; 14 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 16 DOWN; 24 DOWN+RIGHT; 21 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 21 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 RIGHT; 4 UP+RIGHT
+30 RIGHT; 250 DOWN; 40 LEFT; 300 DOWN+LEFT; 60 DOWN; 28 LEFT; 36 DOWN; 85 RIGHT; 48 DOWN; 12 DOWN+LEFT
+12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+87 RIGHT; 24 DOWN; 39 DOWN+LEFT; 8 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 8 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 8 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 8 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 16 RIGHT; 120 DOWN+LEFT; 12 LEFT; 30 UP+LEFT; 40 UP
+2 -; 16 LEFT; 2 UP; 55 -; 34 LEFT; 4 DOWN; 4 LEFT; 2 A; 6 -; 2 A
+24 -; 1 A; 14 -; 14 UP; 12 UP+LEFT; 12 UP+RIGHT; 2 UP; 12 UP+LEFT; 12 UP+RIGHT; 2 UP
+12 UP+LEFT; 12 UP+RIGHT; 2 UP; 12 UP+LEFT; 12 UP+RIGHT; 20 LEFT; 180 -; 2 A; 6 -; 2 A
+68 -; 1 A; 63 -; 1 A; 15 -; 1 A; 85 -; 1 A; 155 -; 1 A
+56 -; 2 A; 22 -; 1 A; 15 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 RIGHT
+10 -; 2 A; 110 -; 1 A; 61 -; 1 A; 12 -; 2 A; 106 -; 1 A
+37 -; 1 A; 12 -; 2 A; 58 -; 1 A; 103 -; 6 DOWN; 46 RIGHT; 2 A
+6 -; 2 A; 68 -; 1 A; 29 -; 1 A; 107 -; 1 A; 199 -; 1 A
+71 -; 1 A; 6 -; 12 RIGHT; 55 -; 24 RIGHT; 8 DOWN; 20 RIGHT; 144 UP+RIGHT; 24 UP
+10 UP+RIGHT; 500 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 1004 -; 1 A; 73 -
+340 RIGHT; 2 DOWN+RIGHT; 227 RIGHT; 458 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 672 -
+1 A; 73 -; 137 RIGHT; 4 UP+RIGHT; 382 RIGHT; 126 UP; 2 -; 10 DOWN; 8 RIGHT; 7 UP
+56 -; 300 RIGHT; 2 -; 6 LEFT; 9 UP; 55 -; 155 RIGHT; 230 -; 2 RIGHT; 4 -
+2 RIGHT; 4 -; 2 A; 758 -; 1 A; 73 -; 168 RIGHT; 14 UP+RIGHT; 9 RIGHT; 55 -
+24 RIGHT; 18 UP+RIGHT; 23 RIGHT; 2 UP+RIGHT; 24 DOWN+RIGHT; 48 RIGHT; 15 UP+RIGHT; 10 RIGHT; 230 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 690 -; 1 A; 25 -; 1 A; 23 -; 1 A
+25 -; 1 A; 25 -; 1 A; 43 -; 1 A; 73 -; 15 RIGHT; 16 UP+RIGHT; 24 RIGHT
+67 UP; 20 UP+RIGHT; 7 UP; 3 RIGHT; 24 UP; 12 UP+LEFT; 12 UP+RIGHT; 24 UP; 12 UP+LEFT; 12 UP+RIGHT
+24 UP; 12 UP+LEFT; 12 UP+RIGHT; 24 UP; 12 UP+LEFT; 24 UP+RIGHT; 30 UP; 10 RIGHT; 30 UP; 44 UP+RIGHT
+47 UP; 24 RIGHT; 14 UP+LEFT; 97 UP; 2 A; 16 -; 2 DOWN; 4 -; 2 A; 16 -
+2 A; 45 -; 2 A; 58 -; 1 A; 7 -; 22 RIGHT; 21 UP; 4 UP+RIGHT; 70 UP
+45 UP+LEFT; 24 UP; 24 LEFT; 118 UP; 23 UP+RIGHT; 2 UP; 18 UP+RIGHT; 6 RIGHT; 20 LEFT; 24 DOWN
+24 DOWN+LEFT; 143 DOWN; 6 UP+RIGHT; 24 RIGHT; 24 DOWN+RIGHT; 2 RIGHT; 18 DOWN; 4 DOWN+RIGHT; 73 DOWN; 47 DOWN+LEFT
+21 DOWN; 2 DOWN+RIGHT; 62 DOWN; 19 LEFT; 3 DOWN+LEFT; 23 DOWN; 24 DOWN+LEFT; 25 LEFT; 24 DOWN; 11 DOWN+LEFT
+13 DOWN; 20 LEFT; 4 DOWN+LEFT; 22 DOWN+RIGHT; 25 DOWN; 32 DOWN+LEFT; 49 DOWN; 44 LEFT; 4 DOWN+LEFT; 21 LEFT
+3 DOWN+LEFT; 107 LEFT; 40 UP; 29 -; 78 LEFT; 552 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -
+2 A; 636 -; 1 A; 73 -; 522 LEFT; 6 RIGHT; 12 UP; 8 LEFT; 49 -; 200 LEFT
+12 UP; 104 -; 1 A; 33 -; 1 A; 49 -; 1 A; 117 -; 1 A; 69 -
+1 A; 8 -; 110 LEFT; 230 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 436 -
+1 A; 73 -; 40 DOWN+LEFT; 400 LEFT; 1 RIGHT; 255 -; 2 DOWN; 14 -; 2 A; 34 -
+2 A; 24 -; 2 A; 538 -; 2 A; 24 -; 2 A; 404 -; 1 A; 75 -
+1244 LEFT; 32 UP+LEFT; 45 UP; 12 UP+LEFT; 12 UP+RIGHT; 21 UP; 12 UP+LEFT; 12 UP+RIGHT; 21 UP; 12 UP+LEFT
+12 UP+RIGHT; 21 UP; 12 UP+LEFT; 12 UP+RIGHT; 32 UP; 16 DOWN+RIGHT; 12 LEFT; 34 UP; 2 LEFT; 32 UP
+16 DOWN+RIGHT; 70 RIGHT; 5 DOWN+RIGHT; 22 RIGHT; 24 UP+RIGHT; 2 UP; 4 -; 2 A; 12 -; 2 A
+66 -; 1 A; 41 -; 1 A; 75 -; 1 A; 99 -; 1 A; 23 -; 1 A
+197 -; 1 A; 71 -; 1 A; 6 -; 20 RIGHT; 31 UP; 33 RIGHT; 31 UP+RIGHT; 96 RIGHT
+8 UP+RIGHT; 2 RIGHT; 28 UP; 255 RIGHT; 30 UP+RIGHT; 35 RIGHT; 32 UP+LEFT; 31 RIGHT; 199 UP+RIGHT; 24 UP
+6 UP+RIGHT; 3 UP; 30 UP+RIGHT; 22 UP; 2 UP+RIGHT; 403 LEFT; 33 UP+LEFT; 183 LEFT; 40 UP; 45 -
+150 LEFT; 24 RIGHT; 20 UP; 2 A; 12 -; 2 A; 28 -; 1 A; 15 -; 2 A
+22 -; 1 A; 43 -; 1 A; 51 -; 1 A; 19 -; 1 A; 37 -; 1 A
+13 -; 1 A; 46 -; 2 A; 10 -; 1 A; 73 -; 1 A; 57 -; 1 A
+37 -; 2 A; 52 -; 1 A; 47 -; 1 A; 29 -; 1 A; 4 -
