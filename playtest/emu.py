@@ -148,6 +148,17 @@ MODE_ALIASES = {
 
 # Unused WRAM for the teleport stub: the bottom of the 255-byte hardware stack
 # (STACK_65816_START). The game's call depth stays far above it.
+# Frame-wait loops: a frame boundary inside one ends a game-logic frame (lstep)
+FRAME_WAIT_FUNCS = ("WAIT_UNTIL_NEXT_FRAME", "FORCE_BLANK_AND_WAIT_VBLANK", "BLANK_SCREEN_AND_WAIT_VBLANK")
+LOGIC_STEP_LIMIT = 120  # wall frames one lstep may take before giving up
+WAIT_FOR_NMI_LOOP = (9, 17)  # WAIT_UNTIL_NEXT_FRAME offsets: @WAIT_FOR_NMI loop + its STZ
+# --count-frames: WAIT_UNTIL_NEXT_FRAME's first STZ NEW_FRAME_STARTED (the NMI path;
+# @VBLANK_REACHED clears it again) becomes INC FRAME_COUNT_ADDR, a byte deep in the
+# hardware stack that the game never reaches (below the teleport stub's bytes; the
+# padding before STACK_START gets cleared in some menus)
+FRAME_COUNT_ADDR = 0x1F7F
+COUNT_FRAMES_PATCH = (14, bytes.fromhex("9c2b00"), bytes((0xEE, FRAME_COUNT_ADDR & 0xFF, FRAME_COUNT_ADDR >> 8)))
+
 STUB_ADDR = 0x7E1F00
 STUB_LIMIT = 0x60
 
@@ -279,7 +290,7 @@ class Core:
         The SNES ROM image.
     """
 
-    def __init__(self, rom):
+    def __init__(self, rom, patches=()):
         lib = C.CDLL(str(core_path()))
         self.lib = lib
         lib.retro_load_game.restype = C.c_bool
@@ -309,7 +320,12 @@ class Core:
         lib.retro_set_audio_sample_batch(self._cbs[3])
         lib.retro_set_input_poll(self._cbs[4])
         lib.retro_set_input_state(self._cbs[5])
-        data = Path(rom).read_bytes()
+        data = bytearray(Path(rom).read_bytes())
+        for off, expect, repl in patches:
+            if data[off : off + len(expect)] != expect:
+                sys.exit(f"ROM patch at {off:#x}: expected {expect.hex()}, found {data[off : off + len(expect)].hex()}")
+            data[off : off + len(repl)] = repl
+        data = bytes(data)
         self.rom = data
         self._rom_buf = C.create_string_buffer(data, len(data))
         info = GameInfo(str(rom).encode(), C.cast(self._rom_buf, C.c_void_p), len(data), None)
@@ -748,6 +764,9 @@ class Player:
         self.recording = False
         self.recorded = 0
         self.quit = False
+        self._wait_ranges = None
+        self.logic_reset_pending = True  # lstep state (see logic_step)
+        self.lag_frames = 0
 
     # --- frames
 
@@ -762,6 +781,78 @@ class Player:
             if self.record_audio is not None:
                 self.record_audio.write(self.core.take_audio())
             self.recorded += 1
+
+    def parked(self):
+        """Where the game logic waits at this frame boundary.
+
+        A frame boundary (the end of ``retro_run``) falls where the NMI fires.
+        Returns "nmi" if the CPU is in WAIT_UNTIL_NEXT_FRAME's NMI wait (directly,
+        or as the context the NMI just interrupted), "other" if it is in another
+        frame-wait loop, None if the game frame is still running (a lag frame).
+        """
+        g = self.game
+        if self._wait_ranges is None:
+            self._wait_ranges = []
+            for fn in FRAME_WAIT_FUNCS:
+                start = g.syms.get(fn)
+                if start is not None:
+                    self._wait_ranges.append((start, g.function_end(start)))
+            self._nmi = {g.syms[n] for n in ("NMI_VECTOR", "NMI", "IRQ_VECTOR") if n in g.syms}
+            w = g.syms["WAIT_UNTIL_NEXT_FRAME"]
+            self._nmi_wait = range(w + WAIT_FOR_NMI_LOOP[0], w + WAIT_FOR_NMI_LOOP[1])
+
+        def rom_addr(pb, pc):
+            return ((pb & 0x3F) | 0xC0) << 16 | pc if pc >= 0x8000 or pb >= 0xC0 else (pb << 16) | pc
+
+        r = g.regs()
+        pc = rom_addr(r["PB"], r["PC"])
+        if pc in self._nmi:
+            sp = r["S"]  # the interrupt pushed PB, PCH, PCL, P
+            pc = rom_addr(g.w8(sp + 4), g.w16(sp + 2))
+        if pc in self._nmi_wait:
+            return "nmi"
+        return "other" if any(a <= pc < b for a, b in self._wait_ranges) else None
+
+    def logic_step(self, pad):
+        """Hold ``pad`` until the next game-logic frame completes; print LSTEP.
+
+        Needs the ``--count-frames`` ROM patch: WAIT_UNTIL_NEXT_FRAME counts its
+        returns from the NMI wait in FRAME_COUNT_ADDR. A game frame ends where
+        the logic enters a frame wait, so the frames completed so far are the
+        wait returns (counted, plus one per frame parked in an uncounted wait
+        loop) plus 1 while parked. A lag frame lets the next wait return at
+        once, so 2 game frames can complete within one sample: LSTEP then skips
+        an index (and the 2nd frame read the same pad as the 1st).
+        """
+        self.logic_target += 1
+        for _ in range(LOGIC_STEP_LIMIT):
+            if self.logic_done >= self.logic_target:
+                break
+            self.step(pad)
+            ctr = self.game.w8(FRAME_COUNT_ADDR)
+            delta = (ctr - self.last_count) & 0xFF
+            self.last_count = ctr
+            if delta > 3:  # one wall frame holds at most 2 returns: the byte was overwritten
+                log(f"ERR lstep: frame counter jumped by {delta} at frame {self.frame}; counting 1")
+                delta = 1
+            self.wait_returns += delta
+            if self.parked_other:
+                self.wait_returns += 1  # an uncounted wait returns at the NMI
+            where = self.parked()
+            self.parked_other = where == "other"
+            if where is None:
+                self.lag_frames += 1
+            else:
+                self.logic_done = self.wait_returns + 1
+        log(f"LSTEP {self.logic_done - self.logic_base}")
+
+    def logic_reset(self):
+        """Start counting game-logic frames here (index 0)."""
+        self.last_count = self.game.w8(FRAME_COUNT_ADDR)
+        self.wait_returns = 0
+        self.parked_other = self.parked() == "other"
+        self.logic_done = self.logic_base = self.logic_target = 0 if self.parked() is None else 1
+        self.lag_frames = 0
 
     def parse_buttons(self, s):
         """Parse ``A+UP`` style buttons into a libretro bitmask."""
@@ -976,6 +1067,35 @@ class Player:
                 near.append(f"npc{npc} ({dx:+d},{dy:+d})")
         if near:
             log("NEAR " + " | ".join(near))
+
+    def print_digest(self):
+        """Print a DIGEST line (raw state for autodiff.py, as the port's ``digest``)."""
+        g = self.game
+        flags = "".join(f"{g.w8(g.sym('EVENT_FLAGS') + i):02x}" for i in range(EVENT_FLAG_COUNT // 8))
+        items = ",".join(
+            f"{cid}:" + "".join(f"{g.w8(g.char(cid) + CH_ITEMS + k):02x}" for k in range(ITEM_SLOTS))
+            for cid in g.party()
+        )
+        ents = []
+        for e in range(MAX_ENTITIES):
+            script = g.entity16("ENTITY_SCRIPT_TABLE", e)
+            if script == 0xFFFF:
+                continue
+            x, y = s16(g.entity16("ENTITY_ABS_X_TABLE", e)), s16(g.entity16("ENTITY_ABS_Y_TABLE", e))
+            d, spr = s16(g.entity16("ENTITY_DIRECTIONS", e)), s16(g.entity16("ENTITY_SPRITE_IDS", e))
+            ents.append(f"{e}:{script}@{x},{y}/{d}/{spr}")
+        ws, t = g.sym("WINDOW_STATS"), g.sym("OPEN_WINDOW_TABLE")
+        wins = []
+        for i in g.windows_open():
+            w = ws + g.w16(t + i * 2) * WINDOW_STATS_SIZE
+            wins.append(
+                f"{i}:{g.w16(w + WS_X)},{g.w16(w + WS_Y)},{g.w16(w + WS_W) + 2}x{g.w16(w + WS_H) + 2}"
+            )  # port: with the border
+        focus = g.w16(g.sym("CURRENT_FOCUS_WINDOW"))
+        log(
+            f"DIGEST flags={flags} items={items} bgm={g.w16(g.sym('CURRENT_MUSIC_TRACK'))} "
+            f"ents={','.join(ents)} wins={','.join(wins)} focus={-1 if focus == 0xFFFF else focus}"
+        )
 
     def print_windows(self):
         """Print WIN lines (open windows: id, title, box) and the focused MENU."""
@@ -1203,6 +1323,17 @@ class Player:
             pad = self.parse_buttons(args[0] if args else "-")
             for _ in range(int(cmd)):
                 self.step(pad)
+        elif cmd == "lstep":
+            if self.logic_reset_pending:
+                self.logic_reset()
+                self.logic_reset_pending = False
+            if args and args[0] == "reset":
+                return
+            pad = self.parse_buttons(args[0] if args else "-")
+            for _ in range(int(args[1]) if len(args) > 1 and args[1].isdigit() else 1):
+                self.logic_step(pad)
+        elif cmd == "lag":
+            log(f"LAG lag_frames={self.lag_frames} frame={self.frame}")
         elif cmd == "wait":
             for _ in range(ints[0] if ints else 0):
                 self.step(0)
@@ -1252,6 +1383,8 @@ class Player:
                 g.put16(g.sym("RAND_A"), ints[0])
                 g.put16(g.sym("RAND_B"), ints[1])
             log(f"RNG {g.w16(g.sym('RAND_A'))} {g.w16(g.sym('RAND_B'))}")
+        elif cmd == "digest":
+            self.print_digest()
         elif cmd == "money":
             if ints:
                 g.put32(g.gs + GS_MONEY, ints[0])
@@ -1401,10 +1534,16 @@ def main():
     ap.add_argument("--record-video", help="write raw rgb24 frames (256x224) here")
     ap.add_argument("--record-audio", help="write raw s16le stereo (32040 Hz) here")
     ap.add_argument("--record-paused", action="store_true", help="start recording at 'record on'")
+    ap.add_argument("--count-frames", action="store_true", help="patch the ROM to count game frames (for lstep)")
     a = ap.parse_args()
 
     t0 = time.time()
-    core = Core(rom_path())
+    patches = []
+    if a.count_frames:
+        off, expect, repl = COUNT_FRAMES_PATCH
+        wait = load_symbols()["WAIT_UNTIL_NEXT_FRAME"]
+        patches.append(((wait & 0x3FFFFF) + off, expect, repl))
+    core = Core(rom_path(), patches)
     if a.save:
         data = Path(a.save).read_bytes()
         n = min(len(data), len(core.sram))

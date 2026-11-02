@@ -90,6 +90,7 @@
 #include "core/memory.h"
 #include "core/mode_stack.h"
 #include "entity/entity.h"
+#include "game/audio.h"
 #include "game/battle.h"
 #include "game/display_text.h"
 #include "game/display_text_internal.h"
@@ -1132,6 +1133,44 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
             rng_state.b = (uint16_t)v2;
         }
         printf("RNG %u %u\n", (unsigned)rng_state.a, (unsigned)rng_state.b);
+    } else if (strcmp(cmd, "digest") == 0) {
+        /* Raw state for playtest/autodiff.py, in the same format as emu.py's
+         * digest: event flags (hex), each party member's items, every live
+         * entity (slot:script@x,y/dir/sprite), open windows and the focus. */
+        printf("DIGEST flags=");
+        for (int i = 0; i < EVENT_FLAG_COUNT / 8; i++)
+            printf("%02x", event_flags[i]);
+        printf(" items=");
+        for (int i = 0; i < game_state.party_count && i < 6; i++) {
+            uint8_t id = game_state.party_members[i];
+            if (id < 1 || id > TOTAL_PARTY_COUNT)
+                continue;
+            printf("%s%u:", i ? "," : "", id);
+            for (int k = 0; k < 14; k++)
+                printf("%02x", party_characters[id - 1].items[k]);
+        }
+#ifdef EB_ENABLE_AUDIO
+        printf(" bgm=%u", audio_state.current_music_track);
+#endif
+        printf(" ents=");
+        bool first = true;
+        for (int e = 0; e < MAX_ENTITIES; e++) {
+            if (entities.script_table[e] == ENTITY_NONE)
+                continue;
+            printf("%s%d:%d@%d,%d/%d/%d", first ? "" : ",", e, entities.script_table[e], entities.abs_x[e],
+                   entities.abs_y[e], entities.directions[e], entities.sprite_ids[e]);
+            first = false;
+        }
+        printf(" wins=");
+        first = true;
+        for (int s = win.window_head; s >= 0 && s < MAX_WINDOWS; s = win.windows[s].next) {
+            WindowInfo *w = &win.windows[s];
+            if (!w->active)
+                continue;
+            printf("%s%u:%u,%u,%ux%u", first ? "" : ",", w->id, w->x, w->y, w->width, w->height);
+            first = false;
+        }
+        printf(" focus=%d\n", win.current_focus_window == WINDOW_ID_NONE ? -1 : (int)win.current_focus_window);
     } else if (strcmp(cmd, "money") == 0) {
         if (nv >= 1)   /* bare `money` only reports, like emu.py's */
             game_state.money_carried = (uint32_t)v1;

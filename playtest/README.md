@@ -156,6 +156,7 @@ Instant (no frame passes):
 | `rng [A B]` | print `RNG A B`, the game RNG state (`rng_state` / the asm's `RAND_A`/`RAND_B`); with 2 numbers, set it first. RAND isn't saved in SRAM, so seed both sides with it before comparing RNG-dependent steps against the original |
 | `ehp ENEMY N` | in a battle, set enemy ENEMY's (the `[i]` index in ENEMIES) HP and HP target to N |
 | `hpt` | print `HPT id:HP/PP ... exp E ... bank B`: each member's HP/PP *rolling target* (where the meter will settle, so big hits show before the meter catches up), exp, and the bank balance |
+| `digest` | print `DIGEST flags=HEX items=ID:HEX,... bgm=N ents=SLOT:SCRIPT@X,Y/DIR/SPRITE,... wins=ID:X,Y,WxH,... focus=N` (raw state for autodiff.py; emu.py prints the same) |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |
@@ -367,6 +368,35 @@ What differs from the port:
 - Frame counts are SNES frames and the original's intro is longer, so `frame=`
   is not comparable with the port. RNG and lag differ too: compare scenes,
   not frames.
+
+## Logic-frame diff against the original (autodiff)
+
+```
+uv run --no-sync python playtest/autodiff.py playtest/saves/05-Twoson.srm SCENARIO.play [...]
+```
+
+`autodiff.py` boots the save on the port (`--bin`, default
+`port/unix/build-native/earthbound`: use a 256x224 build, so the enemy spawns
+match) and on the original (emu.py `--count-frames`), runs the scenario's setup
+lines on each (`port:`/`emu:` prefixes pick a side), seeds `rng` on both, then
+plays the body after a `---` line (`N BUTTONS`, `wait N`, `press` only) one game
+frame at a time. After each frame both sides print `state`, `digest` (event
+flags, items, `bgm`, every entity slot, open windows, focus) and `rng`, and it
+reports, per field, the first frame where they differ and how many frames do.
+
+Game frames, not wall frames: the emu's `lstep BUTTONS` holds the pad until
+the next game frame completes. `--count-frames` patches WAIT_UNTIL_NEXT_FRAME
+to count its returns in an unused stack byte, so lag frames (CPU still busy at
+the NMI) don't shift the inputs. A frame that completes inside a lag frame
+can't be sampled: the report lists those as merged, and the frame after a lag
+frame reads the same pad as the one before. `input` is ignored by default (the
+2 sides define it differently). The scripts and logs land in
+`playtest/out/autodiff/`; rerun a side with `--input NAME.port.play` / `emu.py
+--count-frames --input NAME.emu.play`.
+
+Expected noise: RNG states one call apart for a few frames around merged lag
+frames (`WINDOW_TICK` calls RAND even on instant-printing ticks), and 1-frame
+`idle`/`focus` differences where a window closes.
 
 ## Implementation
 
