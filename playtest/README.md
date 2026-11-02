@@ -427,6 +427,29 @@ part-way through the load (still in FILE_SELECT_INIT, before the party or the ma
 exists) without an `LSTEP mid` mark: a `# skip: K` line drops frame K from the
 comparison.
 
+Places that "couldn't be aligned" before, and why:
+
+- **Moonside**: the original's logic overruns every frame there, so
+  WAIT_UNTIL_NEXT_FRAME returns at once and no frame boundary ever falls on a
+  wall-frame boundary; every lstep ends `LSTEP N mid` and nothing is compared.
+  `# overclock: max` runs the emu with snes9x's "Reduce Slowdown" CPU overclock
+  (emu.py `--overclock`), so each frame fits and parks as in the port (which has
+  no lag); moonside-walk.play aligns frame for frame.
+- **Scaraba desert, the Winters lab walk, the Sky Runner flight**: lag frames
+  every few frames (many enemies / a long CPU-heavy flight with TELEPORTs). A pad
+  change next to a lag frame reaches the original a frame late, and enemy spawns
+  before the seed follow the setup's lag; with `# overclock: max` both go away
+  (scaraba-battle.play, skyrunner.play: the whole flight, 11000 frames). Each
+  TELEPORT still needs its `# skip:` / `# lag:` pair, 20 frames apart.
+- **Magicant**: no lag problem; near the save point the wandering NPCs' timers
+  differ before the seed, so their RAND calls shift the RNG for everything after.
+  Start where no NPC wanders (magicant-battle.play, the pink maze).
+
+The overclock is not neutral elsewhere: it changes how many frames the setup's
+`until`s take, so NPC phases and spawns before the seed differ from a plain run
+(magicant with it diverges at an NPC). Use it only where the plain emu can't be
+sampled.
+
 An RNG state one call apart for a few frames (`WINDOW_TICK` calls RAND on every
 tick, so the RNG counts window ticks) usually means the port ran a tick inline
 without presenting its frame: a `CLOSE_WINDOW` or `SET_WINDOW_TITLE` wait that a

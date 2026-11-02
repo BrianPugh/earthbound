@@ -275,6 +275,15 @@ RETRO_MEMORY_SAVE_RAM, RETRO_MEMORY_SYSTEM_RAM = 0, 2
 ENV_GET_CAN_DUPE, ENV_SET_PIXEL_FORMAT = 3, 10
 ENV_GET_SYSTEM_DIRECTORY, ENV_GET_SAVE_DIRECTORY = 9, 31
 ENV_GET_INPUT_BITMASKS = 51 | 0x10000
+ENV_GET_VARIABLE = 15
+
+
+class RetroVariable(C.Structure):
+    """struct retro_variable: a core option's key and value."""
+
+    _fields_ = [("key", C.c_char_p), ("value", C.c_void_p)]
+
+
 JOYPAD_MASK = 256
 
 
@@ -306,10 +315,16 @@ class Core:
     ----------
     rom : Path
         The SNES ROM image.
+    patches : sequence of (offset, expected bytes, replacement bytes)
+        ROM patches applied before loading.
+    options : dict, optional
+        Core options (``snes9x_*`` key -> value) the core reads at load.
     """
 
-    def __init__(self, rom, patches=()):
+    def __init__(self, rom, patches=(), options=None):
         lib = C.CDLL(str(core_path()))
+        # Core options answered through GET_VARIABLE (key -> value, both bytes)
+        self.options = {k.encode(): C.create_string_buffer(v.encode()) for k, v in (options or {}).items()}
         self.lib = lib
         lib.retro_load_game.restype = C.c_bool
         lib.retro_get_memory_data.restype = C.c_void_p
@@ -365,6 +380,13 @@ class Core:
             return True
         if cmd in (ENV_GET_SYSTEM_DIRECTORY, ENV_GET_SAVE_DIRECTORY):
             C.cast(data, C.POINTER(C.c_void_p))[0] = C.cast(self._sysdir, C.c_void_p)
+            return True
+        if cmd == ENV_GET_VARIABLE:
+            var = C.cast(data, C.POINTER(RetroVariable)).contents
+            val = self.options.get(var.key)
+            if val is None:
+                return False
+            var.value = C.addressof(val)  # the buffer lives as long as the core
             return True
         return cmd == ENV_GET_INPUT_BITMASKS
 
@@ -1087,7 +1109,7 @@ class Player:
 
         lead = g.leader_entity()
         lx, ly = g.entity16("ENTITY_ABS_X_TABLE", lead), g.entity16("ENTITY_ABS_Y_TABLE", lead)
-        if len(g.party()) > 1:
+        if g.w8(gs + GS_PARTY_COUNT) > 1:  # NPC members (Bubble Monkey) count, as in the port
             follow = []
             order = [g.w8(gs + GS_PARTY_ORDER + i) for i in range(6)]
             for i in range(min(g.w8(gs + GS_PARTY_COUNT), 6)):
@@ -1606,6 +1628,11 @@ def main():
     ap.add_argument("--record-audio", help="write raw s16le stereo (32040 Hz) here")
     ap.add_argument("--record-paused", action="store_true", help="start recording at 'record on'")
     ap.add_argument("--count-frames", action="store_true", help="patch the ROM to count game frames (for lstep)")
+    ap.add_argument(
+        "--overclock",
+        choices=("light", "compatible", "max"),
+        help="snes9x's 'Reduce Slowdown' CPU overclock: logic that overran a frame (Moonside, lag) fits in one",
+    )
     a = ap.parse_args()
 
     t0 = time.time()
@@ -1616,7 +1643,7 @@ def main():
         patches.append(((syms["WAIT_UNTIL_NEXT_FRAME"] & 0x3FFFFF) + off, expect, repl))
         off, expect, repl = NMI_FRAME_COUNTER_PATCH
         patches.append(((syms["IRQ_ENABLED"] & 0x3FFFFF) + off, expect, repl))
-    core = Core(rom_path(), patches)
+    core = Core(rom_path(), patches, {"snes9x_overclock_cycles": a.overclock} if a.overclock else None)
     if a.save:
         data = Path(a.save).read_bytes()
         n = min(len(data), len(core.sram))

@@ -32,7 +32,10 @@ K isn't compared, and later emu frames are compared with port frame - 1. A ``# s
 line drops (port) frame K from the comparison: the emu sampled it part-way into a long
 load's lag frame. ``# save: blank`` boots an empty SRAM, and ``# boot: menu`` stops the
 boot at the file select menu's first input wait instead of loading slot 1, so the
-scenario can pick a slot, start a new game or name the party.
+scenario can pick a slot, start a new game or name the party. ``# overclock: max`` runs
+the emu with snes9x's CPU overclock, for places whose logic overruns every frame
+(Moonside): there no frame boundary falls on a wall-frame boundary, so every sample
+would be ``LSTEP mid``; with the faster CPU each frame fits and parks, like the port's.
 
 Usage::
 
@@ -266,6 +269,7 @@ def run_side(cmd, script_path, log_path):
 SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
 IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)", re.M)
 LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
+OVERCLOCK_HEADER = re.compile(r"^#\s*overclock:\s*(light|compatible|max)\b", re.M)
 SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
 BOOT_HEADER = re.compile(r"^#\s*boot:\s*(load|menu)\b", re.M)
 SRAM_SIZE = 8192
@@ -316,6 +320,9 @@ def run_scenario(scen, save, a, out):
         ],
         "emu": [sys.executable, str(HERE / "emu.py"), "--save", str(copies["emu"]), "--count-frames"],
     }
+    m = OVERCLOCK_HEADER.search(Path(scen).read_text())
+    if m:
+        sides["emu"] += ["--overclock", m.group(1)]
     procs = {}
     t0 = time.time()
     report = []
