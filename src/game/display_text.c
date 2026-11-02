@@ -2227,7 +2227,24 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
         g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
         return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
     }
+    /* CC_1A_00/01 overworld party select: PARTY_CHARACTER_SELECTOR's
+     * CLOSE_WINDOW ends with a WINDOW_TICK (RAND included), its own frame
+     * before the script prints on (emu, 24-Museum hospital "Who do you want to
+     * see?": the next letter's tick a frame early without it). */
+    bool party_sel = (st->resume == DT_RESUME_CC1A_PARTY_SEL);
+    if (party_sel)
+        (void)take_unpresented_ticks();
     dt_resume_after_child(st);
+    if (party_sel) {
+        uint16_t owed = take_unpresented_ticks();
+        if (owed) {
+            memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+            g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
+            g_mode_push_init.battle_wait.remaining = owed;
+            g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
+            return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+        }
+    }
 
     ScriptReader *r = &st->reader;
     StepResult res;
