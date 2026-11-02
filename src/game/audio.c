@@ -287,7 +287,9 @@ void audio_init(void) {
     apu->palTiming = false;  /* NTSC */
     apu_reset(apu);
 
-    audio_state.current_music_track = 0xFFFF;
+    /* CURRENT_MUSIC_TRACK is plain BSS in the original: RESET clears it to 0 (no
+     * track); only STOP_MUSIC sets $FFFF */
+    audio_state.current_music_track = 0;
     audio_state.current_primary_sample_pack = 0xFF;
     audio_state.current_secondary_sample_pack = 0xFF;
     audio_state.current_sequence_pack = 0xFF;
