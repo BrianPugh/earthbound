@@ -890,18 +890,13 @@ void show_psi_animation(uint16_t anim_id) {
      * and keeps the wrap for patterns and flashes. */
     ppu.bg_viewport_fill[is_2bpp ? 1 : 0] = BG_VIEWPORT_SEAM;
 
-    /* Former blocking render_frame_tick() that waited one frame for the VRAM upload
-     * to land. show_psi_animation is battle-only (apply_psi_battle_effect + the debug
-     * PSI cycler, both battle), so bt.battle_mode_flag is set → render_frame_tick_work_
-     * step() runs update_battle_screen_effects() and provably never parks (the battle
-     * path runs no actionscript frame). The C port writes GFX straight to ppu.vram[]
-     * synchronously above, so no real upload wait is needed; dropping the one VBlank is
-     * the sanctioned battle one-frame phase shift (cf. the cb2fe3d4 sanctuary site and
-     * render_frame_tick_work's documented FADE_TICK_BATTLE_EFFECTS shift) — the anim
-     * setup that follows is pure memory state, and playback yields via mode_step_battle_
-     * wait (BW_PSI_ANIM). */
-    bool psi_anim_parked = render_frame_tick_work_step();
-    (void)psi_anim_parked;  /* battle mode -> always false */
+    /* @SETUP_ANIMATION_STATE: JSL WAIT_UNTIL_NEXT_FRAME, a bare wait (no
+     * battle-effects update) for the VRAM upload. The GFX are already in
+     * ppu.vram, so the frame is owed to the caller (note_unpresented_vblanks):
+     * CC_1C_13 presents it before the text script's next pause, as in the
+     * original (autodiff battle-psi: Paula's PSI Fire, every later window tick
+     * a frame early without it). */
+    note_unpresented_vblanks(1);
 
     /* Load PSI palette for this animation (4 colors = 8 bytes) */
     size_t pal_size = ASSET_SIZE(ASSET_PSIANIMS_PALETTES(anim_id));

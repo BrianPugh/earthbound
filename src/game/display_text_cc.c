@@ -2888,9 +2888,20 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         uint8_t arg0 = script_read_byte(r);
         uint8_t arg1 = script_read_byte(r);
         if (dt.blinking_triangle_flag) {
+            /* SHOW_PSI_ANIMATION's WAIT_UNTIL_NEXT_FRAME is owed as a bare
+             * present (BW_VBLANK). */
+            (void)take_unpresented_ticks();
             bool result = check_battle_target_type(
                 (uint16_t)(arg0 - 1), (uint16_t)(arg1 - 1));
             set_working_memory((uint32_t)(result ? 1 : 0));
+            uint16_t owed = take_unpresented_ticks();
+            if (owed) {
+                out_init->battle_wait.kind = BW_VBLANK;
+                out_init->battle_wait.remaining = owed;
+                out_init->battle_wait.pre_vblanks = 0;
+                *out_mode = GAME_MODE_BATTLE_WAIT;
+                return true;
+            }
         }
         break;
     }
