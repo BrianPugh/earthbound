@@ -19,6 +19,8 @@ Usage::
                                      # the recording session is?
     rec.py DIR truncate N            # keep the first N frames of the chunks (cut the rest)
     rec.py DIR drop                  # delete the last chunk
+    rec.py DIR import SCEN.play      # start DIR from a scenario (a segment in progress):
+                                     # its header -> head.play, its body -> 000.pad
 """
 
 import os
@@ -31,7 +33,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE.parent))
 import autodiff  # noqa: E402
-from padlog_body import pad_name, runs  # noqa: E402
+from padlog_body import BITS, pad_name, runs  # noqa: E402
 
 PT = [sys.executable, str(ROOT / "playtest/pt.py")]
 # The recording session must run the binary autodiff runs (a 256x224 build)
@@ -120,7 +122,8 @@ def verify(d, scen, session):
 
     def key(line):
         m = re.search(r"modes=\[[^\]]*\] .*? pos=\(\d+,\d+\)", line)
-        return m.group(0) if m else line
+        money = re.search(r" money=\d+", line)
+        return (m.group(0) if m else line) + (money.group(0) if money else "")
 
     print(f"session: {key(sess)}\nlate:    {key(late)}\n" + ("SAME" if key(sess) == key(late) else "DIFFERENT"))
 
@@ -138,6 +141,23 @@ def truncate(d, n):
             left -= len(words)
 
 
+def import_scenario(d, scen):
+    lines = Path(scen).read_text().splitlines()
+    cut = lines.index("---")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "head.play").write_text("\n".join(lines[: cut + 1]) + "\n")
+    names = autodiff.expand_body([c for line in lines[cut + 1 :] for c in line.split(";")])
+    bits = dict(BITS)
+    words = []
+    for name in names:
+        v = 0
+        for b in ("" if name == "-" else name).split("+"):
+            if b:
+                v |= 1 << bits[b]
+        words.append(f"{v:04x}")
+    (d / "000.pad").write_text("\n".join(words) + "\n")
+
+
 def main():
     d, cmd, args = Path(sys.argv[1]), sys.argv[2], sys.argv[3:]
     scen = d / "scenario.play"
@@ -151,6 +171,8 @@ def main():
         verify(d, scen, args[0])
     elif cmd == "truncate":
         truncate(d, int(args[0]))
+    elif cmd == "import":
+        import_scenario(d, args[0])
     elif cmd == "drop":
         chunks(d)[-1].unlink()
     else:
