@@ -13,6 +13,7 @@
  *   calc_psi_damage_modifiers.asm, calc_psi_resistance_modifiers.asm
  */
 #include "game/battle.h"
+#include "core/lost_frame_check.h"
 #include "game/battle_internal.h"
 #include "game/game_state.h"
 #include "game/display_text.h"
@@ -1261,6 +1262,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
             return STEP_RESULT_POP(0);
         }
         s->remaining--;
+        LOST_FRAME_WORK('P');
         return STEP_RESULT_CONTINUE();
 
     case BW_TICK_PRESENT:
@@ -1279,6 +1281,7 @@ StepResult mode_step_battle_wait(ModeState *ms) {
             window_layer_release();
             return STEP_RESULT_POP(0);
         }
+        LOST_FRAME_WORK('P');
         if (s->pre_vblanks) {
             /* A bare WAIT_UNTIL_NEXT_FRAME the helper owed (e.g. SET_WINDOW_TITLE's),
              * shown with the window layer as it was before the title. */
@@ -2527,7 +2530,7 @@ StepResult mode_step_check_dead_players(ModeState *ms) {
      * battler's affliction-sync tail, then advance and fall into the loop. */
     if (s->pc == 1) {
         dt.blinking_triangle_flag = 0;
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         if (!s->existing)
             redirect_close_focus_window();
         cdp_sync_afflictions(&bt.battlers_table[s->i]);
@@ -2956,7 +2959,7 @@ static EB_NOINLINE bool bm_enter(BattleMenuState *st, StepResult *out) {
 
     /* bm_build_menu's SET_WINDOW_TITLE (menu_handler.asm:481) waits 2 frames
      * (RENDER_TINY_FONT_STRING); present them before the menu loop. */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     bm_build_menu(st, ch);
     st->phase = BM_MAIN;
     uint16_t owed = take_unpresented_ticks();
@@ -3233,7 +3236,7 @@ static EB_NOINLINE bool bm_item(BattleMenuState *st, StepResult *out) {
     /* Create the inventory window and populate it: INVENTORY_GET_ITEM_NAME's
      * SET_WINDOW_TITLE waits 2 frames before its WINDOW_TICK (and RAND), each
      * frame presented in turn (emu, 24-Museum battle Goods). */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     inventory_get_item_name_head(st->char_id, WINDOW_INVENTORY);
     st->phase = BM_ITEM_TAIL;
     {
@@ -3247,7 +3250,7 @@ static EB_NOINLINE bool bm_item(BattleMenuState *st, StepResult *out) {
 }
 
 static EB_NOINLINE bool bm_item_tail(BattleMenuState *st, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     inventory_get_item_name_tail();
     st->phase = BM_ITEM_SELECT;
     {
@@ -3273,7 +3276,7 @@ static EB_NOINLINE bool bm_item_result(BattleMenuState *st, StepResult *out) {
     /* Close the inventory window: CLOSE_WINDOW's tick takes a frame
      * before the cancel or the item targeting. */
     st->item_slot = (uint16_t)mode_child_result();
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_window(WINDOW_INVENTORY);
     st->phase = BM_ITEM_AFTER;
     uint16_t ticks = take_unpresented_ticks();
@@ -3582,7 +3585,7 @@ bool close_all_windows_and_hide_hppp_step(uint8_t *stage, ModeState *child,
     case 0: {
         /* CLOSE_ALL_WINDOWS: its tick ran inline (window_tick_no_actionscript);
          * the frame's entity step and present come from BW_TICK_PRESENT. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_all_windows();
         uint16_t ticks = take_unpresented_ticks();
         *stage = 1;
@@ -4936,7 +4939,7 @@ static EB_NOINLINE bool btl_step_announce(BattleRoutineState *st, StepResult *ou
      * its own frame before the first command menu's SELECT_BATTLE_MENU_CHARACTER
      * wait (emu, 01-Start back-to-back battle: the first menu's title and tick a
      * frame early without it). */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     redirect_close_focus_window();
     st->post_battle_exit = 0;
     bt.special_defeat = 0;
@@ -5044,7 +5047,7 @@ static EB_NOINLINE bool btl_step_menu_result(BattleRoutineState *st, StepResult 
 /* Clear the indicator, then REDIRECT_CLOSE_FOCUS_WINDOW closes the command
  * menu, whose CLOSE_WINDOW tick shows both changes. */
 static EB_NOINLINE bool btl_step_menu_close(BattleRoutineState *st, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     clear_battle_menu_character_indicator_far();
     redirect_close_focus_window();
     uint16_t frames = take_unpresented_ticks();
@@ -5862,7 +5865,7 @@ StepResult mode_step_battle(ModeState *ms) {
             /* close_battle_window + check_new_turn. The CLOSE_WINDOW's
              * WINDOW_TICK is a frame of its own before the next turn's
              * initiative rolls (emu, 01-Start Spiteful Crow). */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             redirect_close_focus_window();
             st->phase = (st->post_battle_exit == 0) ? BTL_TURN  /* goto start_turn */
                                                     : BTL_ENDING;

@@ -1804,7 +1804,7 @@ static void sm_setup_pre(WindowInfo *w) {
      * Its window ticks (WINDOW_TICK_WITHOUT_INSTANT_PRINTING in the PSI
      * callbacks) and title waits are counted from here and presented by
      * sm_push_callback_frames before the setup WINDOW_TICK. */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     if (w->cursor_move_callback && w->current_option < w->menu_count) {
         MenuItem *ci = window_menu_item(w, w->current_option);
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
@@ -1940,7 +1940,7 @@ static StepResult sm_setup_current_option(WindowInfo *w, SelectionMenuState *st)
     }
     if (w->cursor_move_callback) {
         uint16_t val = (ci->type == 1) ? (w->current_option + 1) : ci->userdata;
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         w->cursor_move_callback(val);
         StepResult r;
         if (sm_push_tail_frames(st, SM_MOVE_TAIL, &r))
@@ -2238,7 +2238,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
          * callback left focus; a further stage defers again. */
         uint8_t ph = st->phase;
         StepResult r;
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         set_window_focus(st->tail_focus);
         psi_cursor_tail_run(st->tail_id, st->tail_arg);
         if (sm_push_tail_frames(st, ph, &r))
@@ -2265,7 +2265,7 @@ StepResult mode_step_selection_menu(ModeState *ms) {
          * option's hover script and cursor_move_callback, then one WINDOW_TICK;
          * that is the same tail as a cursor move. The following SM_MAIN
          * render-only frame reproduces the trailing render before input. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         print_menu_items();
         {
             /* A titled menu's "Title(n)" retitle (print_overflow_option) waits 2

@@ -964,7 +964,7 @@ StepResult mode_step_store_menu(ModeState *ms) {
      * Order matches assembly: RESET → CLOSE → RESTORE → CLEAR. The
      * CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own before the
      * caller's text resumes (emu, 07-InHappy drug store). */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     reset_hppp_options_and_load_palette();
     close_focus_window();
     restore_window_text_attributes();
@@ -1030,7 +1030,7 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
     switch ((TeleportMenuPhase)st->phase) {
 
     case TPM_ENTER: {
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         display_menu_header_text(2);  /* "Where?" */
         save_window_text_attributes();
         create_window(WINDOW_PHONE_MENU);
@@ -1103,7 +1103,7 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
             st->result = (uint16_t)mode_child_result();
         /* CLOSE_FOCUS_WINDOW and CLOSE_MENU_HEADER_WINDOW: a WINDOW_TICK (and
          * RAND) each, each on its own frame. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();
         st->phase = TPM_CLOSE_HEADER;
         {
@@ -1114,7 +1114,7 @@ StepResult mode_step_teleport_menu(ModeState *ms) {
         EB_FALLTHROUGH;
 
     case TPM_CLOSE_HEADER:
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_menu_header_window();
         st->phase = TPM_POP;
         {
@@ -1344,7 +1344,7 @@ StepResult mode_step_telephone_menu(ModeState *ms) {
     case TPH_CLOSE: {
         /* open_telephone_menu() cleanup (runs before the contact text); the
          * CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();
         restore_window_text_attributes();
         st->phase = TPH_CALL;

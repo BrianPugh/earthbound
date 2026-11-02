@@ -1632,7 +1632,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
          * is 0 outside CLOSE_ALL_WINDOWS): a full WINDOW_TICK, one frame with
          * the entities advanced. close_window renders it inline (counted);
          * BW_TICK_PRESENT runs that frame's actionscripts and presents it. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();
         {
             uint16_t ticks = take_unpresented_ticks();
@@ -1684,7 +1684,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
              * CLOSE_ALL_WINDOWS' tick (presented here), then
              * DT_RESUME_CC18_CLOSE_HIDE (HIDE_HPPP_WINDOWS and its indicator
              * wait) and DT_RESUME_CC18_CLOSE_TICK (the WINDOW_TICK). */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_all_windows();
             out_init->battle_wait.kind = BW_TICK_PRESENT;
             out_init->battle_wait.remaining = take_unpresented_ticks();
@@ -1825,7 +1825,7 @@ bool cc_18_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
         if (mode == 1) {
             /* DISPLAY_STATUS_WINDOW's WINDOW_TICK_WITHOUT_INSTANT_PRINTING
              * (display_status_window.asm:15) is a full WINDOW_TICK frame. */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             display_status_window(char_id);
             uint16_t ticks = take_unpresented_ticks();
             if (ticks) {
@@ -1932,7 +1932,7 @@ static bool cc_19_inflict_status(ScriptReader *r, ModeState *out_init, GameMode 
          * DISABLE_ALL_ENTITIES. The window render runs inline (counted);
          * BW_TICK_PRESENT runs that frame's actionscripts and presents it, and
          * DT_RESUME_CC19_INFLICT does the disable tail and stores the result. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         render_and_disable_entities_prepare();
         uint16_t ticks = take_unpresented_ticks();
         if (ticks) {
@@ -2408,7 +2408,7 @@ bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
          * (emu, 07-InHappy Sell: the RAND lands on the 3rd frame). The title
          * waits are presented first (DT_RESUME_CC1A_INV_TICK runs the tick and
          * presents it), then DT_RESUME_CC1A_INV_PRINT prints the menu. */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         if (show_character_inventory(state_attrs, window_id_arg, char_source)) {
             uint16_t ticks = take_unpresented_ticks();
             DisplayTextResume next = DT_RESUME_CC1A_INV_TICK;
@@ -2890,7 +2890,7 @@ bool cc_1c_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode) {
         if (dt.blinking_triangle_flag) {
             /* SHOW_PSI_ANIMATION's WAIT_UNTIL_NEXT_FRAME is owed as a bare
              * present (BW_VBLANK). */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             bool result = check_battle_target_type(
                 (uint16_t)(arg0 - 1), (uint16_t)(arg1 - 1));
             set_working_memory((uint32_t)(result ? 1 : 0));

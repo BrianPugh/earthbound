@@ -172,7 +172,7 @@ StepResult mode_step_hp_alert(ModeState *st) {
     case HA_CLOSE:
         /* CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own before
          * SHOW_HP_ALERT's WINDOW_TICK (emu, 05-Twoson poisoned walk). */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();
         {
             uint16_t owed = take_unpresented_ticks();

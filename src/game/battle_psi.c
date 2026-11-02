@@ -554,7 +554,7 @@ static bool bp_flush(ModeState *child, uint8_t *phase, uint8_t next,
 
 static bool bp_close(ModeState *child, uint16_t window_id, uint8_t *phase,
                      uint8_t next, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_window(window_id);
     return bp_flush(child, phase, next, out);
 }
@@ -646,7 +646,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
         case BP_LIST:
             /* @OPEN_PSI_LIST: build the ability list for the category; the
              * target/cost cursor callback rides the WindowInfo. */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             create_window(WINDOW_TEXT_STANDARD);
             generate_battle_psi_list_callback(st->category);
             set_cursor_move_callback(display_psi_target_and_cost, CURSOR_CB_PSI_TARGET_COST);
@@ -742,7 +742,7 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
              * message window (its tick frame), reopen the ability list
              * (@CHECK_RESULT == 0). */
             dt.blinking_triangle_flag = 0;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_focus_window();
             if (bp_flush(&g_mode_push_init, &st->phase, BP_LIST, &r))
                 return r;

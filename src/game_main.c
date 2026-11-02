@@ -5,6 +5,7 @@
 #include "game_main.h"
 #include "core/types.h"
 #include "core/log.h"
+#include "core/lost_frame_check.h"
 #include "core/mode_stack.h"
 #include "core/memory.h"
 #include "core/state_dump.h"
@@ -547,6 +548,8 @@ void host_process_frame(void) {
     } else {
         process_overworld_tasks();
     }
+
+    LOST_FRAME_END_FRAME();
 
     /* Increment frame counter */
     core.frame_counter++;

@@ -337,6 +337,15 @@ void render_frame_tick_no_actionscript(void);
 /* How many render_frame_tick_no_actionscript() beats ran this frame without a
  * present; returns the count and clears it. See overworld.c. */
 uint16_t take_unpresented_ticks(void);
+/* Drop the count without presenting it: the clear-before of a take bracket
+ * (the helper that follows owns the frames claimed after it). Lost-frame check
+ * builds log a nonzero drop with this call site (core/lost_frame_check.h). */
+#ifdef EB_LOST_FRAME_CHECK
+void clear_unpresented_ticks_at(const char *file, int line);
+#define clear_unpresented_ticks() clear_unpresented_ticks_at(__FILE__, __LINE__)
+#else
+void clear_unpresented_ticks(void);
+#endif
 /* How many of the last take_unpresented_ticks() count were bare frame waits
  * (note_unpresented_vblanks); clears it. BW_TICK_PRESENT presents those first. */
 uint16_t take_unpresented_vblank_share(void);

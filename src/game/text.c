@@ -1503,7 +1503,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             if ((game_state.player_controlled_party_count & 0xFF) == 1) {
                 StepResult r;
                 compare_equipment_mode = 0;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 display_equipment_menu(game_state.party_members[0]);
                 if (menu_flush_ticks(&st->phase, EQ_ENTER_STATS, &r))
                     return r;
@@ -1547,7 +1547,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             st->equip_char = (uint16_t)mode_child_result();
             /* CLOSE_MENU_HEADER_WINDOW's tick, then exit or change */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_menu_header_window();
             if (menu_flush_ticks(&st->phase,
                                  st->equip_char == 0 ? EQ_EXIT : EQ_CHANGE, &r))
@@ -1572,7 +1572,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             st->slot_type = menu_take_result(&st->result_ready, &st->result);
             /* CLOSE_MENU_HEADER_WINDOW's tick */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_menu_header_window();
             if (menu_flush_ticks(&st->phase, EQ_SLOT_AFTER, &r))
                 return r;
@@ -1594,7 +1594,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             }
 
             /* Create the item list window for this equipment slot */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             create_window(WINDOW_EQUIP_MENU_ITEMLIST);
 
             /* Set window title from TEXT_11: "Weapons", "Body", "Arms", "Others" */
@@ -1705,7 +1705,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
         case EQ_ITEM_RESULT: {
             uint16_t item_selection = menu_take_result(&st->result_ready,
                                                        &st->result);
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_menu_header_window();
             clear_cursor_move_callback();
 
@@ -1736,7 +1736,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
         case EQ_ITEM_CLOSE: {
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_EQUIP_MENU_ITEMLIST);
             if (menu_flush_ticks(&st->phase, EQ_ITEM_REFRESH, &r))
                 return r;
@@ -1746,7 +1746,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
         case EQ_ITEM_REFRESH: {
             /* SHOW_EQUIPMENT_AND_STATS, split around its 2nd WINDOW_TICK */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             compare_equipment_mode = 0;
             display_equipment_menu(st->equip_char);
             if (menu_flush_ticks(&st->phase, EQ_ITEM_REFRESH_STATS, &r))
@@ -1756,7 +1756,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
         case EQ_ITEM_REFRESH_STATS: {
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             display_character_equipment_stats(st->equip_char);
             if (menu_flush_ticks(&st->phase, EQ_SLOT, &r))
                 return r;
@@ -1766,7 +1766,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
         case EQ_EXIT: {
             /* Two CLOSE_WINDOWs (open_equipment_menu.asm:58-60), a tick each */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_EQUIPMENT_STATS);
             if (menu_flush_ticks(&st->phase, EQ_EXIT_MENU, &r))
                 return r;
@@ -1775,7 +1775,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
 
         case EQ_EXIT_MENU: {
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_EQUIP_MENU);
             if (menu_flush_ticks(&st->phase, EQ_EXIT_DONE, &r))
                 return r;
@@ -1902,7 +1902,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
                 /* Assembly lines 103-111: close the cascade, restore focus;
                  * SU_SELECT re-sets the alignment (the loop-bottom store). */
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 close_window(WINDOW_STATUS_PSI_CATEGORY);
                 if (menu_flush_ticks(&st->phase, SU_CAT_CLOSE2, &r))
                     return r;
@@ -1940,7 +1940,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
              * (a CLOSE_WINDOW tick frame each). */
             StepResult r;
             clear_cursor_move_callback();
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_PSI_TARGET_COST);
             if (menu_flush_ticks(&st->phase, SU_PSI_CLOSE2, &r))
                 return r;
@@ -1949,7 +1949,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
         case SU_PSI_CLOSE2: {
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_PSI_DESCRIPTION);
             bt.last_selected_psi_description = 0x00FF;
             if (menu_flush_ticks(&st->phase, SU_CAT_HEAD, &r))
@@ -1959,7 +1959,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
 
         case SU_CAT_CLOSE2: {
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
             win.current_focus_window = WINDOW_STATUS_MENU;
             if (menu_flush_ticks(&st->phase, SU_SELECT, &r))
@@ -1972,7 +1972,7 @@ StepResult mode_step_status_menu(ModeState *ms) {
              * caller's alignment clear (the pause menu's bracket now lives
              * inside the mode). */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_STATUS_MENU);
             if (menu_flush_ticks(&st->phase, SU_EXIT_DONE, &r))
                 return r;
@@ -2020,7 +2020,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 }
                 uint16_t first_idx = find_first_character_with_psi();
                 st->char_id = game_state.party_members[first_idx - 1];
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 display_character_psi_list(st->char_id);
                 only_one_character_with_psi = 1;
 
@@ -2051,7 +2051,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
              * (or the cancel's CLOSE_WINDOW). */
             StepResult r;
             st->char_id = (uint16_t)mode_child_result();
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_menu_header_window();
             if (st->char_id != 0) {
                 overworld_selected_psi_user = st->char_id;
@@ -2072,7 +2072,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
              * waits) are frames of their own before the SELECTION_MENU. */
             if ((st->last_ability & 0xFF) != 0xFF) {
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 display_psi_ability_details(0, st->last_ability);
                 print_menu_items();
                 if (menu_flush_ticks(&st->phase, PS_ABILITY_MENU, &r))
@@ -2098,7 +2098,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                  * is — cancel is not a PSI action. CLOSE_WINDOW's WINDOW_TICK
                  * is a frame of its own (emu, 05-Twoson). */
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 close_window(WINDOW_PSI_TARGET_COST);
                 if (menu_flush_ticks(&st->phase, PS_CHAR, &r))
                     return r;
@@ -2111,7 +2111,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
              * the targeting windows (emu, 24-Museum Lifeup). */
             if (!only_one_character_with_psi) {
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 display_psi_ability_details(6, psi_selection);
                 if (menu_flush_ticks(&st->phase, PS_CHECK_PP, &r))
                     return r;
@@ -2216,7 +2216,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
              * the list (whose take_unpresented_ticks would drop it). */
             {
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 close_focus_window();
                 st->action_result = 0;
                 if (menu_flush_ticks(&st->phase, PS_HANDLE, &r))
@@ -2235,7 +2235,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
              * PP deduction and the description text (emu, 24-Museum Lifeup). */
             {
                 StepResult r;
-                (void)take_unpresented_ticks();
+                clear_unpresented_ticks();
                 close_window(WINDOW_PSI_TARGET_COST);
                 if (menu_flush_ticks(&st->phase, PS_HANDLE_EXEC, &r))
                     return r;
@@ -2422,7 +2422,7 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             /* @AFTER_CHAR_SELECT6 / @DONE (assembly lines 566-570); the
              * CLOSE_WINDOW's WINDOW_TICK is presented before the pop. */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
             if (menu_flush_ticks(&st->phase, PS_EXIT_POP, &r))
                 return r;
@@ -2611,7 +2611,7 @@ StepResult mode_step_use_item(ModeState *ms) {
              * (assembly lines 275-334). Each CLOSE_WINDOW's WINDOW_TICK is a
              * frame of its own (emu, 24-Museum Goods > Use). */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_INVENTORY_MENU);
             if (menu_flush_ticks(&st->phase, UI_SETUP_INV, &r))
                 return r;
@@ -2801,7 +2801,7 @@ StepResult mode_step_use_item(ModeState *ms) {
             /* @CLOSE_TEXT_WINDOW (assembly lines 540-543); its WINDOW_TICK
              * is a frame of its own. */
             StepResult r;
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_window(WINDOW_TEXT_STANDARD);
             if (menu_flush_ticks(&st->phase, UI_EXIT_POP, &r))
                 return r;
@@ -2824,7 +2824,7 @@ StepResult mode_step_use_item(ModeState *ms) {
 /* A CLOSE_WINDOW whose tick is its own presented frame, then `next`. */
 static EB_NOINLINE bool pm_close_tick(PauseMenuState *st, uint16_t window_id, uint8_t next,
                           StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_window(window_id);
     return menu_flush_ticks(&st->phase, next, out);
 }
@@ -2934,7 +2934,7 @@ static EB_NOINLINE bool pm_goods_char(PauseMenuState *st, StepResult *out) {
          * its WINDOW_TICK_WITHOUT_INSTANT_PRINTING (RAND included) shows the
          * empty, titled window for a frame (emu, 05-Twoson single-member
          * Goods: the RAND lands after the title's 2 frames). */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         inventory_get_item_name_head(member, WINDOW_INVENTORY);
         st->goods_char = member;
         return menu_flush_ticks(&st->phase, PM_GOODS_TAIL, out);
@@ -2960,7 +2960,7 @@ static EB_NOINLINE bool pm_goods_select(PauseMenuState *st, StepResult *out) {
 }
 
 static EB_NOINLINE bool pm_goods_cancel_hdr(PauseMenuState *st, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_menu_header_window();
     return menu_flush_ticks(&st->phase, PM_MAIN, out);
 }
@@ -2996,7 +2996,7 @@ static EB_NOINLINE bool pm_goods_inv_result(PauseMenuState *st, StepResult *out)
     st->item_slot = pm_take_result(st);
     backup_selected_menu_option();
     /* CLOSE_MENU_HEADER_WINDOW's tick */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_menu_header_window();
     return menu_flush_ticks(&st->phase, PM_GOODS_INV_AFTER, out);
 }
@@ -3156,7 +3156,7 @@ static EB_NOINLINE bool pm_action_result(PauseMenuState *st, StepResult *out) {
     case 0:
         /* @BACK_TO_ITEM_LIST: cancel → return to item list (the
          * CLOSE_FOCUS_WINDOW tick takes a frame) */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();  /* close INVENTORY_MENU */
         set_window_focus(WINDOW_INVENTORY);
         return menu_flush_ticks(&st->phase, PM_GOODS_INV, out);
@@ -3181,7 +3181,7 @@ static EB_NOINLINE bool pm_action_result(PauseMenuState *st, StepResult *out) {
  * (open_menu.asm:287-300). This is the rebuild. */
 static EB_NOINLINE bool pm_help_rebuild(PauseMenuState *st, StepResult *out) {
     /* Rebuild command menu and inventory list */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     set_window_focus(WINDOW_COMMAND_MENU);
     skip_adding_command_text = 1;
     build_command_menu();
@@ -3192,13 +3192,13 @@ static EB_NOINLINE bool pm_help_rebuild(PauseMenuState *st, StepResult *out) {
 /* INVENTORY_GET_ITEM_NAME's WINDOW_TICK and items, after its title waits
  * were presented (pm_goods_char / pm_help_rebuild). */
 static EB_NOINLINE bool pm_inventory_tail(PauseMenuState *st, uint8_t next, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     inventory_get_item_name_tail();
     return menu_flush_ticks(&st->phase, next, out);
 }
 
 static EB_NOINLINE bool pm_help_close_menu(PauseMenuState *st, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_window(WINDOW_INVENTORY_MENU);
     set_window_focus(WINDOW_INVENTORY);
     return menu_flush_ticks(&st->phase, PM_GOODS_INV, out);
@@ -3207,7 +3207,7 @@ static EB_NOINLINE bool pm_help_close_menu(PauseMenuState *st, StepResult *out) 
 /* CLOSE_MENU_HEADER_WINDOW and CLOSE_WINDOW, a tick each */
 static EB_NOINLINE bool pm_give_char_result(PauseMenuState *st, StepResult *out) {
     st->give_target = (uint16_t)mode_child_result();
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_menu_header_window();
     return menu_flush_ticks(&st->phase, PM_GIVE_CLOSE_SEL, out);
 }
@@ -3312,7 +3312,7 @@ static EB_NOINLINE bool pm_give_after(PauseMenuState *st, StepResult *out) {
  * wiped inventory (assembly lines 357-361: @VIRTUAL00=1, @LOCAL04=1); the
  * CLOSE_WINDOW tick takes a frame */
 static EB_NOINLINE bool pm_give_blocked_resume(PauseMenuState *st, StepResult *out) {
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_window(WINDOW_TEXT_STANDARD);
     st->reprint_inventory = 1;
     return menu_flush_ticks(&st->phase, PM_ACTION_MENU, out);
@@ -3356,7 +3356,7 @@ static EB_NOINLINE bool pm_cleanup(PauseMenuState *st, StepResult *out) {
 
 static EB_NOINLINE bool pm_cleanup_close(PauseMenuState *st, StepResult *out) {
     hide_hppp_windows();
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_all_windows();
     return menu_flush_ticks(&st->phase, PM_CLEANUP_FADE, out);
 }
@@ -3613,7 +3613,7 @@ StepResult mode_step_quick_checktalk(ModeState *ms) {
     case QCT_CLOSE: {
         StepResult r;
         hide_hppp_windows();
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_all_windows();
         if (menu_flush_ticks(&st->phase, QCT_FADE_WAIT, &r))
             return r;
@@ -3650,7 +3650,7 @@ static StepResult hd_cancel_tick(HpppDisplayState *st) {
 static StepResult hd_cancel_close(HpppDisplayState *st) {
     StepResult r;
     hide_hppp_windows();
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_all_windows();
     if (menu_flush_ticks(&st->phase, HD_CANCEL_TICK, &r))
         return r;

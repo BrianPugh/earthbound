@@ -49,6 +49,12 @@ spends inside a load's lag (the mirror of ``# lag:``): they have no emu counterp
 doesn't get their pads, and later emu frames are compared with port frame + 1 for each.
 ``# compare: bright`` also compares the brightness each logic frame ended with (``frac``).
 
+Lost frames: when the port binary is built with ``-DEB_LOST_FRAME_CHECK=ON``
+(src/core/lost_frame_check.h), each ``LOST-FRAME`` line it prints (a frame whose inline
+window tick or bare wait was never presented) is listed under the scenario and fails it,
+even when every field matches. ``--port-only`` skips the emu and only runs that check
+(fast: the whole suite in about a minute); a binary without the check fails it.
+
 Usage::
 
     uv run --no-sync python playtest/autodiff.py [SAVE.srm] SCENARIO.play [...] [--bin BIN] [-j N]
@@ -68,6 +74,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import lost_frames  # noqa: E402
 from pt import BOOT, EMU_BOOT  # noqa: E402
 
 DEFAULT_BIN = ROOT / "port" / "unix" / "build-native" / "earthbound"
@@ -410,6 +417,8 @@ def run_scenario(scen, save, a, out):
     m = OVERCLOCK_HEADER.search(Path(scen).read_text())
     if m:
         sides["emu"] += ["--overclock", m.group(1)]
+    if a.port_only:
+        del sides["emu"]
     procs = {}
     t0 = time.time()
     report = []
@@ -425,6 +434,12 @@ def run_scenario(scen, save, a, out):
             p.kill()
             p.wait()
             report.append(f"  {side} timed out")
+    lost, checked = lost_frames.scan((out / f"{name}.port.log").read_text(errors="replace"))
+    if a.port_only:
+        status = f"{len(lost)} lost-frame events" if checked else "lost-frame check off in this build"
+        report.insert(0, f"== {name} [{Path(save).stem}]: port only, {len(pads)} logic frames ({status})")
+        report += [f"  {ln}" for ln in lost]
+        return (1 if lost or not checked else 0), "\n".join(report)
     res = {s: parse_snapshots((out / f"{name}.{s}.log").read_text(errors="replace")) for s in sides}
     if lags or extras:
         res["emu"] = {
@@ -456,8 +471,11 @@ def run_scenario(scen, save, a, out):
     if len(res["port"]) < len(pads) + 1 or (res["emu"] and max(res["emu"]) < len(pads)):
         report.append(f"  warning: snapshots port={len(res['port'])} emu={len(res['emu'])}, expected {len(pads) + 1}")
     report += lines
+    if lost:  # a frame the port ran and never presented (src/core/lost_frame_check.h)
+        report.append(f"  LOST FRAMES (port): {len(lost)}")
+        report += [f"    {ln}" for ln in lost[:5]]
     report.append(f"  scripts/logs: {out}/{name}.{{port,emu}}.{{play,log}}")
-    return (1 if first else 0), "\n".join(report)
+    return (1 if first or lost else 0), "\n".join(report)
 
 
 def main():
@@ -472,6 +490,11 @@ def main():
     ap.add_argument("--out", default=str(HERE / "out" / "autodiff"), help="output dir (scripts, logs)")
     ap.add_argument("--timeout", type=float, default=300, help="seconds per side")
     ap.add_argument("-j", "--jobs", type=int, default=3, help="scenarios run at once (2 processes each)")
+    ap.add_argument(
+        "--port-only",
+        action="store_true",
+        help="run only the port side and check it for lost frames (needs a -DEB_LOST_FRAME_CHECK=ON build)",
+    )
     a = ap.parse_args()
 
     cache = Path(a.bin).resolve().parent / "CMakeCache.txt"

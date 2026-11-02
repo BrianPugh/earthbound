@@ -1578,7 +1578,7 @@ static const struct {
  * render, entities advance): the naming steps' window-show beats. */
 static StepResult ngn_present_window_tick(void) {
     uint8_t instant = dt.instant_printing;
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     window_tick_without_instant_printing();
     dt.instant_printing = instant;
     uint16_t owed = take_unpresented_ticks();
@@ -1599,7 +1599,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
             /* Matching assembly @CHANGE_TO_NAMING_SCREEN_MUSIC → @START_NAMING:
                change music, close all windows, load naming-screen assets. */
             change_music(2); /* MUSIC::NAMING_SCREEN */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_all_windows();
             load_event_script_data();
             load_sprite_data();
@@ -1766,7 +1766,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
              * deactivated by GAME_MODE_NAMING_EVENTS. CLOSE_ALL_WINDOWS'
              * WINDOW_TICK is a frame of its own (emu: the confirmation windows
              * came a frame early without it). */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_all_windows();
             st->phase = NGN_CONFIRM_WINDOWS;
             {
@@ -1997,7 +1997,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     /* @FINALIZE_AND_START's CLOSE_ALL_WINDOWS ends with a WINDOW_TICK, a frame
      * of its own before RUN_FILE_MENU's WINDOW_TICK (FM_NG_NAMING_RESULT runs
      * the rest of @FINALIZE_AND_START after it). */
-    (void)take_unpresented_ticks();
+    clear_unpresented_ticks();
     close_all_windows();
     st->phase = NGN_DONE;
     {

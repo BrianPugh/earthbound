@@ -5019,7 +5019,7 @@ static StepResult btlact_giygas_prayer_9_step(BattleActionState *st) {
         switch (st->pc) {
         case 12:
             /* Close windows: CLOSE_WINDOW's tick ran inline; present it. */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             redirect_close_focus_window();
             st->pc = 26;
             {

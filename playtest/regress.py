@@ -41,6 +41,12 @@ tracked text goldens otherwise (``--text`` forces them), so a fresh clone can ru
 only shifts timing still passes. The tracked goldens are recorded with the wide-viewport (320x240)
 build; ``meta.json`` records the viewport and ``check`` warns when the binary's differs.
 
+Lost frames: with a binary built with ``-DEB_LOST_FRAME_CHECK=ON`` (the default in port/unix Debug
+builds; src/core/lost_frame_check.h), every ``LOST-FRAME`` line a game prints (a frame whose inline
+window tick or bare wait was never presented) is listed under ``LOST FRAMES`` in the report and fails
+``compare``, ``check`` and ``record``, whether or not the checkpoints match. A binary without the check
+is noted as such.
+
 ``framehash`` compares every frame of 2 builds over the cases instead of the checkpoints (see
 playtest/framehash.py): per case the frame counts, each differing frame, and how many of its
 pixels differ inside the SNES band vs the gutters. Results go to ``framehash/A-vs-B/``.
@@ -61,6 +67,9 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import lost_frames  # noqa: E402
+
 ROOT = HERE.parent
 CASES = HERE / "regress" / "cases"
 SAVES = HERE / "saves"
@@ -163,6 +172,7 @@ def run_case(case, binary, workdir, timeout=None):
     res["rc"] = rc
     res["secs"] = round(secs, 1)
     res["problems"] = [ln for ln in (out + err).splitlines() if PROBLEM.search(ln) and not ln.startswith("TEXT")][:20]
+    res["lost_frames"], res["lost_check"] = lost_frames.scan(out + err)
     (workdir / "result.json").write_text(json.dumps(res, indent=1))
     return res
 
@@ -318,7 +328,7 @@ def diff_case(name, ra, rb, diffdir):
     return rep
 
 
-def report(results_a, results_b, diffdir, label_a, label_b, clean=True):
+def report(results_a, results_b, diffdir, label_a, label_b, clean=True, lost_a=True):
     if clean:
         shutil.rmtree(diffdir, ignore_errors=True)
     diffdir.mkdir(parents=True, exist_ok=True)
@@ -339,16 +349,43 @@ def report(results_a, results_b, diffdir, label_a, label_b, clean=True):
         else:
             note = f" ({len(rep)} timing-only)" if rep else ""
             lines.append(f"CASE {name}: same ({len(ra['order'])} checkpoints){note}")
+    sides = [("A", label_a, results_a)] if lost_a else []  # check: A is the goldens
+    nlost = lost_frame_report(lines, sides + [("B", label_b, results_b)])
     lines.append("")
     lines.append(f"{ndiff} of {len(set(results_a) | set(results_b))} cases differ; diff PNGs in {diffdir}")
+    if nlost:
+        lines.append(f"{nlost} lost-frame events (a failure: see LOST FRAMES above)")
     text = "\n".join(lines)
     (diffdir / "report.txt").write_text(text + "\n")
     print(text)
-    return ndiff
+    return ndiff + nlost
+
+
+def lost_frame_report(lines, sides):
+    """Append each side's lost-frame events (playtest/lost_frames.py) to ``lines``; return how many."""
+    total = 0
+    for tag, label, results in sides:
+        runs = [r for r in results.values() if "lost_check" in r]  # goldens and text goldens have no key
+        if not runs:
+            continue
+        if not any(r["lost_check"] for r in runs):
+            lines.append(f"lost-frame check: off in {tag} (build with -DEB_LOST_FRAME_CHECK=ON to run it)")
+            continue
+        side = 0
+        for name in sorted(results):
+            lost = results[name].get("lost_frames", [])
+            if lost:
+                side += len(lost)
+                lines.append(f"LOST FRAMES in {tag} {name}: {len(lost)}")
+                lines += [f"  {ln}" for ln in lost[:5]]
+        if not side:
+            lines.append(f"lost-frame check: 0 events in {tag} ({label})")
+        total += side
+    return total
 
 
 # Result keys that vary between machines or runs without a behaviour change: never in text goldens
-VOLATILE = ("secs", "rc")
+VOLATILE = ("secs", "rc", "lost_frames", "lost_check")
 CHECK_VOLATILE = ("frame", "shot")
 
 
@@ -547,6 +584,7 @@ def main():
         res = run_all(cases, [a.bin], [gd], a.j, a.timeout)[str(gd)]
         (gd / "binary").write_text(str(Path(a.bin).resolve()) + "\n")
         bad = [n for n, r in res.items() if r["status"] != "done"]
+        bad += [f"{n} (lost frames)" for n, r in res.items() if r.get("lost_frames")]
         print(f"goldens in {gd}" + (f"; NOT done: {', '.join(bad)}" if bad else ""))
         if a.git:
             write_tracked(a.name, res, a.bin, partial=bool(a.k))
@@ -573,7 +611,7 @@ def main():
     res = run_all(cases, [a.bin], [rd], a.j, a.timeout)[str(rd)]
     if text_only:
         res = {k: text_golden(v) for k, v in res.items()}
-    n = report(golden, res, OUT / "diff" / f"golden-{a.name}-vs-check", src, a.bin, clean=not a.k)
+    n = report(golden, res, OUT / "diff" / f"golden-{a.name}-vs-check", src, a.bin, clean=not a.k, lost_a=False)
     return 1 if n else 0
 
 

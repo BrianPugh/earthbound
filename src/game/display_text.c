@@ -11,6 +11,7 @@
  */
 
 #include "game/display_text.h"
+#include "core/lost_frame_check.h"
 #include "game/display_text_internal.h"
 #include "game/game_state.h"
 #include "game/inventory.h"
@@ -430,6 +431,7 @@ bool window_tick_work_step(void) {
      * battle there is no per-frame background animation, so the original no-op is
      * preserved (and battle calls this once per presented frame, so the
      * background still advances exactly once). */
+    LOST_FRAME_WORK('W');
     if (bt.battle_mode_flag)
         update_battle_screen_effects();
     return false;   /* instant printing / no work: nothing parked to flush */
@@ -2209,7 +2211,7 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
         /* CC_1A_05: INVENTORY_GET_ITEM_NAME's WINDOW_TICK after the title's
          * waits were presented; its frame, then DT_RESUME_CC1A_INV_PRINT. */
         st->resume = DT_RESUME_CC1A_INV_PRINT;
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         show_character_inventory_tick();
         memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
         g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
@@ -2219,7 +2221,7 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
     }
     if (st->resume == DT_RESUME_CC18_CLOSE_TICK) {
         st->resume = DT_RESUME_NONE;
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         window_tick_no_actionscript();
         memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
         g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
@@ -2233,7 +2235,7 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
      * see?": the next letter's tick a frame early without it). */
     bool party_sel = (st->resume == DT_RESUME_CC1A_PARTY_SEL);
     if (party_sel)
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
     dt_resume_after_child(st);
     if (party_sel) {
         uint16_t owed = take_unpresented_ticks();

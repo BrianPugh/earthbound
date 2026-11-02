@@ -53,6 +53,14 @@ if(EB_SMOOTH_CAMERA)
     target_compile_definitions(earthbound_game PUBLIC EB_SMOOTH_CAMERA=1)
 endif()
 
+# Lost-frame check (core/lost_frame_check.h): log every frame where an inline
+# window tick's present was thrown away. Debug-only instrumentation; port/unix
+# turns it on for Debug builds. Off, its hooks compile to nothing.
+option(EB_LOST_FRAME_CHECK "Log frames whose inline window ticks were never presented" OFF)
+if(EB_LOST_FRAME_CHECK)
+    target_compile_definitions(earthbound_game PUBLIC EB_LOST_FRAME_CHECK=1)
+endif()
+
 # Fill green's 6th bit from its top bit (core/types.h PIXEL_GREEN_LSB) so
 # ports that expand pixels to 8 bits per channel reach 255 green like the
 # SNES. Desktop turns it on; embedded RGB565 panels keep the plain shift.

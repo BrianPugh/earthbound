@@ -1122,7 +1122,7 @@ StepResult mode_step_bicycle_dismount(ModeState *st) {
          * own WINDOW_TICK (US), a frame of its own before GET_OFF_BICYCLE's
          * (emu: CLOSE_WINDOW>WINDOW_TICK_WITHOUT_INSTANT_PRINTING one logic
          * frame, then WINDOW_TICK the next, one RAND each). */
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         close_focus_window();
         uint16_t owed = take_unpresented_ticks();
         bs->phase = BD_TICK;

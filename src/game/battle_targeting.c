@@ -480,7 +480,7 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
             /* CLOSE_FOCUS_WINDOW's tick is a frame of its own before the
              * caller's next CLOSE_WINDOW (emu, 24-Museum PSI: the 2 RANDs on
              * 2 frames); present it here, as the cancel does. */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_focus_window();
             uint16_t ticks = take_unpresented_ticks();
             s->phase = ET_CONFIRMED;
@@ -495,7 +495,7 @@ StepResult mode_step_battle_enemy_select(ModeState *ms) {
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
             enemy_flashing_off();
             play_sfx(2);  /* SFX::CURSOR2 */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_focus_window();
             uint16_t ticks = take_unpresented_ticks();
             s->phase = ET_CANCELLED;
@@ -638,7 +638,7 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
             clear_battler_flashing();
             play_sfx(1);  /* SFX::CURSOR1 */
             /* CLOSE_FOCUS_WINDOW's tick frame, as in the enemy select */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_focus_window();
             uint16_t ticks = take_unpresented_ticks();
             s->phase = BR_CONFIRMED;
@@ -652,7 +652,7 @@ StepResult mode_step_battle_row_select(ModeState *ms) {
         if ((pressed & PAD_CANCEL) && s->allow_cancel == 1) {
             clear_battler_flashing();
             play_sfx(2);  /* SFX::CURSOR2 */
-            (void)take_unpresented_ticks();
+            clear_unpresented_ticks();
             close_focus_window();
             uint16_t ticks = take_unpresented_ticks();
             s->phase = BR_CANCELLED;
@@ -846,7 +846,7 @@ StepResult mode_step_determine_targeting(ModeState *ms) {
         st->result = (result == 0) ? 0  /* cancelled */
                    : (uint16_t)(((uint16_t)st->targeting_mode << 8) |
                                 (uint16_t)(uint8_t)result);
-        (void)take_unpresented_ticks();
+        clear_unpresented_ticks();
         char_select_overworld_finish(st->ally_window_id, false);
         set_argument_memory(st->saved_argument_memory);
         st->phase = TGT_ALLY_HEADER;

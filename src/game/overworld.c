@@ -22,6 +22,7 @@
  */
 
 #include "game/overworld_internal.h"
+#include "core/lost_frame_check.h"
 #include "game/ending.h"
 #include "game/battle.h"
 #include "game/position_buffer.h"
@@ -1533,6 +1534,7 @@ StepResult mode_step_wait_frames(ModeState *ms) {
  * resume); in every other case (instant/battle/no-park) the tick finishes inline
  * and _step() returns false. */
 bool render_frame_tick_work_step(void) {
+    LOST_FRAME_WORK('W');
     if (ow.render_hppp_windows & 0xFF)
         update_text_window_palette();
 
@@ -1571,7 +1573,8 @@ void render_frame_tick_work_flush(void) {
  * take_unpresented_ticks() and STEP_PUSHes that many present-only frames
  * (GAME_MODE_BATTLE_WAIT BW_VBLANK) before carrying on. The count only covers
  * the current frame (stamped with core.frame_counter), so ticks a caller never
- * claims are dropped at the next yield instead of piling up. */
+ * claims are dropped at the next yield instead of piling up. Such a drop is
+ * a lost frame; EB_LOST_FRAME_CHECK builds log each one (core/lost_frame_check.h). */
 static uint16_t unpresented_ticks;
 static uint16_t unpresented_vblanks; /* the part of unpresented_ticks that is bare waits */
 static uint16_t unpresented_stamp;
@@ -1585,7 +1588,7 @@ static void unpresented_restamp(void) {
     }
 }
 
-uint16_t take_unpresented_ticks(void) {
+static uint16_t take_unpresented(void) {
     bool fresh = (unpresented_stamp == core.frame_counter);
     uint16_t n = fresh ? unpresented_ticks : 0;
     taken_vblank_share = fresh ? unpresented_vblanks : 0;
@@ -1593,6 +1596,23 @@ uint16_t take_unpresented_ticks(void) {
     unpresented_vblanks = 0;
     return n;
 }
+
+uint16_t take_unpresented_ticks(void) {
+    uint16_t n = take_unpresented();
+    LOST_FRAME_CLAIMED(n);
+    return n;
+}
+
+#ifdef EB_LOST_FRAME_CHECK
+void clear_unpresented_ticks_at(const char *file, int line) {
+    uint16_t n = take_unpresented();
+    LOST_FRAME_DROPPED(n, file, line);
+}
+#else
+void clear_unpresented_ticks(void) {
+    (void)take_unpresented();
+}
+#endif
 
 uint16_t take_unpresented_vblank_share(void) {
     uint16_t n = taken_vblank_share;
@@ -1608,12 +1628,14 @@ uint16_t take_unpresented_vblank_share(void) {
  * those frames first, without the entity advance). */
 void note_unpresented_vblanks(uint16_t n) {
     unpresented_restamp();
+    LOST_FRAME_OWED(n, 1);
     unpresented_ticks += n;
     unpresented_vblanks += n;
 }
 
 void render_frame_tick_no_actionscript(void) {
     unpresented_restamp();
+    LOST_FRAME_OWED(1, 0);
     unpresented_ticks++;
 
     if (ow.render_hppp_windows & 0xFF)

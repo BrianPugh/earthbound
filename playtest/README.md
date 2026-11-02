@@ -282,6 +282,47 @@ against the case deadline, a case that runs out of time has its games killed
 and shows as TIMEOUT, a game that exits without recording shows as NO VIDEO,
 and Ctrl-C/SIGTERM kill the games and remove the temp dirs.
 
+## Lost-frame check
+
+A helper that runs a window tick inline (`close_window`, `set_window_title`'s
+waits, ...) owes the frame the original presents there; the mode step claims it
+with `take_unpresented_ticks()` and pushes that many BATTLE_WAIT frames. A count
+nobody claims is a frame the port runs and throws away, which autodiff only sees
+when an input or a RAND lands on it. A build with `-DEB_LOST_FRAME_CHECK=ON`
+(on by default in port/unix Debug builds; src/core/lost_frame_check.h, compiled
+out otherwise) accounts every frame and prints a line for each one that lost
+frames:
+
+```
+LOST-FRAME frame=1378 lost=2 owed=2 claimed=0 work=1 modes=61.6>47.3>45.8>44.0 events=[VV D2@battle.c:2965 W]
+```
+
+`owed` ticks (T) and bare waits (V), how many a take `claimed` (C), the frame's own
+`work` (W = a window/render tick, P = a BATTLE_WAIT present), and each
+`clear_unpresented_ticks()` that dropped a count (D, with its file:line). `modes` is
+the stack at the first owed tick, `GameMode.byte0` (usually the phase) from the root;
+the harness prints the mode names. Only one frame is presented, so a frame with
+unclaimed ticks loses `unclaimed + work - 1`; 1 unclaimed tick and no other work is
+the step's own frame and isn't counted. At exit the game prints `lost-frame check: N events`.
+
+`regress.py` (`compare`, `check`, `record`) and `autodiff.py` fail a run with any
+LOST-FRAME line and list them (`LOST FRAMES`), even when every checkpoint matches.
+`autodiff.py --port-only` runs only the port side of the suite for this (the 112
+scenarios in about 30 s at `-j 8`). Before committing a change to a mode step or a
+window helper, run both against a check build:
+
+```
+cmake -S port/unix -B port/unix/build-lfc -DCMAKE_BUILD_TYPE=Release -DEB_VIEWPORT_WIDTH=320 -DEB_VIEWPORT_HEIGHT=240 -DEB_LOST_FRAME_CHECK=ON
+cmake -S port/unix -B port/unix/build-lfc-native -DCMAKE_BUILD_TYPE=Release -DEB_LOST_FRAME_CHECK=ON
+uv run --no-sync python playtest/regress.py compare OLD_BIN port/unix/build-lfc/earthbound
+uv run --no-sync python playtest/autodiff.py playtest/autodiff/*.play --bin port/unix/build-lfc-native/earthbound --port-only -j 8
+```
+
+A new event is a dropped frame until shown otherwise: check the original in the emu
+and fix the site (docs/plans/audit-unpresented-ticks.md has the 7 found so far). A
+helper whose tick the asm really doesn't present must not count it as owed (say so
+at the site, citing the asm); there's no allowlist.
+
 ## Background jobs
 
 Long runs (framehash, regress, videos, BFS scripts) go in the background; keep

@@ -18,6 +18,12 @@ set(EB_SMOOTH_CAMERA ON CACHE BOOL "Build the smooth-camera presentation hooks")
 # 8-bit-per-channel output: full green is 255 (core/types.h PIXEL_GREEN_LSB)
 set(EB_PIXEL_GREEN_LSB ON CACHE BOOL "Replicate green's top bit into its 6th bit")
 
+# Lost-frame check (core/lost_frame_check.h): on by default in Debug builds;
+# -DEB_LOST_FRAME_CHECK=ON adds it to a Release build (the harness runs those).
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(EB_LOST_FRAME_CHECK ON CACHE BOOL "Log frames whose inline window ticks were never presented")
+endif()
+
 # Build game library from src/
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../src
                  ${CMAKE_CURRENT_BINARY_DIR}/game_lib)
