@@ -223,10 +223,10 @@ StepResult mode_step_init_intro(ModeState *ms) {
                 return STEP_RESULT_CONTINUE();
             }
             /* No CHANGE_MUSIC here: FILE_SELECT_MENU starts MUSIC::SETUP_SCREEN
-             * once the fade-in is done (file_select_menu.asm:262-267, FM_SELECT). */
+             * once the fade-in is done (file_select_menu.asm:262-267, FM_FADEIN_WAIT). */
             file_menu_setup();
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.file_menu.phase = FM_FADEIN_WAIT;
+            g_mode_push_init.file_menu.phase = FM_SELECT;
             st->phase = II_FILE_MENU_POST;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_FILE_MENU, &g_mode_push_init);
 

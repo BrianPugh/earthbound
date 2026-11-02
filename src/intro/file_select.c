@@ -2076,16 +2076,19 @@ StepResult mode_step_file_menu(ModeState *ms) {
     for (;;) {
         switch ((FileMenuPhase)st->phase) {
         case FM_FADEIN_WAIT:
-            /* FILE_SELECT_MENU's @WAIT_FADE (file_select_menu.asm:262-265) is a
-             * bare busy loop on fade_parameters::step while NMI steps the fade:
-             * no RENDER_FRAME_TICK, so EVENT_787 (the battle BG) doesn't advance
-             * during the fade-in. */
+            /* FILE_SELECT_MENU's @WAIT_FADE (file_select_menu.asm:262-265), after
+             * the slot list and CORRUPTION_CHECK: a bare busy loop on
+             * fade_parameters::step while NMI steps FILE_SELECT_INIT's fade-in
+             * (a no-op once it has played). No RENDER_FRAME_TICK, so EVENT_787
+             * (the battle BG) doesn't advance during it. Then (266-269)
+             * CHANGE_MUSIC(SETUP_SCREEN) and the slot list's SELECTION_MENU. */
             if (fade_active()) {
                 fade_update();
                 return STEP_RESULT_CONTINUE();
             }
-            st->phase = FM_SELECT;
-            continue;
+            change_music(3);  /* MUSIC::SETUP_SCREEN */
+            set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
+            return fm_push_selection(st, FM_SELECT_RESULT, 0);
 
         case FM_SELECT: {
             /* Outer-loop head (file_select_menu_loop.asm @FILE_SELECT_TOP): the
@@ -2107,11 +2110,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
                 st->phase = FM_CORRUPTION_CHECK;
                 continue;
             }
-            /* file_select_menu.asm:266-269: CHANGE_MUSIC(SETUP_SCREEN) after
-             * CORRUPTION_CHECK and the fade-in wait (a no-op once it plays). */
-            change_music(3);  /* MUSIC::SETUP_SCREEN */
-            set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
-            return fm_push_selection(st, FM_SELECT_RESULT, 0);
+            st->phase = FM_FADEIN_WAIT;
+            continue;
         }
 
         case FM_CORRUPTION_CHECK:
@@ -2131,11 +2131,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
             close_focus_window();
             corruption_check_results = 0;
             restore_window_text_attributes();
-            /* file_select_menu.asm:266-269: CHANGE_MUSIC(SETUP_SCREEN) after
-             * CORRUPTION_CHECK and the fade-in wait (a no-op once it plays). */
-            change_music(3);  /* MUSIC::SETUP_SCREEN */
-            set_cursor_move_callback(preview_flavour_hibyte_callback, CURSOR_CB_FLAVOUR_PREVIEW_HIBYTE);
-            return fm_push_selection(st, FM_SELECT_RESULT, 0);
+            st->phase = FM_FADEIN_WAIT;
+            continue;
 
         case FM_SELECT_RESULT: {
             /* SELECTION_MENU's result is the userdata (slot + 1 | flavour << 8);
@@ -2444,6 +2441,6 @@ void file_menu_setup(void) {
     dt.enable_word_wrap = 0;
     dt.allow_text_overflow = 1;
 
-    /* The file-menu cascade itself runs as GAME_MODE_FILE_MENU (FM_FADEIN_WAIT),
+    /* The file-menu cascade itself runs as GAME_MODE_FILE_MENU (FM_SELECT),
      * STEP_PUSHed by the init_intro parent after this setup returns. */
 }

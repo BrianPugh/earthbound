@@ -2150,14 +2150,14 @@ typedef struct {
  * during them is acceptable — they are terminal, input-driven, and depend on
  * subsystems not yet converted): new_game_naming() (its own multi-character driver
  * over the already-converted naming modes) and the synchronous load/save/erase/
- * copy helpers (no yield). The leading fade-in wait is phase FM_FADEIN_WAIT.
+ * copy helpers (no yield). FILE_SELECT_MENU's fade-in wait is phase FM_FADEIN_WAIT.
  *
  * Pops 1 when a game is started/loaded (overworld follows), 0 on quit. The result
  * is ignored by the init_intro parent (it runs the same post-file-menu cleanup
  * either way), matching the blocking original. */
 typedef enum {
-    FM_FADEIN_WAIT = 0, /* while(fade_active()): battle_bg_update + fade_update */
-    FM_SELECT,          /* battle_bg_update; build slot list; push selection_menu(0) */
+    FM_FADEIN_WAIT = 0, /* while(fade_active()) wait; music; push the slot list's selection_menu(0) */
+    FM_SELECT,          /* build slot list; CORRUPTION_CHECK; -> FM_FADEIN_WAIT */
     FM_SELECT_RESULT,   /* branch on chosen slot: submenu (existing) or new-game cascade */
     FM_SUBMENU,         /* build Continue/Copy/Delete/SetUp; push selection_menu(1) */
     FM_SUBMENU_RESULT,  /* dispatch the submenu action */
@@ -2956,7 +2956,7 @@ StepResult mode_step_title_screen(ModeState *st);
 StepResult mode_step_attract_mode(ModeState *st);
 
 /* GAME_MODE_FILE_MENU step (defined in file_select.c). Init via
- * ModeState.file_menu (phase = FM_FADEIN_WAIT) before STEP_PUSH GAME_MODE_FILE_
+ * ModeState.file_menu (phase = FM_SELECT) before STEP_PUSH GAME_MODE_FILE_
  * MENU. Pops 1 when a game starts/loads, 0 on quit. */
 StepResult mode_step_file_menu(ModeState *st);
 

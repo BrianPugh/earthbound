@@ -8,7 +8,7 @@ typedef union ModeState ModeState;
 /* One-shot setup for the file menu (the yield-free front half of FILE_MENU_LOOP,
  * asm/intro/file_select_menu_loop.asm): loads the file-select asset data, runs
  * FILE_SELECT_INIT, and starts the fade-in. The init_intro parent calls this,
- * then STEP_PUSHes GAME_MODE_FILE_MENU (phase FM_FADEIN_WAIT) to run the cascade. */
+ * then STEP_PUSHes GAME_MODE_FILE_MENU (phase FM_SELECT) to run the cascade. */
 void file_menu_setup(void);
 
 /* Regression guard (savestate cold-load): the file-select asset pointers live
