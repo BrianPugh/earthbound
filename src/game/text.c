@@ -1980,14 +1980,23 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             /* @PSI_ABILITY_LOOP head (assembly lines 68-90) */
             set_window_focus(WINDOW_TEXT_STANDARD);
 
-            /* Redisplay PSI list if returning from a failed action (73-78) */
+            /* Redisplay PSI list if returning from a failed action (73-78).
+             * DISPLAY_PSI_ABILITY_DETAILS' WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+             * and DISPLAY_CHARACTER_PSI_LIST's SET_WINDOW_TITLE (2 frame
+             * waits) are frames of their own before the SELECTION_MENU. */
             if ((st->last_ability & 0xFF) != 0xFF) {
+                StepResult r;
+                (void)take_unpresented_ticks();
                 display_psi_ability_details(0, st->last_ability);
                 print_menu_items();
+                if (menu_flush_ticks(&st->phase, PS_ABILITY_MENU, &r))
+                    return r;
             }
+            EB_FALLTHROUGH;
 
-            /* Select a PSI ability; the target/cost preview lives in the
-             * re-fetchable WindowInfo, safe across the push. */
+        case PS_ABILITY_MENU:
+            /* @SKIP_REDISPLAY: select a PSI ability; the target/cost preview
+             * lives in the re-fetchable WindowInfo, safe across the push. */
             set_cursor_move_callback(display_psi_target_and_cost, CURSOR_CB_PSI_TARGET_COST);
             return pm_push_selection_psi(st, PS_ABILITY_RESULT);
 
@@ -2010,9 +2019,23 @@ StepResult mode_step_psi_menu(ModeState *ms) {
                 continue;
             }
 
-            /* Show PSI details for the multi-PSI case (lines 91-98) */
-            if (!only_one_character_with_psi)
+            /* Show PSI details for the multi-PSI case (lines 91-98): its
+             * WINDOW_TICK_WITHOUT_INSTANT_PRINTING and the PSI list's
+             * SET_WINDOW_TITLE waits are 3 frames before the PP check and
+             * the targeting windows (emu, 24-Museum Lifeup). */
+            if (!only_one_character_with_psi) {
+                StepResult r;
+                (void)take_unpresented_ticks();
                 display_psi_ability_details(6, psi_selection);
+                if (menu_flush_ticks(&st->phase, PS_CHECK_PP, &r))
+                    return r;
+            }
+            st->phase = PS_CHECK_PP;
+            continue;
+        }
+
+        case PS_CHECK_PP: {
+            uint16_t psi_selection = st->last_ability;
 
             /* @CHECK_PP_COST: look up the PP cost (assembly lines 100-154) */
             if (!ensure_battle_psi_table()) {

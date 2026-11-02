@@ -529,6 +529,8 @@ typedef enum {
     PS_RADE_FINISH,     /* render_and_disable_entities split: disable tail -> PS_EXIT */
     PS_EXIT,            /* close the text window (its WINDOW_TICK is a frame) */
     PS_EXIT_POP,        /* POP the result */
+    PS_ABILITY_MENU,    /* @SKIP_REDISPLAY: after the redisplay's frames, push SELECTION_MENU */
+    PS_CHECK_PP,        /* @CHECK_PP_COST: after DISPLAY_PSI_ABILITY_DETAILS's frames */
 } PsiMenuPhase;
 
 typedef struct {
