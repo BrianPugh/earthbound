@@ -1,0 +1,83 @@
+# save: 04-Police
+# Sweep segment 04 -> 05: Hotel Onett out the side door, down the diagonal road to the Onett
+# police station, the front-desk lecture, the captain's officer (Yes: to Twoson), the gauntlet
+# (4 Cops and Captain Strong back to back: Bash, overworld-style Lifeup alpha in battle below
+# 85 HP), out of the station, south to the Onett Town gate and the roadblock cops ("got the
+# okay from Chief Strong"), the dirt path south across the map seam into Twoson, the Twoson
+# hotel phone: Dad, Record, Continue (05-Twoson starts there). Recorded in chunks with
+# playtest/sweep/rec.py
+# The hotel side door: the original's CPU-time frame (hotel-door.play)
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Each door, TELEPORT_TO and the Onett/Twoson seam: skip K (the first emu sample is part-way
+# into the load), lag K+20 (its fade-in starts a CPU-time frame later), ignore: idle K+30
+# (that FADE_IN after the load lag ends a logic frame later in the original; wall-clock noise)
+# late-pads
+# lag: 177
+# skip: 895
+# lag: 915
+# skip: 2204
+# lag: 2224
+# skip: 2455
+# lag: 2475
+# skip: 13202
+# lag: 13222
+# skip: 13671
+# lag: 13691
+# ignore: idle 13701
+# skip: 13955
+# lag: 13975
+# ignore: idle 13985
+# skip: 16918
+# lag: 16938
+# ignore: idle 16948
+# skip: 18342
+# lag: 18362
+---
+20 DOWN; 30 DOWN+RIGHT; 20 RIGHT; 12 UP; 150 RIGHT; 2 -; 120 RIGHT; 38 DOWN; 62 DOWN+RIGHT; 56 DOWN+LEFT
+3 LEFT; 48 DOWN+LEFT; 24 LEFT; 24 DOWN+LEFT; 18 LEFT; 44 DOWN; 5 RIGHT; 47 LEFT; 100 UP; 2 -
+8 DOWN; 22 LEFT; 16 UP; 56 -; 120 LEFT; 2 A; 6 -; 2 A; 16 -; 1 A
+61 -; 1 A; 23 -; 1 A; 103 -; 1 A; 19 -; 1 A; 21 -; 1 A
+21 -; 1 A; 39 -; 1 A; 11 -; 1 A; 11 -; 1 A; 67 -; 1 A
+11 -; 1 A; 11 -; 1 A; 87 -; 1 A; 11 -; 1 A; 11 -; 1 A
+11 -; 1 A; 4 -; 20 DOWN; 45 LEFT; 20 UP; 12 DOWN; 10 RIGHT; 2 -; 2 A
+6 -; 2 A; 92 -; 1 A; 85 -; 1 A; 76 -; 2 A; 44 -; 1 A
+557 -; 1 A; 69 -; 1 A; 255 -; 1 A; 53 -; 1 A; 177 -; 2 A
+16 -; 2 A; 310 -; 2 A; 16 -; 2 A; 294 -; 2 DOWN; 10 -; 2 A
+16 -; 2 DOWN; 10 -; 2 A; 16 -; 2 A; 330 -; 2 A; 16 -; 2 A
+233 -; 2 A; 16 -; 2 A; 376 -; 1 A; 91 -; 1 A; 167 -; 1 A
+177 -; 2 A; 16 -; 2 A; 310 -; 2 DOWN; 10 -; 2 A; 16 -; 2 DOWN
+10 -; 2 A; 16 -; 2 A; 347 -; 2 A; 16 -; 2 A; 376 -; 1 A
+59 -; 1 A; 191 -; 1 A; 23 -; 1 A; 177 -; 2 A; 16 -; 2 A
+293 -; 2 A; 16 -; 2 A; 376 -; 1 A; 75 -; 1 A; 61 -; 1 A
+175 -; 1 A; 177 -; 2 A; 16 -; 2 A; 293 -; 2 DOWN; 10 -; 2 A
+16 -; 2 DOWN; 10 -; 2 A; 16 -; 2 A; 330 -; 2 A; 16 -; 2 A
+420 -; 1 A; 61 -; 1 A; 109 -; 1 A; 57 -; 1 A; 233 -; 1 A
+65 -; 1 A; 184 -; 2 A; 16 -; 2 A; 279 -; 2 A; 16 -; 2 A
+312 -; 2 A; 16 -; 2 A; 375 -; 2 DOWN; 10 -; 2 A; 16 -; 2 DOWN
+10 -; 2 A; 16 -; 2 A; 238 -; 2 A; 16 -; 2 A; 560 -; 1 A
+181 -; 1 A; 41 -; 1 A; 65 -; 1 A; 97 -; 1 A; 41 -; 1 A
+23 -; 1 A; 31 -; 1 A; 65 -; 1 A; 77 -; 1 A; 15 -; 1 A
+17 -; 1 A; 65 -; 1 A; 201 -; 1 A; 35 -; 1 A; 11 -; 1 A
+77 -; 30 LEFT; 200 UP+RIGHT; 2 -; 100 RIGHT; 17 -; 16 DOWN; 60 RIGHT; 16 UP; 200 RIGHT
+2 -; 10 DOWN; 60 RIGHT; 2 -; 20 UP+RIGHT; 2 -; 20 DOWN+RIGHT; 2 -; 4 UP; 55 -
+20 DOWN; 2 -; 50 RIGHT; 10 UP; 147 RIGHT; 55 -; 106 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 16 UP; 61 RIGHT
+150 DOWN+LEFT; 18 DOWN; 6 LEFT; 2 DOWN; 38 UP; 54 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT
+12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 12 RIGHT; 16 DOWN; 142 LEFT
+90 DOWN+LEFT; 40 DOWN; 2 A; 6 -; 2 A; 38 -; 1 A; 75 -; 1 A; 23 -
+1 A; 4 -; 12 RIGHT; 100 DOWN; 30 LEFT; 120 DOWN; 10 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 24 DOWN
+48 DOWN+LEFT; 24 DOWN; 21 DOWN+LEFT; 8 DOWN; 24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 24 DOWN
+29 DOWN+LEFT; 2 DOWN; 24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 12 LEFT; 48 DOWN; 12 DOWN+LEFT
+12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+41 RIGHT; 4 UP+RIGHT; 24 DOWN; 24 DOWN+RIGHT; 20 DOWN; 4 DOWN+RIGHT; 24 DOWN; 15 DOWN+RIGHT; 48 DOWN+LEFT; 32 DOWN
+14 DOWN+LEFT; 29 DOWN; 14 DOWN+RIGHT; 12 RIGHT; 14 DOWN; 48 DOWN+LEFT; 12 LEFT; 12 DOWN; 24 DOWN+LEFT; 99 LEFT
+24 DOWN+LEFT; 32 LEFT; 24 DOWN+LEFT; 18 LEFT; 3 DOWN+LEFT; 400 DOWN; 2 -; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 24 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 16 RIGHT
+16 UP+RIGHT; 16 UP; 16 LEFT; 22 RIGHT; 4 DOWN+RIGHT; 200 DOWN; 48 DOWN+RIGHT; 16 DOWN; 4 RIGHT; 72 DOWN+RIGHT
+10 RIGHT; 4 DOWN; 48 DOWN+RIGHT; 12 RIGHT; 24 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 24 DOWN+RIGHT; 12 RIGHT; 12 DOWN
+24 DOWN+RIGHT; 12 RIGHT; 28 DOWN; 40 RIGHT; 16 DOWN; 16 RIGHT; 15 UP+LEFT; 5 UP; 18 DOWN+LEFT; 43 DOWN
+69 RIGHT; 29 UP; 55 -; 150 LEFT; 24 RIGHT; 26 UP; 2 A; 6 -; 2 A; 28 -
+1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -; 1 A; 19 -
+1 A; 37 -; 1 A; 13 -; 1 A; 46 -; 2 A; 10 -; 1 A; 73 -
+1 A; 57 -; 1 A; 37 -; 2 A; 52 -; 1 A; 47 -; 1 A; 29 -
+1 A; 34 -
