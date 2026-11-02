@@ -1,0 +1,102 @@
+# save: 08-Carpainter
+# Sweep segment 08 -> 09: the Happy Happy drug store phone out to the village, the cult HQ door,
+# the blue crowd (talk to each blocker; one becomes an Insane Cultist battle, whose homesickness
+# roll found 7b42f9ed and ce52a147), the stairs to the reception, Carpainter's room, Carpainter
+# (No: battle; Franklin badge, PSI Rockin alpha; the Key to the cabin), back down and out of the
+# HQ (Pokey: "Hah! I lied!"), the village door to the cave, the valley top, the mountain cabin
+# (Key to the cabin on the cell door: Paula joins at L1), the photographer outside, back through
+# the cave to the drug store phone: Dad, Record, Continue (09-MondoMole starts there; Paula was
+# levelled to 16 afterwards). Recorded in chunks with playtest/sweep/rec.py
+# overclock-on 200: the village and the HQ lag nearly every frame; at normal speed the late pads
+# made the walk catch corners
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag K+20 / ignore: idle K+30; idle 16269 is a post-battle fade-in
+# late-pads
+# skip: 154
+# lag: 174
+# overclock-on: 200
+# skip: 794
+# lag: 814
+# skip: 3488
+# lag: 3508
+# ignore: idle 3518
+# skip: 3884
+# lag: 3904
+# ignore: idle 3914
+# skip: 8718
+# lag: 8738
+# ignore: idle 8748
+# skip: 9227
+# lag: 9247
+# ignore: idle 9257
+# skip: 9679
+# lag: 9699
+# skip: 11074
+# lag: 11094
+# ignore: idle 11104
+# skip: 11539
+# lag: 11559
+# ignore: idle 11569
+# skip: 12054
+# lag: 12074
+# ignore: idle 12084
+# skip: 13560
+# lag: 13580
+# ignore: idle 13590
+# ignore: idle 16269
+# skip: 16525
+# lag: 16545
+# ignore: idle 16555
+# skip: 16930
+# lag: 16950
+# skip: 17119
+# lag: 17139
+# ignore: idle 17149
+---
+10 DOWN; 113 RIGHT; 8 UP; 55 -; 24 DOWN+LEFT; 10 DOWN; 22 DOWN+LEFT; 95 LEFT; 24 DOWN+LEFT; 46 DOWN
+25 DOWN+LEFT; 23 DOWN; 15 DOWN+LEFT; 70 LEFT; 12 DOWN+LEFT; 3 DOWN; 12 DOWN+LEFT; 30 LEFT; 30 DOWN; 19 DOWN+RIGHT
+77 RIGHT; 16 DOWN; 7 LEFT; 120 UP; 2 -; 78 DOWN+LEFT; 30 LEFT; 6 RIGHT; 20 DOWN; 6 LEFT
+10 DOWN; 4 UP; 4 RIGHT; 30 DOWN+LEFT; 20 DOWN; 2 A; 12 -; 2 A; 12 -; 1 A
+73 -; 1 A; 47 -; 1 A; 37 -; 40 DOWN; 45 LEFT; 30 UP; 2 A; 12 -
+2 A; 12 -; 1 A; 69 -; 1 A; 23 -; 1 A; 37 -; 2 A; 12 -
+2 A; 22 -; 1 A; 4 -; 16 UP; 2 A; 12 -; 2 A; 14 -; 1 A
+69 -; 1 A; 37 -; 40 UP; 4 DOWN; 100 LEFT; 10 UP; 100 LEFT; 3 RIGHT; 20 DOWN
+2 A; 12 -; 2 A; 12 -; 1 A; 37 -; 1 A; 67 -; 1 A; 37 -
+14 DOWN; 2 A; 12 -; 2 A; 12 -; 1 A; 51 -; 1 A; 171 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 402 -; 1 A; 73 -; 11 UP; 60 LEFT; 29 DOWN
+60 LEFT; 40 DOWN+LEFT; 20 LEFT; 20 DOWN; 100 LEFT; 12 UP; 60 LEFT; 40 UP+LEFT; 20 UP; 10 RIGHT
+150 UP+LEFT; 2 -; 12 DOWN; 250 LEFT; 6 RIGHT; 40 UP; 33 -; 30 DOWN; 60 RIGHT; 106 UP
+2 A; 12 -; 2 A; 62 -; 1 A; 51 -; 1 A; 49 -; 1 A; 53 -
+2 RIGHT; 10 -; 2 A; 84 -; 1 A; 89 -; 1 A; 57 -; 1 A; 197 -
+1 A; 184 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 24 -; 2 A; 574 -
+2 DOWN; 14 -; 2 A; 34 -; 2 A; 24 -; 2 A; 424 -; 2 DOWN; 14 -
+2 A; 34 -; 2 A; 24 -; 2 A; 432 -; 2 DOWN; 14 -; 2 A; 34 -
+2 A; 24 -; 2 A; 574 -; 2 DOWN; 14 -; 2 A; 34 -; 2 A; 24 -
+2 A; 536 -; 1 A; 87 -; 1 A; 75 -; 1 A; 93 -; 1 A; 47 -
+1 A; 81 -; 1 A; 21 -; 1 A; 201 -; 1 A; 6 -; 50 DOWN; 80 LEFT
+40 UP; 30 LEFT; 16 -; 25 DOWN; 170 RIGHT; 16 UP; 21 UP+LEFT; 8 LEFT; 11 UP; 180 DOWN+RIGHT
+8 UP+LEFT; 3 LEFT; 20 UP; 47 -; 384 RIGHT; 4 DOWN+RIGHT; 24 RIGHT; 168 -; 1 A; 47 -
+1 A; 117 -; 1 A; 379 -; 1 A; 7 -; 9 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 8 DOWN+RIGHT
+12 RIGHT; 12 DOWN; 8 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 8 DOWN+RIGHT; 12 RIGHT; 42 DOWN; 13 LEFT; 4 DOWN
+29 UP+LEFT; 24 LEFT; 18 UP+LEFT; 6 LEFT; 24 UP; 7 UP+LEFT; 2 UP; 29 RIGHT; 16 UP+RIGHT; 12 RIGHT
+2 LEFT; 68 RIGHT; 12 UP+RIGHT; 4 RIGHT; 24 UP; 21 UP+RIGHT; 48 UP; 26 UP+RIGHT; 65 RIGHT; 14 UP
+3 UP+RIGHT; 40 UP; 43 -; 400 LEFT; 40 UP; 25 -; 21 DOWN+LEFT; 72 LEFT; 26 DOWN; 16 DOWN+LEFT
+21 RIGHT; 7 DOWN+LEFT; 2 DOWN; 27 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 5 LEFT; 10 DOWN+LEFT; 4 DOWN; 22 LEFT
+20 DOWN; 49 DOWN+RIGHT; 24 DOWN; 19 RIGHT; 11 DOWN; 12 LEFT; 150 UP; 2 -; 60 LEFT; 10 UP
+14 RIGHT; 4 UP; 2 A; 16 -; 2 RIGHT; 10 -; 2 A; 26 -; 2 DOWN; 4 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -
+2 RIGHT; 10 -; 2 A; 16 -; 2 A; 36 -; 1 A; 83 -; 1 A; 45 -
+1 A; 61 -; 1 A; 37 -; 1 A; 45 -; 1 A; 73 -; 1 A; 27 -
+1 A; 713 -; 1 A; 7 -; 8 DOWN; 100 RIGHT; 13 -; 20 DOWN+RIGHT; 33 DOWN; 12 DOWN+LEFT
+12 DOWN+RIGHT; 9 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 9 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 9 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+308 -; 1 A; 67 -; 1 A; 55 -; 1 A; 53 -; 1 A; 39 -; 1 A
+137 -; 1 A; 53 -; 1 A; 182 -; 9 DOWN; 6 RIGHT; 243 -; 2 RIGHT; 4 -
+2 RIGHT; 4 -; 2 A; 1166 -; 1 A; 27 -; 1 A; 45 -; 1 A; 15 -
+1 A; 73 -; 42 RIGHT; 25 UP+RIGHT; 12 RIGHT; 4 UP+LEFT; 24 UP+RIGHT; 21 UP; 4 UP+RIGHT; 25 UP
+22 UP+LEFT; 25 UP; 22 UP+LEFT; 30 UP; 30 -; 312 RIGHT; 13 UP+RIGHT; 44 RIGHT; 36 -; 21 DOWN
+76 RIGHT; 12 LEFT; 30 UP; 50 -; 11 DOWN; 70 LEFT; 2 A; 12 -; 2 A; 24 -
+1 A; 14 -; 2 A; 16 -; 2 B; 34 -; 2 UP; 2 A; 12 -; 2 A
+28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -; 1 A
+19 -; 1 A; 37 -; 1 A; 13 -; 1 A; 11 -; 1 A; 46 -; 2 A
+10 -; 1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A; 52 -; 1 A
+47 -; 1 A; 29 -; 1 A; 4 -
