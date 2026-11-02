@@ -170,7 +170,19 @@ StepResult mode_step_hp_alert(ModeState *st) {
     }
 
     case HA_CLOSE:
+        /* CLOSE_FOCUS_WINDOW's WINDOW_TICK is a frame of its own before
+         * SHOW_HP_ALERT's WINDOW_TICK (emu, 05-Twoson poisoned walk). */
+        (void)take_unpresented_ticks();
         close_focus_window();
+        {
+            uint16_t owed = take_unpresented_ticks();
+            hs->phase = HA_TICK;
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        EB_FALLTHROUGH;
+
+    case HA_TICK:
         if (window_tick_work_step()) {
             hs->phase = HA_CLOSE_FLUSH;
             return actionscript_frame_take_push();

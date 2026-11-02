@@ -2500,6 +2500,7 @@ typedef enum {
     HA_CLOSE,      /* close focus window + one window_tick frame */
     HA_DONE,       /* enable entities, POP */
     HA_CLOSE_FLUSH, /* park-propagating resume of HA_CLOSE's window_tick frame */
+    HA_TICK,       /* SHOW_HP_ALERT's WINDOW_TICK, after CLOSE_FOCUS_WINDOW's tick frame */
 } HpAlertPhase;
 
 typedef struct {

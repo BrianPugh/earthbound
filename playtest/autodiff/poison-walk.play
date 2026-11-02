@@ -1,5 +1,8 @@
 # save: 05-Twoson
 # Twoson hotel lobby: poisoned walking, HP drain, eat a Hamburger
+# ent2 (EVENT_606) despawns off screen from its 48-frame blink loop (RESET_ENTITY_ANIMATION's
+# IS_ENTITY_NEAR_LEADER), whose phase is set at the save load: 2 frames apart, before the seed
+# ignore: ent2\..*
 flag 11 1; give 90 1; hp 1 30; status 1 1 5
 ---
 60 LEFT; 60 RIGHT; 60 LEFT
