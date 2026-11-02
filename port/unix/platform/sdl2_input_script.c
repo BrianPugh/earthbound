@@ -474,7 +474,10 @@ static const char *not_idle_reason(void) {
         return "auto-move";
     if (ow.demo_frames_left || (ow.player_movement_flags & 0x02))
         return "auto-walk";
-    if ((ppu.inidisp & 0x80) || (ppu.inidisp & 0x0F) != 0x0F)
+    /* The brightness this logic frame ended with: ppu.inidisp already holds
+     * the next NMI's fade step, which the original applies after its
+     * WAIT_UNTIL_NEXT_FRAME (where emu.py reads its state). */
+    if ((g_inidisp_logic_end & 0x80) || (g_inidisp_logic_end & 0x0F) != 0x0F)
         return "fade";
     return NULL;
 }

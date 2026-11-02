@@ -8,9 +8,10 @@
 # The original loads the map across lag frames after Continue: frame 870 is sampled
 # part-way through it (still in FILE_SELECT_INIT)
 # skip: 870
-# idle=fade is the INIDISP brightness, which the original's fades step on NMIs: after its load lag
-# the fade-in ends a frame later in logic frames (wall-clock noise; positions and RNG still match)
-# ignore: idle
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the long
+# load, before the FADE_IN call, so the original's fade-in starts and ends a logic frame later
+# (wall-clock noise; positions and RNG still match)
+# ignore: idle 901-902
 ---
 press DOWN; wait 30; press A; wait 60; press B; wait 120
 press A; wait 90; press RIGHT; wait 30; press A; wait 90; press B; wait 120

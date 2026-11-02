@@ -6,8 +6,7 @@
 # and the flight's TELEPORTs load inside lag frames: the emu runs overclocked (no lag)
 # overclock: max
 # Each door / TELEPORT load: the first emu sample is part-way in (skip) and the fade-in
-# ends one frame later in the original (lag); idle=fade differs on those frames too
-# ignore: idle
+# ends one frame later in the original (lag)
 # skip: 56
 # lag: 76
 # skip: 2962

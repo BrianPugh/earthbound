@@ -3,8 +3,6 @@
 # (the Tough Guy stands past the 60 collision rows LOAD_MAP_AT_POSITION loads and stays put on the
 # hospital's stale collision). The door's SCREEN_TRANSITION takes hotel-door's extra exit-loop wait
 # lag: 133
-# idle=fade: NMI-stepped fade-in after the original's load lag (README: fade timing after lag)
-# ignore: idle
 teleport 6735 9704 2; wait 10; until idle 300
 ---
 200 RIGHT; 400 -

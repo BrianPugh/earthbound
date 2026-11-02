@@ -2,8 +2,10 @@
 # Fourside bakery: out the glass door onto the street
 # the door's SCREEN_TRANSITION takes hotel-door's extra exit-loop wait (CPU time)
 # lag: 25
-# idle=fade: NMI-stepped fade-in after the original's load lag
-# ignore: idle
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the long
+# load, before the FADE_IN call, so the original's fade-in starts and ends a logic frame later
+# (wall-clock noise; positions and RNG still match)
+# ignore: idle 55
 teleport 4552 5480 2; wait 10; until idle 300
 ---
 150 RIGHT; 400 -

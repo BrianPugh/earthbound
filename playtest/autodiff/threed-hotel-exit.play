@@ -4,6 +4,9 @@
 # first-step lag (CPU time); the street lags the original on every frame (sustained load), so the
 # body stops walking inside the transition (a lag frame reads the previous frame's pad)
 # lag: 160
+# the original lags during the fade-in (frames 180-185 merged), and each lag frame's NMI takes a fade
+# step without a logic frame, so its fade-in ends a logic frame earlier (wall-clock noise)
+# ignore: idle 189
 wait 5
 ---
 20 DOWN; 125 RIGHT; 505 -

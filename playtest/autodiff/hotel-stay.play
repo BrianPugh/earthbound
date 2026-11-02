@@ -1,9 +1,12 @@
 # save: 02-Sharks
 # Hotel Onett clerk: talk, Yes, the night, the morning in the room
 # the night's SCREEN_TRANSITION fade-out: the original's extra frame after its first-step lag (see
-# hotel-door), and NMI-stepped fade brightness (idle=fade) after the load lag
+# hotel-door)
 # lag: 492
-# ignore: idle
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the long
+# load, before the FADE_IN call, so the original's fade-in starts and ends a logic frame later
+# (wall-clock noise; positions and RNG still match)
+# ignore: idle 543
 hp 1 20; 39 RIGHT; 1 UP; wait 5; 11 LEFT; 1 UP; wait 5; until idle 300
 ---
 press A; wait 30; press A; wait 120; press A; wait 60; press A; wait 60; press A; wait 60; press A; wait 600

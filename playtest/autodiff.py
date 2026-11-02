@@ -23,8 +23,9 @@ Scenario file (the playtest command language)::
 
 A setup line prefixed ``port:`` or ``emu:`` runs on that side only. A
 ``# save: NN-Name`` header line (as in the regress cases) names the save in
-``playtest/saves/``, and ``# ignore: REGEX`` lines skip fields for that scenario
-(e.g. an NPC that wandered differently before the seed); a SAVE.srm given first on the command line is the default
+``playtest/saves/``, and ``# ignore: REGEX [A[-B]]`` lines skip fields for that scenario
+(e.g. an NPC that wandered differently before the seed), on (port) logic frames A to B
+only when a range is given; a SAVE.srm given first on the command line is the default
 for scenarios without one. A ``# lag: K`` line marks emu logic frame K as one the
 original spends on CPU time alone (a loop's extra WAIT_UNTIL_NEXT_FRAME after a lag
 frame, which the port can't have): the emu gets the port's frame-K pad twice, frame
@@ -234,6 +235,25 @@ def show(field, a, b):
     return f"port={a if a is not None else '(none)'}  emu={b if b is not None else '(none)'}"
 
 
+def ignored(k, i, ignore):
+    """Whether field k at logic frame i matches an ignore entry (REGEX, or (REGEX, first, last))."""
+    for pat in ignore:
+        if isinstance(pat, str):
+            if re.fullmatch(pat, k):
+                return True
+        elif pat[1] <= i <= pat[2] and re.fullmatch(pat[0], k):
+            return True
+    return False
+
+
+def parse_ignores(text):
+    """``# ignore: REGEX [A[-B]]`` header lines as REGEX or (REGEX, A, B)."""
+    out = []
+    for pat, lo, hi in IGNORE_HEADER.findall(text):
+        out.append((pat, int(lo), int(hi or lo)) if lo else pat)
+    return out
+
+
 def compare(port, emu, pads, ignore):
     """Return (frames compared, {field: first differing frame}, report lines)."""
     frames = sorted(set(port) & set(emu))
@@ -243,7 +263,7 @@ def compare(port, emu, pads, ignore):
     for i in frames:
         p, e = port[i], emu[i]
         for k in sorted(set(p) | set(e)):
-            if k == "raw_state" or any(re.fullmatch(pat, k) for pat in ignore):
+            if k == "raw_state" or ignored(k, i, ignore):
                 continue
             if p.get(k) != e.get(k):
                 count[k] = count.get(k, 0) + 1
@@ -267,7 +287,7 @@ def run_side(cmd, script_path, log_path):
 
 
 SAVE_HEADER = re.compile(r"^#\s*save:\s*(\S+)", re.M)
-IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)", re.M)
+IGNORE_HEADER = re.compile(r"^#\s*ignore:\s*(\S+)(?:[ \t]+(\d+)(?:-(\d+))?)?[ \t]*$", re.M)
 LAG_HEADER = re.compile(r"^#\s*lag:\s*(\d+)", re.M)
 OVERCLOCK_HEADER = re.compile(r"^#\s*overclock:\s*(light|compatible|max)\b", re.M)
 SKIP_HEADER = re.compile(r"^#\s*skip:\s*(\d+)", re.M)
@@ -341,7 +361,7 @@ def run_scenario(scen, save, a, out):
     if lags:
         res["emu"] = {emu_to_port(j, lags): v for j, v in res["emu"].items() if emu_to_port(j, lags) is not None}
     lag = re.findall(r"^LAG .*", (out / f"{name}.emu.log").read_text(errors="replace"), re.M)
-    ignore = a.ignore + IGNORE_HEADER.findall(Path(scen).read_text())
+    ignore = a.ignore + parse_ignores(Path(scen).read_text())
     for k in SKIP_HEADER.findall(Path(scen).read_text()):
         res["emu"].pop(int(k), None)  # sampled part-way into a load's lag frame
     n, first, lines = compare(res["port"], res["emu"], pads, ignore)

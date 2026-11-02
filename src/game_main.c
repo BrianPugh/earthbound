@@ -333,6 +333,8 @@ static void fps_overlay_stamp_scanline(int y, pixel_t *pixels) {
 /* Host-side per-frame processing (rendering, input, audio, timing).
  * Called by the host main loop after each fiber yield. This contains
  * the work that the SNES NMI handler + main loop timing would do. */
+uint8_t g_inidisp_logic_end;
+
 void host_process_frame(void) {
     uint64_t t0, t1, t2;
 
@@ -362,6 +364,7 @@ void host_process_frame(void) {
 
     /* Reset per-frame fade guard so fade_update runs exactly once this frame,
      * matching the assembly NMI handler which updates fade once per vblank. */
+    g_inidisp_logic_end = ppu.inidisp;
     fade_new_frame();
 
     /* NMI handler: update fade brightness (irq_nmi.asm lines 93-118).

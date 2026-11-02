@@ -2,8 +2,6 @@
 # Scaraba hotel lobby: out the right door onto the bazaar street; NPCs spawn in the body
 # the door's SCREEN_TRANSITION takes hotel-door's extra exit-loop wait (CPU time)
 # lag: 49
-# idle=fade: NMI-stepped fade-in after the original's load lag
-# ignore: idle
 teleport 7960 6992 2; wait 10; until idle 300
 ---
 100 RIGHT; 400 -

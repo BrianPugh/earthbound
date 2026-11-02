@@ -1,8 +1,9 @@
 # save: 01-Start
 # Onett street battle on Auto Fight to the victory text (exp, possible level up)
-# the exit fade-in ends 2 frames later in the emu: its brightness steps on NMIs after the
-# original's ~90-frame map-reload lag (README: fade timing after lag)
-# ignore: idle
+# FADE_IN after the load lag: the NMI that would take the fade's first step ran during the long
+# load, before the FADE_IN call, so the original's fade-in starts and ends a logic frame later
+# (wall-clock noise; positions and RNG still match)
+# ignore: idle 1908
 teleport 2660 440 4; until battle 500 DOWN|RIGHT|LEFT; until input 1500
 ---
 press RIGHT 2; press A; wait 1200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 600

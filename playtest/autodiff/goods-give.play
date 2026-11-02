@@ -1,5 +1,8 @@
 # save: 24-Museum
 # Goods: Ness gives his first item to Paula
+# the original lags during the fade-in (frames 470-474 merged), and each lag frame's NMI takes a fade
+# step without a logic frame, so its fade-in ends a logic frame earlier (wall-clock noise)
+# ignore: idle 499
 wait 5
 ---
 press A; wait 30; press RIGHT; press A; wait 40; press A; wait 40

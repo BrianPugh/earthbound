@@ -23,6 +23,12 @@ void game_logic_entry(void);
  * Called by the host main loop after each fiber yield. */
 void host_process_frame(void);
 
+/* INIDISP as the last logic frame left it, before host_process_frame()'s
+ * NMI-equivalent fade step. The playtest harness samples state after that
+ * step, while the original's state is read at WAIT_UNTIL_NEXT_FRAME, before
+ * its NMI; the harness's fade check reads this so both sides agree. */
+extern uint8_t g_inidisp_logic_end;
+
 /* Wait for one frame (NMI equivalent). Yields the game fiber. */
 void wait_for_vblank(void);
 

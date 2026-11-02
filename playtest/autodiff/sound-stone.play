@@ -1,8 +1,5 @@
 # save: 05-Twoson
 # Goods -> Sound Stone -> Use: the melody playback screen and the return
-# the fade back from the melody screen ends a frame later in the emu: NMI-stepped brightness
-# after the original's load lag (README: fade timing after lag)
-# ignore: idle
 ---
 press A; wait 30; press RIGHT; wait 5; press A; wait 60; press RIGHT; wait 5; press A; wait 60
 press A; wait 200; press A; wait 1500; press A; wait 300

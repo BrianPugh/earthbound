@@ -17,7 +17,7 @@
    "enemies": "",
    "err": [],
    "party": "PARTY 1:Ness L43 HP 332/332 PP 122/122 | 3:Jeff L37 HP 212/212 PP 0/0",
-   "state": "STATE lobby-again modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(5919,5990) dir=UP music=24 money=39687 battle=0 ow_enemies=0 surface=0x80(solid)",
+   "state": "STATE lobby-again modes=[OVERWORLD>PROCESS_INTERACTION>TEXT_WAIT_FADE>DISPLAY_TEXT>DISPLAY_TEXT>TEXT_PROMPT] idle=modes input=1 pos=(5918,5991) dir=UP music=24 money=39687 battle=0 ow_enemies=0 surface=0x80(solid)",
    "text": "sha256:9da3719128dac27c",
    "until": [
     "met"

@@ -4,6 +4,9 @@
 # RUN_FRAMES_UNTIL_FADE_DONE wait returns without a fade step and the original runs one more
 # frame of the run before the screen is dark (CPU time; the fade steps on NMIs)
 # lag: 483
+# the original lags during the fade-in (frames 586 merged), and each lag frame's NMI takes a fade
+# step without a logic frame, so its fade-in ends a logic frame earlier (wall-clock noise)
+# ignore: idle 587
 flag 11 1; teleport 4000 9300 6; wait 10; until idle 300
 ---
 press A; wait 30; press DOWN; press A; wait 60; press A; wait 60; press DOWN 2; wait 30; press A; wait 60
