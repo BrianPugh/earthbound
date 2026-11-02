@@ -1,16 +1,15 @@
 # save: 23-Summers
 # Magic Cake lady on the beach: the dream of Poo's palace (fade, teleport, flyover text)
-# npc1054 (ent3, a wanderer) is a frame further along its walk in the port after the teleport
-# (the emu's teleport load lags before the seed, and the setup's waits count wall frames) and
-# keeps that 2 px offset until the dream's TELEPORT_TO removes it
-# ignore: ent3\.pos 0-1591
-# ignore: near 0-1591
 # the dream TELEPORT_TO's SCREEN_TRANSITION lags on its first steps (1571-1572), so its exit loop
 # takes the extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door), marked at the loop's end
 # lag: 1592
 # teleport straight to the spot facing her (a walk there before the seed left the followers at
 # different spacings on the 2 sides)
-flag 617 1; teleport 5167 2864 2; until idle 300
+# the emu's teleport load lags before the seed, so its `until idle` (wall frames) leaves one logic
+# frame fewer after the NPCs spawn: the wanderer npc1054 (ent3) would be a frame behind the port's
+# on its walk; the extra emu frame lines it up (checked: no mask needed, everything matches)
+flag 617 1; teleport 5167 2864 2; emu: wait 1
+until idle 300
 ---
 press A; wait 30; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200
 press A; wait 200; press A; wait 200; press A; wait 3000
