@@ -2085,6 +2085,10 @@ typedef struct {
                                * (1 = TS_WARMUP render, 2 = TS_INPUT render,
                                * 3 = TS_SEQ_FIRST render) */
     uint16_t frame;           /* TS_WARMUP: warm-up frame counter */
+    uint8_t  fade_tail;       /* TS_FADEOUT: FADE_OUT_WITH_MOSAIC @WAIT_VBLANK frames
+                               * left after the ramp (2 after RUN_TITLE_SEQUENCE,
+                               * whose fade SHOW_TITLE_SCREEN's own one follows) */
+    uint8_t  fade_tails_done; /* TS_FADEOUT: @WAIT_VBLANK frames run so far */
 } TitleScreenState;
 
 /* GAME_MODE_ATTRACT — run-to-completion port of run_attract_mode() (attract_mode.c),

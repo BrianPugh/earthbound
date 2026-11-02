@@ -34,6 +34,11 @@ static void fade_out_if_visible(void) {
         wait_for_vblank();
     }
     ppu.inidisp = 0x80;
+    /* @FADE_DONE: HDMAEN off, then @WAIT_VBLANK spins on NEW_FRAME_STARTED for one
+     * more frame (no joypad read: it isn't WAIT_UNTIL_NEXT_FRAME) */
+    ppu.window_hdma_active = false;
+    memory_skip_next_joypad_update();
+    wait_for_vblank();
 }
 
 /* Exit cleanup from INIT_INTRO.

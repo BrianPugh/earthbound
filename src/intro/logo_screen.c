@@ -161,7 +161,10 @@ static StepResult intro_logo_push_fade(MosaicFadeKind kind, uint8_t step, uint16
     g_mode_push_init.mosaic_fade.kind  = (uint8_t)kind;
     g_mode_push_init.mosaic_fade.step  = step;
     g_mode_push_init.mosaic_fade.delay = delay;
-    /* mosaic_bgs = 0 (logos use no mosaic); final_hdma = 0; phase/delay_left = 0 */
+    /* LOGO_SCREEN calls the real FADE_OUT_WITH_MOSAIC, whose @FADE_DONE always clears
+     * HDMAEN and waits one more vblank (@WAIT_VBLANK) after going black: that frame
+     * is final_hdma's trailing yield. mosaic_bgs = 0 (logos use no mosaic). */
+    g_mode_push_init.mosaic_fade.final_hdma = (kind == MF_OUT);
     return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
 }
 

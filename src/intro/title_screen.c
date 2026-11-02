@@ -107,6 +107,23 @@ static StepResult title_fadeout_step(TitleScreenState *s) {
     }
     if (s->fade_b == 0) {
         ppu.inidisp = 0x80;
+        if (s->fade_tail > 0) {
+            if (s->fade_tails_done > 0) {
+                /* RUN_TITLE_SEQUENCE's own exit after its fade-out, before
+                 * SHOW_TITLE_SCREEN's: STZ ACTIONSCRIPT_STATE, SETUP_ENTITY_COLOR_
+                 * MATH(0), INIT_ENTITY_SYSTEM */
+                ert.actionscript_state = 0;
+                setup_entity_color_math();
+                entity_system_init();
+            }
+            /* @FADE_DONE: HDMAEN off, then @WAIT_VBLANK, a bare NEW_FRAME_STARTED
+             * spin (no joypad read), before the cleanup */
+            s->fade_tail--;
+            s->fade_tails_done++;
+            ppu.window_hdma_active = false;
+            memory_skip_next_joypad_update();
+            return STEP_RESULT_CONTINUE();
+        }
         ppu.bg_viewport_fill[0] = BG_VIEWPORT_CENTER;
         ppu.sprite_x_offset = 0;
         ppu.sprite_y_offset = 0;
@@ -128,6 +145,8 @@ static StepResult title_begin_fadeout(TitleScreenState *s, uint8_t result) {
     s->phase = TS_FADEOUT;
     s->fade_b = (ppu.inidisp & 0x80) ? 0 : (ppu.inidisp & 0x0F);
     s->fade_delay_left = 0;
+    if (s->fade_tail == 0)
+        s->fade_tail = 1;
     return title_fadeout_step(s);
 }
 
@@ -148,7 +167,7 @@ static void title_oam_clear(void) {
  * START or actionscript wait and FADE_OUT_WITH_MOSAIC(1,4,0)) runs through
  * TS_SEQ_FIRST and the quick-mode TS_WARMUP / TS_INPUT / TS_FADEOUT phases.
  * SHOW_TITLE_SCREEN's own fade-out afterwards finds the screen force-blanked
- * and returns at once. */
+ * and only waits its @WAIT_VBLANK frame (fade_tail). */
 static void title_run_sequence_setup(TitleScreenState *s) {
     ppu.inidisp = 0x80;                 /* FORCE_BLANK_AND_WAIT_VBLANK */
     entity_system_init();               /* INIT_ENTITY_SYSTEM */
@@ -160,6 +179,7 @@ static void title_run_sequence_setup(TitleScreenState *s) {
     ert.actionscript_state = 0;
     s->quick_mode = 1;
     s->frame = 0;
+    s->fade_tail = 2; /* RUN_TITLE_SEQUENCE's fade-out, then SHOW_TITLE_SCREEN's */
     s->phase = TS_SEQ_FIRST;
 }
 
