@@ -1,0 +1,9 @@
+# save: 16-Fourside
+# Fourside bakery: out the glass door onto the street
+# the door's SCREEN_TRANSITION takes hotel-door's extra exit-loop wait (CPU time)
+# lag: 25
+# idle=fade: NMI-stepped fade-in after the original's load lag
+# ignore: idle
+teleport 4552 5480 2; wait 10; until idle 300
+---
+150 RIGHT; 400 -

@@ -1,0 +1,8 @@
+# save: 06-ToHappy
+# Everyone at 1 HP: the overworld game over, "another shot?" Yes, revive at the phone; the last
+# presses open the pause menu and Talk to the phone (its contact menu)
+flag 11 1; teleport 6112 7776; wait 10; until idle 300; hp 1 1; hp 2 1; flag 11 0
+---
+200 LEFT; 200 RIGHT; 200 LEFT; 100 RIGHT
+press A; wait 120; press A; wait 120; press A; wait 120; press A; wait 120; press A; wait 120; press A; wait 120
+press A; wait 120; press A; wait 120; press A; wait 600

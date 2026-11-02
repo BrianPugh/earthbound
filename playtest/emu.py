@@ -1443,6 +1443,16 @@ class Player:
                 if hasattr(self, "last_count"):  # --count-frames counts in FRAME_COUNTER
                     self.last_count = ints[0] & 0xFF
             log(f"FC {g.w8(g.sym('FRAME_COUNTER'))}")
+        elif cmd == "peek":
+            # peek SYMBOL [INDEX] [COUNT]: 16-bit words at SYMBOL + 2*INDEX (WRAM tables)
+            if not args or args[0] not in g.syms:
+                self.err("usage: peek SYMBOL [INDEX] [COUNT]")
+                return
+            nums = [int(a, 0) for a in args[1:3]]
+            idx = nums[0] if nums else 0
+            cnt = nums[1] if len(nums) > 1 else 1
+            base = g.sym(args[0]) + 2 * idx
+            log(f"PEEK {args[0]}[{idx}] " + " ".join(f"{g.w16(base + 2 * k):04X}" for k in range(cnt)))
         elif cmd == "digest":
             self.print_digest()
         elif cmd == "money":

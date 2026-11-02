@@ -1,0 +1,9 @@
+# save: 12-Zombies
+# Threed hotel lobby: out the front door onto the zombie street, then stand
+# the door's SCREEN_TRANSITION takes hotel-door's extra exit-loop wait after the original's
+# first-step lag (CPU time); the street lags the original on every frame (sustained load), so the
+# body stops walking inside the transition (a lag frame reads the previous frame's pad)
+# lag: 160
+wait 5
+---
+20 DOWN; 125 RIGHT; 505 -

@@ -158,6 +158,7 @@ Instant (no frame passes):
 | `ehp ENEMY N` | in a battle, set enemy ENEMY's (the `[i]` index in ENEMIES) HP and HP target to N |
 | `hpt` | print `HPT id:HP/PP ... exp E ... bank B`: each member's HP/PP *rolling target* (where the meter will settle, so big hits show before the meter catches up), exp, and the bank balance |
 | `digest` | print `DIGEST flags=HEX items=ID:HEX,... bgm=N ents=SLOT:SCRIPT@X,Y/DIR/SPRITE,... wins=ID:X,Y,WxH,... focus=N` (raw state for autodiff.py; emu.py prints the same) |
+| `peek SYMBOL [INDEX] [COUNT]` | emu only: print `PEEK SYMBOL[INDEX] HHHH ...`, COUNT 16-bit WRAM words from SYMBOL + 2*INDEX (entity tables by slot, e.g. `peek ENTITY_OBSTACLE_FLAGS 2`) |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |
