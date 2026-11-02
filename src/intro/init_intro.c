@@ -232,6 +232,10 @@ StepResult mode_step_init_intro(ModeState *ms) {
         }
 
         case II_FILE_MENU_DONE:
+            /* file_select_init.asm:82-83: DEACTIVATE_ENTITY_FAR($17) stops the
+             * file select's battle-BG entity (EVENT_787, spawned in slot 23 by
+             * file_select_init). */
+            deactivate_entity(INIT_ENTITY_SLOT);
             /* Critical: ow.disabled_transitions must be cleared or the overworld
              * text/palette/pajama systems won't function. event_script_data is
              * NOT freed — it's needed by the main game loop. */

@@ -2,7 +2,6 @@
 # boot: menu
 # Naming keyboard: type, delete (B and the Backspace key), CAPITAL/small, Don't Care
 # twice, OK; then B on Paula's empty name goes back to Ness's keyboard
-# ignore: ent23\..*
 ---
 press A; wait 60; press A; wait 30; press A; wait 30; press A; wait 60
 press A; wait 30

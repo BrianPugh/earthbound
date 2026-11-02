@@ -2,9 +2,6 @@
 # boot: menu
 # File select with slot 1 used: empty slot 2 (text speed menu, B back to slot 1), slot 1's
 # submenu (Copy -> B, Set Up -> B), then Continue into the game
-# The port runs FILE_SELECT_INIT's battle-BG entity (EVENT_787, slot 23) as a stand-in
-# call (file_menu_bg_update), so slot 23 is empty there
-# ignore: ent23\..*
 # The original loads the map across lag frames after Continue: frame 870 is sampled
 # part-way through it (still in FILE_SELECT_INIT)
 # skip: 870

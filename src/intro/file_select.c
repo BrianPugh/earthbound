@@ -126,12 +126,17 @@ static void file_select_init(void) {
     /* Step 1: Force blank and wait vblank */
     ppu.inidisp = 0x80;
 
-    /* Step 2: Initialize entity/graphics systems (simplified) */
-    /* In the ROM: INIT_ENTITY_SYSTEM, OAM_CLEAR, UPDATE_SCREEN, etc. */
+    /* Step 2 (file_select_init.asm:8-16): INIT_ENTITY_SYSTEM, OAM_CLEAR,
+     * CLEAR_OVERWORLD_SPRITEMAPS, ALLOC_SPRITE_MEM(X=0, A=$8000),
+     * INITIALIZE_MISC_OBJECT_DATA. The title screen's entities end here. */
+    entity_system_init();
     for (int i = 0; i < 128; i++) {
         ppu.oam[i].y = EB_VIEWPORT_HEIGHT;
         ppu.oam_full_y[i] = EB_VIEWPORT_HEIGHT;
     }
+    clear_overworld_spritemaps();
+    alloc_sprite_mem(0x8000, 0);
+    initialize_misc_object_data();
 
     /* Step 3: Set BG mode $09 (Mode 1 + BG3 priority) */
     ppu.bgmode = 0x09;
@@ -198,6 +203,16 @@ static void file_select_init(void) {
             }
         }
     }
+
+    /* Step 11d (file_select_init.asm:56-63): the battle BG is animated by an
+     * entity: EVENT_787 (EVENT_BATTLE_FX) runs EVENT_UPDATE_BATTLE_SCREEN_EFFECTS
+     * on every frame RUN_ACTIONSCRIPT_FRAME runs (the RENDER_FRAME_TICKs of the
+     * naming screens and the post-menu WINDOW_TICK), in slot 23 (allocation
+     * range 23-24). The file menu's exit deactivates it (init_intro
+     * II_FILE_MENU_DONE). */
+    entities.alloc_min_slot = INIT_ENTITY_SLOT;
+    entities.alloc_max_slot = PARTY_LEADER_ENTITY_INDEX;
+    entity_init(EVENT_SCRIPT_BATTLE_FX, 0, 0);
 
     /* Step 12: Set TM = $16 (BG2 + BG3 + OBJ)
        This is the correct setting - BG2 for battle BG, BG3 for text, OBJ for cursor */
@@ -847,26 +862,6 @@ static uint8_t *name_target_buffer(int id) {
     }
 }
 
-/* The keyboard's battle-BG animation. TEXT_INPUT_DIALOG (text_input_dialog.asm:230)
- * draws each frame with RENDER_FRAME_TICK, whose overworld path
- * (render_frame_tick.asm:14-17) never touches the battle BG itself; the BG only
- * moves because RUN_ACTIONSCRIPT_FRAME runs EVENT_787 (EVENT_UPDATE_BATTLE_SCREEN_EFFECTS
- * every frame), which FILE_SELECT_INIT spawns (file_select_init.asm:56-63) and
- * deactivates on exit (:82-83). The port doesn't spawn EVENT_787 and calls
- * battle_bg_update() in its place, so do that only while the file menu (EVENT_787's
- * lifetime) is on the mode stack. The overworld name prompts (CC_1F_41 3/4 /
- * GAME_MODE_ENTER_NAME, e.g. Tony's call) have no EVENT_787, and a battle's BG
- * state left loaded there must not scroll the screen. The battle-mode branch of
- * RENDER_FRAME_TICK never applies: no keyboard runs in battle. */
-void file_menu_bg_update(void) {
-    for (int i = 0; i < g_mode_stack.depth; i++) {
-        if (g_mode_stack.mode[i] == GAME_MODE_FILE_MENU) {
-            battle_bg_update();
-            return;
-        }
-    }
-}
-
 /* GAME_MODE_TEXT_INPUT step — run-to-completion port of the text_input_dialog()
  * keyboard loop. Each step reads the input the pump's prior yield latched (when
  * `primed`), acts on it, then renders one frame; the pump owns the single yield.
@@ -899,7 +894,6 @@ StepResult mode_step_text_input(ModeState *st) {
         s->flush = 0;
         render_all_priority_sprites();
         sync_palettes_to_cgram();
-        file_menu_bg_update();
         s->primed = 1;
         return STEP_RESULT_CONTINUE();
     }
@@ -1212,9 +1206,6 @@ StepResult mode_step_text_input(ModeState *st) {
     /* Sync palette mirror to CGRAM (NMI handler does this in ROM) */
     sync_palettes_to_cgram();
 
-    /* Battle-BG animation (EVENT_787 stand-in; see file_menu_bg_update) */
-    file_menu_bg_update();
-
     s->primed = 1;
     return STEP_RESULT_CONTINUE();
 }
@@ -1299,7 +1290,6 @@ StepResult mode_step_naming_prompt(ModeState *st) {
         s->flush = 0;
         render_all_priority_sprites();
         sync_palettes_to_cgram();
-        battle_bg_update();
         naming_prompt_frame_done(s);
         return STEP_RESULT_CONTINUE();
     }
@@ -1329,7 +1319,6 @@ StepResult mode_step_naming_prompt(ModeState *st) {
     }
     render_all_priority_sprites();
     sync_palettes_to_cgram();
-    battle_bg_update();
 
     naming_prompt_frame_done(s);
     return STEP_RESULT_CONTINUE();
@@ -1348,10 +1337,9 @@ static void render_frame_tick_naming_work_flush(void) {
     /* Flush queued sprites to OAM */
     render_all_priority_sprites();
 
-    /* NMI equivalent: win.bg2_buffer sync + palette sync + BG animation */
+    /* NMI equivalent: win.bg2_buffer sync + palette sync */
     upload_battle_screen_to_vram();
     sync_palettes_to_cgram();
-    battle_bg_update();
 }
 
 /* Run-to-completion form of render_frame_tick_naming() (savestate D4b): a parked
@@ -1608,17 +1596,16 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     for (;;) {
         switch ((NewGameNamingPhase)st->phase) {
         case NGN_ENTER:
-            /* Matching assembly @CHANGE_TO_NAMING_SCREEN_MUSIC → @UNKNOWN18:
-               change music, close all windows, load naming-screen assets, then
-               init the entity system once before the naming loop. */
+            /* Matching assembly @CHANGE_TO_NAMING_SCREEN_MUSIC → @START_NAMING:
+               change music, close all windows, load naming-screen assets. */
             change_music(2); /* MUSIC::NAMING_SCREEN */
             (void)take_unpresented_ticks();
             close_all_windows();
             load_event_script_data();
             load_sprite_data();
-            entity_system_init();
-            clear_overworld_spritemaps();
-            memset(sprite_vram_table, 0, sizeof(sprite_vram_table));
+            /* No entity reset here (@CHANGE_TO_NAMING_SCREEN_MUSIC /
+             * @START_NAMING): FILE_SELECT_INIT's INIT_ENTITY_SYSTEM already ran,
+             * and the battle-BG entity (EVENT_787, slot 23) keeps running. */
             st->char_i = 0;
             st->phase = NGN_LOOP_HEAD;
             {
@@ -1857,8 +1844,10 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 /* Nope (file_select_menu_loop.asm:476-479, 131-136):
                    CLEAR_MAP_ENTITIES, then @START_NAMING: CLOSE_ALL_WINDOWS and
                    naming from the first character. The music and the one-shot
-                   setup of NGN_ENTER are not redone. */
-                entity_system_init();
+                   setup of NGN_ENTER are not redone. CLEAR_MAP_ENTITIES also
+                   deactivates slot 23, the battle-BG entity: the BG holds still
+                   from here on, as in the original. */
+                clear_map_entities();
                 close_all_windows();
                 *st = (NewGameNamingState){ .phase = NGN_LOOP_HEAD, .char_i = 0 };
                 continue;
@@ -1887,14 +1876,12 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
                 st->phase = NGN_CONFIRM_FLUSH;
                 return actionscript_frame_take_push();
             }
-            file_menu_bg_update();  /* EVENT_787's frame (see file_menu_bg_update) */
             return STEP_RESULT_CONTINUE();
         }
 
         case NGN_CONFIRM_FLUSH:
             /* A parked actionscript frame finished: complete that frame. */
             render_frame_tick_work_flush();
-            file_menu_bg_update();
             st->phase = NGN_CONFIRM_WAIT;
             return STEP_RESULT_CONTINUE();
 
@@ -1908,7 +1895,7 @@ StepResult mode_step_new_game_naming(ModeState *ms) {
     /* ---- NGN_FINALIZE: initialise the new game (synchronous) ---------------- */
 
     /* Clear map entities after animation (assembly line 498) */
-    entity_system_init();
+    clear_map_entities();
 
     /* Initialize character stats from INITIAL_STATS (asm/data/initial_stats.asm).
      * Assembly: file_select_menu_loop.asm lines 501-576.
@@ -2091,8 +2078,8 @@ StepResult mode_step_file_menu(ModeState *ms) {
         case FM_FADEIN_WAIT:
             /* FILE_SELECT_MENU's @WAIT_FADE (file_select_menu.asm:262-265) is a
              * bare busy loop on fade_parameters::step while NMI steps the fade:
-             * no RENDER_FRAME_TICK, so EVENT_787 (the battle BG, whose stand-in
-             * is battle_bg_update) doesn't advance during the fade-in. */
+             * no RENDER_FRAME_TICK, so EVENT_787 (the battle BG) doesn't advance
+             * during the fade-in. */
             if (fade_active()) {
                 fade_update();
                 return STEP_RESULT_CONTINUE();
@@ -2101,8 +2088,9 @@ StepResult mode_step_file_menu(ModeState *ms) {
             continue;
 
         case FM_SELECT: {
-            /* Outer-loop head: battle_bg_update once, then the slot list. */
-            battle_bg_update();
+            /* Outer-loop head (file_select_menu_loop.asm @FILE_SELECT_TOP): the
+             * slot list. Its menus print instantly, so their WINDOW_TICKs run no
+             * RENDER_FRAME_TICK and the battle BG (EVENT_787) holds still. */
             int e = fm_file_select_build();
             if (e >= 0) {            /* create-window failure → inline result */
                 st->result_ready = 1;

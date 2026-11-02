@@ -429,9 +429,7 @@ File select, naming and new games: `# save: blank` boots an empty 8 KB SRAM
 that stops at the file select menu's first input wait (port `until in:FILE_MENU
 3000 START*`, emu the same through its `FILE_MENU` alias for FILE_SELECT_INIT, then
 `until input` on both); the body then picks the slot, opens Copy / Set Up, starts a
-new game, names the party (new-game.play, naming-keys.play, file-select.play). The
-port has no FILE_SELECT_INIT battle-BG entity (EVENT_787 in slot 23, a stand-in
-call), so these scenarios ignore `ent23`. When the original leaves the file menu
+new game, names the party (new-game.play, naming-keys.play, file-select.play). When the original leaves the file menu
 it loads the overworld inside lag frames, and the first emu sample there can land
 part-way through the load (still in FILE_SELECT_INIT, before the party or the map
 exists) without an `LSTEP mid` mark: a `# skip: K` line drops frame K from the

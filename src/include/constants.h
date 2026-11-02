@@ -104,6 +104,7 @@ enum TextFlavour {
  * No event number; DEACTIVATE_NPC_ENTITY/DEACTIVATE_SPRITE_ENTITY LOADPTR it. */
 #define ROM_ADDR_BRIEF_PAUSE_END_TASK 0xC3A209
 #define EVENT_SCRIPT_MINI_GHOST    786   /* EVENT_MINI_GHOST: mini ghost entity */
+#define EVENT_SCRIPT_BATTLE_FX     787   /* EVENT_787 (EVENT_BATTLE_FX): the file select's battle-BG ticker */
 #define EVENT_SCRIPT_ENTITY_WIPE   859   /* EVENT_ENTITY_WIPE: fade/wipe animation driver */
 #define EVENT_SCRIPT_799  799  /* Photo object entity script */
 #define EVENT_SCRIPT_800  800  /* Photo party entity script */
