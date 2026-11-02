@@ -1,0 +1,7 @@
+# save: 34-Magicant
+# Magicant pink maze: walk west until an enemy touches Ness, Bash x3 presses, the battle
+# plays out. (Near the save point the wandering NPCs' timers differ before the seed, so
+# this starts at the maze, which has none.)
+teleport 5984 3648 6; until idle 600; wait 30
+---
+400 LEFT; 100 -; press A; wait 20; press A; wait 20; press A; wait 800

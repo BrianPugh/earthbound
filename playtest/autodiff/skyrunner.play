@@ -1,0 +1,66 @@
+# save: 11-Winters
+# Winters lab: in through the door, talk to Dr. Andonuts (donut No, Stonehenge Yes, the
+# Sky Runner offer), board the Sky Runner, the flight over the world and the crash in
+# Threed, to the jail's Yes/No
+# The lab walk lags the original every ~6 frames (pads reach it a frame late around each),
+# and the flight's TELEPORTs load inside lag frames: the emu runs overclocked (no lag)
+# overclock: max
+# Each door / TELEPORT load: the first emu sample is part-way in (skip) and the fade-in
+# ends one frame later in the original (lag); idle=fade differs on those frames too
+# ignore: idle
+# skip: 56
+# lag: 76
+# skip: 2962
+# lag: 2982
+# skip: 3566
+# lag: 3586
+# skip: 4232
+# lag: 4252
+# skip: 4765
+# lag: 4785
+# skip: 5431
+# lag: 5451
+# skip: 6213
+# lag: 6233
+# skip: 6879
+# lag: 6899
+# skip: 10390
+# lag: 10410
+flag 11 1; teleport 320 4930 0; wait 10
+---
+40 UP; 60 -; 16 DOWN; 100 LEFT; 24 UP; 20 LEFT; press A; wait 30; press A
+wait 53; press A
+wait 138; press A
+wait 84; press A
+wait 38; press A
+wait 35; press A
+wait 10; press RIGHT; wait 10; press A
+wait 68; press A
+wait 40; press A
+wait 10; press A
+wait 25; press A
+wait 19; press A
+wait 29; press A
+wait 10; press A
+wait 50; press A
+wait 29; press A
+wait 83; press A
+wait 22; press A
+wait 57; press A
+wait 47; press A
+wait 79; press A
+wait 55; press A
+wait 47; press A
+wait 64; press A
+wait 43; press A
+wait 10; 80 LEFT; 12 UP; 12 LEFT
+wait 755; press A
+wait 62; press A
+wait 8034; press A
+wait 88; press A
+wait 10; press A
+wait 102; press A
+wait 30; press A
+wait 86; press A
+wait 86; press A
+wait 30

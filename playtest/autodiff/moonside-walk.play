@@ -1,0 +1,9 @@
+# save: 19-Moonside
+# Moonside streets: walk from the café exit east past the hotel
+# Moonside's logic overruns every frame in the original (its palette cycling), so no frame
+# boundary falls on a wall-frame boundary and every sample would be LSTEP mid: the emu
+# runs overclocked
+# overclock: max
+flag 11 1; teleport 7360 3903 4; until idle 600; wait 30
+---
+100 DOWN+RIGHT; 100 RIGHT; 100 UP+RIGHT; 60 UP; 150 RIGHT; 60 -

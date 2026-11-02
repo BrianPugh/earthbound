@@ -1,0 +1,9 @@
+# save: 28-Scaraba
+# Scaraba desert: walk until a UFO group touches the party, Auto Fight
+# The desert overworld lags the original every few frames (enemies, sunstroke), which
+# moves the pads a frame around each and the enemy spawns before the seed: the emu runs
+# overclocked
+# overclock: max
+teleport 1400 5600 4; until idle 600; wait 30
+---
+48 RIGHT; 48 DOWN; 48 LEFT; 48 UP; 15 RIGHT; 300 -; press RIGHT 2; press A; wait 4000
