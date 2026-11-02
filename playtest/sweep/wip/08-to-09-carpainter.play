@@ -1,0 +1,27 @@
+# save: 08-Carpainter
+# late-pads
+# skip: 154
+# lag: 174
+# overclock-on: 200
+# skip: 794
+# lag: 814
+# skip: 3488
+# lag: 3508
+# ignore: idle 3518
+# skip: 3884
+# lag: 3904
+# ignore: idle 3914
+---
+10 DOWN; 113 RIGHT; 8 UP; 55 -; 24 DOWN+LEFT; 10 DOWN; 22 DOWN+LEFT; 95 LEFT; 24 DOWN+LEFT; 46 DOWN
+25 DOWN+LEFT; 23 DOWN; 15 DOWN+LEFT; 70 LEFT; 12 DOWN+LEFT; 3 DOWN; 12 DOWN+LEFT; 30 LEFT; 30 DOWN; 19 DOWN+RIGHT
+77 RIGHT; 16 DOWN; 7 LEFT; 120 UP; 2 -; 78 DOWN+LEFT; 30 LEFT; 6 RIGHT; 20 DOWN; 6 LEFT
+10 DOWN; 4 UP; 4 RIGHT; 30 DOWN+LEFT; 20 DOWN; 2 A; 12 -; 2 A; 12 -; 1 A
+73 -; 1 A; 47 -; 1 A; 37 -; 40 DOWN; 45 LEFT; 30 UP; 2 A; 12 -
+2 A; 12 -; 1 A; 69 -; 1 A; 23 -; 1 A; 37 -; 2 A; 12 -
+2 A; 22 -; 1 A; 4 -; 16 UP; 2 A; 12 -; 2 A; 14 -; 1 A
+69 -; 1 A; 37 -; 40 UP; 4 DOWN; 100 LEFT; 10 UP; 100 LEFT; 3 RIGHT; 20 DOWN
+2 A; 12 -; 2 A; 12 -; 1 A; 37 -; 1 A; 67 -; 1 A; 37 -
+14 DOWN; 2 A; 12 -; 2 A; 12 -; 1 A; 51 -; 1 A; 171 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 402 -; 1 A; 73 -; 11 UP; 60 LEFT; 29 DOWN
+60 LEFT; 40 DOWN+LEFT; 20 LEFT; 20 DOWN; 100 LEFT; 12 UP; 60 LEFT; 40 UP+LEFT; 20 UP; 10 RIGHT
+150 UP+LEFT; 2 -; 12 DOWN; 250 LEFT; 6 RIGHT; 40 UP; 33 -; 30 DOWN; 60 RIGHT; 106 UP
