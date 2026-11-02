@@ -610,7 +610,9 @@ def main():
         shutil.rmtree(rd, ignore_errors=True)
     res = run_all(cases, [a.bin], [rd], a.j, a.timeout)[str(rd)]
     if text_only:
-        res = {k: text_golden(v) for k, v in res.items()}
+        # text_golden() drops the lost-frame keys (VOLATILE); keep them for the lost-frame report
+        lost_keys = ("lost_frames", "lost_check")
+        res = {k: {**text_golden(v), **{f: v[f] for f in lost_keys if f in v}} for k, v in res.items()}
     n = report(golden, res, OUT / "diff" / f"golden-{a.name}-vs-check", src, a.bin, clean=not a.k, lost_a=False)
     return 1 if n else 0
 
