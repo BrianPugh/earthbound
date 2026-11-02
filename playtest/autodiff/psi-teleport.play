@@ -1,0 +1,13 @@
+# save: 24-Museum
+# PSI Teleport alpha from the pause menu: the run, the vanish, the arrival in Twoson
+# INIT_TELEPORT_ARRIVAL calls FADE_OUT inside a lag frame whose NMI already fired, so the first
+# RUN_FRAMES_UNTIL_FADE_DONE wait returns without a fade step and the original runs one more
+# frame of the run before the screen is dark (CPU time; the fade steps on NMIs)
+# lag: 483
+# Ness's PP meter drops a frame later in the emu right after the menu-close lag stretch (289-295),
+# where the HP/PP roller's FRAME_COUNTER phase crosses lag-merged frames (1 frame, harness)
+# ignore: party
+flag 11 1; teleport 4000 9300 6; wait 10; until idle 300
+---
+press A; wait 30; press DOWN; press A; wait 60; press A; wait 60; press DOWN 2; wait 30; press A; wait 60
+press DOWN; press A; wait 1500
