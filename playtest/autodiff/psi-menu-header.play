@@ -1,0 +1,8 @@
+# save: 24-Museum
+# Overworld PSI with several PSI users: "Who?" picks Ness, and the A that follows lands on
+# the ability list's first input frame. CLOSE_MENU_HEADER_WINDOW's WINDOW_TICK
+# (overworld_psi_menu.asm:56) is a frame of its own before the list's SELECTION_MENU, so a
+# list that opens a frame early takes the A a frame early (Lifeup's targeting window)
+hp 2 20
+---
+2 A; 16 -; 2 DOWN; 4 -; 2 A; 17 -; 2 A; 1 -; 1 A; 60 -

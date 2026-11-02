@@ -654,6 +654,7 @@ typedef struct {
 typedef enum {
     EEM_ENTER = 0,  /* build the storage menu; push SELECTION_MENU */
     EEM_RESULT,     /* cleanup, POP the selection index */
+    EEM_MENU,       /* after SET_WINDOW_TITLE's waits: push SELECTION_MENU */
 } EscargoMenuPhase;
 
 typedef struct {
@@ -749,6 +750,7 @@ typedef enum {
     BP_RET_CLOSE_STD,   /* @CLOSE_AND_RETURN: close the ability list */
     BP_RET_CLOSE_CAT,   /* @CLOSE_AND_RETURN: close the category window */
     BP_RET,             /* pop `result` */
+    BP_LIST_MENU,       /* after GENERATE_BATTLE_PSI_LIST's tick frame: push SELECTION_MENU */
 } BattlePsiMenuPhase;
 
 typedef struct {
@@ -2259,6 +2261,7 @@ typedef struct {
 typedef enum {
     EN_ENTER = 0,       /* set up prompt window + push TEXT_INPUT */
     EN_DONE,            /* keyboard done: finalize + POP the result */
+    EN_POP,             /* after the CLOSE_WINDOWs' frames: POP the result */
 } EnterNamePhase;
 
 typedef struct {

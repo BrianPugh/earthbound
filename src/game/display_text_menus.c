@@ -169,6 +169,18 @@ StepResult mode_step_enter_name(ModeState *st) {
         close_window(WINDOW_NAMING_PROMPT);
         dt.enable_word_wrap = 0xFF;
         dt.allow_text_overflow = 0;
+        /* @DONE's CLOSE_WINDOWs (the keyboard's, run by TEXT_INPUT this
+         * frame, and the prompt's) each end with a WINDOW_TICK: frames of
+         * their own before the calling script prints on. */
+        s->phase = EN_POP;
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+        return STEP_RESULT_POP(s->result);
+
+    case EN_POP:
         return STEP_RESULT_POP(s->result);
     }
 
@@ -1190,6 +1202,20 @@ StepResult mode_step_escargo_menu(ModeState *ms) {
 
         open_window_and_print_menu(2, 0);
 
+        /* SET_WINDOW_TITLE's 2 waits ("Stored Goods(1)"), and PRINT_MENU_ITEMS'
+         * 2 more when it retitles a multi-page list, come before
+         * SELECTION_MENU's first WINDOW_TICK (as in the telephone and teleport
+         * menus). */
+        st->phase = EEM_MENU;
+        {
+            uint16_t owed = take_unpresented_ticks();
+            if (owed)
+                return battle_wait_push_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+        }
+    }
+        EB_FALLTHROUGH;
+
+    case EEM_MENU: {
         /* selection_menu(1) — STEP_PUSH; cleanup runs in EEM_RESULT after it
          * pops. selection_menu() returns 0 without pumping for an empty menu —
          * replicate that early-out. */

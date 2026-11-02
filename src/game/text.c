@@ -2045,17 +2045,22 @@ StepResult mode_step_psi_menu(ModeState *ms) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_CHAR_SELECT, &g_mode_push_init);
         }
 
-        case PS_CHAR_RESULT:
+        case PS_CHAR_RESULT: {
+            /* CLOSE_MENU_HEADER_WINDOW's WINDOW_TICK (overworld_psi_menu.asm:56)
+             * is a frame of its own before the ability list's SELECTION_MENU
+             * (or the cancel's CLOSE_WINDOW). */
+            StepResult r;
             st->char_id = (uint16_t)mode_child_result();
+            (void)take_unpresented_ticks();
             close_menu_header_window();
-            if (st->char_id == 0) {
-                st->phase = PS_EXIT;  /* cancelled */
-                continue;
+            if (st->char_id != 0) {
+                overworld_selected_psi_user = st->char_id;
+                st->last_ability = 0x00FF;
             }
-            overworld_selected_psi_user = st->char_id;
-            st->last_ability = 0x00FF;
-            st->phase = PS_ABILITY;
+            if (menu_flush_ticks(&st->phase, st->char_id == 0 ? PS_EXIT : PS_ABILITY, &r))
+                return r;
             continue;
+        }
 
         case PS_ABILITY:
             /* @PSI_ABILITY_LOOP head (assembly lines 68-90) */

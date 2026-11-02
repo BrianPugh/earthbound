@@ -1,0 +1,8 @@
+# save: 24-Museum
+# Battle PSI: Ness picks Offense, and the A that follows lands on the ability list's first
+# input frame. GENERATE_BATTLE_PSI_LIST's WINDOW_TICK_WITHOUT_INSTANT_PRINTING
+# (generate_battle_psi_list.asm:26-28) is a frame of its own before the list's
+# SELECTION_MENU, so a list that opens a frame early takes the A a frame early
+teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+2 DOWN; 4 -; 2 A; 34 -; 2 A; 1 -; 1 A; 80 -

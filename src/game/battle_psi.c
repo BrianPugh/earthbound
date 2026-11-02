@@ -646,9 +646,15 @@ StepResult mode_step_battle_psi_menu(ModeState *ms) {
         case BP_LIST:
             /* @OPEN_PSI_LIST: build the ability list for the category; the
              * target/cost cursor callback rides the WindowInfo. */
+            (void)take_unpresented_ticks();
             create_window(WINDOW_TEXT_STANDARD);
             generate_battle_psi_list_callback(st->category);
             set_cursor_move_callback(display_psi_target_and_cost, CURSOR_CB_PSI_TARGET_COST);
+            if (bp_flush(&g_mode_push_init, &st->phase, BP_LIST_MENU, &r))
+                return r;
+            EB_FALLTHROUGH;
+
+        case BP_LIST_MENU:
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
             g_mode_push_init.selection_menu.phase        = SM_SETUP;
             g_mode_push_init.selection_menu.allow_cancel = 1;

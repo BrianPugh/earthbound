@@ -1,0 +1,11 @@
+# save: 29-DungeonM
+# Phone, Escargo Express, Delivery: the "Stored Goods" list (SELECT_ESCARGO_EXPRESS_ITEM).
+# SET_WINDOW_TITLE's 2 waits and PRINT_MENU_ITEMS' retitle to "Stored Goods(1)" (2 more) come
+# before the list's SELECTION_MENU; the DOWN lands on the list's first input frames, so a
+# list that opens early takes it on another frame. Body from a port run (padlog_body.py)
+# teleport to the save's own spot first: it clears the enemies the save loaded
+flag 11 1; teleport 4304 688 0; until idle 300
+---
+2 A; 6 -; 2 A; 28 -; 1 A; 15 -; 2 DOWN; 4 -; 2 DOWN; 4 -
+2 A; 34 -; 1 A; 33 -; 1 A; 17 -; 1 A; 43 -; 1 A; 35 -
+2 RIGHT; 4 -; 2 A; 76 -; 1 A; 35 -; 1 A; 4 -; 1 DOWN; 30 -
