@@ -600,9 +600,13 @@ static void print_state(const char *label) {
     }
     printf("\n");
 
+    /* In battle = BATTLE_MODE_FLAG, as emu.py's in_battle(): it is cleared at the
+     * battle's teardown, before the BATTLE mode pops and the map reloads. */
+    bool in_battle = bt.battle_mode_flag != 0;
+
     /* Followers: (dx,dy) of each party entity from the leader entity, in
      * party order. A hidden follower (spacing / no sprite) is marked. */
-    if (!mode_on_stack(GAME_MODE_BATTLE) && (game_state.party_count > 1 || ow.mini_ghost_entity_id >= 0)) {
+    if (!in_battle && (game_state.party_count > 1 || ow.mini_ghost_entity_id >= 0)) {
         int lead = game_state.current_party_members;
         printf("FOLLOW");
         for (int i = 0; i < game_state.party_count && i < TOTAL_PARTY_COUNT; i++) {
@@ -621,7 +625,7 @@ static void print_state(const char *label) {
     }
 
     /* Nearby overworld entities (not the party), relative to the leader */
-    if (!mode_on_stack(GAME_MODE_BATTLE)) {
+    if (!in_battle) {
         bool any = false;
         for (int e = entities.first_entity; e >= 0 && e < MAX_ENTITIES; e = entities.next_entity[e]) {
             if (e >= PARTY_LEADER_ENTITY_INDEX || entities.script_table[e] == ENTITY_NONE ||
@@ -646,7 +650,7 @@ static void print_state(const char *label) {
             printf("\n");
     }
 
-    if (mode_on_stack(GAME_MODE_BATTLE) && enemy_config_table) {
+    if (in_battle && enemy_config_table) {
         printf("ENEMIES");
         for (int i = FIRST_ENEMY_INDEX; i < BATTLER_COUNT; i++) {
             const Battler *b = &bt.battlers_table[i];
