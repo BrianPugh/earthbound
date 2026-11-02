@@ -258,7 +258,13 @@ StepResult mode_step_title_screen(ModeState *st) {
          * waits again; otherwise it goes to file select (result 1). */
         if (platform_input_get_pad_new() & (PAD_A | PAD_B | PAD_START)) {
             if (!s->quick_mode && ert.actionscript_state == 0) {
-                title_run_sequence_setup(s);
+                /* RUN_TITLE_SEQUENCE opens with FORCE_BLANK_AND_WAIT_VBLANK (a bare
+                 * NEW_FRAME_STARTED spin, no joypad read); its setup runs after it */
+                ppu.inidisp = 0x80;
+                ppu.window_hdma_active = false;
+                fade_state.fading = false;
+                memory_skip_next_joypad_update();
+                s->phase = TS_SEQ_SETUP;
                 return STEP_RESULT_CONTINUE();
             }
             return title_begin_fadeout(s, 1);
@@ -270,6 +276,9 @@ StepResult mode_step_title_screen(ModeState *st) {
         }
         return STEP_RESULT_CONTINUE();
 
+    case TS_SEQ_SETUP:
+        title_run_sequence_setup(s);  /* -> TS_SEQ_FIRST */
+        EB_FALLTHROUGH;
     case TS_SEQ_FIRST:
         /* RUN_TITLE_SEQUENCE: one RENDER_FRAME_TICK, then FADE_IN(16, 1)
          * (one step to full brightness) and the 60-frame quick warm-up. */
@@ -283,6 +292,20 @@ StepResult mode_step_title_screen(ModeState *st) {
 
     case TS_FADEOUT:
         return title_fadeout_step(s);
+
+    case TS_BLANK:
+        /* SHOW_TITLE_SCREEN (non-quick), after the palette clear:
+         * BLANK_SCREEN_AND_WAIT_VBLANK (a bare NEW_FRAME_STARTED spin, no joypad
+         * read), then INIDISP = $0F and WAIT_UNTIL_NEXT_FRAME. The screen stays
+         * force-blanked here until TS_WARMUP's third frame (see there). */
+        ppu.inidisp = 0x80;
+        if (s->frame == 0)
+            memory_skip_next_joypad_update();
+        if (++s->frame >= 2) {
+            s->frame = 0;
+            s->phase = TS_WARMUP;
+        }
+        return STEP_RESULT_CONTINUE();
     }
     return STEP_RESULT_POP(s->result);
 }

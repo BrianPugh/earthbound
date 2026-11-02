@@ -132,9 +132,21 @@ StepResult mode_step_init_intro(ModeState *ms) {
         case II_TITLE:
             /* Title screen. */
             change_music(175); /* MUSIC::TITLE_SCREEN */
+            /* SHOW_TITLE_SCREEN opens with FORCE_BLANK_AND_WAIT_VBLANK: force blank,
+             * HDMA and the NMI fade off, then a bare NEW_FRAME_STARTED spin (no
+             * joypad read). The rest of the setup runs in the next frame. */
+            ppu.inidisp = 0x80;
+            ppu.window_hdma_active = false;
+            fade_state.fading = false;
+            memory_skip_next_joypad_update();
+            st->phase = II_TITLE_SETUP;
+            return STEP_RESULT_CONTINUE();
+
+        case II_TITLE_SETUP:
             title_screen_setup(st->title_quick_mode);
             memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
-            g_mode_push_init.title_screen.phase      = TS_WARMUP;
+            /* Non-quick: 2 more blank frames before the warm-up (TS_BLANK) */
+            g_mode_push_init.title_screen.phase      = st->title_quick_mode ? TS_WARMUP : TS_BLANK;
             g_mode_push_init.title_screen.quick_mode = st->title_quick_mode;
             st->title_quick_mode = 0;   /* consumed (asm clears title_quick_mode) */
             st->phase = II_TITLE_RESULT;
@@ -190,6 +202,26 @@ StepResult mode_step_init_intro(ModeState *ms) {
              * The yield-free file-menu setup runs inline (file_menu_setup); the
              * cascade runs as GAME_MODE_FILE_MENU. */
             init_intro_exit_cleanup();
+            /* FILE_SELECT_INIT opens with FORCE_BLANK_AND_WAIT_VBLANK, and its
+             * LOAD_BACKGROUND_ANIMATION waits 2 more blank frames
+             * (FORCE_BLANK_AND_WAIT_VBLANK, then BLANK_SCREEN_AND_WAIT_VBLANK after
+             * LOAD_BATTLE_BG): bare NEW_FRAME_STARTED spins, no joypad read. Its
+             * other work shows nothing until then, so it all runs after them. */
+            ppu.inidisp = 0x80;
+            ppu.window_hdma_active = false;
+            fade_state.fading = false;
+            memory_skip_next_joypad_update();
+            st->blank_frames = 1;
+            st->phase = II_FILE_MENU_BLANK;
+            return STEP_RESULT_CONTINUE();
+
+        case II_FILE_MENU_BLANK:
+            if (st->blank_frames < 3) {
+                st->blank_frames++;
+                ppu.inidisp = 0x80;
+                memory_skip_next_joypad_update();
+                return STEP_RESULT_CONTINUE();
+            }
             /* No CHANGE_MUSIC here: FILE_SELECT_MENU starts MUSIC::SETUP_SCREEN
              * once the fade-in is done (file_select_menu.asm:262-267, FM_SELECT). */
             file_menu_setup();

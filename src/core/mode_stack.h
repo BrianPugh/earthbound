@@ -2065,6 +2065,11 @@ typedef struct {
  *   TS_SEQ_FIRST - RUN_TITLE_SEQUENCE after its setup (graphics reload, title
  *                script restarted in quick mode): one render, FADE_IN(16,1), then
  *                the quick TS_WARMUP / TS_INPUT / TS_FADEOUT phases.
+ *   TS_SEQ_SETUP - the frame after RUN_TITLE_SEQUENCE's FORCE_BLANK_AND_WAIT_VBLANK:
+ *                its setup, then TS_SEQ_FIRST in the same step.
+ *   TS_BLANK   - non-quick entry: SHOW_TITLE_SCREEN's BLANK_SCREEN_AND_WAIT_VBLANK
+ *                and WAIT_UNTIL_NEXT_FRAME (2 frames, `frame` counts them), then
+ *                -> TS_WARMUP.
  *
  * Pops 0 on idle time-out (-> attract mode), 1 on a button press (-> file select),
  * matching the blocking return. */
@@ -2073,6 +2078,8 @@ typedef enum {
     TS_INPUT,
     TS_FADEOUT,
     TS_SEQ_FIRST,
+    TS_BLANK,
+    TS_SEQ_SETUP,
 } TitleScreenPhase;
 
 typedef struct {
@@ -2272,11 +2279,13 @@ typedef enum {
     II_LOGO_RESULT,
     II_GAS,             /* change_music(GAS_STATION); push GAS_STATION */
     II_GAS_RESULT,
-    II_TITLE,           /* change_music(TITLE_SCREEN); title setup; push TITLE_SCREEN */
+    II_TITLE,           /* change_music(TITLE_SCREEN); FORCE_BLANK_AND_WAIT_VBLANK's frame */
+    II_TITLE_SETUP,     /* title setup; push TITLE_SCREEN */
     II_TITLE_RESULT,
     II_ATTRACT,         /* per-scene setup (run_attract_mode_prepare); push ATTRACT */
     II_ATTRACT_RESULT,  /* button -> file menu; else next scene or back to title */
-    II_FILE_MENU,       /* exit cleanup; change_music(SETUP); setup; push FILE_MENU */
+    II_FILE_MENU,       /* exit cleanup; FILE_SELECT_INIT's FORCE_BLANK_AND_WAIT_VBLANK frame */
+    II_FILE_MENU_BLANK, /* LOAD_BACKGROUND_ANIMATION's 2 blank frames; setup; push FILE_MENU */
     II_FILE_MENU_POST,  /* post-file-menu cleanup (clear_instant_printing/window_tick_work) */
     II_FILE_MENU_FADE,  /* FADE_OUT_WITH_MOSAIC the confirmation screen to black (file_select_init.asm:81) */
     II_FILE_MENU_DONE,  /* clear disabled_transitions; free title script data; pop */
@@ -2286,6 +2295,7 @@ typedef struct {
     uint8_t  phase;            /* InitIntroPhase */
     uint8_t  title_quick_mode; /* skip-to-title quick mode for the next title-screen push */
     uint8_t  attract_index;    /* which attract scene table entry is next */
+    uint8_t  blank_frames;     /* II_FILE_MENU_BLANK: FILE_SELECT_INIT blank frames run */
 } InitIntroState;
 
 /* GAME_MODE_DISPLAY_TEXT — run-to-completion port of the text bytecode
