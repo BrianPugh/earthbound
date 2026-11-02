@@ -131,10 +131,12 @@ StepResult mode_step_attract_mode(ModeState *st) {
 
   case AT_MAIN: {
     /* while(actionscript_state == 0): swirl, button check, render, fade, TM. */
+    /* @CHECK_SCRIPT_DONE / @BUTTON_PRESSED -> @CLOSE_WINDOW: CLOSE_OVAL_WINDOW,
+     * then @CHECK_ANIMATION_DONE's first RENDER_FRAME_TICK in this same frame */
     if (ert.actionscript_state != 0) {
       close_oval_window();
       s->phase = AT_OVAL_CLOSE;
-      return STEP_RESULT_CONTINUE();
+      goto oval_close;
     }
     update_swirl_effect();
     /* @MAIN_LOOP tests A, B and START only (L doesn't skip). */
@@ -142,7 +144,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
       s->button_pressed = 1;
       close_oval_window();
       s->phase = AT_OVAL_CLOSE;
-      return STEP_RESULT_CONTINUE();
+      goto oval_close;
     }
     if (render_frame_tick_work_step()) {
       s->flush = 1;
@@ -161,11 +163,14 @@ StepResult mode_step_attract_mode(ModeState *st) {
   }
 
   case AT_OVAL_CLOSE:
+  oval_close:
     /* Wait for the oval-close animation to finish. */
     if (!is_psi_animation_active()) {
+      /* FADE_OUT, then @CHECK_FADE_DONE finds it running and renders the first
+       * @WAIT_FADE_LOOP frame in this same frame */
       fade_out(1, 1); /* A=1 (step), X=1 (delay) */
       s->phase = AT_FADEOUT;
-      return STEP_RESULT_CONTINUE();
+      goto fadeout_render;
     }
     if (render_frame_tick_work_step()) {
       s->flush = 2;
@@ -183,6 +188,7 @@ StepResult mode_step_attract_mode(ModeState *st) {
       return STEP_RESULT_POP(s->button_pressed);
     }
     fade_update();
+  fadeout_render:
     if (render_frame_tick_work_step()) {
       s->flush = 3;
       return actionscript_frame_take_push();
