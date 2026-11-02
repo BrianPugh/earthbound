@@ -17,6 +17,7 @@
  */
 
 #include "game/map_loader.h"
+#include "core/memory.h"
 #include "game/door.h"
 #include "game/overworld.h"
 #include "game/game_state.h"
@@ -1031,6 +1032,8 @@ StepResult mode_step_map_palette_fade(ModeState *st) {
          * (final) yield, after which `done` pops. */
         ert.palette_upload_mode = PALETTE_UPLOAD_FULL;
         s->done = 1;
+        /* @WAIT_PALETTE_DMA spins on the NMI's upload (no joypad update). */
+        memory_skip_next_joypad_update();
     }
     return STEP_RESULT_CONTINUE();
 }

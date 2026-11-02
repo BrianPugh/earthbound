@@ -46,4 +46,12 @@ void memory_init(void);
 /* Update joypad state from platform layer */
 void memory_update_joypad(uint16_t raw_pad);
 
+/* Mark the frame about to be presented as one the asm spends in a bare NMI
+ * spin (FORCE_BLANK_AND_WAIT_VBLANK, BLANK_SCREEN_AND_WAIT_VBLANK,
+ * FADE_OUT_WITH_MOSAIC's @WAIT_VBLANK, LOAD_MAP_PALETTE's @WAIT_PALETTE_DMA):
+ * only WAIT_UNTIL_NEXT_FRAME runs UPDATE_JOYPAD_STATE, so the next
+ * memory_update_joypad() call leaves PAD_STATE/PAD_PRESS/PAD_HELD/PAD_TIMER as
+ * they are. */
+void memory_skip_next_joypad_update(void);
+
 #endif /* CORE_MEMORY_H */

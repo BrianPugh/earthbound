@@ -35,7 +35,23 @@ void memory_init(void) {
  *   PAD_HELD  → pad1_autorepeat  (auto-repeat: pressed + repeated after timer)
  *   PAD_TIMER → pad_timer (countdown for auto-repeat)
  */
+/* Set by memory_skip_next_joypad_update(); not serialized (savestates are
+ * captured at the root loop, never inside one of those waits). */
+static bool skip_next_joypad_update;
+
+void memory_skip_next_joypad_update(void) {
+    skip_next_joypad_update = true;
+}
+
 void memory_update_joypad(uint16_t raw_pad) {
+    if (skip_next_joypad_update) {
+        /* READ_JOYPAD (NMI) still latches the raw pad; UPDATE_JOYPAD_STATE
+         * does not run on this frame. */
+        skip_next_joypad_update = false;
+        core.pad1_raw = raw_pad;
+        return;
+    }
+
     /* Assembly: AND #$FFF0 masks off unused low 4 bits */
     uint16_t current = raw_pad & 0xFFF0;
 

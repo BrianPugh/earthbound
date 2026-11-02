@@ -111,6 +111,8 @@ StepResult mode_step_mosaic_fade(ModeState *st) {
         if (s->final_hdma) {
             ppu.window_hdma_active = false;
             s->phase = 1;
+            /* @WAIT_VBLANK is a bare NEW_FRAME_STARTED spin (no joypad update). */
+            memory_skip_next_joypad_update();
             return STEP_RESULT_CONTINUE();   /* the extra trailing yield */
         }
         return STEP_RESULT_POP(0);

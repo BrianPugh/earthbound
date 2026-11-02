@@ -554,9 +554,11 @@ void force_blank_and_wait_vblank(void) {
     /* Cancel any active fade (assembly: STZ FADE_PARAMETERS::step) */
     fade_out(0, 0);
     /* The asm's wait is a bare NEW_FRAME_STARTED spin: one blanked frame with no
-     * window tick, no entity frame and no battle-background step. Mode-step
-     * callers use force_blank_and_wait_vblank_work_step() and present that frame
-     * with their own STEP_CONTINUE. */
+     * window tick, no entity frame, no battle-background step and no
+     * UPDATE_JOYPAD_STATE. Mode-step callers use
+     * force_blank_and_wait_vblank_work_step() and present that frame with their
+     * own STEP_CONTINUE. */
+    memory_skip_next_joypad_update();
     wait_for_vblank();
 }
 
@@ -574,6 +576,7 @@ bool force_blank_and_wait_vblank_work_step(void) {
     ppu.tm_hdma_active = false;
     bg_distortion_off();
     fade_out(0, 0);
+    memory_skip_next_joypad_update();
     return false;
 }
 
@@ -1855,6 +1858,7 @@ void restore_bg_palette_and_enable_display(void) {
 void blank_screen_and_wait_vblank(void) {
     ppu.inidisp = 0x80;
     /* A bare one-frame wait, as in force_blank_and_wait_vblank. */
+    memory_skip_next_joypad_update();
     wait_for_vblank();
 }
 
@@ -1862,6 +1866,7 @@ void blank_screen_and_wait_vblank(void) {
  * force_blank_and_wait_vblank_work_step(). Never parks. */
 bool blank_screen_and_wait_vblank_work_step(void) {
     ppu.inidisp = 0x80;
+    memory_skip_next_joypad_update();
     return false;
 }
 

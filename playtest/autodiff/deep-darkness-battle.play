@@ -1,0 +1,6 @@
+# save: 30-DeepDark
+# Deep Darkness swamp: walk until an enemy touches the party (the direction is still held when the
+# battle menu opens, so its autorepeat phase checks the joypad updates of the battle-entry waits)
+flag 11 1; teleport 5600 7712; wait 10; until idle 300; flag 11 0
+---
+300 LEFT; 300 RIGHT; 300 LEFT; 300 RIGHT; press RIGHT 2; press A; wait 2000
