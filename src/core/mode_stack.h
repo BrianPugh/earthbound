@@ -430,6 +430,10 @@ typedef enum {
     EQ_SLOT_AFTER,    /* slot result, after the header close's tick */
     EQ_EXIT_MENU,     /* close the equipment window after the stats window's close tick */
     EQ_EXIT_DONE,     /* restore text attrs, POP */
+    EQ_ITEM_LIST,     /* item list after the list window title's 2 frame waits */
+    EQ_ITEM_CLOSE,    /* close the item list after the header close's tick */
+    EQ_ITEM_REFRESH,  /* DISPLAY_EQUIPMENT_MENU after the list close's tick */
+    EQ_ITEM_REFRESH_STATS, /* DISPLAY_CHARACTER_EQUIPMENT_STATS after its title waits */
 } EquipMenuPhase;
 
 typedef struct {

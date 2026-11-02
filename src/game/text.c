@@ -1037,7 +1037,16 @@ uint8_t cs_checkvalid_id(uint16_t (*fn)(uint16_t)) {
 
 bool cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init) {
     switch (id) {
-    case CS_ONCHANGE_EQUIPMENT:   show_equipment_and_stats_callback(char_id); return false;
+    case CS_ONCHANGE_EQUIPMENT:
+        /* Head of SHOW_EQUIPMENT_AND_STATS: DISPLAY_EQUIPMENT_MENU (its WINDOW_TICK
+         * and SET_WINDOW_TITLE's 2 frame waits); cs_on_change_tail runs
+         * DISPLAY_CHARACTER_EQUIPMENT_STATS, whose WINDOW_TICK (and RAND) comes on
+         * the frame after those waits. */
+        if (char_id != 0) {
+            compare_equipment_mode = 0;
+            display_equipment_menu(char_id);
+        }
+        return false;
     case CS_ONCHANGE_PSI_LIST:    display_character_psi_list(char_id);        return false;
     case CS_ONCHANGE_STATUS:
         /* display_status_window prints label strings via display_text_inline(), which
@@ -1069,13 +1078,17 @@ bool cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init
 /* Whether on_change `id` was run as a head by cs_invoke_on_change: the char
  * select presents the head's frames, then calls this again to run the tail. */
 bool cs_on_change_split(uint8_t id) {
-    return id == CS_ONCHANGE_WEAPON_NAME || id == CS_ONCHANGE_BODY_NAME;
+    return id == CS_ONCHANGE_WEAPON_NAME || id == CS_ONCHANGE_BODY_NAME
+        || id == CS_ONCHANGE_EQUIPMENT;
 }
 
 bool cs_on_change_tail(uint8_t id, uint16_t char_id) {
     if (!cs_on_change_split(id) || char_id == 0)
         return false;
-    inventory_get_item_name_tail();
+    if (id == CS_ONCHANGE_EQUIPMENT)
+        display_character_equipment_stats(char_id);
+    else
+        inventory_get_item_name_tail();
     return true;
 }
 
@@ -1580,23 +1593,34 @@ StepResult mode_step_equip_menu(ModeState *ms) {
                 continue;
             }
 
-            uint16_t char_id = st->equip_char;
-            uint16_t char_idx = char_id - 1;
-            uint16_t slot_type = st->slot_type;
-
             /* Create the item list window for this equipment slot */
+            (void)take_unpresented_ticks();
             create_window(WINDOW_EQUIP_MENU_ITEMLIST);
 
             /* Set window title from TEXT_11: "Weapons", "Body", "Arms", "Others" */
             {
                 char title_buf[WINDOW_TITLE_SIZE];
                 const uint8_t *title_src = EQUIP_TEXT_DATA + ETEXT11_OFF
-                                           + (slot_type - 1) * ETEXT11_STRIDE;
+                                           + (st->slot_type - 1) * ETEXT11_STRIDE;
                 eb_to_ascii_buf(title_src, ETEXT11_STRIDE, title_buf);
                 /* STRLEN equivalent: length excluding trailing spaces/nulls */
                 int title_len = (int)strlen(title_buf);
-                set_window_title(WINDOW_EQUIP_MENU_ITEMLIST, title_buf, title_len);
+                set_window_title(WINDOW_EQUIP_MENU_ITEMLIST,
+                                 title_buf, title_len);
             }
+            /* SET_WINDOW_TITLE's 2 frame waits come before the "Which?"
+             * header's tick (emu, 24-Museum Equip: its RAND lands on the 3rd
+             * frame after the list window opens). */
+            StepResult r;
+            if (menu_flush_ticks(&st->phase, EQ_ITEM_LIST, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_ITEM_LIST: {
+            uint16_t char_id = st->equip_char;
+            uint16_t char_idx = char_id - 1;
+            uint16_t slot_type = st->slot_type;
 
             /* Build equippable item list. Loop over inventory (14 slots),
              * add items that are equippable and match the slot type.
@@ -1681,6 +1705,7 @@ StepResult mode_step_equip_menu(ModeState *ms) {
         case EQ_ITEM_RESULT: {
             uint16_t item_selection = menu_take_result(&st->result_ready,
                                                        &st->result);
+            (void)take_unpresented_ticks();
             close_menu_header_window();
             clear_cursor_move_callback();
 
@@ -1701,10 +1726,40 @@ StepResult mode_step_equip_menu(ModeState *ms) {
             /* item_selection == 0 → cancelled, just close and loop */
 
             /* Close item list, refresh equipment display, loop to slot
-             * selection (assembly lines 243-249). */
+             * selection (assembly lines 243-249). Each WINDOW_TICK (and its
+             * RAND) gets its own frame, SET_WINDOW_TITLE's waits theirs. */
+            StepResult r;
+            if (menu_flush_ticks(&st->phase, EQ_ITEM_CLOSE, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_ITEM_CLOSE: {
+            StepResult r;
+            (void)take_unpresented_ticks();
             close_window(WINDOW_EQUIP_MENU_ITEMLIST);
-            show_equipment_and_stats(st->equip_char);
-            st->phase = EQ_SLOT;
+            if (menu_flush_ticks(&st->phase, EQ_ITEM_REFRESH, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_ITEM_REFRESH: {
+            /* SHOW_EQUIPMENT_AND_STATS, split around its 2nd WINDOW_TICK */
+            StepResult r;
+            (void)take_unpresented_ticks();
+            compare_equipment_mode = 0;
+            display_equipment_menu(st->equip_char);
+            if (menu_flush_ticks(&st->phase, EQ_ITEM_REFRESH_STATS, &r))
+                return r;
+            continue;
+        }
+
+        case EQ_ITEM_REFRESH_STATS: {
+            StepResult r;
+            (void)take_unpresented_ticks();
+            display_character_equipment_stats(st->equip_char);
+            if (menu_flush_ticks(&st->phase, EQ_SLOT, &r))
+                return r;
             continue;
         }
 
