@@ -452,6 +452,29 @@ part-way through the load (still in FILE_SELECT_INIT, before the party or the ma
 exists) without an `LSTEP mid` mark: a `# skip: K` line drops frame K from the
 comparison.
 
+Power-on: `# boot: power` runs no boot at all, so the body starts at RESET (the logos, the
+gas station, the title, attract mode; boot-attract.play, boot-title-skip.play,
+title-sequence.play, gas-station-skip.play, attract-skip.play). Nothing is seeded: RESET
+seeds the RNG with $56781234 (the default `--rng`) and clears FRAME_COUNTER on both sides.
+They all run `# overclock: max` (the gas station's battle BG overruns every frame) and skip
+frames 1-2 (the emu is still in GAME_INIT, before INIT_ENTITY_SYSTEM). `# compare: bright`
+adds the brightness each logic frame ended with (`frac`) to the compared fields, for fade
+timing. Lag shows up in 2 more ways there:
+
+- A port frame the original spends inside a load: each attract scene's TELEPORT_TO
+  (DISABLED_TRANSITIONS) arms FADE_OUT(1,1) and LOAD_MAP_AT_POSITION waits for it; the
+  original's map load (40-odd lag frames) finishes the fade first, the port's instant load
+  waits its 2 frames. An `# extra: K [K ...]` line (the mirror of `# lag:`) gives such port
+  frames no emu counterpart: the emu doesn't get their pads and later emu frames compare with
+  the port's shifted by one each.
+- An NMI fade that runs on during a load: the quick title's FADE_IN steps a logic frame later
+  in the original (its graphics load eats the NMI after the call; in NMIs both step at the
+  2nd after FADE_IN, as 6e0e32bd made the port do), and FILE_SELECT_INIT's FADE_IN(1,1) is 2-3
+  steps ahead in the original after RUN_FILE_MENU's load lag, so FILE_SELECT_MENU's @WAIT_FADE
+  (counted as frames on both sides) ends 4 frames earlier there: `# ignore: bright` over the
+  ramps and 4 `# extra:` frames at the end of the wait (every scenario that reaches the file
+  select from the title).
+
 Places that "couldn't be aligned" before, and why:
 
 - **Moonside**: the original's logic overruns every frame there, so

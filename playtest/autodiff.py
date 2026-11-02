@@ -43,6 +43,11 @@ the emu with snes9x's CPU overclock, for places whose logic overruns every frame
 would be ``LSTEP mid``; with the faster CPU each frame fits and parks, like the port's. An
 ``# overclock-off: K`` line turns it off after (port) frame K (emu.py ``overclock disabled``),
 for a scenario whose later part breaks under it (the credits hang overclocked: ending.play).
+``# boot: power`` plays the body from power-on (no boot commands, no seed: RESET seeds the
+RNG with the default --rng). An ``# extra: K [K ...]`` line marks port frames the original
+spends inside a load's lag (the mirror of ``# lag:``): they have no emu counterpart, the emu
+doesn't get their pads, and later emu frames are compared with port frame + 1 for each.
+``# compare: bright`` also compares the brightness each logic frame ended with (``frac``).
 
 Usage::
 

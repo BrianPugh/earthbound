@@ -1,0 +1,17 @@
+# save: blank
+# boot: power
+# Power-on, A during the gas station (WRITE_APU_PORT1(2), FADE_OUT_WITH_MOSAIC(4,1)) into the
+# quick title, START into the file select
+# overclock: max
+# skip: 1
+# skip: 2
+# FILE_SELECT_INIT's FADE_IN(1,1) runs on NMIs during RUN_FILE_MENU's load lag in the original,
+# so FILE_SELECT_MENU's @WAIT_FADE (a busy wait the emu counts as frames) ends 4 logic frames
+# earlier; the port's last 4 wait frames have no counterpart
+# extra: 1494 1495 1496 1497
+---
+1000 -
+1 A
+400 -
+1 START
+600 -

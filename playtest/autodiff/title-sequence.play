@@ -1,0 +1,18 @@
+# save: blank
+# boot: power
+# Power-on to the title screen's letter reveal, START during it (RUN_TITLE_SEQUENCE: the
+# title restarts in quick mode, FADE_IN(16,1)), START again on the finished title: its fade-out
+# and SHOW_TITLE_SCREEN's own (already black: one @WAIT_VBLANK frame), into the file select
+# overclock: max
+# skip: 1
+# skip: 2
+# FILE_SELECT_INIT's FADE_IN(1,1) runs on NMIs during RUN_FILE_MENU's load lag in the original,
+# so FILE_SELECT_MENU's @WAIT_FADE (a busy wait the emu counts as frames) ends 4 logic frames
+# earlier; the port's last 4 wait frames have no counterpart
+# extra: 2895 2896 2897 2898
+---
+2500 -
+1 START
+300 -
+1 START
+600 -

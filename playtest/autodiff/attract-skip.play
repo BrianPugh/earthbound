@@ -1,0 +1,16 @@
+# save: blank
+# boot: power
+# Power-on, idle into the first attract scene (Summers), B during it: the oval window closes,
+# the scene fades out and the file select menu opens
+# overclock: max
+# skip: 1
+# skip: 2
+# extra: 3167 3168
+# FILE_SELECT_INIT's FADE_IN(1,1) runs on NMIs during RUN_FILE_MENU's load lag in the original,
+# so FILE_SELECT_MENU's @WAIT_FADE (a busy wait the emu counts as frames) ends 4 logic frames
+# earlier; the port's last 4 wait frames have no counterpart
+# extra: 3425 3426 3427 3428
+---
+3300 -
+1 B
+600 -

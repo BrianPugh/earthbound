@@ -1,0 +1,25 @@
+# save: blank
+# boot: power
+# The regress boot (playtest/pt.py BOOT): START at frame 300 skips the APE logo straight to
+# the quick title (FADE_IN(4,1) on NMIs), A at 501 fades the title out (FADE_OUT_WITH_MOSAIC
+# (1,4,0)) into the file select menu; brightness compared on both fades (6e0e32bd)
+# overclock: max
+# compare: bright
+# skip: 1
+# skip: 2
+# The quick title's graphics load runs across lag frames (310-311 merged): the NMI that would
+# take FADE_IN's first delay tick ran before the call, so the original's fade-in reaches each
+# step a logic frame later. In NMIs both step at the 2nd and every 2nd one after FADE_IN
+# ignore: bright 312-319
+# FILE_SELECT_INIT's FADE_IN(1,1) runs on NMIs during RUN_FILE_MENU's load lag in the original,
+# so its ramp is 2-3 steps ahead of the port's and FILE_SELECT_MENU's @WAIT_FADE (a busy wait
+# the emu counts as frames) ends 4 logic frames earlier; the port's last 4 wait frames have no
+# counterpart
+# ignore: bright 566-593
+# extra: 594 595 596 597
+---
+300 -
+1 START
+200 -
+1 A
+400 -

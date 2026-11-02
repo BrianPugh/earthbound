@@ -1,0 +1,20 @@
+# save: blank
+# boot: power
+# From power-on, no input: the Nintendo/APE/HAL logos, the gas station, the title screen
+# and its fade-out, the 8 attract-mode scenes (the oval-window spotlight) and back into the
+# title screen for the second round
+# The gas station's battle BG overruns every frame in the original (sustained lag, every
+# lstep would be "mid"), so the emu runs overclocked
+# overclock: max
+# The first 2 emu samples land in GAME_INIT before INIT_ENTITY_SYSTEM (BSS-zeroed entity
+# tables, no windows yet)
+# skip: 1
+# skip: 2
+# Each scene's TELEPORT_TO (DISABLED_TRANSITIONS: FADE_OUT(1,1), no wait) runs LOAD_MAP_AT_
+# POSITION, whose @WAIT_FOR_FADE waits for that fade-out: the original's map load (40-odd lag
+# frames) finishes it first, so it spends no logic frame there; the port's instant load waits
+# the fade's 2 frames (wait_for_fade_complete)
+# extra: 3167 3168 3515 3516 3914 3915 4310 4311 4756 4757 5350 5351 5889 5890 6457 6458
+# extra: 7816 7817 8164 8165 8563 8564 8959 8960
+---
+9000 -
