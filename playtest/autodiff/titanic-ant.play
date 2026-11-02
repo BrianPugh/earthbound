@@ -1,0 +1,5 @@
+# save: 03-GiantStep
+# Giant Step boss room: talk to the Titanic Ant, the boss battle start, the first menu
+flag 11 1; flag 108 1; teleport 1100 330 0; wait 10; until idle 300; 30 UP; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 1500

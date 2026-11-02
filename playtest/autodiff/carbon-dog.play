@@ -1,0 +1,5 @@
+# save: 33-FireSpring
+# Fire Spring boss: talk to Carbon Dog, the boss battle start, the first menu
+flag 11 1; teleport 3344 6410 0; wait 10; 30 UP; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 1500

@@ -1,0 +1,8 @@
+# save: 27-Kraken
+# Summers sailor: Yes, pay, the voyage, the Kraken boss battle start (A tapped until the first battle menu)
+# the voyage's TELEPORT_TO: its SCREEN_TRANSITION's first fade step lags the original (2384), so
+# its exit loop takes the extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door)
+# lag: 2405
+flag 11 1; teleport 7264 2940 0; wait 10; until idle 300
+---
+press A; wait 30; press A 960; wait 300

@@ -1,0 +1,5 @@
+# save: 32-LumineHall
+# Lost Underworld: arrival spot, walk toward the Tenda camp at half speed
+flag 11 1; teleport 2864 3080 4; wait 10; until idle 300; flag 11 0
+---
+300 LEFT; 400 UP; 300 LEFT; 300 UP; 200 -

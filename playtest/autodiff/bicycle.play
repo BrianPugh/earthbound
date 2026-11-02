@@ -1,0 +1,6 @@
+# save: 05-Twoson
+# Goods → Bicycle → Use on a Twoson street, ride in 4 directions
+give 176 1; teleport 1794 7132 2; wait 10; until idle 300
+---
+press A; wait 30; press RIGHT; press A; wait 60; press DOWN 6; press RIGHT; press A; wait 30; press A; wait 100
+60 RIGHT; 60 UP; 40 LEFT; 30 DOWN+LEFT; 60 -
