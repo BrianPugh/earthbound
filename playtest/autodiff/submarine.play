@@ -1,0 +1,12 @@
+# save: 30-DeepDark
+# Check the submarine: Jeff fixes it, the party carries it out, the voyage to Deep Darkness
+# the TELEPORT_TO's SCREEN_TRANSITION fade-out lags the original on its first step (829), so its
+# exit loop takes the extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door); the state is
+# constant through the loop, so the frame is marked at its end
+# lag: 850
+# the second TELEPORT_TO (to Deep Darkness) the same, its first step lags at 2511
+# lag: 2533
+flag 11 1; teleport 4168 120 0; wait 10; 20 UP; until idle 300
+---
+press L; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200
+press A; wait 300; press A; wait 300; press A; wait 300; press A; wait 1500

@@ -1,0 +1,6 @@
+# save: 03-GiantStep
+# Lier X. Agerate talks and climbs into his hole (reversed move-toward cutscene)
+flag 11 1; teleport 7508 1236 2; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 100
+press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 600

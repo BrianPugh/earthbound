@@ -1,0 +1,5 @@
+# save: 02-Sharks
+# Hotel Onett ATM: withdrawal with a zero balance, thank you
+flag 11 1; teleport 7236 1091 6; wait 10; until idle 300
+---
+press L; wait 150; press A; wait 350; press A; wait 350; press A; wait 100

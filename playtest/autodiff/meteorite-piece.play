@@ -1,0 +1,5 @@
+# save: 35-Onett
+# Onett hilltop: Check the meteorite, Yes, take the Meteorite piece
+flag 11 1; teleport 2075 128 4; wait 10; until idle 300
+---
+press L; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 300

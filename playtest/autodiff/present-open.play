@@ -1,0 +1,5 @@
+# save: 17-GoldMine
+# Gold Mine: Check a present ("There is a IQ capsule"), take it
+flag 11 1; teleport 6233 5192 0; 4 UP; wait 10; until idle 300
+---
+press L; wait 200; press A; wait 200; press A; wait 200; press A; wait 100

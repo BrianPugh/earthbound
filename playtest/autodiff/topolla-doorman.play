@@ -1,0 +1,5 @@
+# save: 19-Moonside
+# Moonside Topolla doorman (style 6 delete)
+flag 11 1; teleport 4504 5876 0; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 150; press A; wait 150; press A; wait 600

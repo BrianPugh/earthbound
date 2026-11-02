@@ -1,0 +1,5 @@
+# save: 19-Moonside
+# Moonside: the fake Monotoli talks and dissolves (DELETE_TPT style 9)
+flag 11 1; teleport 7604 4714 2; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 100; press A; wait 100; press A; wait 100; press A; wait 600

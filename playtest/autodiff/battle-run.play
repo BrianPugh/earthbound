@@ -1,0 +1,5 @@
+# save: 24-Museum
+# 4-member battle: Ness tries to Run Away, the others Defend
+teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+press RIGHT; press DOWN; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 1500

@@ -1,0 +1,5 @@
+# save: 22-RainyCircle
+# Check Shrooom!: scripted battle entry (swirl, boss music), the encounter text, first menu
+flag 11 1; teleport 5128 186 0; wait 10; 20 UP; until idle 300
+---
+press L; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 1200

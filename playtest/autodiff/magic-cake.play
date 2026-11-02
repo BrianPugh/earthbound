@@ -1,0 +1,13 @@
+# save: 23-Summers
+# Magic Cake lady on the beach: the dream of Poo's palace (fade, teleport, flyover text)
+# the followers trail the setup walk at different spacings (the emu's teleport lands a frame
+# later, before the seed)
+# ignore: follow
+# ignore: ent2[5-8]\..*
+# the dream TELEPORT_TO's SCREEN_TRANSITION lags on its first steps (1571-1572), so its exit loop
+# takes the extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door), marked at the loop's end
+# lag: 1592
+flag 617 1; teleport 6000 2000 0; wait 30; teleport 5184 2884 0; wait 30; 20 LEFT; 20 UP; 20 RIGHT; until idle 300
+---
+press A; wait 30; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200; press A; wait 200
+press A; wait 200; press A; wait 200; press A; wait 3000

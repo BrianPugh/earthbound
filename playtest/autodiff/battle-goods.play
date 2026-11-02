@@ -1,0 +1,6 @@
+# save: 24-Museum
+# 4-member battle: Ness eats a Large pizza from Goods, the others Defend; enemy turns
+hp 1 100; teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press A; wait 30
+press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 30; press DOWN; press RIGHT; press A; wait 1200

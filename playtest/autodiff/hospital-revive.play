@@ -1,0 +1,6 @@
+# save: 24-Museum
+# Summers hospital: revive an unconscious Paula (Yes, pay, the healing sfx, the prompts)
+flag 11 1; status 2 1 1; teleport 6735 9680 0; wait 10; until idle 300
+---
+press A; wait 30; press A; wait 200; press RIGHT; wait 10; press A; wait 200; press A; wait 200; press A; wait 200
+press A; wait 200

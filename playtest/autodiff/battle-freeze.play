@@ -1,0 +1,8 @@
+# save: 24-Museum
+# 4-member battle: Ness Bash, Paula PSI Freeze, Jeff Shoot, Poo's first offense PSI
+teleport 5128 216 0; wait 10; until battle 600 LEFT; until input 900
+---
+press A; wait 30; press A; wait 30
+press DOWN; press A; wait 30; press A; wait 30; press DOWN; press A; wait 30; press A; wait 30
+press A; wait 30; press A; wait 30
+press DOWN; press A; wait 30; press A; wait 30; press A; wait 30; press A; wait 30; press A; wait 1500
