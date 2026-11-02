@@ -1,5 +1,17 @@
 # save: 19-Moonside
 # Cafe bottles: Check warps into Moonside (scripted cutscene)
+# The Moonside warp's 120-frame SCREEN_TRANSITION fade-out lags the original on nearly every frame,
+# and 9 iterations take the exit loop's extra PALETTE_UPLOAD_MODE wait (CPU time, see hotel-door);
+# the state is constant through the loop, so the 9 frames are marked at its end
+# lag: 336
+# lag: 337
+# lag: 338
+# lag: 339
+# lag: 340
+# lag: 341
+# lag: 342
+# lag: 343
+# lag: 344
 flag 11 1; teleport 5520 6584 0; 10 UP; until idle 300
 ---
 press L; wait 100; press A; wait 100; press A; wait 100; press A; wait 300
