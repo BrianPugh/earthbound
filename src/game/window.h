@@ -385,6 +385,8 @@ uint8_t  cs_checkvalid_id(uint16_t (*fn)(uint16_t));
  * fills *out_init with a GAME_MODE_DISPLAY_TEXT child to STEP_PUSH and returns true;
  * the caller (mode_step_char_select) pushes it and finishes the render on POP. */
 bool     cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init);
+bool     cs_on_change_split(uint8_t id);
+bool     cs_on_change_tail(uint8_t id, uint16_t char_id);
 uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id);
 
 /* Build a GAME_MODE_CHAR_SELECT init for the battle-style path (mode 0/2),
@@ -696,6 +698,8 @@ void set_hppp_window_mode_item(uint16_t item_id);
  * char_id: 1-indexed character ID.
  * window_type: window ID to create (e.g., WINDOW_INVENTORY = 0x02). */
 void inventory_get_item_name(uint16_t char_id, uint16_t window_type);
+void inventory_get_item_name_head(uint16_t char_id, uint16_t window_type);
+void inventory_get_item_name_tail(void);
 
 /* PRINT_MONEY_IN_WINDOW: Port of asm/text/window/print_money_in_window.asm.
  * Prints a right-aligned dollar amount ("$NNN") in the current focus window.

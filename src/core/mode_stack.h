@@ -1213,6 +1213,8 @@ typedef enum {
     CS_RESUME_NONE = 0,
     CS_RESUME_INIT,  /* initial on_change child popped: proceed to first render */
     CS_RESUME_NAV,   /* per-navigation on_change child popped: re-render at PRIME */
+    CS_RESUME_INIT_TAIL, /* initial on_change's frames presented: run its tail, then INIT */
+    CS_RESUME_NAV_TAIL,  /* per-navigation on_change's frames presented: tail, then NAV */
 } CharSelectResume;
 
 typedef struct {

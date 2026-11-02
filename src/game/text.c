@@ -974,12 +974,25 @@ static void get_weapon_item_name_callback(uint16_t char_id) {
     inventory_get_item_name(char_id, WINDOW_INVENTORY);
 }
 
+/* GAME_MODE_CHAR_SELECT runs the inventory callbacks in 2 halves around
+ * SET_WINDOW_TITLE's frame waits (cs_invoke_on_change: the head; then
+ * cs_on_change_tail). */
+static void get_weapon_item_name_head(uint16_t char_id) {
+    if (char_id == 0) return;
+    inventory_get_item_name_head(char_id, WINDOW_INVENTORY);
+}
+
 /* GET_BODY_ITEM_NAME callback (src/inventory/get_body_item_name.asm).
  * On_change callback for Give menu char_select_prompt.
  * Shows the selected character's inventory in WINDOW_OVERWORLD_CHAR_SELECT. */
 static void get_body_item_name_callback(uint16_t char_id) {
     if (char_id == 0) return;
     inventory_get_item_name(char_id, WINDOW_OVERWORLD_CHAR_SELECT);
+}
+
+static void get_body_item_name_head(uint16_t char_id) {
+    if (char_id == 0) return;
+    inventory_get_item_name_head(char_id, WINDOW_OVERWORLD_CHAR_SELECT);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1035,8 +1048,8 @@ bool cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init
          * Status pause-menu (Phase C) — is converted. */
         display_status_window(char_id);
         return false;
-    case CS_ONCHANGE_WEAPON_NAME: get_weapon_item_name_callback(char_id);     return false;
-    case CS_ONCHANGE_BODY_NAME:   get_body_item_name_callback(char_id);       return false;
+    case CS_ONCHANGE_WEAPON_NAME: get_weapon_item_name_head(char_id);         return false;
+    case CS_ONCHANGE_BODY_NAME:   get_body_item_name_head(char_id);           return false;
     case CS_ONCHANGE_PARTY_SELECT_SCRIPT:
         /* party_character_selector battle path: display the selected member's
          * text script (1-based char_id; KING / id 0 have no script). This script
@@ -1051,6 +1064,19 @@ bool cs_invoke_on_change(uint8_t id, uint16_t char_id, union ModeState *out_init
     case CS_ONCHANGE_NONE:
     default:                                                                  return false;
     }
+}
+
+/* Whether on_change `id` was run as a head by cs_invoke_on_change: the char
+ * select presents the head's frames, then calls this again to run the tail. */
+bool cs_on_change_split(uint8_t id) {
+    return id == CS_ONCHANGE_WEAPON_NAME || id == CS_ONCHANGE_BODY_NAME;
+}
+
+bool cs_on_change_tail(uint8_t id, uint16_t char_id) {
+    if (!cs_on_change_split(id) || char_id == 0)
+        return false;
+    inventory_get_item_name_tail();
+    return true;
 }
 
 uint16_t cs_invoke_check_valid(uint8_t id, uint16_t char_id) {

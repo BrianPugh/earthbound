@@ -336,6 +336,20 @@ static StepResult cs_cancel_finish(CharSelectState *st) {
     return STEP_RESULT_POP(0);
 }
 
+static StepResult cs_render_tick(CharSelectState *st);
+
+/* An on_change that ran only its head (cs_on_change_split: the inventory
+ * callbacks, whose SET_WINDOW_TITLE waits come before the WINDOW_TICK and its
+ * RAND): present the frames owed so far, then run the tail in the `resume`
+ * handler (emu, 24-Museum Goods: the RAND lands after the title's 2 frames). */
+static StepResult cs_on_change_head_frames(ModeState *ms, uint8_t resume) {
+    uint16_t owed = take_unpresented_ticks();
+    ms->char_select.resume = resume;
+    if (owed)
+        return push_wait_frames(&g_mode_push_init, BW_TICK_PRESENT, owed);
+    return mode_step_char_select(ms);
+}
+
 static StepResult cs_render_tick(CharSelectState *st) {
     /* Frame beats before the render, re-entered through CSP_RENDER after each
      * present-only push:
@@ -408,6 +422,13 @@ StepResult mode_step_char_select(ModeState *ms) {
     /* Post-child resume: an on_change callback (CS_ONCHANGE_PARTY_SELECT_SCRIPT)
      * STEP_PUSHed a DISPLAY_TEXT child; run its deferred render tail on the frame the
      * child pops back, before re-entering the input loop. */
+    if (st->resume == CS_RESUME_INIT_TAIL || st->resume == CS_RESUME_NAV_TAIL) {
+        /* The on_change head's frames (SET_WINDOW_TITLE's waits) are presented:
+         * run its tail (WINDOW_TICK, menu print), then the usual resume. */
+        st->resume = (st->resume == CS_RESUME_INIT_TAIL) ? CS_RESUME_INIT : CS_RESUME_NAV;
+        (void)cs_on_change_tail(st->on_change_id,
+                                game_state.party_members[st->current_index] & 0xFF);
+    }
     if (st->resume == CS_RESUME_INIT) {
         st->resume = CS_RESUME_NONE;
         dt.pagination_animation_frame = 0;
@@ -433,6 +454,8 @@ StepResult mode_step_char_select(ModeState *ms) {
             st->resume = CS_RESUME_INIT;
             return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
         }
+        if (cs_on_change_split(st->on_change_id))
+            return cs_on_change_head_frames(ms, CS_RESUME_INIT_TAIL);
         dt.pagination_animation_frame = 0;
         return cs_render_tick(st);
     }
@@ -537,6 +560,8 @@ StepResult mode_step_char_select(ModeState *ms) {
                 st->resume = CS_RESUME_NAV;
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_DISPLAY_TEXT, &g_mode_push_init);
             }
+            if (cs_on_change_split(st->on_change_id))
+                return cs_on_change_head_frames(ms, CS_RESUME_NAV_TAIL);
         }
 
         st->delay = 4;   /* shorter poll window right after navigating */
@@ -654,6 +679,14 @@ void char_select_make_init(ModeState *init, uint16_t mode, uint16_t allow_cancel
  * window_type: window ID to create (e.g., WINDOW_INVENTORY = 0x02).
  */
 void inventory_get_item_name(uint16_t char_id, uint16_t window_type) {
+    inventory_get_item_name_head(char_id, window_type);
+    inventory_get_item_name_tail();
+}
+
+/* Up to the menu items (lines 1-148): SET_WINDOW_TITLE's 2 frame waits come
+ * before the tail's WINDOW_TICK (and its RAND), so a mode-step caller presents
+ * them between the 2 halves. */
+void inventory_get_item_name_head(uint16_t char_id, uint16_t window_type) {
     create_window(window_type);
 
     uint16_t char_idx = char_id - 1;
@@ -703,7 +736,9 @@ void inventory_get_item_name(uint16_t char_id, uint16_t window_type) {
          * OPEN_WINDOW_AND_PRINT_MENU calculates positions. */
         add_menu_item_no_position(label, i + 1);
     }
+}
 
+void inventory_get_item_name_tail(void) {
     /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING (US only),
      * then OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0). */
     window_tick_without_instant_printing();
