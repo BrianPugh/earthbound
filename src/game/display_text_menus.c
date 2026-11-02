@@ -801,12 +801,16 @@ bool show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t wi
         add_menu_item_no_position(label, (uint16_t)(i + 1));
     }
 
-    /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING (its window
-     * render runs here, counted as an unpresented tick), then
-     * OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0), which the caller runs after
-     * presenting that frame (show_character_inventory_print). */
-    window_tick_without_instant_printing();
+    /* Assembly lines 149-155: WINDOW_TICK_WITHOUT_INSTANT_PRINTING, then
+     * OPEN_WINDOW_AND_PRINT_MENU(columns=2, X=0). The caller presents
+     * SET_WINDOW_TITLE's 2 frame waits first, then runs the tick
+     * (show_character_inventory_tick) and presents its frame, then prints
+     * (show_character_inventory_print). */
     return true;
+}
+
+void show_character_inventory_tick(void) {
+    window_tick_without_instant_printing();
 }
 
 void show_character_inventory_print(void) {

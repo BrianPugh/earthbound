@@ -2313,6 +2313,7 @@ typedef enum {
     DT_RESUME_CC18_CLOSE_TICK,  /* CC_18_04 after the hide: the trailing WINDOW_TICK frame */
     DT_RESUME_CC19_INFLICT,     /* CC_19_05 after RENDER_FRAME_TICK: disable entities, store cc1f_aux */
     DT_RESUME_CC1A_INV_PRINT,   /* CC_1A_05 after INVENTORY_GET_ITEM_NAME's tick: OPEN_WINDOW_AND_PRINT_MENU */
+    DT_RESUME_CC1A_INV_TICK,    /* CC_1A_05 after the title's 2 waits: INVENTORY_GET_ITEM_NAME's tick */
 } DisplayTextResume;
 
 typedef struct {

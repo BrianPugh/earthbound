@@ -2402,20 +2402,27 @@ bool cc_1a_dispatch(ScriptReader *r, WindowTextAttributesCopy *state_attrs,
          * char_source: 0 = read char_id from argument_memory, else = char_id directly. */
         uint8_t window_id_arg = script_read_byte(r);
         uint8_t char_source = script_read_byte(r);
-        /* INVENTORY_GET_ITEM_NAME's US WINDOW_TICK_WITHOUT_INSTANT_PRINTING is a
-         * full WINDOW_TICK before OPEN_WINDOW_AND_PRINT_MENU: the titled, empty
-         * window is presented for a frame (entities advanced) before the items
-         * print. Its render runs inline (counted); BW_TICK_PRESENT presents it
-         * and DT_RESUME_CC1A_INV_PRINT prints the menu. */
+        /* INVENTORY_GET_ITEM_NAME: SET_WINDOW_TITLE's 2 frame waits, then its US
+         * WINDOW_TICK_WITHOUT_INSTANT_PRINTING (a full WINDOW_TICK, RAND
+         * included) before OPEN_WINDOW_AND_PRINT_MENU, each on its own frame
+         * (emu, 07-InHappy Sell: the RAND lands on the 3rd frame). The title
+         * waits are presented first (DT_RESUME_CC1A_INV_TICK runs the tick and
+         * presents it), then DT_RESUME_CC1A_INV_PRINT prints the menu. */
         (void)take_unpresented_ticks();
         if (show_character_inventory(state_attrs, window_id_arg, char_source)) {
             uint16_t ticks = take_unpresented_ticks();
+            DisplayTextResume next = DT_RESUME_CC1A_INV_TICK;
+            if (!ticks) {
+                show_character_inventory_tick();
+                ticks = take_unpresented_ticks();
+                next = DT_RESUME_CC1A_INV_PRINT;
+            }
             if (ticks) {
                 out_init->battle_wait.kind = BW_TICK_PRESENT;
                 out_init->battle_wait.remaining = ticks;
                 out_init->battle_wait.pre_vblanks = take_unpresented_vblank_share();
                 *out_mode = GAME_MODE_BATTLE_WAIT;
-                *out_resume = DT_RESUME_CC1A_INV_PRINT;
+                *out_resume = next;
                 return true;
             }
             show_character_inventory_print();

@@ -139,6 +139,7 @@ bool cc_1f_dispatch(ScriptReader *r, ModeState *out_init, GameMode *out_mode,
  * first. */
 bool show_character_inventory(WindowTextAttributesCopy *state_attrs, uint16_t window_id,
                               uint16_t char_source);
+void show_character_inventory_tick(void);
 void show_character_inventory_print(void);
 /* open_store_menu / select_escargo_express_item / open_telephone_menu /
  * display_telephone_contact_text are now run-to-completion modes

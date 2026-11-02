@@ -2205,6 +2205,18 @@ static StepResult step_display_text_run(DisplayTextModeState *st) {
             return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
         }
     }
+    if (st->resume == DT_RESUME_CC1A_INV_TICK) {
+        /* CC_1A_05: INVENTORY_GET_ITEM_NAME's WINDOW_TICK after the title's
+         * waits were presented; its frame, then DT_RESUME_CC1A_INV_PRINT. */
+        st->resume = DT_RESUME_CC1A_INV_PRINT;
+        (void)take_unpresented_ticks();
+        show_character_inventory_tick();
+        memset(&g_mode_push_init, 0, sizeof(g_mode_push_init));
+        g_mode_push_init.battle_wait.kind = BW_TICK_PRESENT;
+        g_mode_push_init.battle_wait.remaining = take_unpresented_ticks();
+        g_mode_push_init.battle_wait.pre_vblanks = take_unpresented_vblank_share();
+        return STEP_RESULT_PUSH_INIT(GAME_MODE_BATTLE_WAIT, &g_mode_push_init);
+    }
     if (st->resume == DT_RESUME_CC18_CLOSE_TICK) {
         st->resume = DT_RESUME_NONE;
         (void)take_unpresented_ticks();
