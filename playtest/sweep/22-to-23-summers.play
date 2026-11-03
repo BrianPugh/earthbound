@@ -1,9 +1,12 @@
 # save: 22-RainyCircle
-# Sweep segment 22 -> 23 (in progress): Dr. Andonuts' lab phone, out to Stonehenge, the cave door
-# 424,4256 (BFS route past the Stonehenge hole), Shrooom! (`1 RIGHT; 20 UP; press L` from 5126,182: Ness Rockin beta,
-# Paula Fire beta, Jeff Big bottle rocket each turn), the door UP+RIGHT from 5126,177 to the
-# field, the Rainy Circle melody (`until text 300 RIGHT`), back through the cave, grinding south
-# of Stonehenge (save 23 has Paula L38 / Jeff L40). Recorded in chunks with playtest/sweep/rec.py.
+# Sweep segment 22 -> 23: Dr. Andonuts' lab phone, out to Stonehenge, the cave door 424,4256
+# (BFS route past the Stonehenge hole), Shrooom! (`1 RIGHT; 20 UP; press L` from 5126,182: Ness
+# Rockin beta, Paula Fire beta, Jeff Big bottle rocket each turn), the door UP+RIGHT from 5126,177
+# to the field, the Rainy Circle melody (`until text 300 RIGHT`), back through the cave, 2 battles
+# south of Stonehenge, the lab: Andonuts npc615 ("It shouldn't break this time"), the Sky Runner
+# trigger (RIGHT into 7800-7848 x 2872) and the flight to Summers, the beach, the drugstore (Big
+# league bat for Ness, Chef's fry pan for Paula, equipped, old ones sold), L'hotel de Summers lobby
+# phone (Dad: Record, Continue). Recorded in chunks with playtest/sweep/rec.py.
 # overclock-on 8500: at normal speed the cave-door load leaves the original's enemies and RNG a
 # frame behind (lag phase: identical with overclock)
 # Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 11362, 17735, 26342 are
@@ -28,6 +31,30 @@
 # ignore: idle 14319
 # ignore: idle 17735
 # ignore: idle 26342
+# skip: 27377
+# lag: 27402
+# ignore: idle 27407
+# skip: 29094
+# lag: 29120
+# ignore: idle 29124
+# skip: 29698
+# lag: 29725
+# ignore: idle 29728
+# skip: 30364
+# lag: 30392
+# ignore: idle 30394
+# skip: 31976
+# lag: 32005
+# ignore: idle 32006
+# skip: 32589
+# lag: 32619
+# ignore: idle 32619
+# skip: 34000
+# lag: 34031
+# ignore: idle 34030
+# skip: 34689
+# lag: 34721
+# ignore: idle 34719
 ---
 16 UP; 90 RIGHT; 2 -; 15 UP; 55 -; 35 DOWN; 8 LEFT; 48 UP+LEFT; 12 LEFT; 24 UP+LEFT
 300 UP; 48 RIGHT; 24 UP+RIGHT; 24 UP; 24 UP+RIGHT; 72 RIGHT; 72 UP; 24 UP+LEFT; 24 UP; 40 -
@@ -113,4 +140,25 @@
 2 RIGHT; 10 -; 2 A; 34 -; 2 RIGHT; 14 -; 2 A; 64 -; 2 B; 24 -
 2 B; 24 -; 2 B; 24 -; 2 A; 16 -; 2 DOWN; 4 -; 2 DOWN; 10 -
 2 RIGHT; 10 -; 2 A; 34 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -; 2 A; 64 -
-2 B; 24 -; 2 B; 24 -; 2 B; 24 -; 2 B; 34 -
+2 B; 24 -; 2 B; 24 -; 2 B; 24 -; 2 B; 34 -; 24 DOWN+RIGHT; 24 DOWN
+10 DOWN+RIGHT; 4 RIGHT; 46 DOWN; 24 DOWN+RIGHT; 12 RIGHT; 48 DOWN+RIGHT; 36 UP; 55 -; 68 LEFT; 18 DOWN
+14 DOWN+LEFT; 12 LEFT; 18 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 18 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 18 DOWN; 12 DOWN+LEFT
+12 DOWN+RIGHT; 4 UP; 70 LEFT; 2 A; 6 -; 2 A; 24 -; 1 A; 4 -; 8 DOWN
+2 A; 6 -; 2 A; 10 -; 1 A; 85 -; 1 A; 37 -; 1 A; 7 -
+1 A; 43 -; 1 A; 39 -; 1 A; 45 -; 1 A; 71 -; 1 A; 4 -
+2 DOWN; 111 LEFT; 30 RIGHT; 3758 -; 200 UP; 2 -; 24 RIGHT; 48 UP+RIGHT; 72 RIGHT; 24 UP
+24 UP+RIGHT; 48 UP; 48 UP+RIGHT; 48 UP; 55 -; 48 LEFT; 8 UP; 2 UP+LEFT; 12 LEFT; 8 RIGHT
+2 UP+RIGHT; 12 RIGHT; 10 LEFT; 2 UP; 12 UP+LEFT; 12 UP+RIGHT; 2 UP; 12 UP+LEFT; 12 UP+RIGHT; 2 UP
+12 UP+LEFT; 12 UP+RIGHT; 2 UP; 12 UP+LEFT; 12 UP+RIGHT; 4 UP; 2 A; 6 -; 2 A; 26 -
+1 A; 40 -; 2 A; 38 -; 1 A; 62 -; 2 A; 16 -; 1 A; 25 -
+1 A; 32 -; 2 A; 55 -; 2 A; 40 -; 1 A; 39 -; 1 A; 22 -
+2 A; 42 -; 1 A; 51 -; 2 A; 44 -; 2 A; 38 -; 1 A; 62 -
+2 DOWN; 14 -; 2 A; 16 -; 1 A; 25 -; 1 A; 32 -; 2 RIGHT; 24 -
+2 A; 55 -; 2 A; 38 -; 1 A; 39 -; 1 A; 22 -; 2 A; 42 -
+1 A; 51 -; 2 RIGHT; 14 -; 2 A; 10 -; 1 A; 24 -; 42 RIGHT; 4 DOWN
+8 RIGHT; 55 -; 24 DOWN+LEFT; 456 LEFT; 24 UP; 96 LEFT; 24 UP+RIGHT; 10 UP+LEFT; 55 -; 62 LEFT
+5 UP; 48 LEFT; 29 UP+LEFT; 12 LEFT; 14 UP; 4 UP+RIGHT; 6 UP; 2 A; 6 -; 2 A
+28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -; 1 A
+19 -; 1 A; 37 -; 1 A; 15 -; 1 A; 15 -; 1 A; 15 -; 1 A
+46 -; 2 A; 10 -; 1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A
+52 -; 1 A; 47 -; 1 A; 29 -; 1 A; 24 -
