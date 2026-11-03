@@ -89,7 +89,9 @@ Recurring masks, all lag (each listed per segment):
 
 ## Where the next agent resumes
 
-Pass 1 is dirty (fixes in 08 -> 09 and 10 -> 11) but carries on. Agent B (STATUS-partB.md) does
+Pass 1 is dirty (fixes in 08 -> 09 and 10 -> 11) but carries on. Agent C (2026-11-03) stopped on
+the usage limit after the 13 -> 14 time-box below; no segment changed, next step is 10 -> 11's
+plan (stew re-arm, Tessie, dungeon) exactly as written, then 14 -> 15, 15 -> 16 .. 19 -> 20, 26 -> 27 on. Agent B (STATUS-partB.md) does
 22 -> 23 onward; agent A's range is 10 -> 11 .. 19 -> 20. Done: 11 -> 12, 12 -> 13, 13 -> 14.
 
 - 10 -> 11 (playtest/sweep/10-to-11-winters.play, 122107 body frames, identical, 0 lost
@@ -119,6 +121,14 @@ Open questions:
   wobble task) in the underground's first room was 2 px behind the original's and the port's
   battle started a frame the original's didn't (party and RNG equal before). The take was redone
   with a 9-frame lead-in, so the committed scenario doesn't show it. Not explained as lag.
+  Agent C (2026-11-03, partial): the first take's inputs are lost (no logs, no commit has them).
+  Tried rebuilding it from the committed scenario by changing the wait after the room-1 Lifeup
+  (`91 -` at body frame 8978, the only lead-in candidate before the `74 RIGHT` battle) to 30..145
+  frames in steps of 5 (plus 82/88), body cut at 10800: all 26 variants identical vs the emu
+  (battles start/end on the same frames as the emu, no fly-chase divergence). So the divergence
+  is not reproduced; either the lead-in was elsewhere or the first take's route differed earlier.
+  Next step if anyone resumes it: chase No Good Flies on purpose in room 1 (walk away from one
+  with varying lead-ins after the 7305 battle) and autodiff each; otherwise leave it closed.
 - A rec.py check of 10 -> 11 once reported a first divergence at 62375 on a loaded machine and
   was identical when rerun with the same inputs; rerun a check before trusting a far-back
   divergence (autoalign.py's AA_MIN guards against masking one).
