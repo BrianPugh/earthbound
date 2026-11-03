@@ -22,6 +22,7 @@
 #include "game/ending.h"
 #include "snes/ppu.h"
 #include "include/binary.h"
+#include "entity/buffer_layout.h"
 #include "include/constants.h"
 #include "core/math.h"
 #include "core/memory.h"
@@ -531,6 +532,28 @@ int16_t cr_movement_cmd_play_sound(int16_t entity_offset, int16_t script_offset,
     return 0;
 }
 
+/* The asm reads ENTITY_ABS_X/Y_TABLE,X at the slot an entity search
+ * (FIND_ENTITY_FOR_CHARACTER / _BY_SPRITE_ID / _BY_NPC_ID) returned, with no
+ * not-found check. On -1, X = $FFFE and with DBR = $7E the 16-bit index
+ * carries into bank $7F: it reads the words at BUFFER + $0B8C and
+ * BUFFER + $0BC8 (ram.asm: BUFFER = $7F0000, the tables $7E0B8E / $7E0BCA).
+ * The Tessie ride's EVENT_493/494 riders hit this every frame once Tessie's
+ * sprite is gone (emu-checked). Modelled explicitly (no [-1] reads). */
+static void slot_position(int16_t slot, int16_t *x, int16_t *y) {
+    enum { WRAM_ABS_X_TABLE = 0x0B8E, WRAM_ABS_Y_TABLE = 0x0BCA };
+    if (slot >= 0) {
+        *x = entities.abs_x[ENT(slot)];
+        *y = entities.abs_y[ENT(slot)];
+    } else {
+        *x = (int16_t)read_u16_le(buf_at(WRAM_ABS_X_TABLE - 2, 2));
+        *y = (int16_t)read_u16_le(buf_at(WRAM_ABS_Y_TABLE - 2, 2));
+    }
+}
+
+static void copy_position_from_slot(int16_t entity_offset, int16_t slot) {
+    slot_position(slot, &entities.abs_x[entity_offset], &entities.abs_y[entity_offset]);
+}
+
 int16_t cr_movement_cmd_copy_sprite_pos(int16_t entity_offset, int16_t script_offset,
                                          uint16_t pc, uint16_t *out_pc) {
     /* Port of C0A86F → C46CC7: find entity by sprite ID and copy its
@@ -538,12 +561,7 @@ int16_t cr_movement_cmd_copy_sprite_pos(int16_t entity_offset, int16_t script_of
      * Assembly: FIND_ENTITY_BY_SPRITE_ID returns slot; ASL to get offset. */
     uint16_t sprite_id = sw(pc);
     *out_pc = pc + 2;
-    int16_t found = find_entity_by_sprite_id(sprite_id);
-    if (found >= 0) {
-        int16_t found_off = ENT(found);
-        entities.abs_x[entity_offset] = entities.abs_x[found_off];
-        entities.abs_y[entity_offset] = entities.abs_y[found_off];
-    }
+    copy_position_from_slot(entity_offset, find_entity_by_sprite_id(sprite_id));
     return 0;
 }
 
@@ -555,14 +573,7 @@ int16_t cr_movement_cmd_copy_leader_pos(int16_t entity_offset, int16_t script_of
      * abs_x/abs_y are copied to this entity. */
     uint8_t char_id = sb(pc);
     *out_pc = pc + 1;
-    int16_t slot = find_entity_for_character(char_id);
-    /* Not found (-1): the asm indexes the tables at -2 bytes and copies
-     * whatever word precedes them. That's an out-of-bounds read here, so
-     * the position is left unchanged (UB guard). */
-    if (slot >= 0) {
-        entities.abs_x[entity_offset] = entities.abs_x[ENT(slot)];
-        entities.abs_y[entity_offset] = entities.abs_y[ENT(slot)];
-    }
+    copy_position_from_slot(entity_offset, find_entity_for_character(char_id));
     return 0;
 }
 
@@ -649,11 +660,8 @@ int16_t cr_movement_cmd_store_npc_pos(int16_t entity_offset, int16_t script_offs
      * the current entity's var6/var7 (target position registers). */
     uint16_t npc_id = sw(pc);
     *out_pc = pc + 2;
-    int16_t found = find_entity_by_npc_id(npc_id);
-    if (found >= 0) {
-        entities.var[6][entity_offset] = entities.abs_x[found];
-        entities.var[7][entity_offset] = entities.abs_y[found];
-    }
+    slot_position(find_entity_by_npc_id(npc_id), &entities.var[6][entity_offset],
+                  &entities.var[7][entity_offset]);
     return 0;
 }
 
@@ -664,12 +672,8 @@ int16_t cr_movement_cmd_store_sprite_pos(int16_t entity_offset, int16_t script_o
      * Assembly: FIND_ENTITY_BY_SPRITE_ID returns slot; ASL to get offset. */
     uint16_t sprite_id = sw(pc);
     *out_pc = pc + 2;
-    int16_t found = find_entity_by_sprite_id(sprite_id);
-    if (found >= 0) {
-        int16_t found_off = ENT(found);
-        entities.var[6][entity_offset] = entities.abs_x[found_off];
-        entities.var[7][entity_offset] = entities.abs_y[found_off];
-    }
+    slot_position(find_entity_by_sprite_id(sprite_id), &entities.var[6][entity_offset],
+                  &entities.var[7][entity_offset]);
     return 0;
 }
 
