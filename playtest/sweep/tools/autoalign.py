@@ -1,3 +1,4 @@
+# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """autoalign.py DIR [MAX]: run rec.py check, and for a door-load divergence add the usual
 skip K / lag emu(K+20) pair, for an idle-only 1-frame divergence an `ignore: idle K` line;
 repeat. Stops at anything else (prints the report head)."""
@@ -60,7 +61,9 @@ def main():
         if k < lo:
             print(f"REFUSE {k} < {lo}", head)
             return 4
-        lines = [ln for ln in rep.splitlines() if ln.strip().startswith(f"frame {k:>5}") or re.match(rf"\s*frame\s+{k} ", ln)]
+        lines = [
+            ln for ln in rep.splitlines() if ln.strip().startswith(f"frame {k:>5}") or re.match(rf"\s*frame\s+{k} ", ln)
+        ]
         fields = {re.sub(r"^\s*frame\s+\d+ \(input [^)]*\) ", "", ln).split(":")[0] for ln in lines}
         if k == last:
             print("REPEAT", head)

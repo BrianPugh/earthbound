@@ -1,3 +1,4 @@
+# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """One grinding phase per call, recorded as one padlog chunk (the driver checks/replays between).
 
 grind4.py SESSION DIR PHASE [LEAD]
@@ -47,7 +48,9 @@ def main():
             en = re.findall(r"ENEMIES (.*)", o)
             if "BATTLE_MENU" in g.modes(o) and __import__("os").environ.get("RUN"):
                 for _ in range(6):  # Run Away until it works (Auto Fight keeps losing this one)
-                    o += g.do(s, "wait 10; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 DOWN; 8 -; 6 A; 8 -; until input 3000 advance3")
+                    o += g.do(
+                        s, "wait 10; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 DOWN; 8 -; 6 A; 8 -; until input 3000 advance3"
+                    )
                     if "BATTLE_MENU" not in g.modes(o):
                         break
                 o += g.finish(s, auto="BATTLE_MENU" in g.modes(o))
@@ -76,7 +79,10 @@ def main():
             if min(abs(pos[0] - x) + abs(pos[1] - y) for x, y in pts) > 60:
                 # off the terrace loop (a late-pads run left the cook route part-way): back
                 # along the cook route first
-                i = min(range(len(g.FROM_COOK)), key=lambda k: abs(pos[0] - g.FROM_COOK[k][0]) + abs(pos[1] - g.FROM_COOK[k][1]))
+                i = min(
+                    range(len(g.FROM_COOK)),
+                    key=lambda k: abs(pos[0] - g.FROM_COOK[k][0]) + abs(pos[1] - g.FROM_COOK[k][1]),
+                )
                 q = list(g.FROM_COOK[i:]) + q
             if not q:
                 q = LOOP + list(reversed(LOOP[:-1])) + [HOME]

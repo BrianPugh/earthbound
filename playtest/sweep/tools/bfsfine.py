@@ -1,3 +1,4 @@
+# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Best-first route search over a pt.py session: bfs.py SESSION GX GY [STEP] [MAXN]
 From the current state (snapped as bfs0), tries 8 directions x STEP frames from each node,
 dedupes on a 12 px grid, expands nodes nearest the goal first. Prints the step list."""

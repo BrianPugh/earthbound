@@ -1,3 +1,4 @@
+# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Grind real battles in a rec.py recording session, one padlog chunk per walked leg.
 
 grind2.py SESSION DIR TARGET_LEVEL
@@ -25,10 +26,41 @@ LEGS = [
     [(447, 3102), (216, 3102), (216, 2904), (259, 2790), (282, 2766), (381, 2766), (404, 2790), (504, 2794)],
     [(404, 2790), (381, 2766), (282, 2766), (259, 2790), (216, 2904), (216, 3102), (447, 3102)],
 ]
-TO_COOK = [(470, 3125), (601, 3128), (624, 3105), (786, 3096), (791, 3104), (792, 3127), (782, 3150), (768, 3183), (675, 3276), (672, 3374),
-           (606, 3374), (540, 3374), (536, 3352), (404, 3352), (390, 3369), (346, 3369)]
-FROM_COOK = [(390, 3369), (404, 3352), (536, 3352), (540, 3374), (606, 3374), (672, 3374), (675, 3276), (768, 3183),
-             (792, 3127), (791, 3104), (786, 3096), (624, 3105), (601, 3128), (470, 3125), (447, 3102)]
+TO_COOK = [
+    (470, 3125),
+    (601, 3128),
+    (624, 3105),
+    (786, 3096),
+    (791, 3104),
+    (792, 3127),
+    (782, 3150),
+    (768, 3183),
+    (675, 3276),
+    (672, 3374),
+    (606, 3374),
+    (540, 3374),
+    (536, 3352),
+    (404, 3352),
+    (390, 3369),
+    (346, 3369),
+]
+FROM_COOK = [
+    (390, 3369),
+    (404, 3352),
+    (536, 3352),
+    (540, 3374),
+    (606, 3374),
+    (672, 3374),
+    (675, 3276),
+    (768, 3183),
+    (792, 3127),
+    (791, 3104),
+    (786, 3096),
+    (624, 3105),
+    (601, 3128),
+    (470, 3125),
+    (447, 3102),
+]
 
 
 class Retry(Exception):
@@ -36,8 +68,9 @@ class Retry(Exception):
 
 
 def do(s, cmd, timeout=900):
-    return subprocess.run(PT + ["do", s, cmd, "--no-shot", "--timeout", str(timeout)], capture_output=True,
-                          text=True, cwd=ROOT).stdout
+    return subprocess.run(
+        PT + ["do", s, cmd, "--no-shot", "--timeout", str(timeout)], capture_output=True, text=True, cwd=ROOT
+    ).stdout
 
 
 def party(out):
@@ -162,9 +195,16 @@ def heal(s):
             do(s, "4 LEFT" if cx < 0 else "4 RIGHT")
     else:
         raise Retry("cook out of reach")
-    do(s, ("press LEFT" if cx < 0 else "press RIGHT") if abs(cx) >= abs(cy) else ("press UP" if cy < 0 else "press DOWN"))
-    o = do(s, "press A; until input 60; wait 6; press A; until in:SELECTION_MENU 900 advance3; wait 10; press A; "
-              "until out:DISPLAY_TEXT 4000 advance3; wait 30", 1500)
+    do(
+        s,
+        ("press LEFT" if cx < 0 else "press RIGHT") if abs(cx) >= abs(cy) else ("press UP" if cy < 0 else "press DOWN"),
+    )
+    o = do(
+        s,
+        "press A; until input 60; wait 6; press A; until in:SELECTION_MENU 900 advance3; wait 10; press A; "
+        "until out:DISPLAY_TEXT 4000 advance3; wait 30",
+        1500,
+    )
     if "TIMEOUT" in o or "Who are you" in o:
         raise Retry("heal failed")
     walk(s, [(7262, 1728)])

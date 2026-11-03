@@ -1,3 +1,4 @@
+# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Driver: grind4 phases with check / verify / replay after every phase.
 
 grind4drv.py SESSION DIR SAVE TARGET_LEVEL [MAX_PHASES]
@@ -28,8 +29,12 @@ def state(s):
     pa = re.search(r"PARTY 3:Jeff L(\d+) HP (\d+)/(\d+)", o)
     pos = re.search(r"pos=\((\d+),(\d+)\)", st)
     md = re.search(r"modes=\[([^\]]*)\]", st)
-    return (md.group(1) if md else "", (int(pos.group(1)), int(pos.group(2))) if pos else None,
-            tuple(map(int, pa.groups())) if pa else None, o)
+    return (
+        md.group(1) if md else "",
+        (int(pos.group(1)), int(pos.group(2))) if pos else None,
+        tuple(map(int, pa.groups())) if pa else None,
+        o,
+    )
 
 
 def chunks(d):
@@ -40,7 +45,9 @@ def sync(s, d, save):
     """autoalign + verify; replay onto the late pads if needed. Returns verify word."""
     tot = sum(len(c.read_text().split()) for c in chunks(d))
     env = dict(__import__("os").environ, AA_MIN=str(max(0, tot - 8000)))
-    print("  align:", run([PY, str(S / "autoalign.py"), str(d), "12"], env=env).strip().splitlines()[-1][:120], flush=True)
+    print(
+        "  align:", run([PY, str(S / "autoalign.py"), str(d), "12"], env=env).strip().splitlines()[-1][:120], flush=True
+    )
     v = run(REC + [str(d), "verify", s]).strip().splitlines()[-1]
     if v != "SAME":
         run(PT + ["stop", s])
