@@ -67,7 +67,19 @@ def outdir(d):
 def check(d, out):
     build(d, out)
     rep = subprocess.run(  # noqa: S603
-        [sys.executable, str(HERE.parent / "autodiff.py"), str(out), "--out", str(outdir(d)), "--bin", ENV["EB_BIN"]],
+        # A long segment's emu side can pass autodiff's 300 s default on a loaded machine; the
+        # timed-out run then reports a bogus divergence (and a shorter LAG line)
+        [
+            sys.executable,
+            str(HERE.parent / "autodiff.py"),
+            str(out),
+            "--out",
+            str(outdir(d)),
+            "--bin",
+            ENV["EB_BIN"],
+            "--timeout",
+            "3600",
+        ],
         capture_output=True,
         text=True,
         cwd=ROOT,
