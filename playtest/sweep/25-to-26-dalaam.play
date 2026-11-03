@@ -52,6 +52,7 @@
 # skip: 44890
 # lag: 44925
 # ignore: idle 44920
+# ignore: idle 47426
 ---
 16 DOWN+LEFT; 6 DOWN; 122 RIGHT; 11 DOWN+RIGHT; 4 RIGHT; 5 UP; 56 -; 32 UP+LEFT; 32 UP; 256 UP+RIGHT
 96 RIGHT; 96 UP+RIGHT; 96 DOWN+RIGHT; 32 RIGHT; 32 DOWN+RIGHT; 64 RIGHT; 124 UP; 48 UP+LEFT; 48 LEFT; 9 UP
@@ -96,4 +97,17 @@
 4 -; 2 RIGHT; 4 -; 2 A; 4236 -; 1 A; 73 -; 29 DOWN+RIGHT; 145 RIGHT; 227 -
 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 4802 -; 1 A; 25 -; 1 A; 33 -
 1 A; 33 -; 1 A; 21 -; 1 A; 19 -; 1 A; 25 -; 1 A; 25 -
-1 A; 73 -; 287 RIGHT; 100 UP; 96 RIGHT; 55 -
+1 A; 73 -; 287 RIGHT; 100 UP; 96 RIGHT; 55 -; 89 RIGHT; 2 DOWN+RIGHT; 4 DOWN+LEFT; 12 LEFT
+12 DOWN; 4 UP+LEFT; 12 LEFT; 12 UP; 9 DOWN+LEFT; 12 LEFT; 12 DOWN; 4 UP+LEFT; 12 LEFT; 12 UP
+80 DOWN; 648 RIGHT; 120 UP; 20 LEFT; 234 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A
+1108 -; 1 A; 73 -; 48 LEFT; 10 UP+LEFT; 12 UP; 2 A; 6 -; 2 DOWN; 10 -
+2 A; 17 -; 2 A; 19 -; 2 RIGHT; 12 -; 2 A; 24 -; 2 RIGHT; 4 -
+2 RIGHT; 12 -; 2 A; 26 -; 1 A; 59 -; 1 A; 7 -; 2 A; 6 -
+2 DOWN; 10 -; 2 A; 17 -; 2 A; 19 -; 2 RIGHT; 12 -; 2 A; 24 -
+2 A; 26 -; 1 A; 59 -; 1 A; 7 -; 2 A; 6 -; 2 A; 22 -
+1 A; 89 -; 1 A; 65 -; 1 A; 186 -; 6 RIGHT; 6 -; 6 RIGHT; 6 -
+6 A; 16746 -; 1 A; 25 -; 1 A; 23 -; 1 A; 27 -; 1 A; 25 -
+1 A; 45 -; 1 A; 29 -; 1 A; 23 -; 1 A; 19 -; 1 A; 27 -
+1 A; 24 -; 1 A; 22 -; 1 A; 23 -; 1 A; 19 -; 1 A; 23 -
+1 A; 17 -; 1 A; 34 -; 1 A; 28 -; 1 A; 24 -; 1 A; 22 -
+1 A; 23 -; 1 A; 23 -; 1 A; 25 -; 1 A; 45 -; 1 A; 167 -
