@@ -1,0 +1,110 @@
+# save: 14-BelchBase
+# Sweep segment 14 -> 15: the Saturn Valley hotel phone to the Dusty Dunes drugstore (save 15).
+# IN PROGRESS: hotel -> falls cave chain -> Grapefruit Falls slope -> password door (the 3-minute
+# wait) -> Belch Base (Fly Honey slug, No: Slimy Little Pile; guard: Slimy Little Pile) ->
+# Master Belch (Ness's Jar of Fly Honey, then Auto Fight) -> exit cave -> hot-spring plateau
+# (Mr. Saturn's coffee, Yes) -> back through the cave and Belch Base to the password door ->
+# the falls slope going down (reaches 6687,676 so far)
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30
+# late-pads
+# overclock-on: 200
+# skip: 85
+# lag: 105
+# skip: 1213
+# lag: 1234
+# ignore: idle 1243
+# skip: 1439
+# lag: 1461
+# ignore: idle 1469
+# ignore: idle 3224
+# ignore: idle 4599
+# skip: 4737
+# lag: 4760
+# ignore: idle 4767
+# ignore: idle 8940
+# skip: 20791
+# lag: 20815
+# ignore: idle 20821
+# ignore: idle 22191
+# ignore: idle 23603
+# ignore: idle 25739
+# ignore: idle 27279
+# ignore: idle 28133
+# ignore: idle 33065
+# skip: 33161
+# lag: 33186
+# ignore: idle 33191
+# skip: 38823
+# lag: 38849
+# ignore: idle 38853
+# skip: 40209
+# lag: 40236
+# ignore: idle 52491
+# skip: 53678
+# lag: 53706
+# ignore: idle 53708
+# skip: 55275
+# lag: 55304
+# ignore: idle 55305
+# skip: 55523
+# lag: 55553
+# ignore: idle 55553
+# skip: 57534
+# lag: 57565
+# ignore: idle 57564
+---
+50 DOWN; 13 RIGHT; 54 -; 12 UP+RIGHT; 240 RIGHT; 43 -; 48 DOWN+LEFT; 48 DOWN; 24 UP; 24 DOWN+RIGHT
+24 LEFT; 24 DOWN; 24 UP+RIGHT; 24 DOWN+RIGHT; 24 UP; 24 DOWN+RIGHT; 24 RIGHT; 24 DOWN+RIGHT; 24 DOWN; 24 UP+RIGHT
+24 DOWN+RIGHT; 48 DOWN; 168 LEFT; 24 UP+LEFT; 24 UP; 48 LEFT; 48 UP+LEFT; 9 UP; 76 -; 151 LEFT
+75 -; 137 LEFT; 228 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 1262 -; 1 A
+71 -; 294 LEFT; 228 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 747 -; 1 A
+71 -; 106 LEFT; 2 DOWN+LEFT; 16 UP; 67 -; 72 LEFT; 1 -; 24 RIGHT; 24 DOWN+LEFT; 144 DOWN
+48 DOWN+RIGHT; 24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 48 LEFT; 24 DOWN+RIGHT; 96 DOWN; 48 DOWN+LEFT; 24 RIGHT; 120 DOWN
+24 RIGHT; 24 UP; 24 DOWN+RIGHT; 24 DOWN; 1 -; 24 UP+LEFT; 24 UP+RIGHT; 24 UP; 24 LEFT; 24 UP+LEFT
+120 UP; 24 UP+RIGHT; 96 UP; 24 UP+LEFT; 24 UP; 24 DOWN+RIGHT; 24 UP+RIGHT; 24 UP; 24 UP+RIGHT; 48 UP
+48 LEFT; 240 UP; 1 -; 48 LEFT; 1 -; 24 UP+RIGHT; 48 UP; 24 UP+LEFT; 19 UP; 245 -
+6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 1952 -; 1 A; 71 -; 5 UP; 1 -
+24 RIGHT; 24 UP+RIGHT; 24 DOWN; 24 UP+LEFT; 24 UP+RIGHT; 24 DOWN+LEFT; 24 RIGHT; 1 -; 24 UP+LEFT; 24 UP
+24 UP+LEFT; 24 UP; 24 UP+RIGHT; 10 DOWN+LEFT; 4 DOWN; 300 LEFT; 2 -; 24 UP+LEFT; 12 LEFT; 12 UP
+32 LEFT; 18 UP; 24 LEFT; 12 UP+LEFT; 51 LEFT; 2 UP; 11025 -; 1 A; 59 -; 69 RIGHT
+56 DOWN+RIGHT; 63 RIGHT; 16 UP+RIGHT; 23 RIGHT; 32 UP+RIGHT; 6 RIGHT; 8 DOWN+RIGHT; 1 A; 43 -; 2 RIGHT
+10 -; 2 A; 24 -; 1 A; 180 -; 6 B; 10 -; 6 B; 10 -; 6 B
+20 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 668 -; 1 A; 73 -; 63 RIGHT
+16 UP+RIGHT; 23 RIGHT; 3 UP+RIGHT; 237 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 962 -
+1 A; 71 -; 29 UP+RIGHT; 6 RIGHT; 8 DOWN+RIGHT; 114 DOWN; 1 -; 48 UP+RIGHT; 320 DOWN; 172 -
+6 B; 10 -; 6 B; 10 -; 6 B; 20 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -
+6 A; 1274 -; 1 A; 62 -; 312 LEFT; 24 DOWN+LEFT; 24 UP; 7 -; 95 LEFT; 235 -
+6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 668 -; 1 A; 25 -; 1 A; 22 -
+1 A; 28 -; 1 A; 71 -; 128 LEFT; 222 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -
+6 A; 398 -; 1 A; 71 -; 37 LEFT; 40 DOWN; 60 DOWN+LEFT; 209 LEFT; 24 UP+LEFT; 51 LEFT
+32 UP+LEFT; 58 -; 1 A; 65 -; 1 A; 12 -; 1 A; 70 -; 1 A; 29 -
+1 A; 178 -; 6 B; 10 -; 6 B; 10 -; 6 B; 20 -; 6 RIGHT; 8 -
+6 RIGHT; 8 -; 6 A; 3808 -; 1 A; 29 -; 1 A; 42 -; 1 A; 16 -
+1 A; 73 -; 33 LEFT; 24 UP+LEFT; 14 UP; 75 -; 150 LEFT; 2 A; 12 -; 2 A
+10 -; 1 A; 17 -; 1 A; 71 -; 1 A; 59 -; 1 A; 53 -; 1 A
+41 -; 1 A; 53 -; 1 A; 35 -; 1 A; 77 -; 1 A; 101 -; 1 A
+71 -; 1 A; 190 -; 6 RIGHT; 10 -; 6 A; 20 -; 6 DOWN; 10 -; 6 DOWN
+10 -; 6 DOWN; 10 -; 6 DOWN; 10 -; 6 A; 20 -; 6 A; 20 -; 6 A
+30 -; 6 A; 20 -; 6 A; 556 -; 6 B; 10 -; 6 B; 10 -; 6 B
+20 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 2808 -; 1 A; 25 -; 1 A
+33 -; 1 A; 23 -; 1 A; 19 -; 1 A; 23 -; 1 A; 28 -; 1 A
+28 -; 1 A; 39 -; 1 A; 27 -; 1 A; 25 -; 1 A; 27 -; 1 A
+47 -; 1 A; 149 -; 1 A; 137 -; 1 A; 71 -; 1 A; 107 -; 1 A
+71 -; 1 A; 8 -; 10 LEFT; 35 UP; 75 -; 600 RIGHT; 32 -; 600 RIGHT; 32 -
+18 UP+LEFT; 13 LEFT; 16 UP; 75 -; 16 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 16 DOWN+RIGHT; 12 RIGHT; 12 DOWN
+16 DOWN+RIGHT; 12 RIGHT; 12 DOWN; 14 DOWN+RIGHT; 48 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT
+24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 40 RIGHT; 40 DOWN; 50 RIGHT; 2 A
+12 -; 2 A; 24 -; 1 A; 16 -; 1 A; 27 -; 2 A; 22 -; 1 A
+11643 -; 120 DOWN; 10 -; 120 UP; 24 UP+LEFT; 24 LEFT; 12 UP+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT
+24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 24 LEFT; 12 UP+LEFT; 12 DOWN+LEFT; 120 UP; 32 -; 72 LEFT; 120 UP
+33 -; 24 RIGHT; 24 DOWN; 24 UP+RIGHT; 48 DOWN; 48 LEFT; 24 UP+LEFT; 1 -; 24 RIGHT; 24 DOWN
+48 LEFT; 24 UP+LEFT; 15 UP; 76 -; 900 LEFT; 33 -; 24 DOWN; 24 UP+LEFT; 72 LEFT; 24 UP+LEFT
+72 LEFT; 24 UP+LEFT; 96 LEFT; 24 UP+LEFT; 192 LEFT; 24 UP; 14 LEFT; 75 -; 16 DOWN; 157 RIGHT
+55 -; 122 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 120 RIGHT; 33 -; 24 DOWN; 120 RIGHT; 24 DOWN+RIGHT; 48 RIGHT
+24 UP; 1 -; 24 RIGHT; 120 UP+RIGHT; 1 -; 72 RIGHT; 24 DOWN+RIGHT; 144 RIGHT; 1 -; 312 RIGHT
+1 -; 144 UP; 1 -; 120 UP; 24 LEFT; 24 DOWN+LEFT; 24 LEFT; 24 DOWN+LEFT; 72 LEFT; 1 -
+48 UP+LEFT; 72 LEFT; 120 UP; 33 -; 8 RIGHT; 2 UP; 76 -; 48 RIGHT; 1 -; 24 DOWN
+24 LEFT; 1 -; 24 RIGHT; 24 DOWN; 1 -; 96 RIGHT; 24 DOWN+RIGHT; 24 UP+RIGHT; 24 DOWN; 24 UP+LEFT
+1 -; 24 RIGHT; 24 DOWN+RIGHT; 48 DOWN; 24 LEFT; 24 DOWN; 24 DOWN+RIGHT; 24 UP+RIGHT; 24 LEFT; 1 -
+24 LEFT; 1 -; 96 DOWN; 24 LEFT; 1 -; 48 RIGHT; 24 DOWN+RIGHT; 24 UP; 1 -; 72 DOWN
