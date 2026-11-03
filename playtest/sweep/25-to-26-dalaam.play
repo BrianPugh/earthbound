@@ -29,6 +29,23 @@
 # skip: 11426
 # lag: 11454
 # ignore: idle 11456
+# lag: 16700
+# ignore: idle 16727
+# lag: 19322
+# ignore: idle 19348
+# lag: 23299
+# ignore: idle 23324
+# skip: 24208
+# lag: 24240
+# ignore: idle 24238
+# skip: 24264
+# lag: 24297
+# ignore: idle 24294
+# ignore: idle 27848
+# ignore: idle 29403
+# skip: 29597
+# lag: 29631
+# ignore: idle 29627
 ---
 16 DOWN+LEFT; 6 DOWN; 122 RIGHT; 11 DOWN+RIGHT; 4 RIGHT; 5 UP; 56 -; 32 UP+LEFT; 32 UP; 256 UP+RIGHT
 96 RIGHT; 96 UP+RIGHT; 96 DOWN+RIGHT; 32 RIGHT; 32 DOWN+RIGHT; 64 RIGHT; 124 UP; 48 UP+LEFT; 48 LEFT; 9 UP
@@ -47,4 +64,24 @@
 25 -; 1 A; 73 -; 100 LEFT; 24 DOWN+RIGHT; 24 UP+RIGHT; 32 LEFT; 56 -; 2 RIGHT; 55 -
 58 RIGHT; 227 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 4898 -; 1 A; 73 -
 32 RIGHT; 2 UP; 53 DOWN; 618 -; 6 RIGHT; 6 -; 6 RIGHT; 6 -; 6 A; 1812 -
-1 A; 73 -
+1 A; 73 -; 2 A; 6 -; 2 RIGHT; 10 -; 2 A; 16 -; 2 RIGHT; 14 -
+2 A; 14 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 19 -
+2 A; 24 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -; 2 A; 50 -
+1 A; 553 -; 2 B; 14 -; 2 B; 14 -; 2 B; 14 -; 2 A; 6 -
+2 RIGHT; 10 -; 2 A; 16 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 14 -
+2 A; 15 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 19 -; 2 A; 25 -
+2 RIGHT; 14 -; 2 A; 38 -; 1 A; 21 -; 1 A; 7 -; 2 A; 6 -
+2 DOWN; 10 -; 2 A; 17 -; 2 RIGHT; 14 -; 2 A; 25 -; 2 RIGHT; 12 -
+2 A; 24 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 RIGHT; 12 -; 2 A; 24 -
+1 A; 57 -; 1 A; 7 -; 2 A; 6 -; 2 DOWN; 10 -; 2 A; 17 -
+2 A; 19 -; 2 RIGHT; 12 -; 2 A; 24 -; 2 RIGHT; 4 -; 2 RIGHT; 12 -
+2 A; 26 -; 1 A; 59 -; 1 A; 7 -; 8 UP; 6 UP+RIGHT; 521 RIGHT; 6 UP+RIGHT
+579 RIGHT; 234 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 1020 -; 1 A; 73 -
+261 RIGHT; 30 DOWN; 120 RIGHT; 30 UP; 10 LEFT; 100 UP; 299 LEFT; 2 UP+LEFT; 6 UP; 55 -
+2 RIGHT; 55 -; 7 DOWN+RIGHT; 30 RIGHT; 249 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A
+2728 -; 1 A; 25 -; 1 A; 33 -; 1 A; 23 -; 1 A; 21 -; 1 A
+19 -; 1 A; 17 -; 1 A; 31 -; 1 A; 25 -; 1 A; 25 -; 1 A
+25 -; 1 A; 23 -; 1 A; 25 -; 1 A; 25 -; 1 A; 23 -; 1 A
+23 -; 1 A; 21 -; 1 A; 25 -; 1 A; 25 -; 1 A; 73 -; 193 RIGHT
+234 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 1040 -; 1 A; 73 -; 160 RIGHT
+2 DOWN+RIGHT; 6 RIGHT; 55 -
