@@ -1,5 +1,14 @@
 # save: 11-Winters
-# Sweep segment 11 -> 12: Jeff in Brick Road's dungeon to the Threed hotel phone.
+# Sweep segment 11 -> 12: Jeff in Brick Road's dungeon to the Threed hotel phone. Out of the
+# dungeon exit, the cave door below it (6888,4960: Attack Slugs; the present npc1451, a
+# Hamburger, blocks the west door), the Rainy Circle side (5320,416), Pak of bubble gum by the
+# coiled rope (the Bubble Monkey climbs it, flag 311), both ropes up, the south mouth to
+# 432,4264 (the monkey leaves for his date), down past Stonehenge to the lab (BFS route),
+# Andonuts (donut No, Stonehenge Yes), the Sky Runner (Threed flight, crash: Ness and Paula
+# join in the jail, Yes), the Bad key machine on the cell door, the stairs and the ladder to
+# the cemetery, a zombie fight that knocks Paula and Jeff out, the street (BFS) to the Sunset
+# Hotel and its phone: Dad, Record, Continue. Recorded in chunks with playtest/sweep/rec.py;
+# battle prompts with `advance3` (3-frame taps), menu presses held 6 frames
 # late-pads: the port replays the pads the original read after each lag-merged frame
 # Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30
 # late-pads
@@ -8,5 +17,96 @@
 port: wait 1
 # skip: 137
 # lag: 157
+# skip: 955
+# lag: 976
+# ignore: idle 985
+# skip: 8879
+# lag: 8901
+# skip: 14043
+# lag: 14066
+# skip: 27101
+# lag: 27125
+# skip: 29974
+# lag: 29999
+# skip: 32940
+# lag: 32966
+# skip: 33544
+# lag: 33571
+# skip: 34210
+# lag: 34238
+# skip: 34743
+# lag: 34772
+# skip: 35409
+# lag: 35439
+# skip: 36191
+# lag: 36222
+# skip: 36857
+# lag: 36889
+# skip: 40368
+# lag: 40401
+# skip: 41957
+# lag: 41991
+# ignore: idle 41987
+# skip: 42556
+# lag: 42591
+# ignore: idle 42586
+# skip: 48271
+# lag: 48307
+# skip: 48273
+# lag: 48310
+# skip: 48291
+# lag: 48329
+# skip: 48292
+# lag: 48331
+# ignore: idle 48301
+# ignore: idle 48302
 ---
-70 LEFT; 32 -; 11 UP; 76 -
+70 LEFT; 32 -; 11 UP; 76 -; 60 RIGHT; 150 DOWN; 10 UP; 90 RIGHT; 120 DOWN; 240 LEFT
+12 RIGHT; 60 UP; 86 -; 40 DOWN; 150 DOWN+LEFT; 10 RIGHT; 30 DOWN; 17 LEFT; 241 -; 2 RIGHT
+4 -; 2 RIGHT; 4 -; 2 A; 922 -; 1 A; 71 -; 43 LEFT; 60 DOWN+LEFT; 66 LEFT
+241 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 972 -; 1 A; 71 -; 130 LEFT
+226 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 677 -; 1 A; 71 -; 130 LEFT
+20 UP+LEFT; 54 UP; 241 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 922 -; 1 A
+24 -; 1 A; 34 -; 1 A; 23 -; 1 A; 23 -; 1 A; 19 -; 1 A
+23 -; 1 A; 17 -; 1 A; 21 -; 1 A; 29 -; 1 A; 71 -; 106 UP
+15 DOWN; 13 LEFT; 288 -; 1 A; 1213 -; 3 LEFT; 8 UP; 4 LEFT; 2 L; 37 -
+10 UP; 200 LEFT; 42 -; 1 A; 29 -; 1 A; 17 -; 1 A; 15 -; 10 UP
+65 LEFT; 85 -; 21 LEFT; 241 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 988 -
+1 A; 71 -; 133 LEFT; 241 -; 2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 940 -
+1 A; 71 -; 181 LEFT; 288 -; 1 A; 24 -; 1 A; 17 -; 1 A; 27 -
+1 A; 26 -; 1 A; 46 -; 1 A; 15 -; 1 A; 1487 -; 191 LEFT; 10 DOWN
+2 LEFT; 22 UP; 85 -; 230 LEFT; 2 A; 16 -; 2 RIGHT; 10 -; 2 A; 26 -
+2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 34 -
+2 A; 48 -; 1 A; 33 -; 1 A; 1721 -; 14 RIGHT; 300 UP; 16 RIGHT; 200 UP
+30 RIGHT; 50 DOWN; 14 UP; 300 LEFT; 52 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A
+1226 -; 1 A; 29 -; 1 A; 47 -; 1 A; 41 -; 1 A; 41 -; 1 A
+7255 -; 2 RIGHT; 10 -; 2 A; 40 -; 1 A; 579 -; 2 A; 27 -; 1 A
+61 -; 200 UP; 30 RIGHT; 50 DOWN; 14 UP; 138 LEFT; 86 -; 20 RIGHT; 96 -; 1 A
+53 -; 1 A; 1849 -; 72 DOWN+LEFT; 48 LEFT; 24 DOWN; 24 UP+LEFT; 24 DOWN+LEFT; 24 DOWN; 48 DOWN+RIGHT
+48 DOWN; 24 DOWN+LEFT; 24 LEFT; 24 DOWN; 24 DOWN+RIGHT; 24 DOWN; 24 DOWN+LEFT; 72 DOWN; 24 DOWN+RIGHT; 24 DOWN+LEFT
+72 DOWN; 24 RIGHT; 48 DOWN+RIGHT; 14 RIGHT; 35 UP; 85 -; 72 LEFT; 24 DOWN+LEFT; 12 LEFT; 23 DOWN+LEFT
+12 LEFT; 34 DOWN+LEFT; 12 LEFT; 14 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 14 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 14 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 2 DOWN; 4 -; 2 A; 12 -; 2 A; 53 -; 1 A; 142 -
+1 A; 85 -; 1 A; 39 -; 1 A; 36 -; 1 A; 32 -; 2 RIGHT; 10 -
+2 A; 34 -; 1 A; 41 -; 1 A; 13 -; 2 A; 28 -; 1 A; 23 -
+1 A; 30 -; 1 A; 11 -; 1 A; 52 -; 1 A; 30 -; 1 A; 84 -
+1 A; 23 -; 1 A; 58 -; 1 A; 48 -; 1 A; 81 -; 1 A; 59 -
+1 A; 48 -; 1 A; 65 -; 1 A; 46 -; 1 A; 14 -; 97 LEFT; 5 UP
+200 LEFT; 571 -; 1 A; 64 -; 1 A; 8035 -; 1 A; 89 -; 1 A; 11 -
+1 A; 105 -; 1 A; 31 -; 1 A; 87 -; 1 A; 89 -; 1 A; 59 -
+2 A; 70 -; 1 A; 491 -; 1 A; 9 -; 48 RIGHT; 24 UP+RIGHT; 15 RIGHT; 6 UP
+4 -; 2 A; 16 -; 2 RIGHT; 10 -; 2 A; 34 -; 2 RIGHT; 10 -; 2 RIGHT
+10 -; 2 A; 34 -; 2 DOWN; 4 -; 2 DOWN; 10 -; 2 A; 24 -; 2 A
+34 -; 1 A; 17 -; 1 A; 8 -; 40 UP; 49 -; 475 RIGHT; 39 UP; 102 -
+72 DOWN+LEFT; 116 LEFT; 694 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 2728 -; 1 A
+27 -; 1 A; 23 -; 1 A; 23 -; 1 A; 23 -; 1 A; 17 -; 1 A
+25 -; 1 A; 27 -; 1 A; 71 -; 172 LEFT; 24 DOWN+LEFT; 48 DOWN; 24 DOWN+RIGHT; 24 DOWN+LEFT
+24 DOWN; 24 RIGHT; 24 DOWN; 24 LEFT; 24 DOWN; 24 LEFT; 48 DOWN+LEFT; 48 DOWN; 24 DOWN+RIGHT; 24 DOWN
+48 RIGHT; 83 LEFT; 150 DOWN+LEFT; 16 LEFT; 176 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 16 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+16 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 16 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 60 UP; 43 -; 60 UP; 43 -
+48 DOWN+RIGHT; 72 RIGHT; 24 DOWN+RIGHT; 72 DOWN; 24 RIGHT; 24 DOWN; 24 UP+RIGHT; 24 RIGHT; 9 UP; 85 -
+104 LEFT; 22 UP+LEFT; 8 LEFT; 2 UP; 4 -; 2 A; 12 -; 2 A; 28 -; 1 A
+15 -; 2 A; 22 -; 1 A; 42 -; 1 A; 52 -; 1 A; 18 -; 1 A
+36 -; 1 A; 15 -; 1 A; 17 -; 1 A; 12 -; 1 A; 46 -; 2 A
+10 -; 1 A; 73 -; 1 A; 57 -; 1 A; 37 -; 2 A; 52 -; 1 A
+47 -; 1 A; 29 -; 1 A; 8 -
