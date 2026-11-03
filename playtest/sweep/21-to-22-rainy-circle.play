@@ -1,9 +1,17 @@
 # save: 21-Monotoli
 # Sweep segment 21 -> 22: the Monotoli hotel phone, the maid (Yogurt dispenser), the Monotoli
-# Building (47F, 48F, Sentry Robots, Clumsy Robot, the Runaway Five), Monotoli's office, Paula's
-# confession and return, PSI Teleport to Winters, Dr. Andonuts' lab. Recorded in chunks with
-# playtest/sweep/rec.py
+# Building (elevators, 47F, 48F, 4 Sentry Robots on Auto Fight, the Clumsy Robot and the Runaway
+# Five), Monotoli's office ("Stop!", Paula, the confession: "again?" No; Paula joins), the
+# heliport (Pokey's helicopter), the office's main door (Paula's prayer fade-back), back down to
+# the street ("You cannot teleport now" until the bus), the Runaway Five's bus to Threed, the
+# cemetery hole to the jail, Jeff repairs the painted Sky Runner (Check from below it; from its
+# right and left Jeff wants to be in front) and the flight to Dr. Andonuts' lab, the lab phone (Dad:
+# Record, Continue). Recorded in chunks with playtest/sweep/rec.py; overclock on from the Threed
+# arrival (the late pads drifted BFS walks there)
+# Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 8171, 10582, 12654 and 14709
+# are post-battle fade-ins (lag)
 # late-pads
+# overclock-on: 50520
 # skip: 178
 # lag: 198
 # ignore: idle 208
@@ -125,6 +133,36 @@
 # skip: 48570
 # lag: 48628
 # ignore: idle 48600
+# skip: 51988
+# lag: 52047
+# ignore: idle 52018
+# skip: 52375
+# lag: 52435
+# ignore: idle 52405
+# skip: 54912
+# lag: 54973
+# ignore: idle 54942
+# skip: 55658
+# lag: 55720
+# ignore: idle 55688
+# skip: 56324
+# lag: 56387
+# ignore: idle 56354
+# skip: 57046
+# lag: 57110
+# ignore: idle 57076
+# skip: 57712
+# lag: 57777
+# ignore: idle 57742
+# skip: 58271
+# lag: 58337
+# ignore: idle 58301
+# skip: 58937
+# lag: 59004
+# ignore: idle 58967
+# skip: 59171
+# lag: 59239
+# ignore: idle 59201
 ---
 16 DOWN; 120 RIGHT; 12 DOWN+RIGHT; 6 UP; 56 -; 48 UP; 48 RIGHT; 48 UP+RIGHT; 24 UP; 96 UP+RIGHT
 24 RIGHT; 48 UP+RIGHT; 72 RIGHT; 120 UP+RIGHT; 24 RIGHT; 24 DOWN+RIGHT; 24 RIGHT; 24 UP; 48 UP+LEFT; 24 UP
@@ -190,9 +228,21 @@
 77 -; 1 A; 13 -; 1 A; 65 -; 1 A; 67 -; 1 A; 59 -; 1 A
 51 -; 1 A; 29 -; 1 A; 4074 -; 1 A; 39 -; 1 A; 57 -; 1 A
 33 -; 1 A; 77 -; 1 A; 13 -; 1 A; 65 -; 1 A; 67 -; 1 A
-59 -; 1 A; 51 -; 1 A; 29 -; 1 A; 486 -; 24 UP+LEFT; 24 UP; 48 UP+LEFT
-48 LEFT; 24 DOWN+LEFT; 24 UP+LEFT; 120 LEFT; 24 UP+LEFT; 48 UP; 24 DOWN+LEFT; 24 UP; 24 RIGHT; 24 UP
-24 LEFT; 96 UP; 24 UP+LEFT; 24 LEFT; 24 UP; 24 DOWN+RIGHT; 48 UP; 24 UP+LEFT; 24 UP+RIGHT; 24 DOWN+RIGHT
-24 DOWN+LEFT; 24 UP; 8 DOWN; 4 RIGHT; 2 A; 16 -; 2 DOWN; 10 -; 2 A; 44 -
-2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 44 -; 2 DOWN; 4 -; 2 DOWN; 4 -
-2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 14 -; 2 A; 9 -; 290 RIGHT; 22 -
+59 -; 1 A; 51 -; 1 A; 29 -; 1 A; 486 -; 24 UP+LEFT; 24 UP; 24 UP+LEFT
+24 UP+RIGHT; 24 UP; 24 DOWN+RIGHT; 48 RIGHT; 24 UP; 24 DOWN+RIGHT; 24 UP+RIGHT; 72 UP; 24 UP+LEFT; 24 UP
+48 UP+LEFT; 48 LEFT; 48 UP+LEFT; 24 LEFT; 24 UP+LEFT; 24 UP+RIGHT; 24 UP; 24 UP+LEFT; 72 UP; 24 UP+RIGHT
+72 UP; 24 DOWN+LEFT; 48 UP; 24 RIGHT; 24 UP+RIGHT; 24 RIGHT; 168 UP+RIGHT; 312 RIGHT; 24 UP; 36 -
+40 DOWN; 290 LEFT; 2 UP; 55 -; 60 LEFT; 2 L; 120 -; 1 A; 27 -; 1 A
+67 -; 24 DOWN; 64 LEFT; 26 UP; 3 RIGHT; 10 DOWN; 40 RIGHT; 12 UP; 30 RIGHT; 10 DOWN
+3 RIGHT; 2 L; 120 -; 1 A; 27 -; 1 A; 67 -; 20 DOWN; 25 RIGHT; 20 UP
+8 DOWN+RIGHT; 8 RIGHT; 8 DOWN; 24 RIGHT; 16 DOWN; 8 DOWN+LEFT; 8 LEFT; 4 UP; 2 L; 196 -
+1 A; 31 -; 1 A; 273 -; 1 A; 19 -; 1 A; 63 -; 1 A; 17 -
+1 A; 85 -; 1 A; 33 -; 1 A; 57 -; 1 A; 45 -; 1 A; 71 -
+1 A; 5647 -; 1 A; 39 -; 1 A; 81 -; 1 A; 65 -; 1 A; 69 -
+1 A; 57 -; 1 A; 39 -; 1 A; 57 -; 1 A; 39 -; 1 A; 53 -
+1 A; 67 -; 1 A; 380 -; 48 RIGHT; 10 DOWN+RIGHT; 72 RIGHT; 21 DOWN+RIGHT; 12 RIGHT; 12 DOWN
+21 RIGHT; 4 UP; 2 A; 6 -; 2 A; 28 -; 1 A; 15 -; 2 A; 22 -
+1 A; 43 -; 1 A; 51 -; 1 A; 19 -; 1 A; 37 -; 1 A; 15 -
+1 A; 15 -; 1 A; 15 -; 1 A; 46 -; 2 A; 10 -; 1 A; 73 -
+1 A; 57 -; 1 A; 37 -; 2 A; 52 -; 1 A; 47 -; 1 A; 29 -
+1 A; 24 -
