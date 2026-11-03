@@ -1,0 +1,12 @@
+# save: 11-Winters
+# Sweep segment 11 -> 12: Jeff in Brick Road's dungeon to the Threed hotel phone.
+# late-pads: the port replays the pads the original read after each lag-merged frame
+# Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30
+# late-pads
+# port: wait 1 lines the Bubble Monkey's distracted-mode countdown (running from before the seed)
+# up with the original's boot
+port: wait 1
+# skip: 137
+# lag: 157
+---
+70 LEFT; 32 -; 11 UP; 76 -
