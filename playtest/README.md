@@ -141,6 +141,9 @@ row, with buttons released, so a following `press` is not lost. PATTERN is
 `|`-separated BUTTONS cycled every 48 frames; `X*` taps X every other frame.
 PATTERN `advance` taps A only while a text prompt waits for it, so it never
 opens or picks from a menu: `until idle 3000 advance` reads through dialogue.
+`advance3` holds each tap 3 frames (then 3 up), so a tap still lands when the
+original reads the pad a frame late after a lag frame (autodiff `# late-pads`);
+use it when recording sweep segments through battles.
 
 Instant (no frame passes):
 

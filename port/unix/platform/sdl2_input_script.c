@@ -22,7 +22,8 @@
  *                    frames; a trailing '*' on a segment taps it (pressed every
  *                    other frame). Default PATTERN is '-'. PATTERN 'advance'
  *                    taps A only while a text prompt waits for a button (it
- *                    never opens a menu or picks a menu item). COND is one of
+ *                    never opens a menu or picks a menu item); 'advance3'
+ *                    holds each tap 3 frames. COND is one of
  *                      in:M / out:M  mode M (name or number) is / isn't on the
  *                                    mode stack
  *                      idle          player can walk: mode stack is just
@@ -949,9 +950,12 @@ static bool until_step(uint16_t *pad) {
         until_active = false;
         return false;
     }
-    if (strcmp(until_pattern, "advance") == 0) {
-        /* Tap A only while a text prompt waits for it */
-        *pad = (text_prompt_waiting() && !(until_elapsed & 1)) ? PAD_A : 0;
+    if (strcmp(until_pattern, "advance") == 0 || strcmp(until_pattern, "advance3") == 0) {
+        /* Tap A only while a text prompt waits for it. advance3 holds each
+         * tap 3 frames (3 up): a tap the original reads late after a lag
+         * frame (autodiff # late-pads) still lands */
+        int period = until_pattern[7] == '3' ? 6 : 2;
+        *pad = (text_prompt_waiting() && (until_elapsed % period) < period / 2) ? PAD_A : 0;
         until_elapsed++;
         until_left--;
         return true;

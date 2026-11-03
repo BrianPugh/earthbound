@@ -1063,8 +1063,9 @@ class Player:
             if ok or elapsed >= limit:
                 log(f"UNTIL {'met' if ok else 'TIMEOUT'} after {elapsed} frames (frame={self.frame})")
                 return
-            if pattern == "advance":
-                pad = (1 << BUTTON_IDS["A"]) if (g.text_prompt_waiting() and not elapsed & 1) else 0
+            if pattern in ("advance", "advance3"):
+                period = 6 if pattern == "advance3" else 2  # advance3 holds each tap 3 frames
+                pad = (1 << BUTTON_IDS["A"]) if (g.text_prompt_waiting() and elapsed % period < period // 2) else 0
             else:
                 seg = segs[(elapsed // 48) % len(segs)]
                 tap = seg.endswith("*")
