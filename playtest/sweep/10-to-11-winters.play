@@ -14,10 +14,9 @@
 # fade-in. The Sunset Hotel's street door spends 3 more CPU-time frames in the original (the
 # emu's LSTEP steps by 2 through the load: lags 17036-17038); the lobby -> corridor fade-in
 # ends 4 frames later there (idle 17269-17272)
-# Not lag: ent16.pos 36846-36947 (the photo's EVENT_450 copies the absent Ness's position) and
-# ent(5|16).pos 49783-50160 (Tessie's riders, EVENT_493/494, after the goat battle) read the
-# BUFFER words a failed entity search indexes ($7F0B8C/$7F0BC8, 50c1ad6d); those bytes are
-# stale staging data the port's 20 KB ert.buffer layout doesn't reproduce. Both off-screen
+# The photo's EVENT_450 (absent Ness) and Tessie's riders (EVENT_493/494) copy the BUFFER
+# words a failed entity search indexes ($7F0B8C/$7F0BC8, 50c1ad6d): the last map load's
+# tileset GFX, which the port now leaves in ert.buffer too (unmasked since then)
 # late-pads
 # skip: 202
 # lag: 222
@@ -90,8 +89,6 @@
 # lag: 35756
 # skip: 35797
 # lag: 35852
-# ignore: ent16.pos 36846-36947
-# ignore: ent(5|16)\.pos 49783-50160
 # skip: 50153
 # lag: 50209
 ---

@@ -1875,7 +1875,8 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
     /* Load tileset GFX if changed.
      * Assembly decompresses into BUFFER then DMA's the first 0x7000 bytes
      * to VRAM $0000. We copy the decompressed asset straight to ppu.vram,
-     * capped at the same 0x7000 bytes, with no ert.buffer staging.
+     * capped at the same 0x7000 bytes, and leave its start in ert.buffer
+     * like the asm's DECOMP did.
      *
      * The gate is LOADED_MAP_TILE_COMBO (asm line 83), which RELOAD_MAP,
      * LOAD_TELEPORT_DESTINATION, LOAD_MAP_AT_POSITION and the game-over
@@ -1893,6 +1894,11 @@ void load_map_at_sector(uint16_t sector_x, uint16_t sector_y) {
          * N.gfx.raw assets are $7001 bytes, and the last one is not uploaded. */
         size_t gfx_max = photograph_map_loading_mode ? 0x4000 : 0x7000;
         copy_raw_asset(ASSET_MAPS_GFX(tileset_id), ppu.vram, gfx_max);
+        /* The DECOMP target was BUFFER: leave the bytes there too
+         * (BUF_MAP_TILESET_GFX), in photograph mode as well. */
+        copy_raw_asset(ASSET_MAPS_GFX(tileset_id),
+                       BUF_REGION(BUF_MAP_TILESET_GFX, 0, BUF_MAP_TILESET_GFX_SIZE),
+                       BUF_MAP_TILESET_GFX_SIZE);
         ml.loaded_tileset_combo = tileset_combo;
     }
 

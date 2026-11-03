@@ -290,6 +290,17 @@ static inline uint8_t *buf_decomp_scratch(void) {
 #define BUF_TOWN_MAP_GFX          0x0840
 #define BUF_TOWN_MAP_GFX_SIZE     0x4000
 
+/* ===== Map tileset GFX (map_loader.c load_map_at_sector) ===== */
+/* LOAD_MAP_AT_SECTOR decompresses the tileset GFX ($7001 B) to BUFFER and
+ * DMAs it to VRAM. The port uploads straight from the asset, then leaves the
+ * same bytes in the buffer, as far as the port's offsets mirror the asm's:
+ * the asm keeps the entity fade metadata and the dissolve slots above $7000,
+ * so the copy stops below them. Later stale reads of these bytes (an entity
+ * position copy after a failed search, callroutine_movement.c
+ * slot_position) then see the original's values. */
+#define BUF_MAP_TILESET_GFX      0x0000
+#define BUF_MAP_TILESET_GFX_SIZE BUF_ENTITY_FADE_STATES
+
 /* ===== Save scratch (game_state.c, EntityRuntimeState union) ===== */
 /* ert.save_scratch (one SaveBlock, 0x500 B) overlays the buffer here while a
  * save slot is read, written or copied (synchronously, inside one call). */
@@ -325,6 +336,7 @@ BUF_ASSERT_FITS(BUF_CREDITS_PALETTE);
 BUF_ASSERT_FITS(BUF_CREDITS_TILEMAP);
 BUF_ASSERT_FITS(BUF_TOWN_MAP_GFX);
 BUF_ASSERT_FITS(BUF_SAVE_SCRATCH);
+BUF_ASSERT_FITS(BUF_MAP_TILESET_GFX);
 
 /* Sub-blocks of one owner's staging. */
 BUF_ASSERT_WITHIN(BUF_TEXT_GFX_CHECKER, BUF_TEXT_GFX);
@@ -374,6 +386,11 @@ BUF_ASSERT_DISJOINT(BUF_TEXT_GFX, BUF_ENTITY_FADE_STATES);
 BUF_ASSERT_DISJOINT(BUF_TEXT_GFX, BUF_TILE_MERGE_SLOTS);
 BUF_ASSERT_DISJOINT(BUF_TOWN_MAP_GFX, BUF_ENTITY_FADE_STATES);
 BUF_ASSERT_DISJOINT(BUF_TOWN_MAP_GFX, BUF_TILE_MERGE_SLOTS);
+
+/* A map load leaves the tileset GFX at BUFFER+0 and must leave an entity
+ * fade batch's metadata and dissolve slots intact, as in the asm. */
+BUF_ASSERT_DISJOINT(BUF_MAP_TILESET_GFX, BUF_ENTITY_FADE_STATES);
+BUF_ASSERT_DISJOINT(BUF_MAP_TILESET_GFX, BUF_TILE_MERGE_SLOTS);
 
 /* GAME_MODE_MAP_PALETTE_FADE (CC_1F_E1) keeps its arrays across frames and
  * must leave a paused entity fade batch's metadata intact. */
