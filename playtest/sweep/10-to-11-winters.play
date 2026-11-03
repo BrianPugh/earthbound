@@ -4,12 +4,20 @@
 # gatekeepers' area (flag 46), the Sunset Hotel (the girl, the corridor room: the zombie
 # capture), the jail cell door (Paula's prayer), Jeff in Snow Wood (Tony; Maxwell's bent key
 # fails on locker npc595, Maxwell's Bad key machine opens it: Pop gun, equipped), the gate
-# (Tony's boost), the Winters drugstore (Nancy, Yes: Pak of bubble gum; the Bubble Monkey) Recorded in chunks with playtest/sweep/rec.py
+# (Tony's boost), the Winters drugstore (Nancy, Yes: Pak of bubble gum; the Bubble Monkey), the
+# terraces south (one Auto Fight battle) to the Lake Tess camp, the cook's stew (night, Jeff
+# repairs the spray can), the photographer, Tessie (gum), a Gruff Goat (Big bottle rocket) and
+# Brick Road's dungeon door (776,4640). BLOCKED there: Jeff (L3) loses to the dungeon's field
+# monsters (Worthless Protoplasm, 17-21 a hit against 35 HP; save 11 has 5 of the 6 beaten at L7) Recorded in chunks with playtest/sweep/rec.py
 # late-pads: the port replays the pads the original read after each lag-merged frame
 # Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 14741 is the post-battle
 # fade-in. The Sunset Hotel's street door spends 3 more CPU-time frames in the original (the
 # emu's LSTEP steps by 2 through the load: lags 17036-17038); the lobby -> corridor fade-in
 # ends 4 frames later there (idle 17269-17272)
+# Not lag: ent16.pos 36846-36947 (the photo's EVENT_450 copies the absent Ness's position) and
+# ent(5|16).pos 49783-50160 (Tessie's riders, EVENT_493/494, after the goat battle) read the
+# BUFFER words a failed entity search indexes ($7F0B8C/$7F0BC8, 50c1ad6d); those bytes are
+# stale staging data the port's 20 KB ert.buffer layout doesn't reproduce. Both off-screen
 # late-pads
 # skip: 202
 # lag: 222
@@ -73,6 +81,19 @@
 # lag: 28015
 # skip: 28784
 # lag: 28835
+# skip: 31543
+# lag: 31595
+# ignore: idle 31573
+# skip: 34862
+# lag: 34915
+# skip: 35702
+# lag: 35756
+# skip: 35797
+# lag: 35852
+# ignore: ent16.pos 36846-36947
+# ignore: ent(5|16)\.pos 49783-50160
+# skip: 50153
+# lag: 50209
 ---
 40 DOWN; 130 RIGHT; 8 UP; 56 -; 24 DOWN; 312 RIGHT; 12 UP+RIGHT; 48 RIGHT; 31 DOWN; 8 RIGHT
 2 DOWN+RIGHT; 264 RIGHT; 14 DOWN+RIGHT; 5 RIGHT; 22 UP; 24 RIGHT; 24 DOWN+RIGHT; 17 RIGHT; 10 UP; 2 A
@@ -210,4 +231,21 @@
 40 UP; 22 RIGHT; 30 UP; 30 LEFT; 10 UP; 2 A; 6 -; 2 A; 88 -; 1 A
 67 -; 1 A; 75 -; 1 A; 13 -; 2 A; 248 -; 1 A; 1265 -; 14 DOWN
 60 RIGHT; 2 A; 6 -; 2 A; 28 -; 1 A; 69 -; 1 A; 465 -; 1 A
-6 -
+6 -; 23 RIGHT; 55 -; 48 DOWN; 46 RIGHT; 24 DOWN+RIGHT; 94 DOWN; 23 DOWN+LEFT; 48 DOWN; 68 LEFT
+4 DOWN+LEFT; 72 LEFT; 18 UP+LEFT; 53 LEFT; 18 UP+LEFT; 6 UP; 62 LEFT; 46 DOWN; 9 RIGHT; 226 -
+2 RIGHT; 4 -; 2 RIGHT; 4 -; 2 A; 632 -; 1 A; 27 -; 1 A; 49 -
+1 A; 15 -; 1 A; 25 -; 1 A; 25 -; 1 A; 81 -; 38 RIGHT; 25 DOWN+RIGHT
+26 DOWN; 22 DOWN+RIGHT; 50 DOWN; 70 LEFT; 27 UP+LEFT; 70 LEFT; 23 DOWN+LEFT; 24 DOWN; 18 DOWN+LEFT; 198 DOWN
+166 RIGHT; 25 DOWN+RIGHT; 95 RIGHT; 23 UP+RIGHT; 123 RIGHT; 48 DOWN; 22 DOWN+LEFT; 2 DOWN; 94 DOWN+LEFT; 72 DOWN
+94 LEFT; 15 UP; 96 LEFT; 15 DOWN+LEFT; 31 LEFT; 12 UP; 76 -; 14 LEFT; 2 A; 6 -
+2 A; 42 -; 1 A; 34 -; 2 A; 56 -; 1 A; 177 -; 1 A; 9 -
+1 A; 15 -; 1 A; 15 -; 1 A; 45 -; 1 A; 65 -; 1 A; 67 -
+1 A; 282 -; 6 UP; 11 RIGHT; 189 -; 11 DOWN; 2 LEFT; 29 RIGHT; 14 UP+RIGHT; 99 RIGHT
+16 DOWN; 2 DOWN+RIGHT; 55 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 8 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 8 RIGHT; 12 UP+RIGHT
+12 DOWN+RIGHT; 8 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 314 -; 1 A; 67 -; 1 A; 55 -; 1 A
+53 -; 1 A; 39 -; 1 A; 137 -; 1 A; 53 -; 1 A; 201 -; 48 RIGHT
+128 DOWN; 100 -; 1 A; 47 -; 1 A; 5436 -; 1 A; 5429 -; 21 DOWN+LEFT; 22 DOWN
+50 DOWN+LEFT; 26 DOWN; 94 DOWN+RIGHT; 54 DOWN; 305 -; 2 RIGHT; 14 -; 2 A; 26 -; 2 A
+24 -; 2 A; 574 -; 1 A; 25 -; 1 A; 23 -; 1 A; 17 -; 1 A
+25 -; 1 A; 71 -; 19 DOWN; 24 DOWN+LEFT; 22 DOWN; 12 DOWN+LEFT; 12 LEFT; 12 DOWN; 10 RIGHT
+45 DOWN; 60 LEFT; 24 UP; 76 -; 2 UP; 76 -
