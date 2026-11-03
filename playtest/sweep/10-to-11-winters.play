@@ -6,10 +6,11 @@
 # fails on locker npc595, Maxwell's Bad key machine opens it: Pop gun, equipped), the gate
 # (Tony's boost), the Winters drugstore (Nancy, Yes: Pak of bubble gum; the Bubble Monkey), the
 # terraces south (one Auto Fight battle) to the Lake Tess camp, the cook's stew (night, Jeff
-# repairs the spray can), the photographer, then (IN PROGRESS, from body frame 37240) Jeff
-# grinding the terrace battles around the camp (Runaway Dogs, Spiteful Crows, Gruff Goats;
-# the cook's stew heals): save 11's player was L7 in Brick Road's dungeon, whose Worthless
-# Protoplasms beat a L3 Jeff. Still to come: L7, Tessie, the goat plateau, the dungeon.
+# repairs the spray can), the photographer, then (from body frame 37240) Jeff grinding the
+# terrace battles around the camp to L5 (Runaway Dogs, Spiteful Crows, Gruff Goats; the cook's
+# stew heals), the stew again (re-arms the Tessie spit), Tessie, the goat plateau (a Gruff Goat;
+# a Bread roll), Brick Road's dungeon (field monsters: Mad Duck x2, Worthless Protoplasm x2;
+# both Rowdy Mice left standing) to save 11's spot by the Maxwell phone: Record, Continue.
 # Recorded in chunks with playtest/sweep/rec.py, each grinding phase (a walk to the next
 # battle, the battle, a heal) checked and replayed onto the late pads before the next
 # late-pads: the port replays the pads the original read after each lag-merged frame
@@ -453,4 +454,22 @@
 1 A; 91 -; 2 A; 16 -; 2 RIGHT; 10 -; 2 A; 36 -; 2 DOWN; 10 -
 2 DOWN; 10 -; 2 DOWN; 10 -; 2 DOWN; 10 -; 2 A; 16 -; 2 A; 28 -
 1 A; 29 -; 1 A; 255 -; 24 DOWN+LEFT; 30 DOWN; 10 RIGHT; 45 DOWN; 60 LEFT; 24 UP
-76 -
+80 -; 32 DOWN+LEFT; 16 LEFT; 32 DOWN+LEFT; 96 LEFT; 16 DOWN+LEFT; 96 RIGHT; 16 UP+RIGHT; 16 UP+LEFT; 112 LEFT
+105 DOWN+LEFT; 162 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 1370 -; 1 A; 24 -
+1 A; 22 -; 1 A; 23 -; 1 A; 17 -; 1 A; 19 -; 1 A; 27 -
+1 A; 71 -; 7 DOWN+LEFT; 96 DOWN; 1500 -; 6 B; 10 -; 6 B; 10 -; 6 B
+20 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 62 -; 2 B; 34 -; 2 B
+34 -; 2 B; 34 -; 12 RIGHT; 2 -; 16 DOWN+LEFT; 16 DOWN; 16 RIGHT; 16 DOWN; 16 UP+RIGHT
+16 RIGHT; 16 UP+LEFT; 48 UP; 16 RIGHT; 16 UP; 144 RIGHT; 16 DOWN; 16 DOWN+LEFT; 80 LEFT; 32 DOWN
+16 DOWN+LEFT; 32 DOWN; 16 DOWN+LEFT; 48 LEFT; 2 A; 12 -; 2 A; 165 -; 6 B; 10 -
+6 B; 10 -; 6 B; 20 -; 6 RIGHT; 8 -; 6 RIGHT; 8 -; 6 A; 1128 -
+1 A; 99 -; 24 RIGHT; 48 DOWN+LEFT; 24 UP; 96 LEFT; 144 UP; 24 UP+RIGHT; 24 RIGHT; 40 UP
+1 -; 48 LEFT; 24 UP; 24 DOWN+LEFT; 144 LEFT; 1 -; 150 DOWN+LEFT; 8 DOWN; 8 LEFT; 24 DOWN+LEFT
+1 -; 48 RIGHT; 24 DOWN; 72 LEFT; 24 DOWN+LEFT; 12 -; 2 UP; 4 -; 2 A; 70 -
+2 A; 80 -; 6 B; 10 -; 6 B; 10 -; 6 B; 20 -; 6 RIGHT; 8 -
+6 RIGHT; 8 -; 6 A; 1852 -; 1 A; 97 -; 72 UP; 24 LEFT; 24 UP; 98 LEFT
+164 -; 6 B; 10 -; 6 B; 10 -; 6 B; 20 -; 6 RIGHT; 8 -; 6 RIGHT
+8 -; 6 A; 1280 -; 1 A; 96 -; 96 LEFT; 96 RIGHT; 24 DOWN; 24 DOWN+LEFT; 24 DOWN
+24 DOWN+LEFT; 24 DOWN; 24 DOWN+LEFT; 24 RIGHT; 24 DOWN+RIGHT; 24 DOWN+LEFT; 96 LEFT; 24 UP; 2 A; 12 -
+2 A; 34 -; 1 A; 17 -; 1 A; 64 -; 2 A; 42 -; 1 A; 45 -
+2 A; 34 -; 1 A; 37 -; 1 A; 21 -; 1 A; 29 -; 1 A; 32 -
