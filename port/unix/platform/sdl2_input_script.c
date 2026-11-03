@@ -1181,6 +1181,25 @@ static bool run_command(const char *cmd, const char *arg, const char *line, uint
                 printf(") FAILED: every party inventory is full\n");
             }
         }
+    } else if (strcmp(cmd, "peek") == 0) {
+        /* peek BUFFER [INDEX] [COUNT]: 16-bit words of ert.buffer from 2*INDEX,
+         * as emu.py prints the asm's BUFFER ($7F0000). Only BUFFER exists here. */
+        char sym[32] = "";
+        int idx = 0, cnt = 1;
+        int np = sscanf(line, "%*s %31s %i %i", sym, &idx, &cnt);
+        if (np < 1 || strcmp(sym, "BUFFER") != 0 || idx < 0 || cnt < 1) {
+            printf("ERR usage: peek BUFFER [INDEX] [COUNT]\n");
+        } else {
+            printf("PEEK BUFFER[%d]", idx);
+            for (int k = 0; k < cnt; k++) {
+                size_t off = (size_t)(2 * (idx + k));
+                if (off + 2 <= BUFFER_SIZE)
+                    printf(" %04X", read_u16_le(&ert.buffer[off]));
+                else
+                    printf(" ----");
+            }
+            printf("\n");
+        }
     } else if (strcmp(cmd, "frac") == 0) {
         /* Sub-pixel positions: the leader's (game_state) and entity slot 24's */
         printf("FRAC leader=%04X,%04X ent24=%04X,%04X bright=%02X fade=%d/%d\n", game_state.leader_x_frac,

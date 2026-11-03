@@ -162,7 +162,7 @@ Instant (no frame passes):
 | `frac` | print `FRAC leader=X,Y ent24=X,Y bright=HH`: the leader's (game_state) and entity slot 24's 16-bit sub-pixel x,y and the brightness the logic frame ended with (port `g_inidisp_logic_end`, emu `INIDISP_MIRROR`); the port adds `fade=STEP/COUNTER`. For 1-px walking phase and fade-timing diffs that `state` can't show |
 | `padlog FILE\|off` | port only: write the pad of every later frame to FILE, one hex word a line. `playtest/padlog_body.py FILE` turns it into a fixed-length autodiff body (see "Writing a long scenario") |
 | `regs` / `overclock MODE` | emu only: print `REGS PC=... (FUNCTION+OFF) A= S=` (where a hang spins) / change snes9x's CPU overclock mid-run (`light`, `compatible`, `max`, `disabled`) |
-| `peek SYMBOL [INDEX] [COUNT]` | emu only: print `PEEK SYMBOL[INDEX] HHHH ...`, COUNT 16-bit WRAM words from SYMBOL + 2*INDEX (entity tables by slot, e.g. `peek ENTITY_OBSTACLE_FLAGS 2`) |
+| `peek SYMBOL [INDEX] [COUNT]` | print `PEEK SYMBOL[INDEX] HHHH ...`, COUNT 16-bit WRAM words from SYMBOL + 2*INDEX (entity tables by slot, e.g. `peek ENTITY_OBSTACLE_FLAGS 2`). The port knows only `BUFFER` (its `ert.buffer`, 20 KB, vs the asm's $7F0000): put `peek BUFFER I N` after each `digest` of both autodiff scripts to see when the two buffers' bytes diverge |
 | `aux F1\|F5\|F6\|F7` | pulse a debug key. F1 dumps PPU/VRAM/CGRAM into `debug/` (in the session dir). F5 also requests the debug menu, which opens on the next overworld frame (even mid-cutscene) and takes input: prefer `debug on` |
 | `sync ID` | print `SYNC ID` (pt.py uses this) |
 | `note TEXT` | print `> TEXT` (pt.py logs each batch with it) |
