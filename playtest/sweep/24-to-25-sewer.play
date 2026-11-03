@@ -1,4 +1,16 @@
 # save: 24-Museum
+# Sweep segment 24 -> 25: L'hotel de Summers lobby phone, the museum (admission Yes, the exhibit
+# room's west door along y 8862, Omar npc1037 from 7518,9549 facing UP, Yes), the hieroglyph room
+# (a Shattered Man vase walks into the party: Auto Fight), the plaque (Check from 8040,9568), the
+# Hieroglyph copy, the lobby phone (Mr. Spoon's call), PSI Teleport alpha to Fourside from
+# 6397,2828 facing LEFT, the Dinosaur Museum (door 3216,4272, admission Yes), Mr. Spoon npc908
+# (FLG_FOUR_KOMORITA), the Topolla Theater (ticket from npc848, Paula's Show ticket on the usher
+# npc849), the Venus show (green door 4808,5432), the doorman npc840, backstage Venus npc842 (the
+# Signed banana), back to Mr. Spoon (Use the banana: the manhole room opens), the Monotoli Grand
+# Hotel lobby phone npc892 (Dad: Record, Continue). Recorded in chunks with playtest/sweep/rec.py.
+# overclock-on 300 (as 23 -> 24: the Summers lobby lags every frame)
+# Doors: skip K / lag (emu frame of K+20) / ignore: idle K+30; idle 6690 is the post-battle fade-in
+# after the vase's scripted battle (lag: its RELOAD_MAP)
 # late-pads
 # overclock-on: 300
 # skip: 364
@@ -53,6 +65,33 @@
 # skip: 15745
 # lag: 15781
 # ignore: idle 15775
+# skip: 25784
+# lag: 25821
+# ignore: idle 25814
+# skip: 26530
+# lag: 26568
+# ignore: idle 26560
+# skip: 26923
+# lag: 26962
+# ignore: idle 26953
+# skip: 27487
+# lag: 27527
+# ignore: idle 27517
+# skip: 27923
+# lag: 27964
+# ignore: idle 27953
+# skip: 28508
+# lag: 28550
+# ignore: idle 28538
+# skip: 30366
+# lag: 30409
+# ignore: idle 30396
+# skip: 30578
+# lag: 30622
+# ignore: idle 30608
+# skip: 31491
+# lag: 31536
+# ignore: idle 31521
 ---
 30 DOWN; 300 RIGHT; 2 -; 9 UP; 56 -; 37 DOWN; 384 RIGHT; 16 UP+RIGHT; 53 RIGHT; 12 UP+RIGHT
 12 DOWN+RIGHT; 24 RIGHT; 12 UP+RIGHT; 12 DOWN+RIGHT; 635 RIGHT; 50 UP; 56 -; 126 LEFT; 66 -; 1 A
@@ -93,3 +132,25 @@
 18 -; 1 A; 77 -; 1 A; 57 -; 20 UP; 30 UP+LEFT; 30 LEFT; 30 UP; 30 LEFT
 30 UP; 34 LEFT; 2 UP; 270 -; 1 A; 27 -; 1 A; 47 -; 1 A; 93 -
 1 A; 107 -; 1 A; 53 -; 1 A; 85 -; 1 A; 53 -; 1 A; 8465 -
+600 LEFT; 2 A; 6 -; 2 A; 42 -; 1 A; 75 -; 1 A; 41 -; 1 A
+51 -; 10 LEFT; 55 -; 24 LEFT; 12 DOWN+LEFT; 11 LEFT; 10 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 10 DOWN
+12 DOWN+LEFT; 12 DOWN+RIGHT; 10 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 10 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 1 -; 20 LEFT
+10 UP; 10 LEFT; 2 A; 6 -; 2 A; 26 -; 1 A; 73 -; 1 A; 35 -
+1 A; 199 -; 1 A; 27 -; 1 A; 7 -; 1 A; 6 -; 8 DOWN+RIGHT; 27 RIGHT
+15 DOWN+RIGHT; 6 RIGHT; 11 DOWN+RIGHT; 4 RIGHT; 6 UP; 56 -; 337 RIGHT; 56 -; 5 DOWN; 63 RIGHT
+18 DOWN; 37 RIGHT; 24 DOWN+RIGHT; 3 RIGHT; 29 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 12 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT
+12 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 12 DOWN; 12 DOWN+LEFT; 12 DOWN+RIGHT; 2 A; 6 -; 2 A; 8 -
+1 A; 71 -; 4 RIGHT; 18 DOWN; 68 RIGHT; 4 DOWN; 13 RIGHT; 56 -; 24 RIGHT; 192 UP+RIGHT
+96 UP; 24 UP+LEFT; 40 LEFT; 2 -; 2 UP+LEFT; 56 -; 143 LEFT; 76 -; 1 A; 95 -
+1 A; 36 -; 2 A; 14 -; 1 A; 57 -; 1 A; 58 -; 45 LEFT; 55 -
+700 LEFT; 2 A; 6 -; 2 RIGHT; 10 -; 2 A; 16 -; 2 RIGHT; 14 -; 2 A
+14 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN; 4 -; 2 DOWN
+4 -; 2 DOWN; 10 -; 2 A; 19 -; 2 A; 14 -; 1 A; 53 -; 1 A
+49 -; 1 A; 21 -; 1 A; 47 -; 1 A; 77 -; 1 A; 69 -; 1 A
+35 -; 1 A; 53 -; 1 A; 54 -; 8 UP; 479 RIGHT; 55 -; 156 RIGHT; 56 -
+20 DOWN; 12 RIGHT; 27 DOWN; 23 DOWN+RIGHT; 2 DOWN; 47 DOWN+LEFT; 24 LEFT; 85 DOWN+LEFT; 128 LEFT; 128 DOWN+LEFT
+128 LEFT; 160 DOWN+LEFT; 32 DOWN; 42 RIGHT; 55 -; 130 LEFT; 3 RIGHT; 25 UP; 2 A; 6 -
+2 A; 28 -; 1 A; 15 -; 2 A; 22 -; 1 A; 43 -; 1 A; 51 -
+1 A; 19 -; 1 A; 37 -; 1 A; 15 -; 1 A; 15 -; 1 A; 15 -
+1 A; 13 -; 1 A; 46 -; 2 A; 10 -; 1 A; 73 -; 1 A; 57 -
+1 A; 37 -; 2 A; 52 -; 1 A; 47 -; 1 A; 29 -; 1 A; 4 -
