@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """autoalign.py DIR [MAX]: run rec.py check, and for a door-load divergence add the usual
 skip K / lag emu(K+20) pair, for an idle-only 1-frame divergence an `ignore: idle K` line;
 repeat. Stops at anything else (prints the report head)."""

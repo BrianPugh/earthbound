@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 import json, sys
 
 pt = json.load(open("src/assets/maps/door_pointer_table.json"))

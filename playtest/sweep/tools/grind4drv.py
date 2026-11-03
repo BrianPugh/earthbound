@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Driver: grind4 phases with check / verify / replay after every phase.
 
 grind4drv.py SESSION DIR SAVE TARGET_LEVEL [MAX_PHASES]

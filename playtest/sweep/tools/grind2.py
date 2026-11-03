@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Grind real battles in a rec.py recording session, one padlog chunk per walked leg.
 
 grind2.py SESSION DIR TARGET_LEVEL

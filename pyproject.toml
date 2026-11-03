@@ -22,6 +22,7 @@ ebtools = "ebtools.cli:app"
 target-version = "py310"
 
 exclude = [
+    "playtest/sweep/tools",  # scratch sweep-recording helpers, kept as used
     "migrations",
     "__pycache__",
     "manage.py",

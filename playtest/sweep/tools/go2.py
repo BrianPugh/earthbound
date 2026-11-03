@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """Walk a pt.py session through waypoints with 8-way steps, Auto Fighting any battle.
 
 For recording sweep segments: start a session, `rng 4660 22136; fc 0; padlog FILE`, then

@@ -1,4 +1,3 @@
-# ruff: noqa  (scratch recording helpers, kept as used; see README.md)
 """One grinding phase per call, recorded as one padlog chunk (the driver checks/replays between).
 
 grind4.py SESSION DIR PHASE [LEAD]
