@@ -4,6 +4,7 @@ grind4drv.py SESSION DIR SAVE TARGET_LEVEL [MAX_PHASES]
 """
 
 import json
+import os
 import random
 import re
 import subprocess
@@ -68,7 +69,7 @@ def main():
     maxp = int(sys.argv[5]) if len(sys.argv) > 5 else 500
     tries = 0
     for _ in range(maxp):
-        if (S / "STOP").exists():
+        if (Path(os.environ.get("SWEEP_WORK", os.environ.get("TMPDIR", "/tmp"))) / "STOP").exists():
             print("STOPPED", flush=True)
             return
         md, pos, party, o0 = state(s)

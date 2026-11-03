@@ -1,5 +1,6 @@
-Scratch helpers sweep agent A used for 10 -> 11 .. 14 -> 15 (copied as-is: they hard-code the
-agent's scratchpad path in `S=` and source `env.sh`; set S/the env.sh path to your own copy first).
+Scratch helpers sweep agent A used for 10 -> 11 .. 14 -> 15. The scripts source `env.sh` next to
+them (S = this dir); their outputs (route_last.txt, the grind driver's STOP file) go to
+`$SWEEP_WORK` (default `$TMPDIR`). The Python ones still assume the main checkout's path.
 
 - env.sh: cd to the checkout, EB_BIN, `rec`/`pt`/`go` shell functions.
 - chunk.sh DIR SESSION CMDS...: open the next padlog chunk, run pt commands (`go:X,Y ...` and

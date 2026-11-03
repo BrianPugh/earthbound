@@ -1,6 +1,6 @@
 #!/bin/zsh
 # chunk.sh DIR SESSION  -- opens the next padlog chunk (commands then follow via go2/pt), see usage in notes
-source /private/tmp/claude-501/-Users-brianpugh-projects-ebsrc/fb0daf9a-52d7-45c3-a277-26fd307b6f4d/scratchpad/swA/env.sh
+source ${0:A:h}/env.sh
 D=$1; SS=$2; shift 2
 n=$(ls $D | grep -cE '^[0-9]{3}\.pad$'); nxt=$(printf "%s/%03d.pad" $D $n)
 pt do $SS "padlog $nxt" --no-shot >/dev/null

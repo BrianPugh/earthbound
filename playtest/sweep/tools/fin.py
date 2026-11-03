@@ -1,8 +1,7 @@
 import sys
+from pathlib import Path
 
-sys.path.insert(
-    0, "/private/tmp/claude-501/-Users-brianpugh-projects-ebsrc/fb0daf9a-52d7-45c3-a277-26fd307b6f4d/scratchpad"
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import grind2
 
 if sys.argv[2] == "auto":

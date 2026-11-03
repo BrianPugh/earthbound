@@ -1,6 +1,6 @@
 #!/bin/zsh
 # goto.sh DIR SESSION SAVE GX GY [TRIES]: BFS + record + verify/replay until within 16 px
-source /private/tmp/claude-501/-Users-brianpugh-projects-ebsrc/fb0daf9a-52d7-45c3-a277-26fd307b6f4d/scratchpad/swA/env.sh
+source ${0:A:h}/env.sh
 D=$1; SS=$2; SV=$3; GX=$4; GY=$5
 for t in $(seq 1 ${6:-6}); do
   v=$(rec $D verify $SS | tail -1)
@@ -13,7 +13,7 @@ for t in $(seq 1 ${6:-6}); do
   x=${p%,*}; y=${p#*,}
   dx=$((x-GX)); dy=$((y-GY)); [ ${dx#-} -le 16 ] && [ ${dy#-} -le 16 ] && { echo "AT $p"; exit 0; }
   P=$($S/bfsrec.sh $D $SS $GX $GY 24 500)
-  echo "try $t from $p: $(head -c 60 $S/route_last.txt)"
+  echo "try $t from $p: $(head -c 60 $W/route_last.txt)"
   $S/stage.sh $D $SS $SV "steps:$P" "state" 2>&1 | grep -E "^STATE|SAME|DIFF" | tail -2 | cut -c1-120
 done
 exit 1
