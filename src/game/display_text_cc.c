@@ -637,6 +637,24 @@ StepResult mode_step_text_prompt(ModeState *ms) {
          * clears it is a full render_frame_tick frame; the window_tick frame is a
          * separate frame after it. */
         if (dt.text_prompt_waiting_for_input) {
+#ifdef EB_POWER_OFF_TO_TITLE
+            /* LOCK_INPUT (CC 1F 50) is only ever set by the "please turn the
+             * power off" endings of Dad's, Papa's and Gaus's calls, and nothing
+             * clears it: the original spins here until the console is reset.
+             * This option takes a press as that reset instead: fade out like
+             * the game-over Continue (spawn.asm FADE_OUT_WITH_MOSAIC 2,1) and
+             * reboot into the title. */
+            if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
+                st->phase = TP_POWER_OFF;
+                g_mode_push_init = (ModeState){0};
+                g_mode_push_init.mosaic_fade.kind       = (uint8_t)MF_OUT;
+                g_mode_push_init.mosaic_fade.step       = 2;
+                g_mode_push_init.mosaic_fade.delay      = 1;
+                g_mode_push_init.mosaic_fade.mosaic_bgs = 0;  /* no mosaic */
+                g_mode_push_init.mosaic_fade.final_hdma = 1;
+                return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
+            }
+#endif
             if (render_frame_tick_work_step()) {
                 st->flush = 1;
                 return actionscript_frame_take_push();
@@ -700,6 +718,15 @@ StepResult mode_step_text_prompt(ModeState *ms) {
             st->tri_ticks = st->tri_big ? 15 : 10;  /* big = 15 ticks, small = 10 */
             st->tri_need_tile = 1;
         }
+        return STEP_RESULT_CONTINUE();
+
+    case TP_POWER_OFF:
+        /* EB_POWER_OFF_TO_TITLE, after the fade (see TP_WAIT_PROMPT). The
+         * reboot discards this level and every text/menu level under it;
+         * the lock and the disabled entities would otherwise outlive them. */
+        dt.text_prompt_waiting_for_input = 0;
+        enable_all_entities();
+        mode_stack_reboot();
         return STEP_RESULT_CONTINUE();
     }
     }

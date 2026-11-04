@@ -1301,6 +1301,7 @@ typedef enum {
     TP_TEXTSPEED,       /* text-speed auto-advance shortcut (returns w/o teardown) */
     TP_WAIT_BUTTON,     /* no triangle: wait for a text-advance press */
     TP_TRIANGLE,        /* blinking-triangle animation until text-advance */
+    TP_POWER_OFF,       /* EB_POWER_OFF_TO_TITLE: fade-out done, reboot to the title */
 } TextPromptPhase;
 
 typedef struct {
@@ -3196,6 +3197,13 @@ int32_t mode_pop(int32_t result);
  * (now-top) mode. A parent mode that STEP_PUSHes a child reads this on its next
  * step to branch on the child's pop value. Returns child_result[depth-1]. */
 int32_t mode_child_result(void);
+
+/* Drop every mode above the permanent GAME_MODE_OVERWORLD root and reset the
+ * root to OWP_BOOT_SETUP, so the next game_loop_step() replays boot (intro,
+ * title, file select). The same restart the game-over "Continue" reboot makes,
+ * from any depth. Call it from a mode step that then returns STEP_CONTINUE:
+ * the caller's own level is discarded with the rest. */
+void mode_stack_reboot(void);
 
 /* The pump_mode() migration bridge was deleted at the final cutover: the root
  * loop's host_process_frame() is now the program's only yield point. Mode steps

@@ -258,6 +258,12 @@ int32_t mode_child_result(void) {
     return g_mode_stack.child_result[g_mode_stack.depth - 1];
 }
 
+void mode_stack_reboot(void) {
+    g_mode_stack.depth = 1;
+    g_mode_stack.state[0] = (ModeState){ .overworld = { .phase = OWP_BOOT_SETUP } };
+    g_mode_stack.child_result[0] = 0;
+}
+
 /* ---- migration bridge (removed) -----------------------------------------
  *
  * pump_mode() — the local "drive a child mode to completion with a nested

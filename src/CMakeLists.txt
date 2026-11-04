@@ -61,6 +61,15 @@ if(EB_LOST_FRAME_CHECK)
     target_compile_definitions(earthbound_game PUBLIC EB_LOST_FRAME_CHECK=1)
 endif()
 
+# Return to the title screen instead of freezing after the "please turn the
+# power off" endings of Dad's (and Papa's/Gaus's) phone calls: a button press
+# there fades out and reboots into the title (game/display_text_cc.c
+# TP_POWER_OFF). Off keeps the original's freeze.
+option(EB_POWER_OFF_TO_TITLE "Return to the title after a phone call's End instead of freezing" OFF)
+if(EB_POWER_OFF_TO_TITLE)
+    target_compile_definitions(earthbound_game PUBLIC EB_POWER_OFF_TO_TITLE=1)
+endif()
+
 # Fill green's 6th bit from its top bit (core/types.h PIXEL_GREEN_LSB) so
 # ports that expand pixels to 8 bits per channel reach 255 green like the
 # SNES. Desktop turns it on; embedded RGB565 panels keep the plain shift.
