@@ -18,6 +18,9 @@ set(EB_SMOOTH_CAMERA ON CACHE BOOL "Build the smooth-camera presentation hooks")
 # 8-bit-per-channel output: full green is 255 (core/types.h PIXEL_GREEN_LSB)
 set(EB_PIXEL_GREEN_LSB ON CACHE BOOL "Replicate green's top bit into its 6th bit")
 
+# A phone call's End returns to the title instead of freezing (no power switch here)
+set(EB_POWER_OFF_TO_TITLE ON CACHE BOOL "Return to the title after a phone call's End instead of freezing")
+
 # Lost-frame check (core/lost_frame_check.h): on by default in Debug builds;
 # -DEB_LOST_FRAME_CHECK=ON adds it to a Release build (the harness runs those).
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
