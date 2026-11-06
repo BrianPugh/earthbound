@@ -646,12 +646,13 @@ StepResult mode_step_text_prompt(ModeState *ms) {
              * reboot into the title. */
             if (core.pad1_pressed & PAD_TEXT_ADVANCE) {
                 st->phase = TP_POWER_OFF;
-                g_mode_push_init = (ModeState){0};
-                g_mode_push_init.mosaic_fade.kind       = (uint8_t)MF_OUT;
-                g_mode_push_init.mosaic_fade.step       = 2;
-                g_mode_push_init.mosaic_fade.delay      = 1;
-                g_mode_push_init.mosaic_fade.mosaic_bgs = 0;  /* no mosaic */
-                g_mode_push_init.mosaic_fade.final_hdma = 1;
+                g_mode_push_init = (ModeState){ .mosaic_fade = {
+                    .kind       = (uint8_t)MF_OUT,
+                    .step       = 2,
+                    .delay      = 1,
+                    .mosaic_bgs = 0,  /* no mosaic */
+                    .final_hdma = 1,
+                } };
                 return STEP_RESULT_PUSH_INIT(GAME_MODE_MOSAIC_FADE, &g_mode_push_init);
             }
 #endif
