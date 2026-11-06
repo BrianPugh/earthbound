@@ -39,16 +39,16 @@ jobs:
   ruff:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - run: uvx "ruff@${RUFF_VERSION}" check .
       - run: uvx "ruff@${RUFF_VERSION}" format --check .
 
   pytest:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.12"
       - name: Install ebtools
@@ -61,7 +61,7 @@ jobs:
   gw-cross-compile:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true # state_dump.c includes the tamp headers
       - name: Install arm-none-eabi-gcc
@@ -80,14 +80,14 @@ jobs:
   cppcheck:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true # configuring port/unix needs src/vendor/tamp
       - name: Install build deps
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake libsdl2-dev
       - name: Cache cppcheck
         id: cache-cppcheck
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/cppcheck
           key: cppcheck-${{ env.CPPCHECK_VERSION }}-ubuntu-24.04
@@ -101,7 +101,7 @@ jobs:
           cmake --install cppcheck-build
       - run: echo "$HOME/cppcheck/bin" >> "$GITHUB_PATH"
       # src/CMakeLists.txt needs the ebtools CLI on PATH to configure (no assets are read)
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: Install ebtools
         run: |
           uv venv .venv
@@ -120,7 +120,7 @@ jobs:
       matrix:
         viewport: ["256 224", "320 240"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Extract assets
@@ -140,7 +140,7 @@ jobs:
       - name: Regress against the committed hashed goldens
         if: matrix.viewport == '320 240'
         run: uv run --no-sync python playtest/regress.py check main --text --bin build-320/earthbound
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: regress-${{ strategy.job-index }}
@@ -151,7 +151,7 @@ jobs:
     if: vars.EB_ASSET_RUNNER == 'true'
     runs-on: [self-hosted, ebsrc-assets]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Extract assets
@@ -172,7 +172,7 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1
         run: |
           uv run --no-sync python playtest/regress.py check main --text --bin build-asan/earthbound --timeout 900
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: sanitizer-logs
@@ -185,7 +185,7 @@ jobs:
     env:
       PICO_SDK_VERSION: "2.2.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - name: Extract assets
